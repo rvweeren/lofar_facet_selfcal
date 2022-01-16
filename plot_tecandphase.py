@@ -31,7 +31,7 @@ H=tables.open_file(args['H5file'], mode='r')
 
 try:
    tec = H.root.sol000.tec000.val[:]
-   antennas = H.root.sol000.tec000.ant[:]
+   antennas = H.root.sol000.tec000.ant[:].tolist()
    times= H.root.sol000.tec000.time[:]   
    freq = H.root.sol000.tec000.freq[:][0]
    notec = False
@@ -41,7 +41,7 @@ except:
    notec = True
 try:
    phase = H.root.sol000.phase000.val[:]
-   antennas = H.root.sol000.phase000.ant[:]
+   antennas = H.root.sol000.phase000.ant[:].tolist()
    times= H.root.sol000.phase000.time[:]
    freq    = H.root.sol000.phase000.freq[:][0]
    containsphase = True
@@ -60,8 +60,12 @@ times = (times-np.min(times))/3600. # in hrs since obs start
 #print(tec.shape, phase.shape)
 ysizefig = np.float(len(antennas))
 refant = 0
+antennas=[x.decode('utf-8') for x in antennas] # convert to proper string list
+
 if 'ST001' in antennas:
-    refant = antennas.tolist().index('ST001')
+    refant = antennas.index('ST001')
+    print('ST001 detected, switching to refant:', refant)
+
 
 fig, ax = plt.subplots(nrows=len(antennas), ncols=1,  figsize=(9, 1.5*ysizefig),  squeeze=True, sharex='col')
 figcount = 0
@@ -75,7 +79,7 @@ if containsphase:
 else:
  refphase = TEC2phase(tec[:,refant,0,0], freq)   
 
-print('Here')
+#print('Here')
 for antenna_id, antenna in enumerate(antennas):
     #if antenna_id != refant:
 
@@ -89,7 +93,6 @@ for antenna_id, antenna in enumerate(antennas):
     else:
      phasep = phaseplot(TEC2phase(tec[:,antenna_id,0,0], freq) - refphase)
      
-
     if args['plotpoints']:
       ax[figcount].plot(times, phasep, '.')
       #ax[figcount].plot(times, phasep) 
@@ -100,7 +103,7 @@ for antenna_id, antenna in enumerate(antennas):
     if figcount == len(antennas)-1:
       ax[figcount].set_xlabel('time [hr]')
     #print(type(antenna))  
-    ax[figcount].set_title(antenna.decode('UTF-8'), position=(0.5, 0.75))
+    ax[figcount].set_title(antenna, position=(0.5, 0.75))
     ax[figcount].set_ylim(-np.pi,np.pi)
     figcount += 1
 
