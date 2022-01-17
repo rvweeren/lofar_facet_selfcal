@@ -58,6 +58,7 @@ import multiprocessing
 import ast
 from lofar.stationresponse import stationresponse
 from itertools import product
+import subprocess
 
 #from astropy.utils.data import clear_download_cache
 #clear_download_cache()
@@ -76,6 +77,21 @@ from itertools import product
    #H.close()
    #return
 
+#from https://jckantor.github.io/cbe61622/A.02-Downloading_Python_source_files_from_github.html
+def check_code_is_uptodate():  
+   import filecmp
+   url = "https://raw.githubusercontent.com/jurjen93/lofar_helpers/master/h5_merger.py"
+   result = subprocess.run(["wget", "--no-cache", "--backups=1", url, "--output-document=tmpfile"], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+   print(result.stderr.decode("utf-8"))
+   if not filecmp.cmp('h5_merger.py', 'tmpfile'):
+       print('Warning, you are using an old version of h5_merger.py')
+       print('Download the latest version from https://github.com/jurjen93/lofar_helpers')
+       logger.warning('Using an old h5_merger.py version, download the latest one from https://github.com/jurjen93/lofar_helpers')
+       time.sleep(1)
+
+   return
+   
+   
 def create_mergeparmdbname(mslist, selfcalcycle):
    parmdblist = mslist[:]
    for ms_id, ms in enumerate(mslist):
@@ -481,7 +497,16 @@ def findfreqavg(ms, imsize, bwsmearlimit=1.0):
            avgfactor = count
   return avgfactor
 
-
+def compute_markersize(H5file):
+    ntimes = ntimesH5(H5file)
+    markersize = 2
+    if ntimes < 450:
+      markersize = 4
+    if ntimes < 100:
+      markersize = 10
+    if ntimes < 50:
+      markersize = 15      
+    return markersize
 
 def ntimesH5(H5file):
    # function to return number of timeslots in H5 solution
@@ -492,11 +517,19 @@ def ntimesH5(H5file):
      try:
        times= H.root.sol000.phase000.time[:]
      except:
-       print('No amplitude000 or phase000 solution found')  
-       sys.exit()
+       try:  
+         times= H.root.sol000.tec000.time[:]    
+       except:  
+         try:
+           times= H.root.sol000.rotationmeasure000.time[:]    
+         except:
+           try:
+             times= H.root.sol000.rotation000.time[:]
+           except:    
+             print('No amplitude000,phase000, tec000, rotation000, or rotationmeasure000 solutions found')  
+             sys.exit()
    H.close()
    return len(times)
-
 
 def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
     cname = 'FLAG'
@@ -1908,7 +1941,8 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
                           uvdismod=None, modelcolumn='MODEL_DATA', redo=False,\
                           insmoothnessconstraint_list=None, insmoothnessreffrequency_list=None, \
                           inantennaconstraint_list=None, \
-                          insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0, delaycal=False):
+                          insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0,\
+                          phasefactorsolint=1.0, delaycal=False):
    """
    determine the solution time and frequency intervals based on the amount of compact source flux and noise
    """
@@ -2002,6 +2036,79 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
              insolint_list[soltype_id][ms_id] = np.int(solint)
              innchan_list[soltype_id][ms_id] = 1
              
+          ######## SCALARPHASE or PHASEONLY ######
+          ######## for first occurence of tec(andphase) #######
+          if soltype in ['scalarphase', 'phaseonly'] and \
+              (insmoothnessconstraint_list[soltype_id][ms_id] > 0.0) and \
+              ((soltype_id == return_soltype_index(soltype_list, 'scalarphase', occurence=1, onetectypeoccurence=True)) or \
+              (soltype_id == return_soltype_index(soltype_list, 'phaseonly', occurence=1, onetectypeoccurence=True))) :
+          
+             if LBA: 
+               if longbaseline:
+                 solint_sf = 3.0e-3*phasefactorsolint # untested
+               else: #for -- LBA dutch --
+                 solint_sf = 4.0e-2*phasefactorsolint #0.5e-3 # for tecandphase and coreconstraint
+          
+             else: # for -- HBA --
+               if longbaseline:
+                 solint_sf = 0.5e-2*phasefactorsolint # for tecandphase, no coreconstraint          
+               else: #for -- HBA dutch --
+                 solint_sf = 4.0e-2*phasefactorsolint # for tecandphase, no coreconstraint          
+          
+             if soltype == 'scalarphase':
+               solint_sf = solint_sf/np.sqrt(2.) # decrease solint if scalarphase
+ 
+ 
+             # trigger antennaconstraint_phase core if solint > tint
+             # needs checking, this might be wrong, this assumes we use [scalarphase/phaseonly,scalarphase/phaseonly, (scalar)complexgain] so 3 steps.....
+             if not longbaseline and (tint*solint_sf* ((noise/flux)**2) * (chanw/390.625e3) > tint):
+               print(tint*solint_sf* ((noise/flux)**2) * (chanw/390.625e3))
+               solint_sf = solint_sf/30. 
+               print('Trigger_antennaconstraint core:', soltype, ms)
+               logger.info('Trigger_antennaconstraint core: '+ soltype + ' ' + ms)
+               inantennaconstraint_list[soltype_id][ms_id] = 'core'
+               # do another pertubation, a slow solve of the core stations
+               #if (tint*solint_sf* ((noise/flux)**2) * (chanw/390.625e3) < 360.0): # less than 6 min now, also doing constraint remote
+               if (tint*solint_sf* ((noise/flux)**2) * (chanw/390.625e3) < 720.0): # less than 12 min now, also doing
+                 inantennaconstraint_list[soltype_id+1][ms_id] = 'remote' # or copy over input ??
+                 insoltypecycles_list[soltype_id+1][ms_id] = insoltypecycles_list[soltype_id][ms_id] # do + 1 here??
+                 insolint_list[soltype_id+1][ms_id] = np.int(np.rint(10.*solint_sf* ((noise/flux)**2) * (chanw/390.625e3) ))
+                 if insolint_list[soltype_id+1][ms_id] < 1:
+                   insolint_list[soltype_id+1][ms_id] = 1    
+               else:
+                 insoltypecycles_list[soltype_id+1][ms_id] = 999                 
+             
+             else:  
+               inantennaconstraint_list[soltype_id][ms_id] = None # or copy over input            
+             
+             # round to nearest integer  
+             solint = np.rint(solint_sf* ((noise/flux)**2) * (chanw/390.625e3) )
+             # frequency scaling is needed because if we avearge in freqeuncy the solint should not change for a (scalar)phase solve with smoothnessconstraint
+             
+             #if (longbaseline) and (not LBA) and (soltype == 'tec') \
+             #   and (soltype_list[1] == 'tecandphase'):
+             #   if solint < 0.5 and (solint*tint < 16.): # so less then 16 sec   
+             #      print('Longbaselines bright source detected: changing from tec to tecandphase solve')
+             #      insoltypecycles_list[soltype_id][ms_id] = 999
+             #      insoltypecycles_list[1][ms_id] = 0  
+             
+             if solint < 1:
+                solint = 1        
+             if (np.float(solint)*tint/3600.) > 0.5: # so check if larger than 30 min
+               print('Warning, it seems there is not enough flux density on the longer baselines for solving')
+               logger.warning('Warning, it seems there is not enough flux density on the longer baselines for solving')
+               solint = np.rint(0.5*3600./tint) # max is 30 min 
+
+             print(solint_sf*((noise/flux)**2)*(chanw/390.625e3), 'Using (scalar)phase solint:', solint)
+             logger.info(str(solint_sf*((noise/flux)**2)*(chanw/390.625e3)) + '-- Using (scalar)phase solint:' + str(solint))
+             print('Using (scalar)phase solint [s]:', np.float(solint)*tint)
+             logger.info('Using (scalar)phase solint [s]: ' + str(np.float(solint)*tint))
+          
+             insolint_list[soltype_id][ms_id] = np.int(solint)
+             innchan_list[soltype_id][ms_id] = 1 # because we use smoothnessconstraint
+             
+
+
 
           ######## COMPLEXGAIN or SCALARCOMPLEXGAIN or AMPLITUDEONLY or SCALARAMPLITUDE ######
           ######## requires smoothnessconstraint
@@ -2078,7 +2185,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
   
              insolint_list[soltype_id][ms_id] = np.int(solint)
   
-             # --------------- NCHAN --------------------- not used for now
+             # --------------- NCHAN ------------- NOT BEING USED, keep code in case we need it later
 
              if insmoothnessconstraint_list[soltype_id][ms_id] == 0.0 and innchan_list[soltype_id][ms_id] != 0: # DOES NOT GET HERE BECAUSE smoothnessconstraint > 0 test above
 
@@ -2206,7 +2313,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     f.close()
     return parset
 
-def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttecandphase'):
+def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttecandphase', markersize=2):
     parset = 'losoto_plotfasttecandphase.parset'
     os.system('rm -f ' + parset)
     f=open(parset, 'w')
@@ -2222,13 +2329,14 @@ def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttec
     f.write('minmax = [-3.14,3.14]\n')
     f.write('soltabToAdd = tec000\n')
     f.write('figSize=[120,20]\n')
+    f.write('markerSize=%s\n' % np.int(markersize))
     f.write('prefix = plotlosoto%s/fasttecandphase\n' % ms)
     f.write('refAnt = %s\n' % refant)
   
     f.close()
     return parset
 
-def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec'):
+def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', markersize=2):
     parset = 'losoto_plotfasttec.parset'
     os.system('rm -f ' + parset)
     f=open(parset, 'w')
@@ -2243,6 +2351,7 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec'):
     f.write('axisInTable = ant\n')
     f.write('minmax = [-0.2,0.2]\n')
     f.write('figSize=[120,20]\n')
+    f.write('markerSize=%s\n' % np.int(markersize))
     f.write('prefix = plotlosoto%s/%s\n' % (ms,outplotname))
     f.write('refAnt = %s\n' % refant)
   
@@ -2251,7 +2360,8 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec'):
 
 
 
-def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outplotname='rotatation'):
+def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, \
+                                 outplotname='rotatation', markersize=2):
     parset = 'losoto_plotrotation.parset'
     os.system('rm -f ' + parset)
     f=open(parset, 'w')
@@ -2263,6 +2373,7 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
     f.write('[plotrotation]\n')
     f.write('operation = PLOT\n')
     f.write('soltab = [sol000/rotation000]\n')
+    f.write('markerSize=%s\n' % np.int(markersize))
     if onechannel:
       f.write('axesInPlot = [time]\n')      
     else:
@@ -3634,7 +3745,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
        tecandphaseplotter(parmdb, ms, outplotname=outplotname) # use own plotter because losoto cannot add tec and phase
         
     if soltype in ['tec']:
-       losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname, refant=findrefant(parmdb))
+       losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname,\
+                             refant=findrefant(parmdb), markersize=compute_markersize(parmdb))
        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_tec
        os.system(cmdlosoto)    
 
@@ -3964,6 +4076,7 @@ def main():
    parser.add_argument('--usemodeldataforsolints', help='Determine solints from MODEL_DATA', action='store_true')
    parser.add_argument('--tecfactorsolint', help='Experts only', type=float, default=1.0)
    parser.add_argument('--gainfactorsolint', help='Experts only', type=float, default=1.0)
+   parser.add_argument('--phasefactorsolint', help='Experts only', type=float, default=1.0)
    parser.add_argument("--preapplyH5-list", type=arg_as_list, default=[None],help="List of H5 files, one per ms")
 
 
@@ -3998,15 +4111,16 @@ def main():
    parser.add_argument('--skipbackup', help='Leave the original ms intact and work and always work on a DP3 copied dataset (not yet implemented)', action='store_true')
    parser.add_argument('--helperscriptspath', help='location were additional helper scripts are located', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
    parser.add_argument('--auto', help='Trigger fully automated processing (still under construction, HBA-dutch only)', action='store_true')
-   parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only still under construction)', action='store_true')
-
+   parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction', action='store_true')
+   parser.add_argument('--targetcalILT', help='Type of automated target calibration for HBA international baseline data when --auto is used. Options are: tec, tecandphase, scalarphase, type (default=tec)', default='tec', type=str)
+  
    parser.add_argument('ms', nargs='+', help='msfile(s)')  
 
    args = vars(parser.parse_args())
    options = parser.parse_args() # start of replacing args dictionary with objects options
    #print (options.preapplyH5_list)
 
-   version = '3.1.6'
+   version = '3.1.7'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -4016,7 +4130,7 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/BLsmooth.py .')
 
    inputchecker(args)
-   
+   check_code_is_uptodate()
    
 
    for h5parm_id, h5parm in enumerate(args['preapplyH5_list']):
@@ -4109,8 +4223,12 @@ def main():
      args['update_multiscale'] = True
      
      args['soltypecycles-list'] = [0,3]
-     args['soltype_list'] = ['tec','scalarcomplexgain']
-     args['smoothnessconstraint_list'] = [0.0, 5.0]
+     args['soltype_list'] = [args['targetcalILT'],'scalarcomplexgain']
+     if args['targetcalILT'] == 'tec' or args['targetcalILT'] == 'tecandphase':
+        args['smoothnessconstraint_list'] = [0.0, 5.0]
+     else:
+        args['smoothnessconstraint_list'] = [10.0, 5.0] 
+        args['smoothnessreffrequency_list'] = [120.0, 0.0] 
      args['uvmin'] =  20000
      if LBA:
        args['BLsmooth'] = True
@@ -4358,7 +4476,8 @@ def main():
                               inantennaconstraint_list=antennaconstraint_list, \
                               insoltypecycles_list=soltypecycles_list, redo=True, \
                               tecfactorsolint=args['tecfactorsolint'], \
-                              gainfactorsolint=args['gainfactorsolint'], delaycal=args['delaycal'])  
+                              gainfactorsolint=args['gainfactorsolint'], \
+                              phasefactorsolint=args['phasefactorsolint'], delaycal=args['delaycal'])  
 
      # CALIBRATE AND APPLYCAL
      calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], soltypecycles_list,\
