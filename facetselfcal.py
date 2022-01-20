@@ -59,6 +59,8 @@ import ast
 from lofar.stationresponse import stationresponse
 from itertools import product
 import subprocess
+import matplotlib.pyplot as plt
+from astropy.wcs import WCS
 
 #from astropy.utils.data import clear_download_cache
 #clear_download_cache()
@@ -1635,9 +1637,53 @@ def which(file_name):
             return full_path
     return None
 
+def _add_astropy_beam(fitsname):
+  head = fits.getheader(fitsname)
+  bmaj = head['BMAJ']
+  bmin = head['BMIN']
+  bpa  = head['BPA']
+  cdelt = head['CDELT2']
+  bmajpix = bmaj/cdelt
+  bminpix = bmin/cdelt
+  ellipse = matplotlib.patches.Ellipse((20,20), bmajpix,bminpix,bpa)
+  return ellipse
 
+def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
+  #image noise for plotting
+  if rmsnoiseimage == None:
+    hdulist = fits.open(fitsimagename)
+  else:
+    hdulist = fits.open(rmsnoiseimage)   
+  imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
+  hdulist.close() 
 
-def plotimage(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
+  #image noise info
+  hdulist = fits.open(fitsimagename) 
+  imagenoiseinfo = findrms(np.ndarray.flatten(hdulist[0].data))
+  hdulist.close()   
+
+  data = fits.getdata(fitsimagename)
+  head = fits.getheader(fitsimagename)
+  f = plt.figure()
+  ax = f.add_subplot(111,projection=WCS(head),slices=('x','y',0,0))
+  img = ax.imshow(data[0,0,:,:],cmap='bone',vmax=16*imagenoise, vmin=-6*imagenoise)
+  ax.set_title(fitsimagename+' (noise = {} mJy/beam)'.format(round(imagenoiseinfo*1e3, 3)))
+  ax.grid(True)
+  cbar = plt.colorbar(img)
+  cbar.set_label('Flux (Jy beam$^{-1}$')
+  ax.add_artist(_add_astropy_beam(fitsimagename))
+
+  if mask is not None:
+    maskdata = fits.getdata(mask)[0,0,:,:]
+    ax.contour(maskdata, colors='red', levels=[0.1*imagenoise],filled=False, smooth=1, alpha=0.6, linewidths=1)
+
+  if os.path.isfile(outplotname + '.png'):
+      os.system('rm -f ' + outplotname + '.png')
+  plt.savefig(outplotname, dpi=120, format='png')
+  logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
+  return
+
+def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
   
   #image noise for plotting
   if rmsnoiseimage == None:
@@ -1680,6 +1726,14 @@ def plotimage(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
   f.save(outplotname, dpi=120, format='png')
   logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
   return
+
+
+def plotimage(fitsimagename,outplotname,mask=None,rmsnoiseimage=None):
+  # This code tries astropy first, switches to aplpy afterwards.
+  try:
+      plotimage_astropy(fitsimagename,outplotname,mask,rmsnoiseimage)
+  except:
+      plotimage_aplpy(fitsimagename,outplotname,mask,rmsnoiseimage)
 
 
 
