@@ -81,8 +81,13 @@ import subprocess
 def check_code_is_uptodate():  
    import filecmp
    url = "https://raw.githubusercontent.com/jurjen93/lofar_helpers/master/h5_merger.py"
-   result = subprocess.run(["wget", "--no-cache", "--backups=1", url, "--output-document=tmpfile"], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-   print(result.stderr.decode("utf-8"))
+   
+   try:
+      result = subprocess.run(["wget", "--no-cache", "--backups=1", url, "--output-document=tmpfile"], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+      print(result.stderr.decode("utf-8"))
+   except: # for Pythoon versions 3.5 and lower
+      os.system("wget --no-cache --backups=1 " + url + " --output-document=tmpfile")
+   
    if not filecmp.cmp('h5_merger.py', 'tmpfile'):
        print('Warning, you are using an old version of h5_merger.py')
        print('Download the latest version from https://github.com/jurjen93/lofar_helpers')
@@ -98,6 +103,29 @@ def create_mergeparmdbname(mslist, selfcalcycle):
      parmdblist[ms_id] = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.avg.h5'
    print('Created parmdblist', parmdblist)
    return parmdblist
+
+
+def preapplydelay(H5filelist, mslist, applydelaytype):
+   for ms in mslist:
+      parmdb = time_match_mstoH5(H5filelist, ms)
+      
+      # from LINEAR to CIRCULAR
+      if applydelaytype == 'circular':
+         scriptn = 'python lin2circ.py'
+         cmdlin2circ = scriptn + ' -i ' + ms + ' --column=DATA --outcol=DATA_CIRC' 
+         os.system(cmdlin2circ)
+         # APPLY solutions
+         applycal(ms, parmdb, msincol='DATA_CIRC',msoutcol='CORRECTED_DATA')
+      else:
+        applycal(ms, parmdb, msincol='DATA',msoutcol='CORRECTED_DATA')
+       
+      # from CIRCULAR to LINEAR
+      if applydelaytype == 'circular':  
+        cmdlin2circ = scriptn + ' -i ' + ms + ' --column=CORRECTED_DATA --lincol=DATA --back'
+        os.system(cmdlin2circ)      
+      else:
+        os.system("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
+   return
 
 def preapply(H5filelist, mslist, updateDATA=True):
    for ms in mslist:
@@ -676,22 +704,25 @@ def runaoflagger(mslist):
     return
 
 
-def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA'):
+def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='.'):
 
     # to allow both a list or a single file (string)
     if not isinstance(inparmdblist,list):
      inparmdblist = [inparmdblist]    
     
-    cmd = 'DPPP numthreads='+ str(multiprocessing.cpu_count()) + ' msin=' + ms +' msout=. '
-    cmd +='msin.datacolumn=' + msincol + ' '
-    cmd += 'msout.datacolumn=' + msoutcol + ' msout.storagemanager=dysco '
+    cmd = 'DPPP numthreads='+ str(multiprocessing.cpu_count()) + ' msin=' + ms
+    cmd += ' msout=' + msout + ' '
+    cmd += 'msin.datacolumn=' + msincol + ' '
+    if msout == '.':
+      cmd += 'msout.datacolumn=' + msoutcol + ' '
+    cmd += 'msout.storagemanager=dysco '
     count = 0
     for parmdb in inparmdblist:
       if fulljonesparmdb(parmdb):
         cmd += 'ac' + str(count) +'.parmdb='+parmdb + ' '
         cmd += 'ac' + str(count) +'.type=applycal '  
         cmd += 'ac' + str(count) +'.correction=fulljones '
-        cmd += 'ac' + str(count) +'.soltab=[phase000,amplitude000] '  
+        cmd += 'ac' + str(count) +'.soltab=[amplitude000,phase000] '  
         count = count + 1
       else:  
         H=tables.open_file(parmdb) 
@@ -4078,7 +4109,8 @@ def main():
    parser.add_argument('--gainfactorsolint', help='Experts only', type=float, default=1.0)
    parser.add_argument('--phasefactorsolint', help='Experts only', type=float, default=1.0)
    parser.add_argument("--preapplyH5-list", type=arg_as_list, default=[None],help="List of H5 files, one per ms")
-
+   parser.add_argument("--applydelaycalH5-list", type=arg_as_list, default=[None],help="List of H5 files from the delay calibrator, one per ms")
+   parser.add_argument("--applydelaytype", type=str, default='circular', help="Options: circular or linear. If --docircular was used for finding the delay solutions use circular (the default)")
 
    # general options
    parser.add_argument('--skymodel', help='skymodel for first selfcalcycle', type=str)
@@ -4272,6 +4304,11 @@ def main():
 
    if args['forwidefield']:
       args['doflagging'] = False
+
+
+     # PRE-APPLY SOLUTIONS (from a nearby direction for example)
+   if (args['applydelaycalH5_list'][0]) != None:
+         preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'])
 
 
    # check if we could average more
