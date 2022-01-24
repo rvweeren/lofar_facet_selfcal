@@ -589,7 +589,7 @@ def checklongbaseline(ms):
     print('Contains long baselines?', haslongbaselines)
     return haslongbaselines
 
-def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None):
+def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False):
     # sanity check
     if len(mslist) != len(freqstep):
       print('Hmm, made a mistake with freqstep?')
@@ -599,7 +599,10 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
     for ms_id, ms in enumerate(mslist):
       if (freqstep[ms_id] > 0) or (timestep != None) or (msinnchan != None) or \
           (phaseshiftbox != None) or (msinntimes != None): # if this is True then average
-        msout = ms + '.avg'  
+        if makecopy:
+          msout = ms + '.copy'
+        else:
+          msout = ms + '.avg'  
         cmd = 'DPPP msin=' + ms + ' msout.storagemanager=dysco av.type=averager '
         cmd += 'msout='+ msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
         if phaseshiftbox != None:
@@ -4206,7 +4209,7 @@ def main():
    options = parser.parse_args() # start of replacing args dictionary with objects options
    #print (options.preapplyH5_list)
 
-   version = '3.1.7'
+   version = '3.2.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -4236,6 +4239,11 @@ def main():
 
    # remove ms which are too short (to catch Elais-N1 case of 600s of data)
    mslist = sorted(select_valid_ms(mslist))
+
+   if not args['skipbackup']: # work on copy of input data as a backup
+      print('Creating a copy of the data and work on that....')
+      mslist = average(mslist, freqstep= [0]*len(mslist), timestep=1, start=args['start'], makecopy=True)
+
 
    # extra flagging if requested
    if args['start'] == 0 and args['useaoflagger'] and args['useaoflaggerbeforeavg']:  
