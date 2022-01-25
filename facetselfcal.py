@@ -589,7 +589,7 @@ def checklongbaseline(ms):
     print('Contains long baselines?', haslongbaselines)
     return haslongbaselines
 
-def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False):
+def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, timeresolution='32', freqresolution='195.3125kHz'):
     # sanity check
     if len(mslist) != len(freqstep):
       print('Hmm, made a mistake with freqstep?')
@@ -860,8 +860,10 @@ def inputchecker(args):
 
   # Check boxfile and imsize settings
   if args['boxfile'] == None and args['imsize'] == None:
-    print('Incomplete input detected, either boxfile or imsize is required')
-    sys.exit(1)
+    if not checklongbaseline(sorted(args['ms'])[0]):      
+      print('Incomplete input detected, either boxfile or imsize is required')
+      sys.exit(1)
+    
   if args['boxfile'] != None and args['imsize'] != None:
     print('Wrong input detected, both boxfile and imsize are set')
     sys.exit(1)
@@ -4291,6 +4293,10 @@ def main():
        else:
          args['pixelscale'] = 1.5
 
+   if args['delaycal'] and  longbaseline and not LBA:
+     if args['imsize'] == None:
+       args['imsize'] = 2048   
+
    if args['boxfile'] != None:
      args['imsize']   = getimsize(args['boxfile'], args['pixelscale'])
    if args['niter'] == None:
@@ -4327,30 +4333,31 @@ def main():
      if LBA:
        args['BLsmooth'] = True
 
-   if args['delaycal'] and not HBA:
-       print('Option delaycal can only be used for HBA')
+   if args['delaycal'] and LBA:
+       print('Option automated delaycal can only be used for HBA')
        sys.exit() 
    if args['delaycal'] and not longbaseline:
-       print('Option delaycal can only be used for longbaseline data')
+       print('Option automated delaycal can only be used for longbaseline data')
        sys.exit()
 
-   if args['delaycal'] and  longbaseline and HBA:
+   if args['delaycal'] and longbaseline and not LBA:
      args['update_uvmin'] = False
-     args['usemodeldataforsolints'] = True # NEEDS SPECIAL SETTINGS to be implemented
+     #args['usemodeldataforsolints'] = True # NEEDS SPECIAL SETTINGS to be implemented
+     #args['solint_list']="[6,1,100]" # temporary
      args['forwidefield'] = True
      args['autofrequencyaverage'] = True
      args['update_multiscale'] = True
      
-     args['soltypecycles-list'] = [0,0,2]
-     args['soltype_list'] = "['scalarphasediff','scalarphase','scalarcomplexgain']"
-     args['smoothnessconstraint_list'] = "[8.0,2.0,15.0]"
-     args['smoothnessreffrequency_list'] = "[120.,144.,0.0]"
-     args['antennaconstraint_list'] = "['alldutch',None,None]" 
-     args['nchan_list'] = "[1,1,1]"     
+     args['soltypecycles_list'] = [0,0,3]
+     args['soltype_list'] = ['scalarphasediff','scalarphase','scalarcomplexgain']
+     args['smoothnessconstraint_list'] = [8.0,2.0,15.0]
+     args['smoothnessreffrequency_list'] = [120.,144.,0.0]
+     args['antennaconstraint_list'] = ['alldutch',None,None] 
+     args['nchan_list'] = [1,1,1]    
      args['uvmin'] =  40000 
      args['stop'] = 8
      args['maskthreshold'] = [5]
-
+     args['docircular'] = True
 
 
    # reset tecandphase -> tec for LBA 
@@ -4451,6 +4458,7 @@ def main():
 
 
 
+   
    nchan_list,solint_list,smoothnessconstraint_list, smoothnessreffrequency_list,  antennaconstraint_list, soltypecycles_list = \
                                               setinitial_solint(mslist, args['soltype_list'],longbaseline, LBA, \
                                               args['nchan_list'], args['solint_list'], \
@@ -4458,6 +4466,8 @@ def main():
                                               args['smoothnessreffrequency_list'], args['antennaconstraint_list'],\
                                               args['soltypecycles_list'])
 
+   #print(args['soltype_list'])
+   #sys.exit()
 
    # Get restoring beam for DDFACET in case it is needed
    restoringbeam = calculate_restoringbeam(mslist, LBA)
