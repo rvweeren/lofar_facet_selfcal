@@ -4376,7 +4376,7 @@ def main():
 
 
      # PRE-APPLY SOLUTIONS (from a nearby direction for example)
-   if (args['applydelaycalH5_list'][0]) != None:
+   if (args['applydelaycalH5_list'][0]) != None and  args['start'] == 0:
          preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'])
 
 
@@ -4466,8 +4466,6 @@ def main():
                                               args['smoothnessreffrequency_list'], args['antennaconstraint_list'],\
                                               args['soltypecycles_list'])
 
-   #print(args['soltype_list'])
-   #sys.exit()
 
    # Get restoring beam for DDFACET in case it is needed
    restoringbeam = calculate_restoringbeam(mslist, LBA)
