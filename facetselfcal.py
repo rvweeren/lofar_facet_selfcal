@@ -50,7 +50,6 @@ import bdsf
 import pyregion
 import argparse
 import pickle
-import aplpy
 import fnmatch
 import tables
 from astropy.io import ascii
@@ -1689,6 +1688,7 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None)
   return
 
 def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
+  import aplpy
   
   #image noise for plotting
   if rmsnoiseimage == None:
