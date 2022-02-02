@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# exit in a clean way if no clean components are found....
 # findrefant needs to check for flagged antenna
 # do not use os.system for DP3/WSClean to catch errors properly
 # decrease niter if multiscale is triggered, smart move?
@@ -3477,7 +3478,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               soltype_list, soltypecycles_list, \
               smoothnessconstraint_list, smoothnessreffrequency_list, antennaconstraint_list, uvmin=0, normamps=False, skymodel=None, predictskywithbeam=False, restoreflags=False, \
               flagging=False, longbaseline=False, BLsmooth=False, flagslowphases=True, flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None, skymodelpointsource=None, wscleanskymodel=None, \
-              ionfactor=0.01, blscalefactor=1.0, dejumpFR=False):
+              ionfactor=0.01, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0):
 
    soltypecycles_list_array = np.array(soltypecycles_list) # needed to slice (slicing does not work in nested l
    incol = [] # len(mslist)
@@ -3522,7 +3523,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      flagslowphaserms=flagslowphaserms, incol=incol[msnumber], \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
                      skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
-                     ionfactor=ionfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR)
+                     ionfactor=ionfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff)
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
        
@@ -3625,7 +3626,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, ionfactor=0.01, \
-                blscalefactor=1.0, dejumpFR=False):
+                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0):
     
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
     
@@ -3735,12 +3736,19 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     cmd += 'ddecal.nchan=' + str(nchan) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
     
-    if uvmin != 0:
-        cmd += 'ddecal.uvlambdamin=' + str(uvmin) + ' '      
+    # SET UVMIN
+    if soltypein == 'scalarphasediff' or soltypein == 'scalarphasediffFR':
+       if uvminscalarphasediff != None:
+         cmd += 'ddecal.uvlambdamin=' + str(uvminscalarphasediff) + ' '
+       else:  
+         if uvmin != 0:
+           cmd += 'ddecal.uvlambdamin=' + str(uvmin) + ' '     
+    else:
+       if uvmin != 0:
+         cmd += 'ddecal.uvlambdamin=' + str(uvmin) + ' '        
 
     if antennaconstraint != None:
         cmd += 'ddecal.antennaconstraint=' + antennaconstraintstr(antennaconstraint, antennasms, HBAorLBA) + ' '
-
     if SMconstraint > 0.0 and nchan != 0:
         cmd += 'ddecal.smoothnessconstraint=' + str(SMconstraint*1e6) + ' ' 
         cmd += 'ddecal.smoothnessreffrequency=' + str(SMconstraintreffreq*1e6) + ' ' 
@@ -4149,6 +4157,8 @@ def main():
 
    # calibration options
    parser.add_argument('-u', '--uvmin', help='inner uv-cut for calibration in lambda, default=80/350 (LBA/HBA)', type=float)
+   parser.add_argument('--uvminscalarphasediff', help='inner uv-cut for scalarphasediff calibration in lambda, default it takes the value from --uvmin', type=float, default=None)
+   
    parser.add_argument("--update-uvmin", help='Update uvmin automatically for the Dutch array', action='store_true')
    parser.add_argument("--update-multiscale", help='Switch to multiscale automatically if large island of emission are present', action='store_true')
    parser.add_argument("--soltype-list", type=arg_as_list, default=['tecandphase','tecandphase','scalarcomplexgain'],help="List of complexgain,scalarcomplexgain,scalaramplitude,amplitudeonly,phaseonly,fulljones,rotation,rotation+diagonal,tec,tecandphase,scalarphase,scalarphasediff,scalarphasediffFR,phaseonly_phmin,rotation_phmin,tec_phmin,tecandphase_phmin,scalarphase_phmin,scalarphase_slope,phaseonly_slope")
@@ -4533,7 +4543,8 @@ def main():
                              flagslowamprms=args['flagslowamprms'], flagslowphaserms=args['flagslowphaserms'],\
                              skymodelsource=args['skymodelsource'], skymodelpointsource=args['skymodelpointsource'],\
                              wscleanskymodel=args['wscleanskymodel'], ionfactor=args['ionfactor'], \
-                             blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR']) 
+                             blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'],\
+                             uvminscalarphasediff=args['uvminscalarphasediff']) 
 
 
   
@@ -4594,7 +4605,7 @@ def main():
                            BLsmooth=args['BLsmooth'], flagslowphases=args['doflagslowphases'], \
                            flagslowamprms=args['flagslowamprms'], flagslowphaserms=args['flagslowphaserms'],\
                            ionfactor=args['ionfactor'], blscalefactor=args['blscalefactor'],\
-                           dejumpFR=args['dejumpFR'])
+                           dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'])
 
 
  
