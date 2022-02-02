@@ -800,7 +800,7 @@ def inputchecker(args):
     print('Cannot find lib_multiproc.py, file does not exist, use --helperscriptspath')
     sys.exit(1)
   if not os.path.isfile('h5_merger.py'):
-    print('Cannot find h5_merger.py, file does not exist, use --helperscriptspath')
+    print('Cannot find h5_merger.py, file does not exist, use --helperscriptspath or --helperscriptspath-h5merge')
     sys.exit(1)
   if not os.path.isfile('plot_tecandphase.py'):
     print('Cannot find plot_tecandphase.py, file does not exist, use --helperscriptspath')
@@ -1675,6 +1675,8 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None)
   img = ax.imshow(data[0,0,:,:],cmap='bone',vmax=16*imagenoise, vmin=-6*imagenoise)
   ax.set_title(fitsimagename+' (noise = {} mJy/beam)'.format(round(imagenoiseinfo*1e3, 3)))
   ax.grid(True)
+  ax.set_xlabel('Right Ascension (J2000)')
+  ax.set_ylabel('Declination (J2000)') 
   cbar = plt.colorbar(img)
   cbar.set_label('Flux (Jy beam$^{-1}$')
   ax.add_artist(_add_astropy_beam(fitsimagename))
