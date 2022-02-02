@@ -51,6 +51,7 @@ import bdsf
 import pyregion
 import argparse
 import pickle
+
 import fnmatch
 import tables
 from astropy.io import ascii
@@ -1690,7 +1691,6 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None)
 
 def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
   import aplpy
-  
   #image noise for plotting
   if rmsnoiseimage == None:
     hdulist = fits.open(fitsimagename)
@@ -4211,6 +4211,8 @@ def main():
    parser.add_argument('--noarchive', help='Do not archive the data', action='store_true')
    parser.add_argument('--skipbackup', help='Leave the original ms intact and work and always work on a DP3 copied dataset (not yet implemented)', action='store_true')
    parser.add_argument('--helperscriptspath', help='location were additional helper scripts are located', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
+   parser.add_argument('--helperscriptspath-h5merge', help='location were  helper scripts h5merge is located (default is None which means the same as helperscriptspath', default=None, type=str)
+   
    parser.add_argument('--auto', help='Trigger fully automated processing (still under construction, HBA-dutch only)', action='store_true')
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction', action='store_true')
    parser.add_argument('--targetcalILT', help='Type of automated target calibration for HBA international baseline data when --auto is used. Options are: tec, tecandphase, scalarphase, type (default=tec)', default='tec', type=str)
@@ -4225,7 +4227,10 @@ def main():
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
-   os.system('cp ' + args['helperscriptspath'] + '/h5_merger.py .')
+   if args['helperscriptspath_h5merge'] != None:
+     os.system('cp ' + args['helperscriptspath_h5merge'] + '/h5_merger.py .')  
+   else:
+     os.system('cp ' + args['helperscriptspath'] + '/h5_merger.py .')
    os.system('cp ' + args['helperscriptspath'] + '/plot_tecandphase.py .')
    os.system('cp ' + args['helperscriptspath'] + '/lin2circ.py .')
    os.system('cp ' + args['helperscriptspath'] + '/BLsmooth.py .')
