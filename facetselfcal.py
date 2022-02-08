@@ -1687,7 +1687,7 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None)
 
   if os.path.isfile(outplotname + '.png'):
       os.system('rm -f ' + outplotname + '.png')
-  plt.savefig(outplotname, dpi=120, format='png')
+  plt.savefig(outplotname, dpi=450, format='png')
   logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
   return
 
