@@ -3525,7 +3525,8 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      flagslowphaserms=flagslowphaserms, incol=incol[msnumber], \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
                      skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
-                     ionfactor=ionfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff)
+                     ionfactor=ionfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
+                     selfcalcycle=selfcalcycle)
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
        
@@ -3628,7 +3629,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, ionfactor=0.01, \
-                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0):
+                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0):
     
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
     
@@ -3767,7 +3768,13 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
  
     print('DPPP solve:', cmd)
     logger.info('DPPP solve: ' + cmd)    
-    os.system(cmd)
+    if selfcalcycle > 0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
+        h5_tocopy = glob.glob("*_"+ms+".h5.scbackup")[0] # What if your ms nums somehow share a common base??
+        os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
+    else:
+        os.system(cmd)
+    if selfcalcycle==0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
+        os.system("cp -r " + parmdb + " " + parmdb + ".scbackup")
     
     if has0coordinates(parmdb):
        logger.warning('Direction coordinates are zero in: ' + parmdb)
