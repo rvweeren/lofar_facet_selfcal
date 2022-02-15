@@ -3770,6 +3770,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     logger.info('DPPP solve: ' + cmd)    
     if selfcalcycle > 0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
         h5_tocopy = glob.glob("*_"+ms+".h5.scbackup")[0] # What if your ms nums somehow share a common base??
+        print("COPYING PREVIOUS SCALARPHASEDIFF SOLUTION")
         os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
     else:
         os.system(cmd)
