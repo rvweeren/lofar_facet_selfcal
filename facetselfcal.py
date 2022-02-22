@@ -62,7 +62,6 @@ from itertools import product
 import subprocess
 import matplotlib.pyplot as plt
 from astropy.wcs import WCS
-import h5_merger
 
 #from astropy.utils.data import clear_download_cache
 #clear_download_cache()
@@ -4262,6 +4261,8 @@ def main():
      os.system('cp ' + args['helperscriptspath_h5merge'] + '/h5_merger.py .')  
    else:
      os.system('cp ' + args['helperscriptspath'] + '/h5_merger.py .')
+   sys.path.append(os.path.abspath(args['helperscriptspath_h5merge']))
+   import h5_merger
    os.system('cp ' + args['helperscriptspath'] + '/plot_tecandphase.py .')
    os.system('cp ' + args['helperscriptspath'] + '/lin2circ.py .')
    os.system('cp ' + args['helperscriptspath'] + '/BLsmooth.py .')
