@@ -4224,9 +4224,11 @@ def main():
    args = vars(parser.parse_args())
    ## if a config file exists, then read the information
    if os.path.isfile('facetselfcal_config.txt'):
+      print( 'A config file exists, using it. This contains:' )
       with open('facetselfcal_config.txt','r') as f:
          lines = f.readlines()
       for line in lines:
+         print( line )
          ## this updates the vaue if it exists, or creates a new one if it doesn't
          args[line.split('=')[0].rstrip()] = line.split('=')[1].lstrip().rstrip('\n')
 
