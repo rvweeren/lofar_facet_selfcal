@@ -4256,8 +4256,8 @@ def main():
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
-   if args['helperscriptspath-h5merge'] != None:
-     os.system('cp ' + args['helperscriptspath-h5merge'] + '/h5_merger.py .')  
+   if args['helperscriptspath_h5merge'] != None:
+     os.system('cp ' + args['helperscriptspath_h5merge'] + '/h5_merger.py .')  
    else:
      os.system('cp ' + args['helperscriptspath'] + '/h5_merger.py .')
    os.system('cp ' + args['helperscriptspath'] + '/plot_tecandphase.py .')
