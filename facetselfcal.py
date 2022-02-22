@@ -4245,7 +4245,10 @@ def main():
             if int(lineval) - lineval == 0:
                lineval = int(lineval)
          except:
-            lineval = lineval
+            try:
+               lineval = arg_as_dict(lineval)
+            except:
+               lineval = lineval
          ## this updates the vaue if it exists, or creates a new one if it doesn't
          args[line.split('=')[0].rstrip()] = lineval
 
