@@ -4241,8 +4241,7 @@ def main():
          except:
             lineval = lineval
          ## this updates the vaue if it exists, or creates a new one if it doesn't
-        
-         args[line.split('=')[0].rstrip()] = 
+         args[line.split('=')[0].rstrip()] = lineval
          
    print( 'args after:' )
    print( args )
