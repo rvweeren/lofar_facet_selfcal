@@ -4223,6 +4223,12 @@ def main():
 
    args = vars(parser.parse_args())
 
+   options = parser.parse_args() # start of replacing args dictionary with objects options
+   #print (options.preapplyH5_list)
+
+   print( 'options before' )
+   print( options )
+
    ## if a config file exists, then read the information
    if os.path.isfile('facetselfcal_config.txt'):
       print( 'A config file exists, using it. This contains:' )
@@ -4239,10 +4245,10 @@ def main():
          except:
             lineval = lineval
          ## this updates the vaue if it exists, or creates a new one if it doesn't
-         args[line.split('=')[0].rstrip()] = lineval
+         options[line.split('=')[0].rstrip()] = lineval
 
-   options = parser.parse_args() # start of replacing args dictionary with objects options
-   #print (options.preapplyH5_list)
+   print( 'options after' )
+   print( options )
 
    version = '3.2.0'
    print_title(version)
