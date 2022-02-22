@@ -62,6 +62,7 @@ from itertools import product
 import subprocess
 import matplotlib.pyplot as plt
 from astropy.wcs import WCS
+import h5_merger
 
 #from astropy.utils.data import clear_download_cache
 #clear_download_cache()
@@ -4267,7 +4268,7 @@ def main():
 
    inputchecker(args)
    check_code_is_uptodate()
-   import h5_merger
+   #import h5_merger
 
    for h5parm_id, h5parm in enumerate(args['preapplyH5_list']):
      if h5parm != None:
