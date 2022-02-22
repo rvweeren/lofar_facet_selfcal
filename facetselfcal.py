@@ -4232,8 +4232,17 @@ def main():
          lines = f.readlines()
       for line in lines:
          print( line )
+         ## first get the value
+         lineval = line.split('=')[1].lstrip().rstrip('\n')
+         try:
+            lineval = float( lineval )
+            if int(lineval) - lineval == 0:
+               lineval = int(lineval)
+         except:
+            lineval = lineval
          ## this updates the vaue if it exists, or creates a new one if it doesn't
-         args[line.split('=')[0].rstrip()] = line.split('=')[1].lstrip().rstrip('\n')
+        
+         args[line.split('=')[0].rstrip()] = 
          
    print( 'args after:' )
    print( args )
