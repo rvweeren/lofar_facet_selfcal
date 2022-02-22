@@ -351,7 +351,7 @@ def create_MODEL_DATA_PDIFF(inmslist):
    if not isinstance(inmslist,list):
       inmslist = [inmslist] 
    for ms in inmslist:
-     os.system('DPPP msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
+     os.system('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
      os.system("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'") # because I = RR+LL/2 (this is tricky because we work with phase diff)
      os.system("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'") # because I = RR+LL/2 (this is tricky because we work with phase diff)
      os.system("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
@@ -499,7 +499,7 @@ def phaseup(msinlist,datacolumn='DATA',superstation='core', parmdbmergelist=None
     msoutlist.append(msout)
     if os.path.isdir(msout):
       os.system('rm -rf ' + msout)
-    cmd = "DPPP msin=" + ms + " msout.storagemanager=dysco steps=[add,filter] msout.writefullresflag=False "
+    cmd = "DP3 msin=" + ms + " msout.storagemanager=dysco steps=[add,filter] msout.writefullresflag=False "
     cmd += "msout=" + msout + " msin.datacolumn=" + datacolumn + " "
     cmd += "filter.type=filter filter.remove=True "
     cmd += "add.type=stationadder "
@@ -604,7 +604,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
           msout = ms + '.copy'
         else:
           msout = ms + '.avg'  
-        cmd = 'DPPP msin=' + ms + ' msout.storagemanager=dysco av.type=averager '
+        cmd = 'DP3 msin=' + ms + ' msout.storagemanager=dysco av.type=averager '
         cmd += 'msout='+ msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
         if phaseshiftbox != None:
           cmd += ' steps=[shift,av] '
@@ -628,7 +628,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
           os.system(cmd)
 
         msouttmp = ms + '.avgtmp'  
-        cmd = 'DPPP msin=' + ms + ' msout.storagemanager=dysco steps=[av] av.type=averager '
+        cmd = 'DP3 msin=' + ms + ' msout.storagemanager=dysco steps=[av] av.type=averager '
         cmd+= 'msout='+ msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
         if freqstep[ms_id] != None:
           cmd+='av.freqstep=' + str(freqstep[ms_id]) + ' '
@@ -716,7 +716,7 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
     if not isinstance(inparmdblist,list):
      inparmdblist = [inparmdblist]    
     
-    cmd = 'DPPP numthreads='+ str(multiprocessing.cpu_count()) + ' msin=' + ms
+    cmd = 'DP3 numthreads='+ str(multiprocessing.cpu_count()) + ' msin=' + ms
     cmd += ' msout=' + msout + ' '
     cmd += 'msin.datacolumn=' + msincol + ' '
     if msout == '.':
@@ -781,7 +781,7 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
         cmd += ','
     cmd += ']'
 
-    print('DPPP applycal:', cmd)
+    print('DP3 applycal:', cmd)
     os.system(cmd) 
     return
 
@@ -855,8 +855,8 @@ def inputchecker(args):
       print('Conflicting input, docircular and dolinear used')
       sys.exit(1)
 
-  if which('DPPP') == None:
-    print('Cannot find DPPP, forgot to source lofarinit.[c]sh?')
+  if which('DP3') == None:
+    print('Cannot find DP3, forgot to source lofarinit.[c]sh?')
     sys.exit(1)
 
   # Check boxfile and imsize settings
@@ -1021,7 +1021,7 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
 def getregionboxcenter(regionfile, standardbox=True):
     """
     Extract box center of a DS9 box region. 
-    Input is regionfile Return NDPPP compatible string for phasecenter shifting
+    Input is regionfile Return DP3 compatible string for phasecenter shifting
     """
     r = pyregion.open(regionfile)
     
@@ -1585,7 +1585,7 @@ def removestartendms(ms, starttime=None, endtime=None):
           os.system('rm -rf ' + ms + '.cuttmp')  
 
         
-    cmd = 'DPPP msin=' + ms + ' ' + 'msout.storagemanager=dysco msout=' + ms + '.cut '
+    cmd = 'DP3 msin=' + ms + ' ' + 'msout.storagemanager=dysco msout=' + ms + '.cut '
     cmd+=  'msin.weightcolumn=WEIGHT_SPECTRUM steps=[] msout.writefullresflag=False ' 
     if starttime is not None:
       cmd+= 'msin.starttime=' + starttime + ' '
@@ -1594,7 +1594,7 @@ def removestartendms(ms, starttime=None, endtime=None):
     print(cmd)  
     os.system(cmd)
     
-    cmd = 'DPPP msin=' + ms + ' ' + 'msout.storagemanager=dysco msout=' + ms + '.cuttmp '
+    cmd = 'DP3 msin=' + ms + ' ' + 'msout.storagemanager=dysco msout=' + ms + '.cuttmp '
     cmd+= 'msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE steps=[] msout.writefullresflag=False '  
     if starttime is not None:
       cmd+= 'msin.starttime=' + starttime + ' '
@@ -1751,7 +1751,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename):
     msout = ms + '.calibrated'
     if os.path.isdir(msout):
       os.system('rm -rf ' + msout)
-    cmd  ='DPPP numthreads='+ str(multiprocessing.cpu_count()) +' msin=' + ms + ' msout=' + msout + ' '
+    cmd  ='DP3 numthreads='+ str(multiprocessing.cpu_count()) +' msin=' + ms + ' msout=' + msout + ' '
     cmd +='msin.datacolumn=CORRECTED_DATA msout.storagemanager=dysco msout.writefullresflag=False steps=[]'
     os.system(cmd)
  
@@ -2363,7 +2363,7 @@ def create_beamcortemplate(ms):
   """
   H5name = ms + '_templatejones.h5'   
 
-  cmd = 'DPPP numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
+  cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
   cmd += 'msin.modelcolumn=DATA '
   cmd += 'steps=[ddecal] ddecal.type=ddecal '
   cmd += 'ddecal.maxiter=1 ddecal.usemodelcolumn=True ddecal.nchan=1 '
@@ -2807,13 +2807,13 @@ def beamcor(ms, usedppp=True):
     phasedup = fixbeam_ST001(H5name)
 
     if usedppp and not phasedup :
-        cmddppp = 'DPPP numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
+        cmddppp = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmddppp += 'msin.weightcolumn=WEIGHT_SPECTRUM '
         cmddppp += 'msout.datacolumn=CORRECTED_DATA steps=[beam] msout.storagemanager=dysco '
         cmddppp += 'beam.type=applybeam beam.updateweights=True ' # weights
         cmddppp += 'beam.direction=[] ' # correction for the current phase center
         #cmddppp += 'beam.beammode= ' default is full, will undo element as well(!)
-        print('DPPP applybeam:', cmddppp)
+        print('DP3 applybeam:', cmddppp)
         os.system(cmddppp)
         os.system(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
     else:
@@ -2822,13 +2822,13 @@ def beamcor(ms, usedppp=True):
         print(cmdlosoto)
         os.system(cmdlosoto)
     
-        cmd = 'DPPP numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
+        cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
         cmd += 'msout.datacolumn=CORRECTED_DATA steps=[ac1,ac2] msout.storagemanager=dysco '
         cmd += 'ac1.parmdb='+H5name + ' ac2.parmdb='+H5name + ' '
         cmd += 'ac1.type=applycal ac2.type=applycal '
         cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=True ' 
-        print('DPPP applycal:', cmd)
+        print('DP3 applycal:', cmd)
         os.system(cmd)
         os.system(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
  
@@ -2850,7 +2850,7 @@ def beamcor(ms, usedppp=True):
               t.putcolkeywords('DATA', {'LOFAR_APPLIED_BEAM_DIR': beamdir})
               t.close()
            except:
-              print('Warning could not update LOFAR BEAM keywords in ms, it seems this data was preprocessed with a very old DPPP version')  
+              print('Warning could not update LOFAR BEAM keywords in ms, it seems this data was preprocessed with a very old DP3 version')  
     
     return
 
@@ -2860,13 +2860,13 @@ def beamcormodel(ms):
     """   
     H5name = ms + '_templatejones.h5'   
     
-    cmd = 'DPPP numthreads='+str(multiprocessing.cpu_count())+' msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. '
+    cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+' msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. '
     cmd += 'msout.datacolumn=MODEL_DATA_BEAMCOR steps=[ac1,ac2] msout.storagemanager=dysco '
     cmd += 'ac1.parmdb='+H5name + ' ac2.parmdb='+H5name + ' '
     cmd += 'ac1.type=applycal ac2.type=applycal '
     cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=False '
     cmd += 'ac1.invert=False ac2.invert=False ' # Here we corrupt with the beam !
-    print('DPPP applycal:', cmd)
+    print('DP3 applycal:', cmd)
     os.system(cmd)
    
     return
@@ -3611,7 +3611,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
       sourcedb = skymodel    
    
    
-   cmd = 'DPPP numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msout=. ' 
+   cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msout=. ' 
    cmd += 'p.sourcedb=' + sourcedb + ' steps=[p] p.type=predict msout.datacolumn=' + modeldata + ' '
    if sources != None:
       cmd += 'p.sources=[' + str(sources) + '] '    
@@ -3661,7 +3661,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
 
     if skymodelpointsource !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
         # create MODEL_DATA (no dysco!)
-        os.system('DPPP msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
+        os.system('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
         # do the predict with taql
         os.system("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource)+ "+0i)'")
         os.system("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource)+ "+0i)'")
@@ -3727,7 +3727,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       print('H5 file exists  ', parmdb)
       os.system('rm -f ' + parmdb)
      
-    cmd = 'DPPP numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=' + incol + ' '
+    cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=' + incol + ' '
     cmd += 'msout=. ddecal.mode=' + soltype + ' '
     cmd += 'msin.weightcolumn='+weight_spectrum + ' '
     cmd += 'steps=[ddecal] ' + 'msout.storagemanager=dysco ddecal.type=ddecal '
@@ -3765,8 +3765,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     if soltype in ['complexgain','scalarcomplexgain','scalaramplitude','amplitudeonly','rotation+diagonal','fulljones']:   
        cmd += 'ddecal.tolerance=1.e-4 ' # for now the same as phase soltypes
  
-    print('DPPP solve:', cmd)
-    logger.info('DPPP solve: ' + cmd)    
+    print('DP3 solve:', cmd)
+    logger.info('DP3 solve: ' + cmd)    
     os.system(cmd)
     
     if has0coordinates(parmdb):
@@ -4152,8 +4152,8 @@ def main():
    parser.add_argument('--autofrequencyaverage', help='Try frequency averaging if it does not result in bandwidth smearing',  action='store_true')
    parser.add_argument('--autofrequencyaverage-calspeedup', help='Try extra averaging during some selfcalcycles to speed up calibration', action='store_true')
    
-   parser.add_argument('--avgfreqstep', help='Extra DPPP frequnecy averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators', type=int, default=None)
-   parser.add_argument('--avgtimestep', help='Extra DPPP time averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators', type=int, default=None)
+   parser.add_argument('--avgfreqstep', help='Extra DP3 frequnecy averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators', type=int, default=None)
+   parser.add_argument('--avgtimestep', help='Extra DP3 time averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators', type=int, default=None)
    parser.add_argument('--msinnchan', help='Before averarging, only take this number input channels', type=int, default=None)
    parser.add_argument('--msinntimes', help='DP3 msin.ntimes setting, mainly for testing purposes', type=int, default=None)
 
@@ -4225,7 +4225,7 @@ def main():
    options = parser.parse_args() # start of replacing args dictionary with objects options
    #print (options.preapplyH5_list)
 
-   version = '3.2.0'
+   version = '3.2.1'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
