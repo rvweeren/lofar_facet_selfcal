@@ -4231,11 +4231,40 @@ def main():
   
    parser.add_argument('ms', nargs='+', help='msfile(s)')  
 
+
+
    args = vars(parser.parse_args())
+
    options = parser.parse_args() # start of replacing args dictionary with objects options
    #print (options.preapplyH5_list)
 
-   version = '3.2.1'
+
+   print( 'args before' )
+   print ( args )
+
+   ## if a config file exists, then read the information
+   if os.path.isfile('facetselfcal_config.txt'):
+      print( 'A config file exists, using it. This contains:' )
+      with open('facetselfcal_config.txt','r') as f:
+         lines = f.readlines()
+      for line in lines:
+         print( line )
+         ## first get the value
+         lineval = line.split('=')[1].lstrip().rstrip('\n')
+         try:
+            lineval = float( lineval )
+            if int(lineval) - lineval == 0:
+               lineval = int(lineval)
+         except:
+            if '[' in lineval:
+                lineval = arg_as_list(lineval)
+         ## this updates the vaue if it exists, or creates a new one if it doesn't
+         args[line.split('=')[0].rstrip()] = lineval
+
+   print( 'args after' )
+   print( args )
+
+   version = '3.3.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -4243,13 +4272,15 @@ def main():
      os.system('cp ' + args['helperscriptspath_h5merge'] + '/h5_merger.py .')  
    else:
      os.system('cp ' + args['helperscriptspath'] + '/h5_merger.py .')
+   sys.path.append(os.path.abspath(args['helperscriptspath_h5merge']))
+   import h5_merger
    os.system('cp ' + args['helperscriptspath'] + '/plot_tecandphase.py .')
    os.system('cp ' + args['helperscriptspath'] + '/lin2circ.py .')
    os.system('cp ' + args['helperscriptspath'] + '/BLsmooth.py .')
 
    inputchecker(args)
    check_code_is_uptodate()
-   
+   #import h5_merger
 
    for h5parm_id, h5parm in enumerate(args['preapplyH5_list']):
      if h5parm != None:
