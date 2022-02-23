@@ -3562,7 +3562,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
    print(parmdbmergelist)
    #try:
    if True:
-     import h5_merger
+     #import h5_merger
      for msnumber, ms in enumerate(mslist):
        if skymodel != None and selfcalcycle == 0: 
          parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
