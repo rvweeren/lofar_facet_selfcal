@@ -800,7 +800,7 @@ def inputchecker(args):
     print('Cannot find lib_multiproc.py, file does not exist, use --helperscriptspath')
     sys.exit(1)
   if not os.path.isfile('h5_merger.py'):
-    print('Cannot find h5_merger.py, file does not exist, use --helperscriptspath or --helperscriptspath-h5merge')
+    print('Cannot find h5_merger.py, file does not exist, use --helperscriptspath or --helperscriptspathh5merge')
     sys.exit(1)
   if not os.path.isfile('plot_tecandphase.py'):
     print('Cannot find plot_tecandphase.py, file does not exist, use --helperscriptspath')
@@ -4223,7 +4223,7 @@ def main():
    parser.add_argument('--noarchive', help='Do not archive the data', action='store_true')
    parser.add_argument('--skipbackup', help='Leave the original ms intact and work and always work on a DP3 copied dataset (not yet implemented)', action='store_true')
    parser.add_argument('--helperscriptspath', help='location were additional helper scripts are located', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
-   parser.add_argument('--helperscriptspath-h5merge', help='location were  helper scripts h5merge is located (default is None which means the same as helperscriptspath', default=None, type=str)
+   parser.add_argument('--helperscriptspathh5merge', help='location were  helper scripts h5merge is located (default is None which means the same as helperscriptspath', default=None, type=str)
    
    parser.add_argument('--auto', help='Trigger fully automated processing (still under construction, HBA-dutch only)', action='store_true')
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction', action='store_true')
@@ -4268,11 +4268,11 @@ def main():
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
-   if args['helperscriptspath_h5merge'] != None:
-     os.system('cp ' + args['helperscriptspath_h5merge'] + '/h5_merger.py .')  
+   if args['helperscriptspathh5merge'] != None:
+     os.system('cp ' + args['helperscriptspathh5merge'] + '/h5_merger.py .')  
    else:
      os.system('cp ' + args['helperscriptspath'] + '/h5_merger.py .')
-   sys.path.append(os.path.abspath(args['helperscriptspath_h5merge']))
+   sys.path.append(os.path.abspath(args['helperscriptspathh5merge']))
    import h5_merger
    os.system('cp ' + args['helperscriptspath'] + '/plot_tecandphase.py .')
    os.system('cp ' + args['helperscriptspath'] + '/lin2circ.py .')
