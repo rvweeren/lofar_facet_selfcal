@@ -1666,6 +1666,8 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None)
   #image noise info
   hdulist = fits.open(fitsimagename) 
   imagenoiseinfo = findrms(np.ndarray.flatten(hdulist[0].data))
+  logger.info(fitsimagename + ' Max image: ' + str(np.max(np.ndarray.flatten(hdulist[0].data))))
+  logger.info(fitsimagename + ' Min image: ' + str(np.min(np.ndarray.flatten(hdulist[0].data))))  
   hdulist.close()   
 
   data = fits.getdata(fitsimagename)
@@ -1704,6 +1706,8 @@ def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
   #image noise info
   hdulist = fits.open(fitsimagename) 
   imagenoiseinfo = findrms(np.ndarray.flatten(hdulist[0].data))
+  logger.info(fitsimagename + ' Max image: ' + str(np.max(np.ndarray.flatten(hdulist[0].data))))
+  logger.info(fitsimagename + ' Min image: ' + str(np.min(np.ndarray.flatten(hdulist[0].data))))
   hdulist.close()   
   
   f = aplpy.FITSFigure(fitsimagename, slices=[0, 0])
