@@ -3593,7 +3593,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, \
                             medamp=medianamp(parmdbmergename), \
                             outplotname=parmdbmergename.split('_' + ms + '.h5')[0], \
-                            refant=findrefant(parmdbmergename))  
+                            refant=findrefant_core(parmdbmergename))  
        os.system('losoto ' + parmdbmergename + ' ' + losotoparset)
    #except:
    #  pass 
@@ -3799,10 +3799,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       print('Fiting for Faraday Rotation with losoto on the phase differences')
       # work with copies H5 because losoto changes the format splitting off the length 1 direction axis creating issues with H5merge (also add additional solution talbes which we do not want)
       os.system('cp -f ' + parmdb + ' ' + 'FRcopy' + parmdb) 
-      losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant(parmdb), outplotname=outplotname,dejump=dejumpFR)
+      losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb), outplotname=outplotname,dejump=dejumpFR)
       os.system('losoto ' + 'FRcopy' + parmdb + ' ' + losoto_parsetFR)
       rotationmeasure_to_phase('FRcopy' + parmdb, parmdb, dejump=dejumpFR)
-      os.system('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant(parmdb), outplotname=outplotname))
+      os.system('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb), outplotname=outplotname))
 
       
     if incol == 'DATA_PHASE_SLOPE':
@@ -3843,14 +3843,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     
     if soltype in ['rotation','rotation+diagonal']:
 
-      losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname, refant=findrefant(parmdb)) # phase matrix plot
+      losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname, refant=findrefant_core(parmdb)) # phase matrix plot
 
       cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
       os.system(cmdlosoto)
         
     
     if soltype in ['phaseonly','scalarphase']:
-      losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol, outplotname=outplotname, refant=findrefant(parmdb)) # phase matrix plot
+      losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol, outplotname=outplotname, refant=findrefant_core(parmdb)) # phase matrix plot
       cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
       os.system(cmdlosoto)
 
@@ -3860,7 +3860,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
         
     if soltype in ['tec']:
        losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname,\
-                             refant=findrefant(parmdb), markersize=compute_markersize(parmdb))
+                             refant=findrefant_core(parmdb), markersize=compute_markersize(parmdb))
        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_tec
        os.system(cmdlosoto)    
 
@@ -3877,11 +3877,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                                                            maxrmsphase=flagslowphaserms, \
                                                            includesphase=includesphase, onechannel=onechannel, \
                                                            medamp=medamp, flagphases=flagslowphases, onepol=onepol,\
-                                                           outplotname=outplotname, refant=findrefant(parmdb))
+                                                           outplotname=outplotname, refant=findrefant_core(parmdb))
        else:
           losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase, \
                          onechannel=onechannel, medamp=medamp, onepol=onepol, outplotname=outplotname,\
-                         refant=findrefant(parmdb))  
+                         refant=findrefant_core(parmdb))  
 
        # MAKE losoto command    
        if flagging:
@@ -3930,36 +3930,38 @@ def has0coordinates(h5):
     h5.close()
     return False
 
+def findrefant_core(H5file):
+    """
+    Basically like the other one, but now it actually uses losoto
+    """
+    H = losoto.h5parm.h5parm(H5file)
+    solset = H.getSolset('sol000')
+    soltabs = solset.getSoltabNames()
+    for st in soltabs:
+        # Find a reasonable soltab to use
+        if 'phase000' in st or 'rotation000' in st or 'tec000' in st:
+            break
+    soltab = solset.getSoltab(st)
 
-def findrefant(H5file):
-    """
-    Find a reference anntena for plotting with losoto, etc
-    """
-    H = tables.open_file(H5file, mode='r')    
-    
-    try:
-      antenna = H.root.sol000.amplitude000.ant[:]
-    except:
-      pass
-    try:
-      antenna = H.root.sol000.rotation000.ant[:]
-    except:
-      pass 
-    try:
-      antenna = H.root.sol000.phase000.ant[:]
-    except:
-      pass      
-    try:
-      antenna = H.root.sol000.tec000.ant[:]
-    except:
-      pass
+    # Find core stations
+    ants = soltab.getValues()[1]['ant']
+    if 'ST001' in ants:
+        return 'ST001'
+    cs_indices = np.where(['CS' in ant for ant in ants])[0]
+
+    # Find the antennas and which dimension that corresponds to
+    ant_index = np.where(np.array(soltab.getAxesNames())=='ant')[0][0]
+
+    # Find the antenna with the least flagged datapoint
+    weightsum = []
+    ndims = soltab.getValues()[0].ndim
+    for cs in cs_indices:
+        slc = [slice(None)]*ndims
+        slc[ant_index] = cs
+        weightsum.append(np.nansum(soltab.getValues(weight=True)[0][slc]))
+    maxant = np.argmax(weightsum)
     H.close()
-    
-    if 'ST001' in antenna.astype('U13'):
-      return 'ST001'
-    else:
-      return sorted(antenna.astype('U13'))[0] # return first anntena in the list of the sorted list
-
+    return ants[maxant]
 
 def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
     """
@@ -4242,7 +4244,6 @@ def main():
    options = parser.parse_args() # start of replacing args dictionary with objects options
    #print (options.preapplyH5_list)
 
-
    print( 'args before' )
    print ( args )
 
@@ -4268,7 +4269,7 @@ def main():
    print( 'args after' )
    print( args )
 
-   version = '3.3.0'
+   version = '3.2.1'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
