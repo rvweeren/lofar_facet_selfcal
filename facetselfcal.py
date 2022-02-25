@@ -4278,6 +4278,7 @@ def main():
    else:
      os.system('cp ' + args['helperscriptspath'] + '/h5_merger.py .')
    sys.path.append(os.path.abspath(args['helperscriptspathh5merge']))
+   global h5_merger
    import h5_merger
    os.system('cp ' + args['helperscriptspath'] + '/plot_tecandphase.py .')
    os.system('cp ' + args['helperscriptspath'] + '/lin2circ.py .')
