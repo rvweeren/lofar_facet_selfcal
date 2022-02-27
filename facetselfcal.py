@@ -1,13 +1,10 @@
 #!/usr/bin/env python
 
 # exit in a clean way if no clean components are found....
-# findrefant needs to check for flagged antenna
 # do not use os.system for DP3/WSClean to catch errors properly
 # decrease niter if multiscale is triggered, smart move?
-# make ms backups (also deals with NaNs issues)
 # linear to circular solution conversion
 # do not predict sky second time in pertubation solve?
-# only do scalarphasediff solve once?
 # to do: log command into the FITS header
 # solnorm fulljones fix? is very tricky....
 # fulljones flagging and medamps not working correctly
@@ -16,7 +13,6 @@
 # BLsmooth constant smooth for gain solves
 # Look into Wiener/Kalman smoothing
 # only trigger HBA upper band selection for sources outside the FWHM?
-# add 1 Jy source in phase center option
 # stop selfcal if MODEL_DATA / noise is too low
 # if noise goes up stop selfcal
 # for phaseup option add back core stations in solution file via https://github.com/lmorabit/lofar-vlbi/blob/master/bin/gains_toCS_h5parm.py
@@ -4269,15 +4265,16 @@ def main():
    print( 'args after' )
    print( args )
 
-   version = '3.2.1'
+   version = '3.3.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
    if args['helperscriptspathh5merge'] != None:
-     os.system('cp ' + args['helperscriptspathh5merge'] + '/h5_merger.py .')  
+     os.system('cp ' + args['helperscriptspathh5merge'] + '/h5_merger.py .')
+     sys.path.append(os.path.abspath(args['helperscriptspathh5merge']))
    else:
      os.system('cp ' + args['helperscriptspath'] + '/h5_merger.py .')
-   sys.path.append(os.path.abspath(args['helperscriptspathh5merge']))
+   
    global h5_merger
    import h5_merger
    os.system('cp ' + args['helperscriptspath'] + '/plot_tecandphase.py .')
