@@ -58,6 +58,8 @@ from itertools import product
 import subprocess
 import matplotlib.pyplot as plt
 from astropy.wcs import WCS
+os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # for NFS mounted disks
+
 
 #from astropy.utils.data import clear_download_cache
 #clear_download_cache()
@@ -1060,13 +1062,13 @@ def bandwidthsmearing(chanw, freq, imsize, verbose=True):
   
   return R
 
-def number_freqchan_h5(h5parm):
+def number_freqchan_h5(h5parmin):
     '''
     Function to get the number of freqcencies in H5 solution file
     Input: H5 file
     Return: Number of freqcencies in the H5 file
     '''
-    H=tables.open_file(h5parm)
+    H=tables.open_file(h5parmin)
     
     try:
        freq = H.root.sol000.phase000.freq[:]
@@ -3834,21 +3836,29 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       removenans(parmdb, 'amplitude000')
       flaglowamps(parmdb, lowampval=medamp*0.1, flagging=flagging, setweightsphases=includesphase)
       flaghighgamps(parmdb, highampval=medamp*10., flagging=flagging, setweightsphases=includesphase)
-
-    # makes plots and do LOSOTO flagging
-    
+      
+    # makes plots and do LOSOTO flagging      
     if soltype in ['rotation','rotation+diagonal']:
 
       losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname, refant=findrefant_core(parmdb)) # phase matrix plot
 
       cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
       os.system(cmdlosoto)
-        
+
+    #print(findrefant_core(parmdb))
+    #print(onechannel)
+    #if len(tables.file._open_files.filenames) >= 1: # for debugging      
+    #  print('Location 1 Some HDF5 files are not closed:', tables.file._open_files.filenames)
+    #  sys.exit()        
     
     if soltype in ['phaseonly','scalarphase']:
       losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol, outplotname=outplotname, refant=findrefant_core(parmdb)) # phase matrix plot
       cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
-      os.system(cmdlosoto)
+
+      #if len(tables.file._open_files.filenames) >= 1: # for debugging
+      #  print('Location 1.5 Some HDF5 files are not closed:', tables.file._open_files.filenames)
+      #  sys.exit()
+      #os.system(cmdlosoto)
 
 
     if soltype in ['tecandphase', 'tec']:
@@ -3860,7 +3870,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_tec
        os.system(cmdlosoto)    
 
-
+      
     if soltype in ['scalarcomplexgain','complexgain','amplitudeonly','scalaramplitude', \
                    'fulljones','rotation+diagonal'] and (ntimesH5(parmdb) > 1): # plotting/flagging fails if only 1 timeslot
        print('Do flagging?:', flagging)
@@ -3884,6 +3894,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
          os.system('cp -f ' + parmdb + ' ' + parmdb + '.backup')
        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset
        os.system(cmdlosoto)
+    if len(tables.file._open_files.filenames) >= 1: # for debugging
+      print('End runDPPPbase, some HDF5 files are not closed:', tables.file._open_files.filenames)
+      #sys.exit()
     return 
 
 def rotationmeasure_to_phase(H5filein, H5fileout, dejump=False): 
@@ -3929,8 +3942,8 @@ def has0coordinates(h5):
 def findrefant_core(H5file):
     """
     Basically like the other one, but now it actually uses losoto
-    """
-    H = losoto.h5parm.h5parm(H5file)
+    """      
+    H = h5parm.h5parm(H5file)
     solset = H.getSolset('sol000')
     soltabs = solset.getSoltabNames()
     for st in soltabs:
@@ -3956,7 +3969,7 @@ def findrefant_core(H5file):
         slc[ant_index] = cs
         weightsum.append(np.nansum(soltab.getValues(weight=True)[0][slc]))
     maxant = np.argmax(weightsum)
-    H.close()
+    H.close()      
     return ants[maxant]
 
 def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
@@ -4285,10 +4298,10 @@ def main():
    check_code_is_uptodate()
    #import h5_merger
 
-   for h5parm_id, h5parm in enumerate(args['preapplyH5_list']):
-     if h5parm != None:
-       os.system('cp ' + h5parm +  ' .') # make them local because we are going to update the source direction for merging    
-       args['preapplyH5_list'][h5parm_id] = h5parm.split('/')[-1] # update input list to local location
+   for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
+     if h5parmdb != None:
+       os.system('cp ' + h5parmdb +  ' .') # make them local because we are going to update the source direction for merging    
+       args['preapplyH5_list'][h5parm_id] = h5parmdb.split('/')[-1] # update input list to local location
 
    mslist = sorted(args['ms'])
    for ms_id, ms in enumerate(mslist):
