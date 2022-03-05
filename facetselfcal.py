@@ -96,7 +96,19 @@ def check_code_is_uptodate():
        time.sleep(1)
 
    return
-   
+ 
+def force_close(h5):
+    """Close indivdual HDF5 file by force"""
+    h5s = list(tables.file._open_files._handlers)
+    for h in h5s:
+        if h.filename == h5:
+            logger.warning('force_close: Closed --> ' + h5+'\n')
+            print('Forced (!) closing', h5)
+            h.close()
+            return
+    #sys.stderr.write(h5 + ' not found\n') 
+    return
+ 
    
 def create_mergeparmdbname(mslist, selfcalcycle):
    parmdblist = mslist[:]
@@ -3593,6 +3605,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                             outplotname=parmdbmergename.split('_' + ms + '.h5')[0], \
                             refant=findrefant_core(parmdbmergename))  
        os.system('losoto ' + parmdbmergename + ' ' + losotoparset)
+       force_close(parmdbmergename)
    #except:
    #  pass 
  
@@ -3801,6 +3814,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       os.system('losoto ' + 'FRcopy' + parmdb + ' ' + losoto_parsetFR)
       rotationmeasure_to_phase('FRcopy' + parmdb, parmdb, dejump=dejumpFR)
       os.system('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb), outplotname=outplotname))
+      force_close(parmdb)
 
       
     if incol == 'DATA_PHASE_SLOPE':
@@ -3841,7 +3855,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     if soltype in ['rotation','rotation+diagonal']:
 
       losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname, refant=findrefant_core(parmdb)) # phase matrix plot
-
+      force_close(parmdb)
       cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
       os.system(cmdlosoto)
 
@@ -3854,7 +3868,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     if soltype in ['phaseonly','scalarphase']:
       losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol, outplotname=outplotname, refant=findrefant_core(parmdb)) # phase matrix plot
       cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
-
+      force_close(parmdb)
       #if len(tables.file._open_files.filenames) >= 1: # for debugging
       #  print('Location 1.5 Some HDF5 files are not closed:', tables.file._open_files.filenames)
       #  sys.exit()
@@ -3868,7 +3882,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
        losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname,\
                              refant=findrefant_core(parmdb), markersize=compute_markersize(parmdb))
        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_tec
-       os.system(cmdlosoto)    
+       os.system(cmdlosoto)
+       force_close(parmdb)
 
       
     if soltype in ['scalarcomplexgain','complexgain','amplitudeonly','scalaramplitude', \
@@ -3884,10 +3899,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                                                            includesphase=includesphase, onechannel=onechannel, \
                                                            medamp=medamp, flagphases=flagslowphases, onepol=onepol,\
                                                            outplotname=outplotname, refant=findrefant_core(parmdb))
+            force_close(parmdb)
        else:
           losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase, \
                          onechannel=onechannel, medamp=medamp, onepol=onepol, outplotname=outplotname,\
-                         refant=findrefant_core(parmdb))  
+                         refant=findrefant_core(parmdb)) 
+          force_close(parmdb)
 
        # MAKE losoto command    
        if flagging:
@@ -3896,7 +3913,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
        os.system(cmdlosoto)
     if len(tables.file._open_files.filenames) >= 1: # for debugging
       print('End runDPPPbase, some HDF5 files are not closed:', tables.file._open_files.filenames)
-      #sys.exit()
+      force_close(parmdb)
     return 
 
 def rotationmeasure_to_phase(H5filein, H5fileout, dejump=False): 
@@ -3969,7 +3986,8 @@ def findrefant_core(H5file):
         slc[ant_index] = cs
         weightsum.append(np.nansum(soltab.getValues(weight=True)[0][slc]))
     maxant = np.argmax(weightsum)
-    H.close()      
+    H.close()
+    #force_close(H5file) this does not work for some reasons, because it is inside a function that's called in a function call ass argument?
     return ants[maxant]
 
 def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
