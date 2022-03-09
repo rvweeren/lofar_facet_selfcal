@@ -3308,7 +3308,7 @@ def removenegativefrommodel(imagenames):
     return
 
 def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
-              uvtaper=False, multiscale=False, predict=True, onlypredict=False, fitsmask=None, \
+              uvtaper=None, multiscale=False, predict=True, onlypredict=False, fitsmask=None, \
               idg=False, deepmultiscale=False, uvminim=80, fitspectralpol=True, \
               fitspectralpolorder=3, imager='WSCLEAN', restoringbeam=15, automask=2.5, \
               removenegativecc=True, usewgridder=False, paralleldeconvolution=0, \
@@ -3376,8 +3376,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         else:
           print('fitsmask: ', fitsmask, 'does not exist')
           sys.exit(1)
-      if uvtaper:
-         cmd += '-taper-gaussian 15arcsec '
+      if uvtaper != None:
+         cmd += '-taper-gaussian ' + uvtaper + ' '
 
       if idg:
         cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
@@ -3397,9 +3397,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
           #cmd +='-wgridder-accuracy 1e-4 '
     
       cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' 
-      print('WSCLEAN: ', cmd + '-niter ' + str(niter) + ' ' + msliststring)
-      logger.info(cmd + '-niter ' + str(niter) + ' ' + msliststring)
-      os.system(cmd + '-niter ' + str(niter) + ' ' + msliststring)        
+      print('WSCLEAN: ', cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)
+      logger.info(cmd + ' -niter ' + str(niter) + ' ' + msliststring)
+      os.system(cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)        
         
 
       if deepmultiscale:
@@ -4147,6 +4147,9 @@ def makemaskthresholdlist(maskthresholdlist, stop):
    return maskthresholdselfcalcycle
 
 def niter_from_imsize(imsize):
+   if imsize == None:
+     print('imsize not set')
+     sys.exit()
    if imsize < 1024:
      niter = 15000 # minimum  value
    else:
@@ -4261,6 +4264,7 @@ def main():
    parser.add_argument('--auto', help='Trigger fully automated processing (still under construction, HBA-dutch only)', action='store_true')
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction', action='store_true')
    parser.add_argument('--targetcalILT', help='Type of automated target calibration for HBA international baseline data when --auto is used. Options are: tec, tecandphase, scalarphase, type (default=tec)', default='tec', type=str)
+   parser.add_argument('--makeimage-ILTlowres-HBA', help='Under development, make 1.2 arcsec tapered image. Quality check of ILT 1 arcsec imaging', action='store_true')
   
    parser.add_argument('ms', nargs='+', help='msfile(s)')  
 
@@ -4385,7 +4389,7 @@ def main():
        else:
          args['pixelscale'] = 1.5
 
-   if args['delaycal'] and  longbaseline and not LBA:
+   if (args['delaycal'] or args['auto']) and  longbaseline and not LBA:
      if args['imsize'] == None:
        args['imsize'] = 2048   
 
@@ -4638,14 +4642,26 @@ def main():
 
      makeimage(mslist, args['imagename'] + str(i).zfill(3), args['pixelscale'], args['imsize'], \
                args['channelsout'], args['niter'], args['robust'], \
-               uvtaper=False, multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
+               multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
                deepmultiscale=args['deepmultiscale'], uvminim=args['uvminim'], \
                fitspectralpol=args['fitspectralpol'], \
                imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
                removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], \
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
-               deconvolutionchannels=args['deconvolutionchannels'], parallelgridding=args['parallelgridding'],\
-               multiscalescalebias=args['multiscalescalebias'])
+               deconvolutionchannels=args['deconvolutionchannels'], \
+               parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'])
+     if args['makeimage_ILTlowres_HBA']:
+       makeimage(mslist, args['imagename'] +'1.2arcsectaper' + str(i).zfill(3), \
+               args['pixelscale'], args['imsize'], \
+               args['channelsout'], args['niter'], -0.2, uvtaper='1.2arcsec', \
+               multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
+               uvminim=args['uvminim'], fitspectralpol=args['fitspectralpol'], \
+               automask=automask, removenegativecc=False, \
+               fitspectralpolorder=args['fitspectralpolorder'], predict=False, \
+               usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
+               deconvolutionchannels=args['deconvolutionchannels'], \
+               parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'])   
+
   
      # MAKE FIGURE WITH APLPY
      if args['imager'] == 'WSCLEAN':
