@@ -60,7 +60,7 @@ import subprocess
 import matplotlib.pyplot as plt
 from astropy.wcs import WCS
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # for NFS mounted disks
-
+cpu_fraction = 3
 
 #from astropy.utils.data import clear_download_cache
 #clear_download_cache()
@@ -295,7 +295,7 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
 def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF'):
    if not isinstance(inmslist,list):
       inmslist = [inmslist] 
-   pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
+   pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / cpu_fraction))
    for ms in inmslist:
      t = pt.table(ms, readonly=False, ack=True)    
      if outcol not in t.colnames():
@@ -510,7 +510,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
 
 def phaseup(msinlist,datacolumn='DATA',superstation='core', parmdbmergelist=None):
   msoutlist = []
-  pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
+  pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / cpu_fraction))
   for ms in msinlist:
     msout=ms + '.phaseup'
     msoutlist.append(msout)
@@ -621,7 +621,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
       sys.exit()
     
     outmslist = []
-    pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
+    pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / cpu_fraction))
     for ms_id, ms in enumerate(mslist):
       if (freqstep[ms_id] > 0) or (timestep != None) or (msinnchan != None) or \
           (phaseshiftbox != None) or (msinntimes != None): # if this is True then average
@@ -733,7 +733,7 @@ def tecandphaseplotter(h5, ms, outplotname='plot.png'):
 
 def runaoflagger(mslist):
     
-    pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
+    pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / cpu_fraction))
     
     for ms in mslist:
        cmd = 'aoflagger ' + ms
@@ -1786,7 +1786,7 @@ def plotimage(fitsimagename,outplotname,mask=None,rmsnoiseimage=None):
 
 def archive(mslist, outtarname, regionfile, fitsmask, imagename):
   path = '/disks/ftphome/pub/vanweeren'
-  pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
+  pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / cpu_fraction))
   
   for ms in mslist:
     msout = ms + '.calibrated'
@@ -3537,7 +3537,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
    for soltypenumber, soltype in enumerate(soltype_list):
      # SOLVE LOOP OVER MS
      parmdbmslist = []
-     pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
+     pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / cpu_fraction))
      for msnumber, ms in enumerate(mslist):
        # check we are above far enough in the selfcal to solve for the extra pertubation
        if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]: 
@@ -3585,24 +3585,29 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
 
      # APPLYCAL or PRE-APPLYCAL
      count = 0
+     pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / cpu_fraction))
      for msnumber, ms in enumerate(mslist):
        if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]: #
          print(pertubation[msnumber], parmdbmslist[count], msnumber, count)
          if pertubation[msnumber]: # so another solve follows after this
            if soltypenumber == 0:  
-             applycal(ms, parmdbmslist[count], msincol='DATA',msoutcol='CORRECTED_PREAPPLY' + str(soltypenumber))
+             pool.apply_async(applycal, args = (ms, parmdbmslist[count], 'DATA', 'CORRECTED_PREAPPLY' + str(soltypenumber),))
            else:
 #             applycal(ms, parmdbmslist[count], msincol='CORRECTED_PREAPPLY' + str(soltypenumber-1),\
 #                      msoutcol='CORRECTED_PREAPPLY' + str(soltypenumber))   
-             applycal(ms, parmdbmslist[count], msincol=incol[msnumber], msoutcol='CORRECTED_PREAPPLY' + str(soltypenumber)) # msincol gets incol from previous solve 
+             pool.apply_async(applycal, args= (ms, parmdbmslist[count], incol[msnumber], 'CORRECTED_PREAPPLY' + str(soltypenumber),)) # msincol gets incol from previous solve 
            incol[msnumber] = 'CORRECTED_PREAPPLY' + str(soltypenumber) # SET NEW incol for next solve
          else: # so this is the last solve, no other pertubation
            if soltypenumber == 0:  
-             applycal(ms, parmdbmslist[count], msincol='DATA',msoutcol='CORRECTED_DATA')
+             pool.apply_async(applycal, args = (ms, parmdbmslist[count], 'DATA', 'CORRECTED_DATA',))
            else:
              #applycal(ms, parmdbmslist[count], msincol='CORRECTED_PREAPPLY' + str(soltypenumber-1),msoutcol='CORRECTED_DATA')
-             applycal(ms, parmdbmslist[count], msincol=incol[msnumber], msoutcol='CORRECTED_DATA') # msincol gets incol from previous solve
+             pool.apply_async(applycal, args = (ms, parmdbmslist[count], incol[msnumber], 'CORRECTED_DATA',)) # msincol gets incol from previous solve
          count = count + 1 # extra counter because parmdbmslist can have less length than mslist as soltypecycles_list goes per ms
+      
+     # wait for the pool to finish
+     pool.close()
+     pool.join()
    
 
    # merge all solutions
@@ -4309,7 +4314,7 @@ def main():
    #print (options.preapplyH5_list)
    
    # Set multiprocessing pools:
-   pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
+   pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / cpu_fraction))
 
    print( 'args before' )
    print ( args )
@@ -4525,12 +4530,7 @@ def main():
            avgfreqstep.append(0) # put to zero, zero means no average
 
 
-
    # average if requested
-   #average_args = partial(average, freqstep=avgfreqstep, timestep=args['avgtimestep'], \
-                    #start=args['start'], msinnchan=args['msinnchan'],\
-                    #phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'])
-   #mslist = pool.map(average_args, mslist)
    mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'], \
                     start=args['start'], msinnchan=args['msinnchan'],\
                     phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'])
