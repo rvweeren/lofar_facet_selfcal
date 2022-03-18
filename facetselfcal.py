@@ -51,6 +51,7 @@ import pickle
 import fnmatch
 import tables
 from astropy.io import ascii
+from functools import partial
 import multiprocessing
 import ast
 from lofar.stationresponse import stationresponse
@@ -294,6 +295,7 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
 def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF'):
    if not isinstance(inmslist,list):
       inmslist = [inmslist] 
+   pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
    for ms in inmslist:
      t = pt.table(ms, readonly=False, ack=True)    
      if outcol not in t.colnames():
@@ -327,14 +329,18 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
         #cmd += outcol + "[,1]=0+0i,"
         #cmd += outcol + "[,2]=0+0i'"
         print(cmd)
-        os.system(cmd)
+        pool.apply_async(run_command, args = (cmd,))
         cmd = "taql 'update " + ms + " set " 
         #cmd += outcol + "[,0]=0.5*EXP(1.0i*(PHASE(" + incol + "[,0])-PHASE(" + incol + "[,3]))),"
         cmd += outcol + "[,3]=" + outcol + "[,0]'"
         #cmd += outcol + "[,1]=0+0i,"
         #cmd += outcol + "[,2]=0+0i'"
         print(cmd)
-        os.system(cmd)
+        pool.apply_async(run_command, args = (cmd,))
+   
+   pool.close()
+   pool.join()
+    
    return
 
 def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY'):
@@ -504,6 +510,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
 
 def phaseup(msinlist,datacolumn='DATA',superstation='core', parmdbmergelist=None):
   msoutlist = []
+  pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
   for ms in msinlist:
     msout=ms + '.phaseup'
     msoutlist.append(msout)
@@ -519,8 +526,11 @@ def phaseup(msinlist,datacolumn='DATA',superstation='core', parmdbmergelist=None
       cmd += "add.stations={ST001:'CS00[2-7]*'} filter.baseline='!CS00[2-7]*&&*' "  
 
     print(cmd)
-    os.system(cmd)
-  
+    pool.apply_async(run_command, args = (cmd,))
+
+  pool.close()
+  pool.join()
+
   return msoutlist
 
 def findfreqavg(ms, imsize, bwsmearlimit=1.0):
@@ -590,7 +600,7 @@ def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
     del flags
     return    
     
-
+    
 def checklongbaseline(ms):
     t   = pt.table(ms + '/ANTENNA',ack=False)
     antennasms = list(t.getcol('NAME'))
@@ -600,6 +610,10 @@ def checklongbaseline(ms):
     print('Contains long baselines?', haslongbaselines)
     return haslongbaselines
 
+def run_command(cmd):
+    os.system(cmd)
+    return
+
 def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, timeresolution='32', freqresolution='195.3125kHz'):
     # sanity check
     if len(mslist) != len(freqstep):
@@ -607,6 +621,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
       sys.exit()
     
     outmslist = []
+    pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
     for ms_id, ms in enumerate(mslist):
       if (freqstep[ms_id] > 0) or (timestep != None) or (msinnchan != None) or \
           (phaseshiftbox != None) or (msinntimes != None): # if this is True then average
@@ -635,7 +650,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
           print('Average with default WEIGHT_SPECTRUM:', cmd)
           if os.path.isdir(msout):
             os.system('rm -rf ' + msout)
-          os.system(cmd)
+          pool.apply_async(run_command, args = (cmd,))
 
         msouttmp = ms + '.avgtmp'  
         cmd = 'DP3 msin=' + ms + ' msout.storagemanager=dysco steps=[av] av.type=averager '
@@ -656,7 +671,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
             print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
             if os.path.isdir(msouttmp):
               os.system('rm -rf ' + msouttmp)
-            os.system(cmd)
+            pool.apply_async(run_command, args = (cmd,))
           
             # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
             t  = pt.table(msout, readonly=False)
@@ -680,6 +695,9 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
         outmslist.append(msout)
       else:
         outmslist.append(ms)  # so no averaging happened
+    
+    pool.close()
+    pool.join()
     
     return outmslist
 
@@ -714,9 +732,16 @@ def tecandphaseplotter(h5, ms, outplotname='plot.png'):
     return
 
 def runaoflagger(mslist):
+    
+    pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
+    
     for ms in mslist:
        cmd = 'aoflagger ' + ms
-       os.system(cmd)
+       pool.apply_async(run_command, args = (cmd,))
+    
+    pool.close()
+    pool.join()
+    
     return
 
 
@@ -1761,14 +1786,18 @@ def plotimage(fitsimagename,outplotname,mask=None,rmsnoiseimage=None):
 
 def archive(mslist, outtarname, regionfile, fitsmask, imagename):
   path = '/disks/ftphome/pub/vanweeren'
+  pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
+  
   for ms in mslist:
     msout = ms + '.calibrated'
     if os.path.isdir(msout):
       os.system('rm -rf ' + msout)
     cmd  ='DP3 numthreads='+ str(multiprocessing.cpu_count()) +' msin=' + ms + ' msout=' + msout + ' '
     cmd +='msin.datacolumn=CORRECTED_DATA msout.storagemanager=dysco msout.writefullresflag=False steps=[]'
-    os.system(cmd)
- 
+    pool.apply_async(run_command, args = (cmd,))
+  
+  pool.close()
+  pool.join()
 
   msliststring = ' '.join(map(str, glob.glob('*.calibrated') ))
   cmd = 'tar -zcf ' + outtarname + ' ' + msliststring + ' selfcal.log ' +  imagename + ' '
@@ -3508,6 +3537,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
    for soltypenumber, soltype in enumerate(soltype_list):
      # SOLVE LOOP OVER MS
      parmdbmslist = []
+     pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
      for msnumber, ms in enumerate(mslist):
        # check we are above far enough in the selfcal to solve for the extra pertubation
        if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]: 
@@ -3528,22 +3558,25 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
            parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
          else:
            parmdb = soltype + str(soltypenumber) + '_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
-          
-         runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
-                     longbaseline=longbaseline, uvmin=uvmin, \
-                     SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
-                     SMconstraintreffreq=smoothnessreffrequency_list[soltypenumber][msnumber],\
-                     antennaconstraint=antennaconstraint_list[soltypenumber][msnumber], \
-                     restoreflags=restoreflags, maxiter=100, flagging=flagging, skymodel=skymodel, \
-                     flagslowphases=flagslowphases, flagslowamprms=flagslowamprms, \
-                     flagslowphaserms=flagslowphaserms, incol=incol[msnumber], \
-                     predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
-                     skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
-                     ionfactor=ionfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
-                     selfcalcycle=selfcalcycle)
+           
+         pool.apply_async(runDPPPbase, args = (ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
+                     longbaseline, uvmin, \
+                     smoothnessconstraint_list[soltypenumber][msnumber], \
+                     smoothnessreffrequency_list[soltypenumber][msnumber],\
+                     antennaconstraint_list[soltypenumber][msnumber], \
+                     restoreflags, 100, flagging, skymodel, \
+                     flagslowphases, flagslowamprms, \
+                     flagslowphaserms, incol[msnumber], \
+                     predictskywithbeam, BLsmooth, skymodelsource, \
+                     skymodelpointsource, wscleanskymodel,\
+                     ionfactor, blscalefactor, dejumpFR, uvminscalarphasediff,\
+                     selfcalcycle,))
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
        
+     # wait for the pool to finish
+     pool.close()
+     pool.join()
      # NORMALIZE amplitudes
      if normamps and (soltype in ['complexgain','scalarcomplexgain','rotation+diagonal',\
                                   'amplitudeonly','scalaramplitude']) and len(parmdbmslist) > 0:
@@ -4274,6 +4307,9 @@ def main():
 
    options = parser.parse_args() # start of replacing args dictionary with objects options
    #print (options.preapplyH5_list)
+   
+   # Set multiprocessing pools:
+   pool = multiprocessing.Pool(processes = int(multiprocessing.cpu_count() / 4))
 
    print( 'args before' )
    print ( args )
@@ -4491,6 +4527,10 @@ def main():
 
 
    # average if requested
+   #average_args = partial(average, freqstep=avgfreqstep, timestep=args['avgtimestep'], \
+                    #start=args['start'], msinnchan=args['msinnchan'],\
+                    #phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'])
+   #mslist = pool.map(average_args, mslist)
    mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'], \
                     start=args['start'], msinnchan=args['msinnchan'],\
                     phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'])
@@ -4566,8 +4606,6 @@ def main():
    # Get restoring beam for DDFACET in case it is needed
    restoringbeam = calculate_restoringbeam(mslist, LBA)
 
-
-
    # ----- START SELFCAL LOOP -----
    for i in range(args['start'],args['stop']):
 
@@ -4587,8 +4625,8 @@ def main():
        
      # BEAM CORRECTION
      if not args['no_beamcor'] and i == 0:
-         for ms in mslist:
-           beamcor(ms, usedppp=args['use_dpppbeamcor'])
+         beamcor_args = partial(beamcor, usedppp=args['use_dpppbeamcor'])
+         pool.map(beamcor_args, mslist)
 
      # CONVERT TO CIRCULAR/LINEAR CORRELATIONS      
      if (args['docircular'] or args['dolinear']) and i == 0:
@@ -4704,8 +4742,6 @@ def main():
                            flagslowamprms=args['flagslowamprms'], flagslowphaserms=args['flagslowphaserms'],\
                            ionfactor=args['ionfactor'], blscalefactor=args['blscalefactor'],\
                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'])
-
-
  
      # MAKE MASK AND UPDATE UVMIN IF REQUESTED
      if args['fitsmask'] == None:
