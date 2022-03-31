@@ -90,11 +90,15 @@ def check_code_is_uptodate():
       os.system("wget --no-cache --backups=1 " + url + " --output-document=tmpfile")
    
    if not filecmp.cmp('h5_merger.py', 'tmpfile'):
-       print('Warning, you are using an old version of h5_merger.py')
-       print('Download the latest version from https://github.com/jurjen93/lofar_helpers')
-       logger.warning('Using an old h5_merger.py version, download the latest one from https://github.com/jurjen93/lofar_helpers')
-       time.sleep(1)
+      print('Warning, you are using an old version of h5_merger.py')
+      print('Download the latest version from https://github.com/jurjen93/lofar_helpers')
+      logger.warning('Using an old h5_merger.py version, download the latest one from https://github.com/jurjen93/lofar_helpers')
+      time.sleep(1)
 
+   with open('h5_merger.py') as f:
+      if not 'propagate_flags' in f.read():
+         print("Update h5_merger, this version misses the propagate_flags option")
+         sys.exit()
    return
  
 def force_close(h5):
@@ -3594,7 +3598,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        
        print(parmdbmergename,parmdbmergelist[msnumber],ms)
        h5_merger.merge_h5(h5_out=parmdbmergename,h5_tables=parmdbmergelist[msnumber],ms_files=ms,\
-                          convert_tec=True, merge_all_in_one=True)
+                          convert_tec=True, merge_all_in_one=True, propagate_flags=True)
        if False:
          #testing only to check if merged H5 file is correct and makes a good image
          applycal(ms, parmdbmergename, msincol='DATA',msoutcol='CORRECTED_DATA')
