@@ -3872,8 +3872,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     if soltype in ['phaseonly','scalarphase']:
       losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol, outplotname=outplotname, refant=findrefant_core(parmdb)) # phase matrix plot
       cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
-      os.system(cmdlosoto)
       force_close(parmdb)
+      os.system(cmdlosoto)
       #if len(tables.file._open_files.filenames) >= 1: # for debugging
       #  print('Location 1.5 Some HDF5 files are not closed:', tables.file._open_files.filenames)
       #  sys.exit()
