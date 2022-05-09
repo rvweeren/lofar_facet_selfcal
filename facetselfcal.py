@@ -78,6 +78,53 @@ os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # for NFS mounted disks
    #H.close()
    #return
 
+
+def remove_flagged_data_startend(mslist):
+
+    taql = 'taql'       
+    mslistout = []
+    
+    for ms in mslist:
+
+
+       t=pt.table(ms, readonly=True, ack=False)
+       alltimes = t.getcol('TIME')
+       alltimes = np.unique(alltimes)
+       
+       newt=pt.taql('select TIME from $t where FLAG[0,0]=False')
+       time=newt.getcol('TIME')
+       time=np.unique(time)
+       
+       print('There are',len(alltimes),'times') 
+       print('There are',len(time),'unique unflagged times')
+       
+       print('First unflagged time',np.min(time))
+       print('Last unflagged time',np.max(time))
+
+       goodstartid = np.where(alltimes == np.min(time))[0][0]  
+       goodendid = np.where(alltimes == np.max(time))[0][0]  + 1
+
+       print(goodstartid,goodendid)
+       t.close()
+
+    
+       if (goodstartid != 0) or (goodendid != len(time)): # only do if needed to save some time
+          msout = ms + '.cut'
+          if os.path.isdir(msout):
+             os.system('rm -rf ' + msout)
+          
+          cmd = taql + " ' select from " + ms + " where TIME in (select distinct TIME from " + ms 
+          cmd+= " offset " + str(goodstartid) 
+          cmd+= " limit " + str((goodendid-goodstartid)) +") giving " 
+          cmd+= msout + " as plain'"
+          print(cmd)
+          os.system(cmd)
+          mslistout.append(msout)
+       else:
+          mslistout.append(ms) 
+    return mslistout
+
+
 #from https://jckantor.github.io/cbe61622/A.02-Downloading_Python_source_files_from_github.html
 def check_code_is_uptodate():  
    import filecmp
@@ -4250,6 +4297,7 @@ def main():
    parser.add_argument('--forwidefield', help='Keep solutions such that they can be used for widefield imaging/screens', action='store_true')
    parser.add_argument('--doflagging', help='Flag on complexgain solutions (True/False, default=True)', type=ast.literal_eval, default=True)
    parser.add_argument('--restoreflags', help='Restore flagging column after each selfcal cycle, only relevant if --doflagging=True', action='store_true')
+   parser.add_argument('--remove-flagged-from-startend', help='Remove flagged time slots at the start and end of an observations. Do not use if you want to combine DD solutions later for widefield imaging', action='store_true')
    parser.add_argument('--flagslowamprms', help='RMS outlier value to flag on slow amplitudes (default=7.0)', default=7.0, type=float)
    parser.add_argument('--flagslowphaserms', help='RMS outlier value to flag on slow phases (default=7.0)', default=7.0, type=float)
    parser.add_argument('--doflagslowphases', help='If solution flagging is done also flag outliers phases in the slow phase solutions (True/False, default=True)', type=ast.literal_eval, default=True)
@@ -4342,7 +4390,13 @@ def main():
 
    # remove ms which are too short (to catch Elais-N1 case of 600s of data)
    mslist = sorted(select_valid_ms(mslist))
-
+   
+   # cut ms if there are flagged times at the start or end of the ms
+   if args['remove_flagged_from_startend']:
+      mslist = sorted(remove_flagged_data_startend(mslist))
+      #print(mslist)
+      #sys.exit()
+      
    if not args['skipbackup']: # work on copy of input data as a backup
       print('Creating a copy of the data and work on that....')
       mslist = average(mslist, freqstep= [0]*len(mslist), timestep=1, start=args['start'], makecopy=True)
