@@ -108,7 +108,7 @@ def remove_flagged_data_startend(mslist):
        t.close()
 
     
-       if (goodstartid != 0) or (goodendid != len(time)): # only do if needed to save some time
+       if (goodstartid != 0) or (goodendid != len(alltimes)): 
           msout = ms + '.cut'
           if os.path.isdir(msout):
              os.system('rm -rf ' + msout)
