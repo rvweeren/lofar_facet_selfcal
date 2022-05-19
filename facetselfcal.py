@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# implement idea of phase detrending.
 # exit in a clean way if no clean components are found....
 # do not use os.system for DP3/WSClean to catch errors properly
 # decrease niter if multiscale is triggered, smart move?
@@ -3363,7 +3364,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
               idg=False, deepmultiscale=False, uvminim=80, fitspectralpol=True, \
               fitspectralpolorder=3, imager='WSCLEAN', restoringbeam=15, automask=2.5, \
               removenegativecc=True, usewgridder=False, paralleldeconvolution=0, \
-              deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8):
+              deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8, \
+              fullpol=False):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     
@@ -3414,6 +3416,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         cmd += '-deconvolution-channels ' +  str(deconvolutionchannels) + ' '
       if automask > 0.5:
         cmd += '-auto-mask '+ str(automask)  + ' -auto-threshold 0.5 ' # to avoid automask 0
+
       
       if multiscale:
          #cmd += '-multiscale '+' -multiscale-scales 0,4,8,16,32,64 -multiscale-scale-bias 0.6 '
@@ -3440,7 +3443,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
              cmd += '-fit-spectral-log-pol ' + str(fitspectralpolorder) + ' '   
            else:
              cmd += '-fit-spectral-pol ' + str(fitspectralpolorder) + ' '        
-        cmd += '-pol i '
+        if fullpol:
+          cmd += '-pol iquv -join-polarizations '  
+        else:
+          cmd += '-pol i '
         cmdbtmp = '-baseline-averaging ' + baselineav + ' '
         cmd += '-baseline-averaging ' + baselineav + ' '
         if usewgridder:
@@ -4318,6 +4324,7 @@ def main():
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction', action='store_true')
    parser.add_argument('--targetcalILT', help='Type of automated target calibration for HBA international baseline data when --auto is used. Options are: tec, tecandphase, scalarphase, type (default=tec)', default='tec', type=str)
    parser.add_argument('--makeimage-ILTlowres-HBA', help='Under development, make 1.2 arcsec tapered image. Quality check of ILT 1 arcsec imaging', action='store_true')
+   parser.add_argument('--makeimage-fullpol', help='Under development, make Stokes IQUV version for quality checking', action='store_true')
   
    parser.add_argument('ms', nargs='+', help='msfile(s)')  
 
@@ -4720,6 +4727,17 @@ def main():
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'])   
+     if args['makeimage_fullpol']:
+       makeimage(mslist, args['imagename'] +'fullpol' + str(i).zfill(3), \
+               args['pixelscale'], args['imsize'], \
+               args['channelsout'], args['niter'], args['robust'], \
+               multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
+               uvminim=args['uvminim'], fitspectralpol=False, \
+               automask=automask, removenegativecc=False, predict=False, \
+               usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
+               deconvolutionchannels=args['deconvolutionchannels'], \
+               parallelgridding=args['parallelgridding'],\
+               multiscalescalebias=args['multiscalescalebias'], fullpol=True) 
 
   
      # MAKE FIGURE WITH APLPY
