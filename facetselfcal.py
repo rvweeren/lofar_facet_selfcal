@@ -1,14 +1,13 @@
 #!/usr/bin/env python
 
+# normamps full jones, deal with solnorm on crosshands only? currently normaps not used for fulljones
+
 # implement idea of phase detrending.
-# exit in a clean way if no clean components are found....
 # do not use os.system for DP3/WSClean to catch errors properly
 # decrease niter if multiscale is triggered, smart move?
-# linear to circular solution conversion
+# h5 linear to circular solution conversion
 # do not predict sky second time in pertubation solve?
 # to do: log command into the FITS header
-# solnorm fulljones fix? is very tricky....
-# fulljones flagging and medamps not working correctly
 # avg to units of Hertz and seconds? (for input data that hass different averaging)
 # BLsmooth not for gain solves opttion
 # BLsmooth constant smooth for gain solves
@@ -3164,21 +3163,78 @@ def declination_sensivity_factor(declination):
 
     return factor
 
-#print declination_sensivity_factor(-3.7)
-#sys.exit()
+
 
 def flaglowamps(parmdb, lowampval=0.1, flagging=True, setweightsphases=True):
     '''
     flag bad amplitudes in H5 parmdb, those with values < lowampval
+    assume pol-axis is present (can handle length, 1 (scalar), 2 (diagonal), or 4 (fulljones))
     '''
     H5 = h5parm.h5parm(parmdb, readonly=False) 
     amps =H5.getSolset('sol000').getSoltab('amplitude000').getValues()[0]
-    idx = np.where(amps < lowampval)
     weights = H5.getSolset('sol000').getSoltab('amplitude000').getValues(weight=True)[0]
+
+    amps_xx = amps[...,0]
+    amps_yy = amps[...,-1] # so this also works for pol axis length 1
+    weights_xx = weights[...,0]
+    weights_yy =weights[...,-1]
+    idx_xx = np.where(amps_xx < lowampval)
+    idx_yy = np.where(amps_yy < lowampval)
     
     if flagging: # no flagging
-      weights[idx] = 0.0
+      weights_xx[idx_xx] = 0.0
+      weights_yy[idx_yy] = 0.0
       print('Settting some weights to zero in flaglowamps')
+    
+    amps_xx[idx_xx] = 1.0
+    amps_yy[idx_yy] = 1.0
+
+    weights[...,0] = weights_xx
+    weights[...,-1] = weights_yy
+    amps[...,0] = amps_xx
+    amps[...,-1] = amps_yy
+
+    H5.getSolset('sol000').getSoltab('amplitude000').setValues(weights,weight=True)
+    H5.getSolset('sol000').getSoltab('amplitude000').setValues(amps)
+
+    #also put phases weights and phases to zero
+    if setweightsphases:
+        phases = H5.getSolset('sol000').getSoltab('phase000').getValues()[0]
+        weights_p = H5.getSolset('sol000').getSoltab('phase000').getValues(weight=True)[0]
+        phases_xx = phases[...,0]
+        phases_yy = phases[...,-1]
+        weights_p_xx = weights_p[...,0]
+        weights_p_yy = weights_p[...,-1]
+        
+        if flagging: # no flagging
+            weights_p_xx[idx_xx] = 0.0
+            weights_p_yy[idx_yy] = 0.0
+            phases_xx[idx_xx] = 0.0
+            phases_yy[idx_yy] = 0.0
+            
+            weights_p[...,0] = weights_xx_p
+            weights_p[...,-1] = weights_yy_p
+            phases[...,0] = phases_xx
+            phases[...,-1] = phases_yy
+        
+            H5.getSolset('sol000').getSoltab('phase000').setValues(weights_p,weight=True)
+            H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
+    H5.close()
+    return
+
+def flaghighamps(parmdb, highampval=10.,flagging=True, setweightsphases=True):
+    '''
+    flag bad amplitudes in H5 parmdb, those with values > highampval
+    '''
+    H5 = h5parm.h5parm(parmdb, readonly=False) 
+    amps =H5.getSolset('sol000').getSoltab('amplitude000').getValues()[0]
+    idx = np.where(amps > highampval)
+    weights = H5.getSolset('sol000').getSoltab('amplitude000').getValues(weight=True)[0]
+    
+    
+    if flagging: 
+      weights[idx] = 0.0
+      print('Settting some weights to zero in flaghighamps')
     amps[idx] = 1.0
     H5.getSolset('sol000').getSoltab('amplitude000').setValues(weights,weight=True)
     H5.getSolset('sol000').getSoltab('amplitude000').setValues(amps)
@@ -3187,16 +3243,17 @@ def flaglowamps(parmdb, lowampval=0.1, flagging=True, setweightsphases=True):
     if setweightsphases:
         phases =H5.getSolset('sol000').getSoltab('phase000').getValues()[0]
         weights_p = H5.getSolset('sol000').getSoltab('phase000').getValues(weight=True)[0]
-        if flagging: # no flagging
+        if flagging: 
             weights_p[idx] = 0.0
             phases[idx] = 0.0
+            #print(idx)
             H5.getSolset('sol000').getSoltab('phase000').setValues(weights_p,weight=True)
             H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
     
+    #H5.getSolset('sol000').getSoltab('phase000').flush()
+    #H5.getSolset('sol000').getSoltab('amplitude000').flush()
     H5.close()
     return
-
-
 
 def flagbadamps(parmdb, setweightsphases=True):
     '''
@@ -3227,19 +3284,40 @@ def flagbadamps(parmdb, setweightsphases=True):
     return
 
 
-def medianamp(parmdb):
-    H5 = h5parm.h5parm(parmdb, readonly=True) 
-    amps =H5.getSolset('sol000').getSoltab('amplitude000').getValues()[0]
+def medianamp(h5):
+    # assume pol-axis is present (can handle length, 1 (scalar), 2 (diagonal), or 4 (fulljones))
+    H=tables.open_file(h5) 
+    amplitude = H.root.sol000.amplitude000.val[:]
+    weights   = H.root.sol000.amplitude000.weight[:]
+    if amplitude.shape[-1] == 4:
+      fulljones = True
+    else:
+      fulljones = False
+    H.close()
     
-    idx = np.where(amps <= 0.0) # to catch bad amps (should not be there but apparently sometimes a zero slips through
-    amps[idx] = 1.0
+    print('Amplitude and Weights shape:', weights.shape, amplitude.shape)
+    amps_xx = amplitude[...,0]
+    amps_yy = amplitude[...,-1] # so this also works for pol axis length 1
+    weights_xx = weights[...,0]
+    weights_yy = weights[...,-1]
+
+    idx_xx = np.where(weights_xx != 0.0)    
+    idx_yy = np.where(weights_yy != 0.0)
     
-    weights = H5.getSolset('sol000').getSoltab('amplitude000').getValues(weight=True)[0]
-    idx = np.where(weights != 0.0)
-    medamps = 10**(np.nanmedian(np.log10(amps[idx])))
-    H5.close()
-    print('Median amplitude of ', parmdb, ':', medamps)
-    logger.info('Median amplitude of ' + parmdb + ': ' + str(medamps))
+    medamps = 0.5*(10**(np.nanmedian(np.log10(amps_xx[idx_xx]))) + 10**(np.nanmedian(np.log10(amps_yy[idx_yy]))))
+    print('Median  Stokes I amplitude of ', h5, ':', medamps)
+    
+    if fulljones:
+       amps_xy = amplitude[...,1]
+       amps_yx = amplitude[...,2] 
+       weights_xy = weights[...,1]
+       weights_yx = weights[...,2]
+       idx_xy = np.where(weights_xy != 0.0)    
+       idx_yx = np.where(weights_yx != 0.0)
+       medamps_cross = 0.5*(10**(np.nanmedian(np.log10(amps_xy[idx_xy]))) + 10**(np.nanmedian(np.log10(amps_yx[idx_yx]))))
+       print('Median amplitude of XY+YX ', h5, ':', medamps_cross)
+
+    logger.info('Median Stokes I amplitude of ' + h5 + ': ' + str(medamps))
     return medamps
 
 def normamplitudes(parmdb):
@@ -3290,41 +3368,20 @@ def normamplitudes(parmdb):
     return
 
 
-
-
-
-
-def flaghighgamps(parmdb, highampval=10.,flagging=True, setweightsphases=True):
+def checkforzerocleancomponents(imagenames):
     '''
-    flag bad amplitudes in H5 parmdb, those with values > highampval
+    check if something was cleaned, if not stop de script to avoid more obscure errors later
     '''
-    H5 = h5parm.h5parm(parmdb, readonly=False) 
-    amps =H5.getSolset('sol000').getSoltab('amplitude000').getValues()[0]
-    idx = np.where(amps > highampval)
-    weights = H5.getSolset('sol000').getSoltab('amplitude000').getValues(weight=True)[0]
-    
-    
-    if flagging: 
-      weights[idx] = 0.0
-      print('Settting some weights to zero in flaghighgamps')
-    amps[idx] = 1.0
-    H5.getSolset('sol000').getSoltab('amplitude000').setValues(weights,weight=True)
-    H5.getSolset('sol000').getSoltab('amplitude000').setValues(amps)
-
-    #also put phases weights and phases to zero
-    if setweightsphases:
-        phases =H5.getSolset('sol000').getSoltab('phase000').getValues()[0]
-        weights_p = H5.getSolset('sol000').getSoltab('phase000').getValues(weight=True)[0]
-        if flagging: 
-            weights_p[idx] = 0.0
-            phases[idx] = 0.0
-            #print(idx)
-            H5.getSolset('sol000').getSoltab('phase000').setValues(weights_p,weight=True)
-            H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
-    
-    #H5.getSolset('sol000').getSoltab('phase000').flush()
-    #H5.getSolset('sol000').getSoltab('amplitude000').flush()
-    H5.close()
+    for image_id, image in enumerate(imagenames):
+        print('Check if there are non-zero pixels: ', image)
+        hdul = fits.open(image)
+        data = hdul[0].data
+        if not np.any(data): # this checks if all elements are 0.0
+          print('Model image:', image, 'contains only zeros. Stopping the selfcal')
+          hdul.close()
+          logger.error('Model image: ' + image + ' contains only zeros. Stopping the selfcal')
+          sys.exit()
+        hdul.close()
     return
 
 
@@ -3500,6 +3557,11 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         else:    
             removenegativefrommodel(sorted(glob.glob(imageout + '-????-model.fits')))
 
+      # Check is anything was cleaned. If not, stop the selfcal to avoid obscure errors later 
+      if idg:
+        checkforzerocleancomponents(glob.glob(imageout +'-????-I-model*.fits'))  # only Stokes I
+      else:    
+        checkforzerocleancomponents(glob.glob(imageout + '-????-model.fits'))
 
       if predict:
         cmd = 'wsclean -size ' 
@@ -3696,7 +3758,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
 
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0, \
                 SMconstraint=0.0, SMconstraintreffreq=0.0, antennaconstraint=None, \
-                restoreflags=False, \
+                restoreflags=False, solveralgorithm='directionsolve', \
                 maxiter=100, flagging=False, skymodel=None, flagslowphases=True, \
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
@@ -3731,7 +3793,6 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                onlypredict=True, idg=False, usewgridder=True)
 
 
-
     if skymodelpointsource !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
         # create MODEL_DATA (no dysco!)
         os.system('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
@@ -3756,7 +3817,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       incol = 'DATA_PHASE_SLOPE'
       modeldata = 'MODEL_DATA_PHASE_SLOPE'      
 
-
+    if soltype in ['fulljones']:
+      print('Setting XY and YX to 0+0i')  
+      os.system("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
+      os.system("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")   
+     
     if soltype in ['phaseonly','complexgain','fulljones','rotation+diagonal','amplitudeonly']: # for 1D plotting
       onepol = False
     if soltype in ['scalarphase','tecandphase','tec','scalaramplitude','scalarcomplexgain','rotation']:
@@ -3804,6 +3869,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     cmd += 'msout=. ddecal.mode=' + soltype + ' '
     cmd += 'msin.weightcolumn='+weight_spectrum + ' '
     cmd += 'steps=[ddecal] ' + 'msout.storagemanager=dysco ddecal.type=ddecal '
+    cmd += 'ddecal.solveralgorithm=' + solveralgorithm + ' '
     cmd += 'ddecal.maxiter='+str(np.int(maxiter)) + ' ddecal.propagatesolutions=True '
     cmd += 'ddecal.usemodelcolumn=True '
     cmd += 'msin.modelcolumn=' + modeldata + ' '  
@@ -3890,23 +3956,17 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     # Check for bad values  
     if soltype in ['scalarcomplexgain','complexgain','amplitudeonly','scalaramplitude','fulljones','rotation+diagonal']:
       flagbadamps(parmdb, setweightsphases=includesphase)
-      if soltype != 'fulljones':
-        removenans(parmdb, 'amplitude000')
-        medamp = medianamp(parmdb) # fu
-      else:
-        print('Not implemented, medamp of fulljones')
-        sys.exit() 
-
-
+      removenans(parmdb, 'amplitude000')
+      medamp = medianamp(parmdb) # fu
+      
       if soltype != 'amplitudeonly' and soltype != 'scalaramplitude':
          try:
            change_refant(parmdb,'phase000')
          except:
            pass
          removenans(parmdb, 'phase000')
-      removenans(parmdb, 'amplitude000')
       flaglowamps(parmdb, lowampval=medamp*0.1, flagging=flagging, setweightsphases=includesphase)
-      flaghighgamps(parmdb, highampval=medamp*10., flagging=flagging, setweightsphases=includesphase)
+      flaghighamps(parmdb, highampval=medamp*10., flagging=flagging, setweightsphases=includesphase)
       
     # makes plots and do LOSOTO flagging      
     if soltype in ['rotation','rotation+diagonal']:
@@ -4360,7 +4420,7 @@ def main():
    print( 'args after' )
    print( args )
 
-   version = '3.3.0'
+   version = '3.4.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
