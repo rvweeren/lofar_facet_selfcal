@@ -1868,7 +1868,8 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename):
 
 def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
                       innchan_list, insolint_list, insmoothnessconstraint_list, \
-                      insmoothnessreffrequency_list, inantennaconstraint_list, \
+                      insmoothnessreffrequency_list, insmoothnessspectralexponent_list,\
+                      inantennaconstraint_list, \
                       insoltypecycles_list):
    """
    take user input solutions,nchan,smoothnessconstraint,antennaconstraint and expand them to all ms
@@ -1897,6 +1898,10 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
       f = open('smoothnessreffrequency.p', 'rb') 
       smoothnessreffrequency_list = pickle.load(f)        
       f.close()
+      
+      f = open('smoothnessspectralexponent.p', 'rb')
+      smoothnessspectralexponent_list = pickle.load(f)
+      f.close()
 
       f = open('soltypecycles.p', 'rb') 
       soltypecycles_list = pickle.load(f)        
@@ -1906,10 +1911,11 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
    else:
       nchan_list  = [] # list with len(soltype_list)
       solint_list = [] # list with len(soltype_list)
-      smoothnessconstraint_list = [] # nested list with len(soltype_list), inner list is for ms)
-      smoothnessreffrequency_list = [] # nested list with len(soltype_list), inner list is for ms)
-      antennaconstraint_list = [] # nested list with len(soltype_list), inner list is for ms)
-      soltypecycles_list = []  # nested list with len(soltype_list), inner list is for ms)
+      smoothnessconstraint_list = [] # nested list with len(soltype_list), inner list is for ms
+      smoothnessreffrequency_list = [] # nested list with len(soltype_list), inner list is for ms
+      smoothnessspectralexponent_list = [] # nest list with len(soltype_list), inner list is for ms
+      antennaconstraint_list = [] # nested list with len(soltype_list), inner list is for ms
+      soltypecycles_list = []  # nested list with len(soltype_list), inner list is for ms
 
       for soltype_id, soltype in enumerate(soltype_list):
         nchan_ms   = [] # list with len(mslist)
@@ -1917,6 +1923,7 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
         antennaconstraint_list_ms   = [] # list with len(mslist)
         smoothnessconstraint_list_ms  = [] # list with len(mslist)
         smoothnessreffrequency_list_ms  = [] # list with len(mslist)
+        smoothnessspectralexponent_list_ms = [] # list with len(mslist)
         soltypecycles_list_ms = [] # list with len(mslist)
 
         for ms in mslist:
@@ -1945,7 +1952,13 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
             smoothnessreffrequency = insmoothnessreffrequency_list[soltype_id]
           except:
             smoothnessreffrequency = 0.0
-            
+          
+          # smoothnessspectralexponent 
+          try:
+            smoothnessspectralexponent = insmoothnessspectralexponent_list[soltype_id]
+          except:
+            smoothnessspectralexponent = -1.0          
+          
           # antennaconstraint 
           try:
             antennaconstraint = inantennaconstraint_list[soltype_id]
@@ -1964,6 +1977,7 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
           solint_ms.append(solint)
           smoothnessconstraint_list_ms.append(smoothnessconstraint)
           smoothnessreffrequency_list_ms.append(smoothnessreffrequency)
+          smoothnessspectralexponent_list_ms.append(smoothnessspectralexponent)
           antennaconstraint_list_ms.append(antennaconstraint)
           soltypecycles_list_ms.append(soltypecycles)
 
@@ -1973,6 +1987,7 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
         antennaconstraint_list.append(antennaconstraint_list_ms)   # list of lists
         smoothnessconstraint_list.append(smoothnessconstraint_list_ms) # list of lists
         smoothnessreffrequency_list.append(smoothnessreffrequency_list_ms) # list of lists
+        smoothnessspectralexponent_list.append(smoothnessspectralexponent_list_ms) # list of lists
         
         soltypecycles_list.append(soltypecycles_list_ms)
 
@@ -1991,6 +2006,10 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
       f = open('smoothnessreffrequency.p', 'wb') 
       pickle.dump(smoothnessreffrequency_list,f)        
       f.close()  
+
+      f = open('smoothnessspectralexponent.p', 'wb') 
+      pickle.dump(smoothnessspectralexponent_list,f)        
+      f.close()  
       
       f = open('antennaconstraint.p', 'wb') 
       pickle.dump(antennaconstraint_list,f)        
@@ -2006,6 +2025,7 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
    print('solint:',solint_list)
    print('smoothnessconstraint:',smoothnessconstraint_list)
    print('smoothnessreffrequency:',smoothnessreffrequency_list)
+   print('smoothnessspectralexponent:',smoothnessspectralexponent_list)
    print('antennaconstraint:',antennaconstraint_list)
    print('soltypecycles:',soltypecycles_list)
 
@@ -2014,10 +2034,11 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
    logger.info('solint: ' + str(insolint_list))
    logger.info('smoothnessconstraint: ' + str(insmoothnessconstraint_list))
    logger.info('smoothnessreffrequency: ' + str(insmoothnessreffrequency_list))
+   logger.info('smoothnessspectralexponent: ' + str(insmoothnessspectralexponent_list))
    logger.info('antennaconstraint: ' + str(inantennaconstraint_list))
    logger.info('soltypecycles: ' + str(insoltypecycles_list))   
    
-   return nchan_list, solint_list, smoothnessconstraint_list, smoothnessreffrequency_list, antennaconstraint_list, soltypecycles_list
+   return nchan_list, solint_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, antennaconstraint_list, soltypecycles_list
 
 def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
    t = pt.table(ms + '/SPECTRAL_WINDOW')
@@ -2098,6 +2119,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
                           innchan_list=None, insolint_list=None,\
                           uvdismod=None, modelcolumn='MODEL_DATA', redo=False,\
                           insmoothnessconstraint_list=None, insmoothnessreffrequency_list=None, \
+                          insmoothnessspectralexponent_list=None,\
                           inantennaconstraint_list=None, \
                           insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0,\
                           phasefactorsolint=1.0, delaycal=False):
@@ -2392,6 +2414,10 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    f = open('smoothnessreffrequency.p', 'wb') 
    pickle.dump(insmoothnessreffrequency_list,f)        
    f.close()   
+
+   f = open('smoothnessspectralexponent.p', 'wb') 
+   pickle.dump(insmoothnessspectralexponent_list,f)        
+   f.close()   
   
    f = open('antennaconstraint.p', 'wb') 
    pickle.dump(inantennaconstraint_list,f)        
@@ -2406,6 +2432,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    print('solint:',insolint_list)
    print('smoothnessconstraint:',insmoothnessconstraint_list)
    print('smoothnessreffrequency:',insmoothnessreffrequency_list)
+   print('smoothnessspectralexponent_list:',insmoothnessspectralexponent_list)
    print('antennaconstraint:',inantennaconstraint_list)
    print('soltypecycles:',insoltypecycles_list)
 
@@ -2414,11 +2441,12 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    logger.info('solint: ' + str(insolint_list))
    logger.info('smoothnessconstraint: ' + str(insmoothnessconstraint_list))
    logger.info('smoothnessreffrequency: ' + str(insmoothnessreffrequency_list))
+   logger.info('smoothnessspectralexponent: ' + str(insmoothnessspectralexponent_list))
    logger.info('antennaconstraint: ' + str(inantennaconstraint_list))
    logger.info('soltypecycles: ' + str(insoltypecycles_list))
 
       
-   return innchan_list, insolint_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, inantennaconstraint_list, insoltypecycles_list
+   return innchan_list, insolint_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, inantennaconstraint_list, insoltypecycles_list
 
 
 
@@ -3611,7 +3639,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
 
 def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               soltype_list, soltypecycles_list, \
-              smoothnessconstraint_list, smoothnessreffrequency_list, antennaconstraint_list, uvmin=0, normamps=False, skymodel=None, predictskywithbeam=False, restoreflags=False, \
+              smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, antennaconstraint_list, uvmin=0, normamps=False, skymodel=None, predictskywithbeam=False, restoreflags=False, \
               flagging=False, longbaseline=False, BLsmooth=False, flagslowphases=True, flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None, skymodelpointsource=None, wscleanskymodel=None, \
               ionfactor=0.01, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0):
 
@@ -3652,6 +3680,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      longbaseline=longbaseline, uvmin=uvmin, \
                      SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
                      SMconstraintreffreq=smoothnessreffrequency_list[soltypenumber][msnumber],\
+                     SMconstraintspectralexponent=smoothnessspectralexponent_list[soltypenumber][msnumber],\
                      antennaconstraint=antennaconstraint_list[soltypenumber][msnumber], \
                      restoreflags=restoreflags, maxiter=100, flagging=flagging, skymodel=skymodel, \
                      flagslowphases=flagslowphases, flagslowamprms=flagslowamprms, \
@@ -3757,7 +3786,8 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
    return    
 
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0, \
-                SMconstraint=0.0, SMconstraintreffreq=0.0, antennaconstraint=None, \
+                SMconstraint=0.0, SMconstraintreffreq=0.0, \
+                SMconstraintspectralexponent=-1.0, antennaconstraint=None, \
                 restoreflags=False, solveralgorithm='directionsolve', \
                 maxiter=100, flagging=False, skymodel=None, flagslowphases=True, \
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
@@ -3892,7 +3922,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
         cmd += 'ddecal.antennaconstraint=' + antennaconstraintstr(antennaconstraint, antennasms, HBAorLBA) + ' '
     if SMconstraint > 0.0 and nchan != 0:
         cmd += 'ddecal.smoothnessconstraint=' + str(SMconstraint*1e6) + ' ' 
-        cmd += 'ddecal.smoothnessreffrequency=' + str(SMconstraintreffreq*1e6) + ' ' 
+        cmd += 'ddecal.smoothnessreffrequency=' + str(SMconstraintreffreq*1e6) + ' '
+        cmd += 'ddecal.smoothnessspectralexponent=' + str(SMconstraintspectralexponent) + ' '
         
     if soltype in ['phaseonly','scalarphase','tecandphase','tec','rotation']:
        cmd += 'ddecal.tolerance=1.e-4 '
@@ -4331,7 +4362,8 @@ def main():
    parser.add_argument("--solint-list", type=arg_as_list, default=[1,1,120],help="List of values")
    parser.add_argument("--nchan-list", type=arg_as_list, default=[1,1,10],help="List of values")
    parser.add_argument("--smoothnessconstraint-list", type=arg_as_list, default=[0.,0.,5.],help="List of values")
-   parser.add_argument("--smoothnessreffrequency-list", type=arg_as_list, default=[0.,0.,0.],help="An optional reference frequency (in MHz) for the smoothness constraint. When unequal to 0, the size of the smoothing kernel will vary over frequency by a factor of frequency/smoothnessreffrequency, i.e., the kernel will be smaller for lower frequencies, default is [0.0]")
+   parser.add_argument("--smoothnessreffrequency-list", type=arg_as_list, default=[0.,0.,0.],help="An optional reference frequency (in MHz) for the smoothness constraint. When unequal to 0, the size of the smoothing kernel will vary over frequency by a factor of smoothnessreffrequency*(frequnecy**smoothnessspectralexponent)")
+   parser.add_argument("--smoothnessspectralexponent-list", type=arg_as_list, default=[-1.,-1.,-1.],help="If smoothnessreffrequency is not equal to zero then this paramter determines the freqeuency scaling law, default=-1 (1/nu), for scalarphasediff -2 might be useful")
    parser.add_argument("--antennaconstraint-list", type=arg_as_list, default=[None,None,None],help="List of values")
    parser.add_argument("--soltypecycles-list", type=arg_as_list, default=[0,999,3],help="List of values, first entry is required to be 0")
    parser.add_argument("--BLsmooth", help='Employ BLsmooth for low S/N data', action='store_true')
@@ -4551,6 +4583,7 @@ def main():
      else:
         args['smoothnessconstraint_list'] = [10.0, 5.0] 
         args['smoothnessreffrequency_list'] = [120.0, 0.0] 
+        args['smoothnessspectralexponent_list'] = [-1.0, -1.0]
      args['uvmin'] =  20000
      if LBA:
        args['BLsmooth'] = True
@@ -4574,6 +4607,7 @@ def main():
      args['soltype_list'] = ['scalarphasediff','scalarphase','scalarcomplexgain']
      args['smoothnessconstraint_list'] = [8.0,2.0,15.0]
      args['smoothnessreffrequency_list'] = [120.,144.,0.0]
+     args['smoothnessspectralexponent_list'] = [-2.0,-1.0,-1.0]
      args['antennaconstraint_list'] = ['alldutch',None,None] 
      args['nchan_list'] = [1,1,1]    
      args['uvmin'] =  40000 
@@ -4676,16 +4710,18 @@ def main():
 
 
    if args['start'] == 0:
-     os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p antennaconstraint.p soltypecycles.p') 
+     os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p antennaconstraint.p soltypecycles.p') 
 
 
 
    
-   nchan_list,solint_list,smoothnessconstraint_list, smoothnessreffrequency_list,  antennaconstraint_list, soltypecycles_list = \
+   nchan_list,solint_list,smoothnessconstraint_list, smoothnessreffrequency_list,  smoothnessspectralexponent_list, antennaconstraint_list, soltypecycles_list = \
                                               setinitial_solint(mslist, args['soltype_list'],longbaseline, LBA, \
                                               args['nchan_list'], args['solint_list'], \
                                               args['smoothnessconstraint_list'], \
-                                              args['smoothnessreffrequency_list'], args['antennaconstraint_list'],\
+                                              args['smoothnessreffrequency_list'], \
+                                              args['smoothnessspectralexponent_list'],\
+                                              args['antennaconstraint_list'],\
                                               args['soltypecycles_list'])
 
 
@@ -4746,6 +4782,7 @@ def main():
      if (args['skymodel'] != None or args['skymodelpointsource'] != None or args['wscleanskymodel'] != None) and (i ==0):
         calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
                              soltypecycles_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
+                             smoothnessspectralexponent_list, \
                              antennaconstraint_list, uvmin=args['uvmin'], normamps=args['normampsskymodel'], \
                              skymodel=args['skymodel'], \
                              predictskywithbeam=args['predictskywithbeam'], \
@@ -4819,13 +4856,15 @@ def main():
      # REDETERMINE SOLINTS IF REQUESTED
      if (i >= 0) and (args['usemodeldataforsolints']):
        print('Recomputing solints .... ')
-       nchan_list,solint_list,smoothnessconstraint_list,smoothnessreffrequency_list, \
-       antennaconstraint_list,soltypecycles_list  = \
+       nchan_list,solint_list,smoothnessconstraint_list,smoothnessreffrequency_list,\
+                              smoothnessspectralexponent_list, antennaconstraint_list, \
+                              soltypecycles_list  = \
                               auto_determinesolints(mslist, args['soltype_list'], \
                               longbaseline, LBA, \
                               innchan_list=nchan_list, insolint_list=solint_list, \
                               insmoothnessconstraint_list=smoothnessconstraint_list, \
                               insmoothnessreffrequency_list=smoothnessreffrequency_list,\
+                              insmoothnessspectralexponent_list=smoothnessspectralexponent_list,\
                               inantennaconstraint_list=antennaconstraint_list, \
                               insoltypecycles_list=soltypecycles_list, redo=True, \
                               tecfactorsolint=args['tecfactorsolint'], \
@@ -4834,7 +4873,9 @@ def main():
 
      # CALIBRATE AND APPLYCAL
      calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], soltypecycles_list,\
-                           smoothnessconstraint_list, smoothnessreffrequency_list, antennaconstraint_list, uvmin=args['uvmin'], \
+                           smoothnessconstraint_list, smoothnessreffrequency_list,\
+                           smoothnessspectralexponent_list, \
+                           antennaconstraint_list, uvmin=args['uvmin'], \
                            normamps=args['normamps'], restoreflags=args['restoreflags'], \
                            flagging=args['doflagging'], longbaseline=longbaseline, \
                            BLsmooth=args['BLsmooth'], flagslowphases=args['doflagslowphases'], \
