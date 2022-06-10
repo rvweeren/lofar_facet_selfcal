@@ -1844,26 +1844,6 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename):
   return
 
 
-#def reweight(mslist, pixsize, imsize, channelsout, niter, robust, multiscale=False, fitsmask=None):
-   #"""
-   #determine the solution time and frequency intervals based on the amount of compact source flux
-   #"""
-   
-   #rmslist = []
-
-   #logger.info('Adjusting weights')
-
-   #for ms in mslist:
-          #imageout =  'rmsimage' + ms.split('.ms')[0] 
-          #makeimage([ms], imageout, pixsize, imsize, channelsout, np.int(niter/(len(mslist)**(1./3.))), robust, multiscale=multiscale, predict=False,fitsmask=fitsmask)
-          
-          #hdulist = fits.open(imageout + '-MFS-image.fits')
-          #imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
-          #hdulist.close() 
-          #rmslist.append(imagenoise)
-          
-   #weightslist = []       
-   #return 
 
 
 def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
@@ -2892,12 +2872,14 @@ def beamcor(ms, usedppp=True):
     losoto = 'losoto'
     taql = 'taql'
     H5name = create_beamcortemplate(ms)
-    parset = create_losoto_beamcorparset(ms)
+
 
     losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True)
     losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True)   
 
     phasedup = fixbeam_ST001(H5name)
+    parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name))
+    force_close(H5name)
 
     if usedppp and not phasedup :
         cmddppp = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
@@ -3754,9 +3736,6 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                             refant=findrefant_core(parmdbmergename))  
        os.system('losoto ' + parmdbmergename + ' ' + losotoparset)
        force_close(parmdbmergename)
-   #except:
-   #  pass 
- 
    return 
 
 
@@ -3773,7 +3752,6 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
       os.system(cmdmsdb)
    else:
       sourcedb = skymodel    
-   
    
    cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msout=. ' 
    cmd += 'p.sourcedb=' + sourcedb + ' steps=[p] p.type=predict msout.datacolumn=' + modeldata + ' '
@@ -3796,7 +3774,6 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                 blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0):
     
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
-    
     
     
     modeldata = 'MODEL_DATA' # the default, update if needed for scalarphasediff and phmin solves
@@ -4452,7 +4429,7 @@ def main():
    print( 'args after' )
    print( args )
 
-   version = '3.4.0'
+   version = '3.4.1'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
