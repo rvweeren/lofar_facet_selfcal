@@ -4101,6 +4101,9 @@ def findrefant_core(H5file):
         return 'ST001'
     cs_indices = np.where(['CS' in ant for ant in ants])[0]
 
+    if len(cs_indices) == 0: # in case there are no CS stations try with RS
+       cs_indices = np.where(['RS' in ant for ant in ants])[0]
+
     # Find the antennas and which dimension that corresponds to
     ant_index = np.where(np.array(soltab.getAxesNames())=='ant')[0][0]
 
@@ -4429,7 +4432,7 @@ def main():
    print( 'args after' )
    print( args )
 
-   version = '3.4.1'
+   version = '3.4.2'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
