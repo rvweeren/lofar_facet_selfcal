@@ -304,6 +304,12 @@ def main(args):
     # convert fromo ra,dec to x,y pixel
     x, y = w.wcs_world2pix(c.ra.degree, c.dec.degree, 1)
     
+    if (np.max(x) >= xmax-1.) or (np.min(x) <= xmin) or (np.max(y) >=ymax-1.) or (np.min(y) <= ymin):
+        print('You are feeding in a direction which sits outside the image region covered by --imsize')
+        print('\n',x,'\n',y)
+        sys.exit()
+        
+    
     # Generate coordinates
     #x, y = generate_centroids(xmin, ymin, xmax, ymax, npoints_x, npoints_y, distort_x, distort_y)
     
