@@ -3739,9 +3739,21 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
    return 
 
 
+def is_binary(file_name):
+    #https://stackoverflow.com/questions/898669/how-can-i-detect-if-a-file-is-binary-non-text-in-python
+    try:
+        with open(file_name, 'tr') as check_file:  # try open file in text mode
+            check_file.read()
+            return False
+    except:  # if fail then file is non-text (binary)
+        return True
+
+
 def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None):
    
-   if skymodel.split('.')[-1] != 'sourcedb':
+   if is_binary(skymodel):
+      sourcedb = skymodel 
+   else:
       #make sourcedb
       sourcedb = skymodel + 'sourcedb'
       if os.path.isfile(sourcedb):
@@ -3749,9 +3761,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
       cmdmsdb = "makesourcedb in=" + skymodel + " "
       cmdmsdb += "out=" + sourcedb + " outtype='blob' format='<' append=False"
       print(cmdmsdb)
-      os.system(cmdmsdb)
-   else:
-      sourcedb = skymodel    
+      os.system(cmdmsdb)         
    
    cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msout=. ' 
    cmd += 'p.sourcedb=' + sourcedb + ' steps=[p] p.type=predict msout.datacolumn=' + modeldata + ' '
@@ -4432,7 +4442,7 @@ def main():
    print( 'args after' )
    print( args )
 
-   version = '3.4.2'
+   version = '3.5.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -4726,11 +4736,17 @@ def main():
            if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + '.app.restored.fits'):
                fitsmask = args['imagename'] + str(i-1).zfill(3) + '.app.restored.fits.mask.fits'
 
+
+
        
      # BEAM CORRECTION
      if not args['no_beamcor'] and i == 0:
          for ms in mslist:
            beamcor(ms, usedppp=args['use_dpppbeamcor'])
+
+     # PHASE-UP if requested
+     #if args['phaseupstations'] != None and i== 0:
+     #    mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'])
 
      # CONVERT TO CIRCULAR/LINEAR CORRELATIONS      
      if (args['docircular'] or args['dolinear']) and i == 0:
@@ -4752,7 +4768,7 @@ def main():
          mslist = mslist_backup[:]  # reset back, note copy by slicing otherwise list refers to original 
          preapply(create_mergeparmdbname(mslist, i-1), mslist, updateDATA=False) # do not overwrite DATA column
 
-     # PHASE-UP if requested
+     #PHASE-UP if requested
      if args['phaseupstations'] != None and i== 0:
          mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'])
 
