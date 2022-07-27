@@ -27,6 +27,7 @@ import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='selfcal.log', format='%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 logger.setLevel(logging.DEBUG)
+import magic
 
 
 import matplotlib
@@ -3740,14 +3741,21 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
 
 
 def is_binary(file_name):
-    #https://stackoverflow.com/questions/898669/how-can-i-detect-if-a-file-is-binary-non-text-in-python
-    try:
-        with open(file_name, 'tr') as check_file:  # try open file in text mode
-            check_file.read()
-            return False
-    except:  # if fail then file is non-text (binary)
-        return True
+    ''' Check if a file contains text (and thus is a skymodel file, for example).
 
+    Example from https://stackoverflow.com/questions/2472221/how-to-check-if-a-file-contains-plain-text
+
+    Args:
+        file_name (str): path to the file to determine the binary nature of.
+    Returns:
+        result (bool): returns whether the file is binary (True) or not (False).
+    '''
+    f = magic.Magic(mime=True)
+    mime = f.from_file(file_name)
+    if 'text' in mime:
+        return False
+    else:
+        return True
 
 def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None):
    
