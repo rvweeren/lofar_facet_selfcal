@@ -27,7 +27,6 @@ import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='selfcal.log', format='%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 logger.setLevel(logging.DEBUG)
-import magic
 
 
 import matplotlib
@@ -48,7 +47,7 @@ import bdsf
 import pyregion
 import argparse
 import pickle
-
+import magic
 import fnmatch
 import tables
 from astropy.io import ascii
@@ -554,13 +553,12 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
 #reset_gains_noncore('merged_selfcalcyle11_testquick260.ms.avg.h5')
 #sys.exit()
 
-def phaseup(msinlist,datacolumn='DATA',superstation='core', parmdbmergelist=None):
+def phaseup(msinlist,datacolumn='DATA',superstation='core', parmdbmergelist=None, start=0):
   msoutlist = []
   for ms in msinlist:
     msout=ms + '.phaseup'
     msoutlist.append(msout)
-    if os.path.isdir(msout):
-      os.system('rm -rf ' + msout)
+
     cmd = "DP3 msin=" + ms + " msout.storagemanager=dysco steps=[add,filter] msout.writefullresflag=False "
     cmd += "msout=" + msout + " msin.datacolumn=" + datacolumn + " "
     cmd += "filter.type=filter filter.remove=True "
@@ -570,8 +568,11 @@ def phaseup(msinlist,datacolumn='DATA',superstation='core', parmdbmergelist=None
     if superstation == 'superterp':
       cmd += "add.stations={ST001:'CS00[2-7]*'} filter.baseline='!CS00[2-7]*&&*' "  
 
-    print(cmd)
-    os.system(cmd)
+    if start == 0: # only phaseup if start selfcal from cycle 0, so skip for a restart
+      if os.path.isdir(msout):
+        os.system('rm -rf ' + msout)
+      print(cmd)
+      os.system(cmd)
   
   return msoutlist
 
@@ -3624,7 +3625,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               soltype_list, soltypecycles_list, \
               smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, antennaconstraint_list, uvmin=0, normamps=False, skymodel=None, predictskywithbeam=False, restoreflags=False, \
               flagging=False, longbaseline=False, BLsmooth=False, flagslowphases=True, flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None, skymodelpointsource=None, wscleanskymodel=None, \
-              ionfactor=0.01, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0):
+              ionfactor=0.01, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, docircular=False):
 
    soltypecycles_list_array = np.array(soltypecycles_list) # needed to slice (slicing does not work in nested l
    incol = [] # len(mslist)
@@ -3711,10 +3712,14 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
      for msnumber, ms in enumerate(mslist):
        if skymodel != None and selfcalcycle == 0: 
          parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
+         parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + ms + '.h5'
        else:
-         parmdbmergename = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'    
+         parmdbmergename = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
+         parmdbmergename_pc = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + ms + '.h5' 
        if os.path.isfile(parmdbmergename):
          os.system('rm -f ' + parmdbmergename)
+       if os.path.isfile(parmdbmergename_pc):
+         os.system('rm -f ' + parmdbmergename_pc)
        
        # add extra from preapplyH5_list
        if args['preapplyH5_list'][0] != None:
@@ -3726,6 +3731,9 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        print(parmdbmergename,parmdbmergelist[msnumber],ms)
        h5_merger.merge_h5(h5_out=parmdbmergename,h5_tables=parmdbmergelist[msnumber],ms_files=ms,\
                           convert_tec=True, merge_all_in_one=True, propagate_flags=True)
+       if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or docircular:
+         h5_merger.merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True)
+       
        if False:
          #testing only to check if merged H5 file is correct and makes a good image
          applycal(ms, parmdbmergename, msincol='DATA',msoutcol='CORRECTED_DATA')
@@ -3742,9 +3750,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
 
 def is_binary(file_name):
     ''' Check if a file contains text (and thus is a skymodel file, for example).
-
     Example from https://stackoverflow.com/questions/2472221/how-to-check-if-a-file-contains-plain-text
-
     Args:
         file_name (str): path to the file to determine the binary nature of.
     Returns:
@@ -4777,8 +4783,8 @@ def main():
          preapply(create_mergeparmdbname(mslist, i-1), mslist, updateDATA=False) # do not overwrite DATA column
 
      #PHASE-UP if requested
-     if args['phaseupstations'] != None and i== 0:
-         mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'])
+     if args['phaseupstations'] != None:
+         mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], start=i)
 
 
   
@@ -4797,7 +4803,7 @@ def main():
                              skymodelsource=args['skymodelsource'], skymodelpointsource=args['skymodelpointsource'],\
                              wscleanskymodel=args['wscleanskymodel'], ionfactor=args['ionfactor'], \
                              blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'],\
-                             uvminscalarphasediff=args['uvminscalarphasediff']) 
+                             uvminscalarphasediff=args['uvminscalarphasediff'], docircular=args['docircular']) 
 
 
   
@@ -4885,7 +4891,8 @@ def main():
                            BLsmooth=args['BLsmooth'], flagslowphases=args['doflagslowphases'], \
                            flagslowamprms=args['flagslowamprms'], flagslowphaserms=args['flagslowphaserms'],\
                            ionfactor=args['ionfactor'], blscalefactor=args['blscalefactor'],\
-                           dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'])
+                           dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
+                           docircular=args['docircular'])
 
 
  
