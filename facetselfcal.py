@@ -4784,9 +4784,8 @@ def main():
 
      #PHASE-UP if requested
      if args['phaseupstations'] != None:
-         mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], start=i)
-
-
+         if (i == 0) or (i == args['start']):
+             mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], start=i)
   
      # CALIBRATE AGAINST SKYMODEL
      if (args['skymodel'] != None or args['skymodelpointsource'] != None or args['wscleanskymodel'] != None) and (i ==0):
