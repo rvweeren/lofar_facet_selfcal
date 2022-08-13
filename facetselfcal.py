@@ -2,6 +2,19 @@
 
 # normamps full jones, deal with solnorm on crosshands only? currently normaps not used for fulljones
 
+# restart with updated soltype_list?
+#('selfcalcycle, soltypenumber', 10, 2)
+#Traceback (most recent call last):
+#  File "/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/facetselfcal.py", line 4955, in <module>
+#    main()
+#  File "/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/facetselfcal.py", line 4895, in main
+#    docircular=args['docircular'])
+#  File "/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/facetselfcal.py", line 3648, in calibrateandapplycal
+#    print(selfcalcycle,soltypecycles_list[soltypenumber+1][msnumber])
+#IndexError: list index out of range
+
+
+
 # implement idea of phase detrending.
 # do not use os.system for DP3/WSClean to catch errors properly
 # decrease niter if multiscale is triggered, smart move?
@@ -11,7 +24,6 @@
 # avg to units of Hertz and seconds? (for input data that hass different averaging)
 # BLsmooth not for gain solves opttion
 # BLsmooth constant smooth for gain solves
-# Look into Wiener/Kalman smoothing
 # only trigger HBA upper band selection for sources outside the FWHM?
 # stop selfcal if MODEL_DATA / noise is too low
 # if noise goes up stop selfcal
@@ -1846,19 +1858,18 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename):
   return
 
 
+#def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
+#                      innchan_list, insolint_list, insmoothnessconstraint_list, \
+#                      insmoothnessreffrequency_list, insmoothnessspectralexponent_list,\
+#                      inantennaconstraint_list, \
+#                      insoltypecycles_list):
 
-
-def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
-                      innchan_list, insolint_list, insmoothnessconstraint_list, \
-                      insmoothnessreffrequency_list, insmoothnessspectralexponent_list,\
-                      inantennaconstraint_list, \
-                      insoltypecycles_list):
+def setinitial_solint(mslist, longbaseline, LBA, options):
    """
    take user input solutions,nchan,smoothnessconstraint,antennaconstraint and expand them to all ms
    these list can then be updated later with values from auto_determinesolints for example
    """
 
-      
    if os.path.isfile('nchan.p') and os.path.isfile('solint.p'):
     
       f = open('nchan.p', 'rb') 
@@ -1891,15 +1902,15 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
       
   
    else:
-      nchan_list  = [] # list with len(soltype_list)
-      solint_list = [] # list with len(soltype_list)
-      smoothnessconstraint_list = [] # nested list with len(soltype_list), inner list is for ms
-      smoothnessreffrequency_list = [] # nested list with len(soltype_list), inner list is for ms
-      smoothnessspectralexponent_list = [] # nest list with len(soltype_list), inner list is for ms
-      antennaconstraint_list = [] # nested list with len(soltype_list), inner list is for ms
-      soltypecycles_list = []  # nested list with len(soltype_list), inner list is for ms
+      nchan_list  = [] # list with len(options.soltype_list)
+      solint_list = [] # list with len(options.soltype_list)
+      smoothnessconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
+      smoothnessreffrequency_list = [] # nested list with len(options.soltype_list), inner list is for ms
+      smoothnessspectralexponent_list = [] # nest list with len(options.soltype_list), inner list is for ms
+      antennaconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
+      soltypecycles_list = []  # nested list with len(options.soltype_list), inner list is for ms
 
-      for soltype_id, soltype in enumerate(soltype_list):
+      for soltype_id, soltype in enumerate(options.soltype_list):
         nchan_ms   = [] # list with len(mslist)
         solint_ms  = [] # list with len(mslist)
         antennaconstraint_list_ms   = [] # list with len(mslist)
@@ -1913,42 +1924,42 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
           
           #solint 
           try:
-            solint = insolint_list[soltype_id]
+            solint = options.solint_list[soltype_id]
           except:
             solint = 1  
          
           # nchan 
           try:
-            nchan = innchan_list[soltype_id]
+            nchan = options.nchan_list[soltype_id]
           except:
             nchan = 10     
 
           # smoothnessconstraint 
           try:
-            smoothnessconstraint = insmoothnessconstraint_list[soltype_id]
+            smoothnessconstraint = options.smoothnessconstraint_list[soltype_id]
           except:
             smoothnessconstraint = 0.0
 
           # smoothnessreffrequency 
           try:
-            smoothnessreffrequency = insmoothnessreffrequency_list[soltype_id]
+            smoothnessreffrequency = options.smoothnessreffrequency_list[soltype_id]
           except:
             smoothnessreffrequency = 0.0
           
           # smoothnessspectralexponent 
           try:
-            smoothnessspectralexponent = insmoothnessspectralexponent_list[soltype_id]
+            smoothnessspectralexponent = options.smoothnessspectralexponent_list[soltype_id]
           except:
             smoothnessspectralexponent = -1.0          
           
           # antennaconstraint 
           try:
-            antennaconstraint = inantennaconstraint_list[soltype_id]
+            antennaconstraint = options.antennaconstraint_list[soltype_id]
           except:
             antennaconstraint = None
 
           # soltypecycles
-          soltypecycles = insoltypecycles_list[soltype_id]
+          soltypecycles = options.soltypecycles_list[soltype_id]
 
           # force nchan 1 for tec(andphase) solve and in case smoothnessconstraint is invoked
           if soltype == 'tec' or  soltype == 'tecandphase' or smoothnessconstraint > 0.0:
@@ -2002,7 +2013,7 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
       f.close()   
       
       
-   print('soltype:',soltype_list, mslist)   
+   print('soltype:',options.soltype_list, mslist)   
    print('nchan:',nchan_list)
    print('solint:',solint_list)
    print('smoothnessconstraint:',smoothnessconstraint_list)
@@ -2011,14 +2022,14 @@ def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
    print('antennaconstraint:',antennaconstraint_list)
    print('soltypecycles:',soltypecycles_list)
 
-   logger.info('soltype: '+ str(soltype_list) + ' ' + str(mslist))   
-   logger.info('nchan: ' + str(innchan_list))
-   logger.info('solint: ' + str(insolint_list))
-   logger.info('smoothnessconstraint: ' + str(insmoothnessconstraint_list))
-   logger.info('smoothnessreffrequency: ' + str(insmoothnessreffrequency_list))
-   logger.info('smoothnessspectralexponent: ' + str(insmoothnessspectralexponent_list))
-   logger.info('antennaconstraint: ' + str(inantennaconstraint_list))
-   logger.info('soltypecycles: ' + str(insoltypecycles_list))   
+   logger.info('soltype: '+ str(options.soltype_list) + ' ' + str(mslist))   
+   logger.info('nchan: ' + str(options.nchan_list))
+   logger.info('solint: ' + str(options.solint_list))
+   logger.info('smoothnessconstraint: ' + str(options.smoothnessconstraint_list))
+   logger.info('smoothnessreffrequency: ' + str(options.smoothnessreffrequency_list))
+   logger.info('smoothnessspectralexponent: ' + str(options.smoothnessspectralexponent_list))
+   logger.info('antennaconstraint: ' + str(options.antennaconstraint_list))
+   logger.info('soltypecycles: ' + str(options.soltypecycles_list))   
    
    return nchan_list, solint_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, antennaconstraint_list, soltypecycles_list
 
@@ -3434,7 +3445,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
               fitspectralpolorder=3, imager='WSCLEAN', restoringbeam=15, automask=2.5, \
               removenegativecc=True, usewgridder=False, paralleldeconvolution=0, \
               deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8, \
-              fullpol=False):
+              fullpol=False, taperinnertukey=None):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     
@@ -3473,8 +3484,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
       cmd = 'wsclean '
       cmd += '-no-update-model-required -minuv-l ' + str(uvminim) + ' '
       cmd += '-size ' + str(np.int(imsize)) + ' ' + str(np.int(imsize)) + ' -reorder '
-      cmd += '-weight briggs ' + str(robust) + ' -weighting-rank-filter 3 -clean-border 1 -parallel-reordering 4 '
-      cmd += '-mgain 0.8 -fit-beam -data-column ' + imcol + ' -padding 1.4 '
+      cmd += '-weight briggs ' + str(robust) + ' -clean-border 1 -parallel-reordering 4 '
+      #-weighting-rank-filter 3 -fit-beam
+      cmd += '-mgain 0.8 -data-column ' + imcol + ' -padding 1.4 '
       if channelsout > 1:
         cmd += ' -join-channels -channels-out ' + str(channelsout) + ' '
       if paralleldeconvolution > 0:
@@ -3501,7 +3513,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
           sys.exit(1)
       if uvtaper != None:
          cmd += '-taper-gaussian ' + uvtaper + ' '
-
+      if taperinnertukey !=None:
+         cmd += '-taper-inner-tukey ' + str(taperinnertukey) + ' '
       if idg:
         cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
         cmd += '-beam-aterm-update 800 '
@@ -4347,7 +4360,11 @@ def main():
    parser.add_argument('--imager', help='Imager to use WSClean or DDFACET, default WSCLEAN', default='WSCLEAN', type=str)
    parser.add_argument('--fitspectralpol', help='use fit-spectral-pol in WSClean (True/False, default=True)', type=ast.literal_eval, default=True)
    parser.add_argument('--fitspectralpolorder', help='fit-spectral-pol order for WSClean, default=3', default=3, type=int)
-   parser.add_argument('--removenegativefrommodel', help='remove negative clean components in model predict (True/False, default=True)', type=ast.literal_eval, default=True)
+   parser.add_argument('--taperinnertukey', help='Value for taper-inner-tukey in WSClean, useful to supress negative bowls when using --uvminim (1.5-4.0 time uvminim might give good results, default=None)', default=None, type=float)
+ 
+   parser.add_argument('--removenegativefrommodel', help='remove negative clean components in model predict (True/False, default=True (turned off by default at selfcalcycle 2, see option autoupdate-removenegativefrommodel)', type=ast.literal_eval, default=True)
+   parser.add_argument('--autoupdate-removenegativefrommodel', help='Turn off removing negative clean components at selfcalcycle 2 (for high dynamic range imaging it is better to keep all clean components)', type=ast.literal_eval, default=True)
+   
    parser.add_argument('--autofrequencyaverage', help='Try frequency averaging if it does not result in bandwidth smearing',  action='store_true')
    parser.add_argument('--autofrequencyaverage-calspeedup', help='Try extra averaging during some selfcalcycles to speed up calibration', action='store_true')
    
@@ -4423,16 +4440,13 @@ def main():
    parser.add_argument('--makeimage-fullpol', help='Under development, make Stokes IQUV version for quality checking', action='store_true')
   
    parser.add_argument('ms', nargs='+', help='msfile(s)')  
-
-
-
    args = vars(parser.parse_args())
 
    options = parser.parse_args() # start of replacing args dictionary with objects options
    #print (options.preapplyH5_list)
 
-   print( 'args before' )
-   print ( args )
+   print('args before')
+   print (args)
 
    ## if a config file exists, then read the information
    if os.path.isfile('facetselfcal_config.txt'):
@@ -4453,10 +4467,10 @@ def main():
          ## this updates the vaue if it exists, or creates a new one if it doesn't
          args[line.split('=')[0].rstrip()] = lineval
 
-   print( 'args after' )
-   print( args )
+   print('args after')
+   print(args)
 
-   version = '3.5.0'
+   version = '3.6.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -4497,8 +4511,6 @@ def main():
    # cut ms if there are flagged times at the start or end of the ms
    if args['remove_flagged_from_startend']:
       mslist = sorted(remove_flagged_data_startend(mslist))
-      #print(mslist)
-      #sys.exit()
       
    if not args['skipbackup']: # work on copy of input data as a backup
       print('Creating a copy of the data and work on that....')
@@ -4683,13 +4695,11 @@ def main():
      automask = args['maskthreshold'][-1] # in case we use a low value for maskthreshold, like Herc A    
 
 
-
    args['imagename']  = args['imagename'] + '_'
    if args['fitsmask'] != None:
      fitsmask = args['fitsmask']
    else:
      fitsmask = None
-
 
 
    if args['boxfile'] != None:
@@ -4712,21 +4722,13 @@ def main():
        sys.exit(1)
 
 
-
    if args['start'] == 0:
      os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p antennaconstraint.p soltypecycles.p') 
 
 
 
-   
    nchan_list,solint_list,smoothnessconstraint_list, smoothnessreffrequency_list,  smoothnessspectralexponent_list, antennaconstraint_list, soltypecycles_list = \
-                                              setinitial_solint(mslist, args['soltype_list'],longbaseline, LBA, \
-                                              args['nchan_list'], args['solint_list'], \
-                                              args['smoothnessconstraint_list'], \
-                                              args['smoothnessreffrequency_list'], \
-                                              args['smoothnessspectralexponent_list'],\
-                                              args['antennaconstraint_list'],\
-                                              args['soltypecycles_list'])
+                                              setinitial_solint(mslist, longbaseline, LBA, options)
 
 
    # Get restoring beam for DDFACET in case it is needed
@@ -4749,8 +4751,6 @@ def main():
          if args['imager'] == 'DDFACET':
            if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + '.app.restored.fits'):
                fitsmask = args['imagename'] + str(i-1).zfill(3) + '.app.restored.fits.mask.fits'
-
-
 
        
      # BEAM CORRECTION
@@ -4786,6 +4786,8 @@ def main():
      if args['phaseupstations'] != None:
          if (i == 0) or (i == args['start']):
              mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], start=i)
+
+
   
      # CALIBRATE AGAINST SKYMODEL
      if (args['skymodel'] != None or args['skymodelpointsource'] != None or args['wscleanskymodel'] != None) and (i ==0):
@@ -4821,7 +4823,8 @@ def main():
                removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], \
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
-               parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'])
+               parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
+               taperinnertukey=args['taperinnertukey'])
      if args['makeimage_ILTlowres_HBA']:
        makeimage(mslist, args['imagename'] +'1.2arcsectaper' + str(i).zfill(3), \
                args['pixelscale'], args['imsize'], \
@@ -4832,7 +4835,8 @@ def main():
                fitspectralpolorder=args['fitspectralpolorder'], predict=False, \
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
-               parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'])   
+               parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
+               taperinnertukey=args['taperinnertukey'])   
      if args['makeimage_fullpol']:
        makeimage(mslist, args['imagename'] +'fullpol' + str(i).zfill(3), \
                args['pixelscale'], args['imsize'], \
@@ -4843,8 +4847,12 @@ def main():
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'],\
-               multiscalescalebias=args['multiscalescalebias'], fullpol=True) 
+               multiscalescalebias=args['multiscalescalebias'], fullpol=True,\
+               taperinnertukey=args['taperinnertukey']) 
 
+     # update removenegativefrommodel setting, for high dynamic range it is better to keep negative clean components (based on very clear 3C84 test case)
+     if args['autoupdate_removenegativefrommodel'] and i > 1:
+        args['removenegativefrommodel'] = False
   
      # MAKE FIGURE WITH APLPY
      if args['imager'] == 'WSCLEAN':
