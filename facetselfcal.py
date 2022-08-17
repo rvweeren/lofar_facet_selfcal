@@ -3549,7 +3549,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
       if predict:
         cmd = 'wsclean -padding 1.8 -predict ' 
         if channelsout > 1:
-          cmd += '-channels-out ' + str(channelsout)   
+          cmd += '-channels-out ' + str(channelsout) + ' '   
         if idg:
           cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
           cmd += '-beam-aterm-update 800 '
