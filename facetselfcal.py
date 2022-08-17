@@ -92,6 +92,16 @@ os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # for NFS mounted disks
    #return
 
 
+def fix_bad_weightspectrum(mslist, clipvalue):
+   for ms in mslist:
+      print('Clipping WEIGHT_SPECTRUM manually', ms, clipvalue)
+      t = pt.table(ms, readonly=False)
+      ws = t.getcol('WEIGHT_SPECTRUM')
+      idx = np.where(ws > clipvalue)
+      ws[idx] = 0.0
+      t.putcol('WEIGHT_SPECTRUM', ws)
+      t.close()
+   return
 
 def format_solint(solint, ms):
    if str(solint).isdigit():
@@ -4542,7 +4552,7 @@ def basicsetup(mslist, args):
    if args['delaycal'] and longbaseline and not LBA:
      args['update_uvmin'] = False
      #args['usemodeldataforsolints'] = True # NEEDS SPECIAL SETTINGS to be implemented
-     #args['solint_list']="[6,1,100]" # temporary
+     args['solint_list']="['5min','32sec','1hr']" 
      args['forwidefield'] = True
      args['autofrequencyaverage'] = True
      args['update_multiscale'] = True
@@ -4640,7 +4650,8 @@ def main():
    parser.add_argument('--avgtimestep', help='Extra DP3 time averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators', type=int, default=None)
    parser.add_argument('--msinnchan', help='Before averarging, only take this number input channels', type=int, default=None)
    parser.add_argument('--msinntimes', help='DP3 msin.ntimes setting, mainly for testing purposes', type=int, default=None)
-
+   parser.add_argument('--weightspectrum-clipvalue', help='Extra option to take out bad WEIGHT_SPECTRUM values above the provided number, use with care and first check manually and set the appropriate value (default None, so nothing happens)', type=float, default=None)
+   
    # calibration options
    parser.add_argument('-u', '--uvmin', help='inner uv-cut for calibration in lambda, default=80/350 (LBA/HBA)', type=float)
    parser.add_argument('--uvminscalarphasediff', help='inner uv-cut for scalarphasediff calibration in lambda, default it takes the value from --uvmin', type=float, default=None)
@@ -4785,7 +4796,10 @@ def main():
       print('Creating a copy of the data and work on that....')
       mslist = average(mslist, freqstep= [0]*len(mslist), timestep=1, start=args['start'], makecopy=True)
 
-
+   # take out bad WEIGHT_SPECTRUM values
+   if args['weightspectrum_clipvalue'] != None:
+      fix_bad_weightspectrum(mslist, clipvalue=args['weightspectrum_clipvalue'])
+      
    # extra flagging if requested
    if args['start'] == 0 and args['useaoflagger'] and args['useaoflaggerbeforeavg']:  
      runaoflagger(mslist) 
