@@ -306,7 +306,7 @@ def create_mergeparmdbname(mslist, selfcalcycle):
    return parmdblist
 
 
-def preapplydelay(H5filelist, mslist, applydelaytype):
+def preapplydelay(H5filelist, mslist, applydelaytype, dysco=True):
    for ms in mslist:
       parmdb = time_match_mstoH5(H5filelist, ms)
       
@@ -314,24 +314,28 @@ def preapplydelay(H5filelist, mslist, applydelaytype):
       if applydelaytype == 'circular':
          scriptn = 'python lin2circ.py'
          cmdlin2circ = scriptn + ' -i ' + ms + ' --column=DATA --outcol=DATA_CIRC' 
+         if not dysco:
+            cmdlin2circ += ' --nodysco'
          os.system(cmdlin2circ)
          # APPLY solutions
-         applycal(ms, parmdb, msincol='DATA_CIRC',msoutcol='CORRECTED_DATA')
+         applycal(ms, parmdb, msincol='DATA_CIRC',msoutcol='CORRECTED_DATA', dysco=dysco)
       else:
-        applycal(ms, parmdb, msincol='DATA',msoutcol='CORRECTED_DATA')
+        applycal(ms, parmdb, msincol='DATA',msoutcol='CORRECTED_DATA', dysco=dysco)
        
       # from CIRCULAR to LINEAR
       if applydelaytype == 'circular':  
         cmdlin2circ = scriptn + ' -i ' + ms + ' --column=CORRECTED_DATA --lincol=DATA --back'
+        if not dysco:
+          cmdlin2circ +=  ' --nodysco'    
         os.system(cmdlin2circ)      
       else:
         os.system("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
    return
 
-def preapply(H5filelist, mslist, updateDATA=True):
+def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
    for ms in mslist:
       parmdb = time_match_mstoH5(H5filelist, ms)
-      applycal(ms, parmdb, msincol='DATA',msoutcol='CORRECTED_DATA')
+      applycal(ms, parmdb, msincol='DATA',msoutcol='CORRECTED_DATA', dysco=dysco)
       if updateDATA:
          os.system("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
    return
@@ -447,7 +451,7 @@ def getlargestislandsize(fitsmask):
 
 
 
-def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnorm=False):
+def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnorm=False, dysco=True):
    if not isinstance(inmslist,list):
       inmslist = [inmslist] 
    for ms in inmslist:
@@ -457,7 +461,10 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
        desc = t.getcoldesc(incol)
        newdesc = pt.makecoldesc(outcol, desc)
        newdmi = t.getdminfo(incol)
-       newdmi['NAME'] = 'Dysco' + outcol
+       if dysco:
+          newdmi['NAME'] = 'Dysco' + outcol
+       else:
+          newdmi['NAME'] = outcol 
        t.addcols(newdesc, newdmi) 
      data = t.getcol(incol)
      dataslope = np.copy(data)
@@ -479,7 +486,7 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
    return
 
 
-def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF'):
+def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True):
    if not isinstance(inmslist,list):
       inmslist = [inmslist] 
    for ms in inmslist:
@@ -489,7 +496,10 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
        desc = t.getcoldesc(incol)
        newdesc = pt.makecoldesc(outcol, desc)
        newdmi = t.getdminfo(incol)
-       newdmi['NAME'] = 'Dysco' + outcol
+       if dysco:
+          newdmi['NAME'] = 'Dysco' + outcol
+       else:
+          newdmi['NAME'] = outcol  
        t.addcols(newdesc, newdmi) 
      
     
@@ -525,7 +535,7 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
         os.system(cmd)
    return
 
-def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY'):
+def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=True):
    if not isinstance(inmslist,list):
       inmslist = [inmslist] 
    for ms in inmslist:
@@ -535,7 +545,10 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY'):
        desc = t.getcoldesc(incol)
        newdesc = pt.makecoldesc(outcol, desc)
        newdmi = t.getdminfo(incol)
-       newdmi['NAME'] = 'Dysco' + outcol
+       if dysco:
+          newdmi['NAME'] = 'Dysco' + outcol
+       else:
+          newdmi['NAME'] = outcol 
        t.addcols(newdesc, newdmi) 
      data = t.getcol(incol)
      data[:,:,0] = np.copy(np.exp(1j * np.angle(data[:,:,0]))) # because I = xx+yy/2
@@ -690,15 +703,17 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
 #reset_gains_noncore('merged_selfcalcyle11_testquick260.ms.avg.h5')
 #sys.exit()
 
-def phaseup(msinlist,datacolumn='DATA',superstation='core', parmdbmergelist=None, start=0):
+def phaseup(msinlist,datacolumn='DATA',superstation='core', start=0, dysco=True):
   msoutlist = []
   for ms in msinlist:
     msout=ms + '.phaseup'
     msoutlist.append(msout)
 
-    cmd = "DP3 msin=" + ms + " msout.storagemanager=dysco steps=[add,filter] msout.writefullresflag=False "
+    cmd = "DP3 msin=" + ms + " steps=[add,filter] msout.writefullresflag=False "
     cmd += "msout=" + msout + " msin.datacolumn=" + datacolumn + " "
     cmd += "filter.type=filter filter.remove=True "
+    if dysco:
+      cmd += "msout.storagemanager=dysco "
     cmd += "add.type=stationadder "
     if superstation == 'core':
       cmd += "add.stations={ST001:'CS*'} filter.baseline='!CS*&&*' "
@@ -790,7 +805,7 @@ def checklongbaseline(ms):
     print('Contains long baselines?', haslongbaselines)
     return haslongbaselines
 
-def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, timeresolution='32', freqresolution='195.3125kHz'):
+def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, timeresolution='32', freqresolution='195.3125kHz', dysco=True):
     # sanity check
     if len(mslist) != len(freqstep):
       print('Hmm, made a mistake with freqstep?')
@@ -804,8 +819,10 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
           msout = ms + '.copy'
         else:
           msout = ms + '.avg'  
-        cmd = 'DP3 msin=' + ms + ' msout.storagemanager=dysco av.type=averager '
+        cmd = 'DP3 msin=' + ms + ' av.type=averager '
         cmd += 'msout='+ msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
+        if dysco:
+          cmd += 'msout.storagemanager=dysco '    
         if phaseshiftbox != None:
           cmd += ' steps=[shift,av] '
           cmd += ' shift.type=phaseshifter '
@@ -828,7 +845,9 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
           os.system(cmd)
 
         msouttmp = ms + '.avgtmp'  
-        cmd = 'DP3 msin=' + ms + ' msout.storagemanager=dysco steps=[av] av.type=averager '
+        cmd = 'DP3 msin=' + ms + ' steps=[av] av.type=averager '
+        if dysco:
+            cmd+= ' msout.storagemanager=dysco '
         cmd+= 'msout='+ msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
         if freqstep[ms_id] != None:
           cmd+='av.freqstep=' + str(freqstep[ms_id]) + ' '
@@ -890,7 +909,7 @@ def runaoflagger(mslist):
     return
 
 
-def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='.'):
+def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='.', dysco=True):
 
     # to allow both a list or a single file (string)
     if not isinstance(inparmdblist,list):
@@ -901,7 +920,8 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
     cmd += 'msin.datacolumn=' + msincol + ' '
     if msout == '.':
       cmd += 'msout.datacolumn=' + msoutcol + ' '
-    cmd += 'msout.storagemanager=dysco '
+    if dysco:
+      cmd += 'msout.storagemanager=dysco '
     count = 0
     for parmdb in inparmdblist:
       if fulljonesparmdb(parmdb):
@@ -967,6 +987,11 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
 
 
 def inputchecker(args):
+
+  for ms_id, ms in enumerate(args['ms']):
+    if ms.find('/') != -1:
+      print('All ms need to be local, no "/" are allowed in ms name')
+      sys.exit(1)
 
   if args['ionfactor'] <= 0.0:
     print('BLsmooth ionfactor needs to be positive')
@@ -1756,7 +1781,7 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
 
 
 
-def removestartendms(ms, starttime=None, endtime=None):
+def removestartendms(ms, starttime=None, endtime=None, dysco=True):
 
     # chdeck if output is already there and remove    
     if os.path.isdir(ms + '.cut'):
@@ -1765,7 +1790,9 @@ def removestartendms(ms, starttime=None, endtime=None):
           os.system('rm -rf ' + ms + '.cuttmp')  
 
         
-    cmd = 'DP3 msin=' + ms + ' ' + 'msout.storagemanager=dysco msout=' + ms + '.cut '
+    cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cut '
+    if dysco:
+      cmd+= 'msout.storagemanager=dysco '    
     cmd+=  'msin.weightcolumn=WEIGHT_SPECTRUM steps=[] msout.writefullresflag=False ' 
     if starttime is not None:
       cmd+= 'msin.starttime=' + starttime + ' '
@@ -1774,7 +1801,9 @@ def removestartendms(ms, starttime=None, endtime=None):
     print(cmd)  
     os.system(cmd)
     
-    cmd = 'DP3 msin=' + ms + ' ' + 'msout.storagemanager=dysco msout=' + ms + '.cuttmp '
+    cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cuttmp '
+    if dysco:
+      cmd+= 'msout.storagemanager=dysco '
     cmd+= 'msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE steps=[] msout.writefullresflag=False '  
     if starttime is not None:
       cmd+= 'msin.starttime=' + starttime + ' '
@@ -1929,14 +1958,16 @@ def plotimage(fitsimagename,outplotname,mask=None,rmsnoiseimage=None):
 
 
 
-def archive(mslist, outtarname, regionfile, fitsmask, imagename):
+def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True):
   path = '/disks/ftphome/pub/vanweeren'
   for ms in mslist:
     msout = ms + '.calibrated'
     if os.path.isdir(msout):
       os.system('rm -rf ' + msout)
     cmd  ='DP3 numthreads='+ str(multiprocessing.cpu_count()) +' msin=' + ms + ' msout=' + msout + ' '
-    cmd +='msin.datacolumn=CORRECTED_DATA msout.storagemanager=dysco msout.writefullresflag=False steps=[]'
+    cmd +='msin.datacolumn=CORRECTED_DATA msout.writefullresflag=False steps=[]'
+    if dysco:
+      cmd += 'msout.storagemanager=dysco '    
     os.system(cmd)
  
 
@@ -2968,7 +2999,7 @@ def fixbeam_ST001(H5name):
     
    return ST001
 
-def circular(ms, linear=False):
+def circular(ms, linear=False, dysco=True):
     """
     convert to circular correlations
     """
@@ -2978,12 +3009,14 @@ def circular(ms, linear=False):
       cmdlin2circ = scriptn + ' -i ' + ms + ' --column=DATA --lincol=CORRECTED_DATA --back' 
     else:
       cmdlin2circ = scriptn + ' -i ' + ms + ' --column=DATA --outcol=CORRECTED_DATA' 
+    if not dysco:
+      cmdlin2circ += ' --nodysco'
     print(cmdlin2circ)
     os.system(cmdlin2circ)
     os.system(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
     return
 
-def beamcor(ms, usedppp=True):
+def beamcor(ms, usedppp=True, dysco=True):
     """
     correct a ms for the beam in the phase center (array_factor only)
     """
@@ -3002,7 +3035,9 @@ def beamcor(ms, usedppp=True):
     if usedppp and not phasedup :
         cmddppp = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmddppp += 'msin.weightcolumn=WEIGHT_SPECTRUM '
-        cmddppp += 'msout.datacolumn=CORRECTED_DATA steps=[beam] msout.storagemanager=dysco '
+        cmddppp += 'msout.datacolumn=CORRECTED_DATA steps=[beam] '
+        if dysco:
+          cmddppp += 'msout.storagemanager=dysco '    
         cmddppp += 'beam.type=applybeam beam.updateweights=True ' # weights
         cmddppp += 'beam.direction=[] ' # correction for the current phase center
         #cmddppp += 'beam.beammode= ' default is full, will undo element as well(!)
@@ -3017,7 +3052,9 @@ def beamcor(ms, usedppp=True):
     
         cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
-        cmd += 'msout.datacolumn=CORRECTED_DATA steps=[ac1,ac2] msout.storagemanager=dysco '
+        cmd += 'msout.datacolumn=CORRECTED_DATA steps=[ac1,ac2] '
+        if dysco:
+          cmd += 'msout.storagemanager=dysco '    
         cmd += 'ac1.parmdb='+H5name + ' ac2.parmdb='+H5name + ' '
         cmd += 'ac1.type=applycal ac2.type=applycal '
         cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=True ' 
@@ -3047,14 +3084,16 @@ def beamcor(ms, usedppp=True):
     
     return
 
-def beamcormodel(ms):
+def beamcormodel(ms, dysco=True):
     """
     create MODEL_DATA_BEAMCOR where we store beam corrupted model data
     """   
     H5name = ms + '_templatejones.h5'   
     
     cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+' msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. '
-    cmd += 'msout.datacolumn=MODEL_DATA_BEAMCOR steps=[ac1,ac2] msout.storagemanager=dysco '
+    cmd += 'msout.datacolumn=MODEL_DATA_BEAMCOR steps=[ac1,ac2] '
+    if dysco:
+      cmd +=  'msout.storagemanager=dysco '    
     cmd += 'ac1.parmdb='+H5name + ' ac2.parmdb='+H5name + ' '
     cmd += 'ac1.type=applycal ac2.type=applycal '
     cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=False '
@@ -3748,7 +3787,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None, \
               skymodelpointsource=None, wscleanskymodel=None, ionfactor=0.01, \
               blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, \
-              docircular=False, mslist_beforephaseup=None):
+              docircular=False, mslist_beforephaseup=None, dysco=True):
 
    soltypecycles_list_array = np.array(soltypecycles_list) # needed to slice (slicing does not work in nested l
    incol = [] # len(mslist)
@@ -3795,7 +3834,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
                      skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
                      ionfactor=ionfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
-                     selfcalcycle=selfcalcycle)
+                     selfcalcycle=selfcalcycle, dysco=dysco)
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
        
@@ -3812,15 +3851,15 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          print(pertubation[msnumber], parmdbmslist[count], msnumber, count)
          if pertubation[msnumber]: # so another solve follows after this
            if soltypenumber == 0:  
-             applycal(ms, parmdbmslist[count], msincol='DATA',msoutcol='CORRECTED_PREAPPLY' + str(soltypenumber))
+             applycal(ms, parmdbmslist[count], msincol='DATA',msoutcol='CORRECTED_PREAPPLY' + str(soltypenumber), dysco=dysco)
            else: 
-             applycal(ms, parmdbmslist[count], msincol=incol[msnumber], msoutcol='CORRECTED_PREAPPLY' + str(soltypenumber)) # msincol gets incol from previous solve 
+             applycal(ms, parmdbmslist[count], msincol=incol[msnumber], msoutcol='CORRECTED_PREAPPLY' + str(soltypenumber), dysco=dysco) # msincol gets incol from previous solve 
            incol[msnumber] = 'CORRECTED_PREAPPLY' + str(soltypenumber) # SET NEW incol for next solve
          else: # so this is the last solve, no other pertubation
            if soltypenumber == 0:  
-             applycal(ms, parmdbmslist[count], msincol='DATA',msoutcol='CORRECTED_DATA')
+             applycal(ms, parmdbmslist[count], msincol='DATA',msoutcol='CORRECTED_DATA', dysco=dysco)
            else:
-             applycal(ms, parmdbmslist[count], msincol=incol[msnumber], msoutcol='CORRECTED_DATA') # msincol gets incol from previous solve
+             applycal(ms, parmdbmslist[count], msincol=incol[msnumber], msoutcol='CORRECTED_DATA', dysco=dysco) # msincol gets incol from previous solve
          count = count + 1 # extra counter because parmdbmslist can have less length than mslist as soltypecycles_list goes per ms
    
 
@@ -3874,7 +3913,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        
        if False:
          #testing only to check if merged H5 file is correct and makes a good image
-         applycal(ms, parmdbmergename, msincol='DATA',msoutcol='CORRECTED_DATA')
+         applycal(ms, parmdbmergename, msincol='DATA',msoutcol='CORRECTED_DATA', dysco=dysco)
        
        # plot merged solution file
        losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, \
@@ -3949,7 +3988,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, ionfactor=0.01, \
-                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0):
+                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True):
     
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
     
@@ -3963,7 +4002,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       incol = 'SMOOTHED_DATA'    
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
-      create_phasediff_column(ms, incol=incol)
+      create_phasediff_column(ms, incol=incol, dysco=dysco)
       soltype = 'phaseonly' # do this type of solve, maybe scalarphase is fine? 'scalarphase' #
       incol='DATA_CIRCULAR_PHASEDIFF'
       skymodel = None # solve out of MODEL_DATA complex(1,0)
@@ -3989,15 +4028,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
         
 
     if soltype in ['phaseonly_phmin', 'rotation_phmin', 'tec_phmin', 'tecandphase_phmin','scalarphase_phmin']:
-      create_phase_column(ms, incol=incol, outcol='DATA_PHASEONLY')
-      create_phase_column(ms, incol='MODEL_DATA', outcol='MODEL_DATA_PHASEONLY')
+      create_phase_column(ms, incol=incol, outcol='DATA_PHASEONLY', dysco=dysco)
+      create_phase_column(ms, incol='MODEL_DATA', outcol='MODEL_DATA_PHASEONLY', dysco=dysco)
       soltype = soltype.split('_phmin')[0]
       incol = 'DATA_PHASEONLY'
       modeldata = 'MODEL_DATA_PHASEONLY'
 
     if soltype in ['phaseonly_slope', 'scalarphase_slope']:
-      create_phase_slope(ms, incol=incol, outcol='DATA_PHASE_SLOPE', ampnorm=False)
-      create_phase_slope(ms, incol='MODEL_DATA', outcol='MODEL_DATA_PHASE_SLOPE', ampnorm=False)
+      create_phase_slope(ms, incol=incol, outcol='DATA_PHASE_SLOPE', ampnorm=False, dysco=dysco)
+      create_phase_slope(ms, incol='MODEL_DATA', outcol='MODEL_DATA_PHASE_SLOPE', ampnorm=False, dysco=dysco)
       soltype = soltype.split('_slope')[0]
       incol = 'DATA_PHASE_SLOPE'
       modeldata = 'MODEL_DATA_PHASE_SLOPE'      
@@ -4053,7 +4092,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=' + incol + ' '
     cmd += 'msout=. ddecal.mode=' + soltype + ' '
     cmd += 'msin.weightcolumn='+weight_spectrum + ' '
-    cmd += 'steps=[ddecal] ' + 'msout.storagemanager=dysco ddecal.type=ddecal '
+    cmd += 'steps=[ddecal] ddecal.type=ddecal '
+    if dysco:
+      cmd += 'msout.storagemanager=dysco '    
     cmd += 'ddecal.solveralgorithm=' + solveralgorithm + ' '
     cmd += 'ddecal.maxiter='+str(np.int(maxiter)) + ' ddecal.propagatesolutions=True '
     cmd += 'ddecal.usemodelcolumn=True '
@@ -4694,6 +4735,7 @@ def main():
    parser.add_argument('--dolinear', help='Convert circular to linear correlations', action='store_true')
    parser.add_argument('--forwidefield', help='Keep solutions such that they can be used for widefield imaging/screens', action='store_true')
    parser.add_argument('--doflagging', help='Flag on complexgain solutions (True/False, default=True)', type=ast.literal_eval, default=True)
+   parser.add_argument('--dysco', help='Use Dysco compression (True/False, default=True)', type=ast.literal_eval, default=True)
    parser.add_argument('--restoreflags', help='Restore flagging column after each selfcal cycle, only relevant if --doflagging=True', action='store_true')
    parser.add_argument('--remove-flagged-from-startend', help='Remove flagged time slots at the start and end of an observations. Do not use if you want to combine DD solutions later for widefield imaging', action='store_true')
    parser.add_argument('--flagslowamprms', help='RMS outlier value to flag on slow amplitudes (default=7.0)', default=7.0, type=float)
@@ -4720,11 +4762,7 @@ def main():
    parser.add_argument('ms', nargs='+', help='msfile(s)')  
    args = vars(parser.parse_args())
 
-   options = parser.parse_args() # start of replacing args dictionary with objects options
-   #print (options.preapplyH5_list)
 
-   #print(args['solint_list2'])
-   #sys.exit()
    print('args before')
    print (args)
 
@@ -4750,6 +4788,8 @@ def main():
    print('args after')
    print(args)
 
+   options = parser.parse_args() # start of replacing args dictionary with objects options
+
    version = '4.0.0'
    print_title(version)
 
@@ -4768,19 +4808,14 @@ def main():
 
    inputchecker(args)
    check_code_is_uptodate()
-   #import h5_merger
+
 
    for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
      if h5parmdb != None:
-       os.system('cp ' + h5parmdb +  ' .') # make them local because we are going to update the source direction for merging    
+       os.system('cp ' + h5parmdb +  ' .') # make them local because source direction will ne updated for merging    
        args['preapplyH5_list'][h5parm_id] = h5parmdb.split('/')[-1] # update input list to local location
 
    mslist = sorted(args['ms'])
-   for ms_id, ms in enumerate(mslist):
-      #mslist[ms_id] = ms.replace('/', '') # remove possible / at end of ms
-      if ms.find('/') != -1:
-          print('All ms need to be local, no "/" are allowed in ms name')
-          sys.exit(1)
 
    # remove non-ms that ended up in mslist
    mslist = removenonms(mslist)
@@ -4794,9 +4829,10 @@ def main():
       
    if not args['skipbackup']: # work on copy of input data as a backup
       print('Creating a copy of the data and work on that....')
-      mslist = average(mslist, freqstep= [0]*len(mslist), timestep=1, start=args['start'], makecopy=True)
+      mslist = average(mslist, freqstep= [0]*len(mslist), timestep=1, start=args['start'], \
+                       makecopy=True, dysco=args['dysco'])
 
-   # take out bad WEIGHT_SPECTRUM values
+   # take out bad WEIGHT_SPECTRUM values if weightspectrum_clipvalue is set
    if args['weightspectrum_clipvalue'] != None:
       fix_bad_weightspectrum(mslist, clipvalue=args['weightspectrum_clipvalue'])
       
@@ -4810,14 +4846,14 @@ def main():
        cmd = "'update " + ms + " set WEIGHT_SPECTRUM=WEIGHT_SPECTRUM_SOLVE'"
        os.system("taql " + cmd)
 
-   # SETUP VARIOUS PARAMETERS AND SETTINGS
+   # SETUP VARIOUS PARAMETERS
    longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, maskthreshold_selfcalcycle, \
        outtarname, args = basicsetup(mslist, args)
    
 
    # PRE-APPLY SOLUTIONS (from a nearby direction for example)
    if (args['applydelaycalH5_list'][0]) != None and  args['start'] == 0:
-         preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'])
+         preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'], dyso=args['dysco'])
 
    # check if we could average more
    avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
@@ -4833,10 +4869,11 @@ def main():
 
 
 
-   # average if requested
+   # AVERAGE if requested/possible
    mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'], \
                     start=args['start'], msinnchan=args['msinnchan'],\
-                    phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'])
+                    phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'],\
+                    dysco=args['dysco'])
 
    if longbaseline:
      compute_distance_to_pointingcenter(mslist[0], HBAorLBA=HBAorLBA)
@@ -4851,16 +4888,13 @@ def main():
    t.close()
 
 
-
    # backup flagging column for option --restoreflags if needed
    if args['restoreflags']:
      for ms in mslist:
        create_backup_flag_col(ms)
     
-
    # LOG INPUT SETTINGS
    logbasicinfo(args, fitsmask, mslist, version, sys.argv)
-
 
 
    if args['startfromtgss'] and args['start'] == 0:
@@ -4885,7 +4919,12 @@ def main():
    # Get restoring beam for DDFACET in case it is needed
    restoringbeam = calculate_restoringbeam(mslist, LBA)
 
-
+   # set once here, will be updated in the loop below if phaseup is requested
+   if args['phaseupstations'] != None:
+      # used for h5_merge add_CS option 
+      mslist_beforephaseup = mslist[:]  # note copy by slicing otherwise list refers to original
+   else:
+      mslist_beforephaseup = None
 
    # ----- START SELFCAL LOOP -----
    for i in range(args['start'],args['stop']):
@@ -4911,16 +4950,16 @@ def main():
      # BEAM CORRECTION
      if not args['no_beamcor'] and i == 0:
          for ms in mslist:
-           beamcor(ms, usedppp=args['use_dpppbeamcor'])
+           beamcor(ms, usedppp=args['use_dpppbeamcor'], dysco=args['dysco'])
 
      # CONVERT TO CIRCULAR/LINEAR CORRELATIONS      
      if (args['docircular'] or args['dolinear']) and i == 0:
          for ms in mslist:
-           circular(ms, linear=args['dolinear'])
+           circular(ms, linear=args['dolinear'], dysco=args['dysco'])
 
      # PRE-APPLY SOLUTIONS (from a nearby direction for example)
      if (args['preapplyH5_list'][0]) != None and i == 0:
-         preapply(args['preapplyH5_list'], mslist)
+         preapply(args['preapplyH5_list'], mslist, dysco=args['dysco'])
 
      # TMP AVERAGE TO SPEED UP CALIBRATION
      if args['autofrequencyaverage_calspeedup'] and i == 0:
@@ -4928,22 +4967,21 @@ def main():
          mslist_backup = mslist[:] # make a backup list, note copy by slicing otherwise list refers to original
          for ms in mslist:
             avgfreqstep.append(findfreqavg(ms,np.float(args['imsize']),bwsmearlimit=3.5))
-         mslist = average(mslist, freqstep=avgfreqstep, timestep=4)
+         mslist = average(mslist, freqstep=avgfreqstep, timestep=4, dysco=args['dysco'])
      if args['autofrequencyaverage_calspeedup'] and i == args['stop'] - 3:
          mslist = mslist_backup[:]  # reset back, note copy by slicing otherwise list refers to original 
-         preapply(create_mergeparmdbname(mslist, i-1), mslist, updateDATA=False) # do not overwrite DATA column
+         preapply(create_mergeparmdbname(mslist, i-1), mslist, updateDATA=False, dysco=args['dysco']) # do not overwrite DATA column
 
-     #PHASE-UP if requested
-     mslist_beforephaseup = None
+     # PHASE-UP if requested
      if args['phaseupstations'] != None:
-         mslist_beforephaseup = mslist[:]  # note copy by slicing otherwise list refers to original, needs to happend before the if statement below otherwise this gets set to None at subsequent cycles
          if (i == 0) or (i == args['start']):
-             mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], start=i)
+             mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], \
+                              start=i, dysco=args['dysco'])
 
 
-  
      # CALIBRATE AGAINST SKYMODEL
-     if (args['skymodel'] != None or args['skymodelpointsource'] != None or args['wscleanskymodel'] != None) and (i ==0):
+     if (args['skymodel'] != None or args['skymodelpointsource'] != None \
+         or args['wscleanskymodel'] != None) and (i ==0):
         calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
                              soltypecycles_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
                              smoothnessspectralexponent_list, \
@@ -4958,7 +4996,7 @@ def main():
                              wscleanskymodel=args['wscleanskymodel'], ionfactor=args['ionfactor'], \
                              blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'],\
                              uvminscalarphasediff=args['uvminscalarphasediff'], \
-                             docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup) 
+                             docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco']) 
 
 
   
@@ -4968,6 +5006,7 @@ def main():
      else:
        multiscale = False  
 
+     # MAKE IMAGE
      makeimage(mslist, args['imagename'] + str(i).zfill(3), args['pixelscale'], args['imsize'], \
                args['channelsout'], args['niter'], args['robust'], \
                multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
@@ -5051,7 +5090,7 @@ def main():
                            flagslowamprms=args['flagslowamprms'], flagslowphaserms=args['flagslowphaserms'],\
                            ionfactor=args['ionfactor'], blscalefactor=args['blscalefactor'],\
                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
-                           docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup)
+                           docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'])
 
 
  
@@ -5107,7 +5146,7 @@ def main():
    # ARCHIVE DATA AFTER SELFCAL if requested 
    if not longbaseline and not args['noarchive'] :
      if not LBA:   
-      archive(mslist, outtarname, args['boxfile'], fitsmask, imagename)    
+      archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])    
       cleanup(mslist)
 
 if __name__ == "__main__":
