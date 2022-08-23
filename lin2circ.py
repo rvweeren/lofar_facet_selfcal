@@ -76,7 +76,10 @@ def main(options):
 			desc = t.getcoldesc(column)
 			newdesc = pt.makecoldesc(lincol, desc)
 			newdmi = t.getdminfo(column)
-			newdmi['NAME'] = 'Dysco' + lincol
+			if options.nodysco:
+				newdmi['NAME'] = outcol
+			else:
+				newdmi['NAME'] = 'Dysco' + outcol
 			t.addcols(newdesc, newdmi)  
             
 
@@ -108,9 +111,11 @@ def main(options):
 			desc = t.getcoldesc(column)
 			newdesc = pt.makecoldesc(outcol, desc)
 			newdmi = t.getdminfo(column)
-			newdmi['NAME'] = 'Dysco' + outcol
+			if options.nodysco:
+				newdmi['NAME'] = outcol
+			else:
+				newdmi['NAME'] = 'Dysco' + outcol
 			t.addcols(newdesc, newdmi)  			
-
 		print('Reading the input column (linear)', column)
 		for row in range(0,t.nrows(),stepsize):
 			print('Doing row', row, 'out of', t.nrows(), row+stepsize)
@@ -140,6 +145,7 @@ opt.add_option('-i','--inms',help='Input MS [no default]',default='')
 opt.add_option('-c','--column',help='Input column [default DATA]',default='DATA')
 opt.add_option('-o','--outcol',help='Output column [default DATA_CIRC]',default='DATA_CIRC')
 opt.add_option('-p','--poltable',help='Update POLARIZATION table? [default False]',default=False,action='store_true')
+opt.add_option('--nodysco',help='Use dysco compression [default False (means use Dysco)]', default=False, action='store_true')
 opt.add_option('-b','--back',help='Go back to linear polarization [default False]',default=False,action='store_true')
 opt.add_option('-l','--lincol',help='Output linear polarization column, if the -b switch is used [default DATA_LIN]; we want to keep the original DATA column',default='DATA_LIN')
 options, arguments = opt.parse_args()
