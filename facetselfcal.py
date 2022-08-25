@@ -4759,12 +4759,9 @@ def main():
    parser.add_argument('--makeimage-ILTlowres-HBA', help='Under development, make 1.2 arcsec tapered image. Quality check of ILT 1 arcsec imaging', action='store_true')
    parser.add_argument('--makeimage-fullpol', help='Under development, make Stokes IQUV version for quality checking', action='store_true')
   
-   parser.add_argument('ms', nargs='+', help='msfile(s)')  
-   args = vars(parser.parse_args())
+   parser.add_argument('ms', nargs='+', help='msfile(s)')
 
-
-   print('args before')
-   print (args)
+   options = parser.parse_args()
 
    ## if a config file exists, then read the information
    if os.path.isfile('facetselfcal_config.txt'):
@@ -4783,12 +4780,10 @@ def main():
             if '[' in lineval:
                 lineval = arg_as_list(lineval)
          ## this updates the vaue if it exists, or creates a new one if it doesn't
-         args[line.split('=')[0].rstrip()] = lineval
+         setattr( options, line.split('=')[0].rstrip(), lineval )
 
-   print('args after')
-   print(args)
 
-   options = parser.parse_args() # start of replacing args dictionary with objects options
+   args = vars(options)
 
    version = '4.0.0'
    print_title(version)
