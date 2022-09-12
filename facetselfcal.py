@@ -1965,7 +1965,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True):
     if os.path.isdir(msout):
       os.system('rm -rf ' + msout)
     cmd  ='DP3 numthreads='+ str(multiprocessing.cpu_count()) +' msin=' + ms + ' msout=' + msout + ' '
-    cmd +='msin.datacolumn=CORRECTED_DATA msout.writefullresflag=False steps=[]'
+    cmd +='msin.datacolumn=CORRECTED_DATA msout.writefullresflag=False steps=[] '
     if dysco:
       cmd += 'msout.storagemanager=dysco '    
     os.system(cmd)
