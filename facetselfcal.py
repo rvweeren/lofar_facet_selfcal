@@ -60,7 +60,6 @@ import bdsf
 import pyregion
 import argparse
 import pickle
-import magic
 import fnmatch
 import tables
 from astropy.io import ascii
@@ -3048,6 +3047,7 @@ def beamcor(ms, usedppp=True, dysco=True):
         #print('Phase up dataset, cannot use DPPP beam, do manual correction')
         cmdlosoto = losoto + ' ' + H5name + ' ' + parset
         print(cmdlosoto)
+        logger.info(cmdlosoto)
         os.system(cmdlosoto)
     
         cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
@@ -3182,8 +3182,9 @@ def smoothsols(parmdb, ms, longbaseline, includesphase=True):
     if noise < 0.07 and noise >= 0.04:
       cmdlosoto += create_losoto_mediumsmoothparset(ms, '3', longbaseline, includesphase=includesphase)
       smooth = True
-    print(cmdlosoto)
     if smooth:
+       print(cmdlosoto) 
+       logger.info(cmdlosoto)
        os.system(cmdlosoto)
     return
 
@@ -3933,6 +3934,7 @@ def is_binary(file_name):
     Returns:
         result (bool): returns whether the file is binary (True) or not (False).
     '''
+    import magic
     f = magic.Magic(mime=True)
     mime = f.from_file(file_name)
     if 'text' in mime:
@@ -4201,6 +4203,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname, refant=findrefant_core(parmdb)) # phase matrix plot
       force_close(parmdb)
       cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
+      print(cmdlosoto)
+      logger.info(cmdlosoto)
       os.system(cmdlosoto)
 
     #print(findrefant_core(parmdb))
@@ -4213,6 +4217,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol, outplotname=outplotname, refant=findrefant_core(parmdb)) # phase matrix plot
       cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
       force_close(parmdb)
+      print(cmdlosoto)
+      logger.info(cmdlosoto)
       os.system(cmdlosoto)
       #if len(tables.file._open_files.filenames) >= 1: # for debugging
       #  print('Location 1.5 Some HDF5 files are not closed:', tables.file._open_files.filenames)
@@ -4227,6 +4233,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
        losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname,\
                              refant=findrefant_core(parmdb), markersize=compute_markersize(parmdb))
        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_tec
+       print(cmdlosoto)
+       logger.info(cmdlosoto)
        os.system(cmdlosoto)
        force_close(parmdb)
 
@@ -4255,6 +4263,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
        if flagging:
          os.system('cp -f ' + parmdb + ' ' + parmdb + '.backup')
        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset
+       print(cmdlosoto)
+       logger.info(cmdlosoto)
        os.system(cmdlosoto)
     if len(tables.file._open_files.filenames) >= 1: # for debugging
       print('End runDPPPbase, some HDF5 files are not closed:', tables.file._open_files.filenames)
@@ -4753,15 +4763,18 @@ def main():
    parser.add_argument('--skipbackup', help='Leave the original ms intact and work and always work on a DP3 copied dataset (not yet implemented)', action='store_true')
    parser.add_argument('--helperscriptspath', help='location were additional helper scripts are located', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
    parser.add_argument('--helperscriptspathh5merge', help='location were  helper scripts h5merge is located (default is None which means the same as helperscriptspath', default=None, type=str)
-   parser.add_argument('--auto', help='Trigger fully automated processing (HBA-dutch only for now)', action='store_true')
+   parser.add_argument('--auto', help='Trigger fully automated processing (HBA only for now)', action='store_true')
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction', action='store_true')
    parser.add_argument('--targetcalILT', help='Type of automated target calibration for HBA international baseline data when --auto is used. Options are: tec, tecandphase, scalarphase, type (default=tec)', default='tec', type=str)
    parser.add_argument('--makeimage-ILTlowres-HBA', help='Under development, make 1.2 arcsec tapered image. Quality check of ILT 1 arcsec imaging', action='store_true')
    parser.add_argument('--makeimage-fullpol', help='Under development, make Stokes IQUV version for quality checking', action='store_true')
   
-   parser.add_argument('ms', nargs='+', help='msfile(s)')
+   parser.add_argument('ms', nargs='+', help='msfile(s)')  
+   args = vars(parser.parse_args())
 
-   options = parser.parse_args()
+
+   print('args before')
+   print (args)
 
    ## if a config file exists, then read the information
    if os.path.isfile('facetselfcal_config.txt'):
@@ -4780,12 +4793,14 @@ def main():
             if '[' in lineval:
                 lineval = arg_as_list(lineval)
          ## this updates the vaue if it exists, or creates a new one if it doesn't
-         setattr( options, line.split('=')[0].rstrip(), lineval )
+         args[line.split('=')[0].rstrip()] = lineval
 
+   print('args after')
+   print(args)
 
-   args = vars(options)
+   options = parser.parse_args() # start of replacing args dictionary with objects options
 
-   version = '4.0.0'
+   version = '4.0.1'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
