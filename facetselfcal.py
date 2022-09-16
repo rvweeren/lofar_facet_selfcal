@@ -4727,8 +4727,8 @@ def main():
    parser.add_argument('--gainfactorsolint', help='Experts only', type=float, default=1.0)
    parser.add_argument('--phasefactorsolint', help='Experts only', type=float, default=1.0)
    parser.add_argument("--preapplyH5-list", type=arg_as_list, default=[None],help="List of H5 files, one per ms")
-   parser.add_argument("--applydelaycalH5-list", type=arg_as_list, default=[None],help="List of H5 files from the delay calibrator, one per ms")
-   parser.add_argument("--applydelaytype", type=str, default='circular', help="Options: circular or linear. If --docircular was used for finding the delay solutions use circular (the default)")
+   #parser.add_argument("--applydelaycalH5-list", type=arg_as_list, default=[None],help="List of H5 files from the delay calibrator, one per ms")
+   #parser.add_argument("--applydelaytype", type=str, default='circular', help="Options: circular or linear. If --docircular was used for finding the delay solutions use circular (the default)")
 
    # general options
    parser.add_argument('--skymodel', help='skymodel for first selfcalcycle', type=str)
@@ -4857,8 +4857,8 @@ def main():
    
 
    # PRE-APPLY SOLUTIONS (from a nearby direction for example)
-   if (args['applydelaycalH5_list'][0]) != None and  args['start'] == 0:
-         preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'], dyso=args['dysco'])
+   #if (args['applydelaycalH5_list'][0]) != None and  args['start'] == 0:
+   #      preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'], dyso=args['dysco'])
 
    # check if we could average more
    avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
@@ -4963,8 +4963,8 @@ def main():
            circular(ms, linear=args['dolinear'], dysco=args['dysco'])
 
      # PRE-APPLY SOLUTIONS (from a nearby direction for example)
-     if (args['preapplyH5_list'][0]) != None and i == 0:
-         preapply(args['preapplyH5_list'], mslist, dysco=args['dysco'])
+     #if (args['preapplyH5_list'][0]) != None and i == 0:
+     #    preapply(args['preapplyH5_list'], mslist, dysco=args['dysco'])
 
      # TMP AVERAGE TO SPEED UP CALIBRATION
      if args['autofrequencyaverage_calspeedup'] and i == 0:
@@ -4982,6 +4982,9 @@ def main():
          if (i == 0) or (i == args['start']):
              mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], \
                               start=i, dysco=args['dysco'])
+     #PRE-APPLY SOLUTIONS (from a nearby direction for example)
+     if (args['preapplyH5_list'][0]) != None and i == 0:
+         preapply(args['preapplyH5_list'], mslist, dysco=args['dysco'])
 
 
      # CALIBRATE AGAINST SKYMODEL
