@@ -3380,8 +3380,8 @@ def flaglowamps(parmdb, lowampval=0.1, flagging=True, setweightsphases=True):
             phases_xx[idx_xx] = 0.0
             phases_yy[idx_yy] = 0.0
             
-            weights_p[...,0] = weights_xx_p
-            weights_p[...,-1] = weights_yy_p
+            weights_p[...,0] = weights_p_xx
+            weights_p[...,-1] = weights_p_yy
             phases[...,0] = phases_xx
             phases[...,-1] = phases_yy
         
