@@ -91,6 +91,13 @@ os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # for NFS mounted disks
    #return
 
 
+def run(command):
+   retval=subprocess.call(command,shell=True)
+   if retval!=0:
+      print('FAILED to run '+command+': return value is '+str(retval))
+      raise Exception(command)
+   return retval
+
 def fix_bad_weightspectrum(mslist, clipvalue):
    for ms in mslist:
       print('Clipping WEIGHT_SPECTRUM manually', ms, clipvalue)
@@ -254,7 +261,7 @@ def remove_flagged_data_startend(mslist):
           cmd+= " limit " + str((goodendid-goodstartid)) +") giving " 
           cmd+= msout + " as plain'"
           print(cmd)
-          os.system(cmd)
+          run(cmd)
           mslistout.append(msout)
        else:
           mslistout.append(ms) 
@@ -315,7 +322,7 @@ def preapplydelay(H5filelist, mslist, applydelaytype, dysco=True):
          cmdlin2circ = scriptn + ' -i ' + ms + ' --column=DATA --outcol=DATA_CIRC' 
          if not dysco:
             cmdlin2circ += ' --nodysco'
-         os.system(cmdlin2circ)
+         run(cmdlin2circ)
          # APPLY solutions
          applycal(ms, parmdb, msincol='DATA_CIRC',msoutcol='CORRECTED_DATA', dysco=dysco)
       else:
@@ -326,9 +333,9 @@ def preapplydelay(H5filelist, mslist, applydelaytype, dysco=True):
         cmdlin2circ = scriptn + ' -i ' + ms + ' --column=CORRECTED_DATA --lincol=DATA --back'
         if not dysco:
           cmdlin2circ +=  ' --nodysco'    
-        os.system(cmdlin2circ)      
+        run(cmdlin2circ)      
       else:
-        os.system("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
+        run("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
    return
 
 def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
@@ -336,7 +343,7 @@ def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
       parmdb = time_match_mstoH5(H5filelist, ms)
       applycal(ms, parmdb, msincol='DATA',msoutcol='CORRECTED_DATA', dysco=dysco)
       if updateDATA:
-         os.system("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
+         run("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
    return
 
 def time_match_mstoH5(H5filelist, ms):
@@ -524,14 +531,14 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
         #cmd += outcol + "[,1]=0+0i,"
         #cmd += outcol + "[,2]=0+0i'"
         print(cmd)
-        os.system(cmd)
+        run(cmd)
         cmd = "taql 'update " + ms + " set " 
         #cmd += outcol + "[,0]=0.5*EXP(1.0i*(PHASE(" + incol + "[,0])-PHASE(" + incol + "[,3]))),"
         cmd += outcol + "[,3]=" + outcol + "[,0]'"
         #cmd += outcol + "[,1]=0+0i,"
         #cmd += outcol + "[,2]=0+0i'"
         print(cmd)
-        os.system(cmd)
+        run(cmd)
    return
 
 def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=True):
@@ -561,11 +568,11 @@ def create_MODEL_DATA_PDIFF(inmslist):
    if not isinstance(inmslist,list):
       inmslist = [inmslist] 
    for ms in inmslist:
-     os.system('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
-     os.system("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'") # because I = RR+LL/2 (this is tricky because we work with phase diff)
-     os.system("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'") # because I = RR+LL/2 (this is tricky because we work with phase diff)
-     os.system("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
-     os.system("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
+     run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
+     run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'") # because I = RR+LL/2 (this is tricky because we work with phase diff)
+     run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'") # because I = RR+LL/2 (this is tricky because we work with phase diff)
+     run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
+     run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
 
 def fulljonesparmdb(h5):
     H=tables.open_file(h5) 
@@ -723,7 +730,7 @@ def phaseup(msinlist,datacolumn='DATA',superstation='core', start=0, dysco=True)
       if os.path.isdir(msout):
         os.system('rm -rf ' + msout)
       print(cmd)
-      os.system(cmd)
+      run(cmd)
   
   return msoutlist
 
@@ -841,7 +848,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
           print('Average with default WEIGHT_SPECTRUM:', cmd)
           if os.path.isdir(msout):
             os.system('rm -rf ' + msout)
-          os.system(cmd)
+          run(cmd)
 
         msouttmp = ms + '.avgtmp'  
         cmd = 'DP3 msin=' + ms + ' steps=[av] av.type=averager '
@@ -864,7 +871,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
             print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
             if os.path.isdir(msouttmp):
               os.system('rm -rf ' + msouttmp)
-            os.system(cmd)
+            run(cmd)
           
             # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
             t  = pt.table(msout, readonly=False)
@@ -898,13 +905,13 @@ def tecandphaseplotter(h5, ms, outplotname='plot.png'):
     cmd = 'python plot_tecandphase.py  '
     cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (ms,outplotname)
     print(cmd)
-    os.system(cmd)
+    run(cmd)
     return
 
 def runaoflagger(mslist):
     for ms in mslist:
        cmd = 'aoflagger ' + ms
-       os.system(cmd)
+       run(cmd)
     return
 
 
@@ -981,7 +988,7 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
     cmd += ']'
 
     print('DP3 applycal:', cmd)
-    os.system(cmd) 
+    run(cmd) 
     return
 
 
@@ -1767,7 +1774,7 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
         cmd+= msout + " as plain'"
         
         print(cmd)
-        os.system(cmd)
+        run(cmd)
         
         os.system('rm -rf ' + ms)
         os.system('mv ' + msout + ' ' + ms)
@@ -1798,7 +1805,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     if endtime is not None:  
       cmd+= 'msin.endtime=' + endtime   + ' '   
     print(cmd)  
-    os.system(cmd)
+    run(cmd)
     
     cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cuttmp '
     if dysco:
@@ -1809,7 +1816,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     if endtime is not None:  
       cmd+= 'msin.endtime=' + endtime   + ' '
     print(cmd)
-    os.system(cmd)    
+    run(cmd)    
 
 
     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
@@ -1967,7 +1974,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True):
     cmd +='msin.datacolumn=CORRECTED_DATA msout.writefullresflag=False steps=[] '
     if dysco:
       cmd += 'msout.storagemanager=dysco '    
-    os.system(cmd)
+    run(cmd)
  
 
   msliststring = ' '.join(map(str, glob.glob('*.calibrated') ))
@@ -1985,7 +1992,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True):
   if os.path.isfile(outtarname):
       os.system('rm -f ' + outtarname)
   logger.info('Creating archived calibrated tarball: ' + outtarname)    
-  os.system(cmd)
+  run(cmd)
   
   for ms in mslist:
     msout = ms + '.calibrated'   
@@ -2592,7 +2599,7 @@ def create_beamcortemplate(ms):
   cmd += 'ddecal.solint=10'
 
   print(cmd)
-  os.system(cmd)
+  run(cmd)
 
   return H5name
 
@@ -3011,8 +3018,8 @@ def circular(ms, linear=False, dysco=True):
     if not dysco:
       cmdlin2circ += ' --nodysco'
     print(cmdlin2circ)
-    os.system(cmdlin2circ)
-    os.system(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
+    run(cmdlin2circ)
+    run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
     return
 
 def beamcor(ms, usedppp=True, dysco=True):
@@ -3041,14 +3048,14 @@ def beamcor(ms, usedppp=True, dysco=True):
         cmddppp += 'beam.direction=[] ' # correction for the current phase center
         #cmddppp += 'beam.beammode= ' default is full, will undo element as well(!)
         print('DP3 applybeam:', cmddppp)
-        os.system(cmddppp)
-        os.system(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
+        run(cmddppp)
+        run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
     else:
         #print('Phase up dataset, cannot use DPPP beam, do manual correction')
         cmdlosoto = losoto + ' ' + H5name + ' ' + parset
         print(cmdlosoto)
         logger.info(cmdlosoto)
-        os.system(cmdlosoto)
+        run(cmdlosoto)
     
         cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
@@ -3059,8 +3066,8 @@ def beamcor(ms, usedppp=True, dysco=True):
         cmd += 'ac1.type=applycal ac2.type=applycal '
         cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=True ' 
         print('DP3 applycal:', cmd)
-        os.system(cmd)
-        os.system(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
+        run(cmd)
+        run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
  
         # Add beam correction keyword here.
         # This code only applies the array factor and assumes the element beam was corrected already.
@@ -3099,7 +3106,7 @@ def beamcormodel(ms, dysco=True):
     cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=False '
     cmd += 'ac1.invert=False ac2.invert=False ' # Here we corrupt with the beam !
     print('DP3 applycal:', cmd)
-    os.system(cmd)
+    run(cmd)
    
     return
 
@@ -3185,7 +3192,7 @@ def smoothsols(parmdb, ms, longbaseline, includesphase=True):
     if smooth:
        print(cmdlosoto) 
        logger.info(cmdlosoto)
-       os.system(cmdlosoto)
+       run(cmdlosoto)
     return
 
 
@@ -3572,15 +3579,15 @@ def removenegativefrommodel(imagenames):
         hdul.close()
     
         if perseus:
-          os.system('python /net/rijn/data2/rvweeren/LoTSS_ClusterCAL/editmodel.py {} /net/ouderijn/data2/rvweeren/PerseusHBA/inner_ring_j2000.reg /net/ouderijn/data2/rvweeren/PerseusHBA/outer_ring_j2000.reg'.format(image))
-         #os.system('python /net/rijn/data2/rvweeren/LoTSS_ClusterCAL/editmodel.py ' + image)
+          run('python /net/rijn/data2/rvweeren/LoTSS_ClusterCAL/editmodel.py {} /net/ouderijn/data2/rvweeren/PerseusHBA/inner_ring_j2000.reg /net/ouderijn/data2/rvweeren/PerseusHBA/outer_ring_j2000.reg'.format(image))
+         #run('python /net/rijn/data2/rvweeren/LoTSS_ClusterCAL/editmodel.py ' + image)
         if A1795: 
           cmdA1795 = 'python /net/rijn/data2/rvweeren/LoTSS_ClusterCAL/insert_highres.py '
           cmdA1795 +=  image + ' '
           cmdA1795 +=  A1795imlist[image_id] + ' '
           cmdA1795 += '/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/A1795core.reg '
           print(cmdA1795)
-          os.system(cmdA1795)
+          run(cmdA1795)
     
     return
 
@@ -3611,7 +3618,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
             cmd += '-parallel-gridding ' + str(parallelgridding) + ' ' 
         cmd += '-name ' + imageout + ' ' + msliststring
         print('PREDICT STEP: ', cmd)
-        os.system(cmd)    
+        run(cmd)    
       return    
     #  --- end predict only ---
     
@@ -3683,7 +3690,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
       cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' 
       print('WSCLEAN: ', cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)
       logger.info(cmd + ' -niter ' + str(niter) + ' ' + msliststring)
-      os.system(cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)        
+      run(cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)        
         
 
       if deepmultiscale:
@@ -3704,7 +3711,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
           
         cmdp += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' + msliststring
         print('PREDICT STEP for continue: ', cmdp)
-        os.system(cmdp)
+        run(cmdp)
        
         # NOW continue cleaning
         if not multiscale: # if multiscale is true then this is already set above
@@ -3718,7 +3725,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         if not idg:
           cmd = cmd.replace(cmdbtmp,'')
         print('WSCLEAN continue: ', cmd)
-        os.system(cmd)
+        run(cmd)
 
       # REMOVE nagetive model components, these are artifacts (only for Stokes I)
       if removenegativecc:
@@ -3752,7 +3759,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
       
         cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' + msliststring
         print('PREDICT STEP: ', cmd)
-        os.system(cmd)
+        run(cmd)
         
         
     if imager == 'DDFACET':
@@ -3776,7 +3783,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
            cmd += '--Mask-Auto=1 '
         
         print(cmd)
-        os.system(cmd)
+        run(cmd)
 
 
 def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
@@ -3921,7 +3928,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                             medamp=medianamp(parmdbmergename), \
                             outplotname=parmdbmergename.split('_' + ms + '.h5')[0], \
                             refant=findrefant_core(parmdbmergename))  
-       os.system('losoto ' + parmdbmergename + ' ' + losotoparset)
+       run('losoto ' + parmdbmergename + ' ' + losotoparset)
        force_close(parmdbmergename)
    return 
 
@@ -3953,7 +3960,7 @@ def predictsky_wscleanfits(ms, imagebasename, usewgridder=True):
        cmd +='-use-wgridder '   
     cmd+= '-name ' + imagebasename + ' -predict ' + ms
     print(cmd)
-    os.system(cmd)
+    run(cmd)
     time.sleep(1)
     return
     
@@ -3970,7 +3977,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
       cmdmsdb = "makesourcedb in=" + skymodel + " "
       cmdmsdb += "out=" + sourcedb + " outtype='blob' format='<' append=False"
       print(cmdmsdb)
-      os.system(cmdmsdb)         
+      run(cmdmsdb)         
    
    cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msout=. ' 
    cmd += 'p.sourcedb=' + sourcedb + ' steps=[p] p.type=predict msout.datacolumn=' + modeldata + ' '
@@ -3979,7 +3986,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
    if predictskywithbeam:
       cmd += 'p.usebeammodel=True p.usechannelfreq=True p.beammode=array_factor ' 
    print(cmd)
-   os.system(cmd)
+   run(cmd)
    return    
 
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0, \
@@ -3999,7 +4006,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     if BLsmooth:
       print('python BLsmooth.py -n 8 -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
                 ' -s ' + str(blscalefactor) + ' ' + ms)
-      os.system('python BLsmooth.py -n 8 -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
+      run('python BLsmooth.py -n 8 -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
                 ' -s ' + str(blscalefactor) + ' ' + ms)        
       incol = 'SMOOTHED_DATA'    
 
@@ -4021,12 +4028,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
 
     if skymodelpointsource !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
         # create MODEL_DATA (no dysco!)
-        os.system('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
+        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
         # do the predict with taql
-        os.system("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource)+ "+0i)'")
-        os.system("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource)+ "+0i)'")
-        os.system("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
-        os.system("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
+        run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource)+ "+0i)'")
+        run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource)+ "+0i)'")
+        run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
+        run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
         
 
     if soltype in ['phaseonly_phmin', 'rotation_phmin', 'tec_phmin', 'tecandphase_phmin','scalarphase_phmin']:
@@ -4045,8 +4052,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
 
     if soltype in ['fulljones']:
       print('Setting XY and YX to 0+0i')  
-      os.system("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
-      os.system("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")   
+      run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
+      run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")   
      
     if soltype in ['phaseonly','complexgain','fulljones','rotation+diagonal','amplitudeonly']: # for 1D plotting
       onepol = False
@@ -4056,7 +4063,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     if restoreflags:
       cmdtaql = "'update " + ms + " set FLAG=FLAG_BACKUP'"
       print("Restore flagging column: " + "taql " + cmdtaql)
-      os.system("taql " + cmdtaql)  
+      run("taql " + cmdtaql)  
 
 
     t    = pt.table(ms + '/SPECTRAL_WINDOW',ack=False)
@@ -4141,7 +4148,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
         print("COPYING PREVIOUS SCALARPHASEDIFF SOLUTION")
         os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
     else:
-        os.system(cmd)
+        run(cmd)
     if selfcalcycle==0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
         os.system("cp -r " + parmdb + " " + parmdb + ".scbackup")
 
@@ -4163,9 +4170,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       # work with copies H5 because losoto changes the format splitting off the length 1 direction axis creating issues with H5merge (also add additional solution talbes which we do not want)
       os.system('cp -f ' + parmdb + ' ' + 'FRcopy' + parmdb) 
       losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb), outplotname=outplotname,dejump=dejumpFR)
-      os.system('losoto ' + 'FRcopy' + parmdb + ' ' + losoto_parsetFR)
+      run('losoto ' + 'FRcopy' + parmdb + ' ' + losoto_parsetFR)
       rotationmeasure_to_phase('FRcopy' + parmdb, parmdb, dejump=dejumpFR)
-      os.system('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb), outplotname=outplotname))
+      run('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb), outplotname=outplotname))
       force_close(parmdb)
 
       
@@ -4205,7 +4212,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
       print(cmdlosoto)
       logger.info(cmdlosoto)
-      os.system(cmdlosoto)
+      run(cmdlosoto)
 
     #print(findrefant_core(parmdb))
     #print(onechannel)
@@ -4219,7 +4226,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       force_close(parmdb)
       print(cmdlosoto)
       logger.info(cmdlosoto)
-      os.system(cmdlosoto)
+      run(cmdlosoto)
       #if len(tables.file._open_files.filenames) >= 1: # for debugging
       #  print('Location 1.5 Some HDF5 files are not closed:', tables.file._open_files.filenames)
       #  sys.exit()
@@ -4235,7 +4242,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_tec
        print(cmdlosoto)
        logger.info(cmdlosoto)
-       os.system(cmdlosoto)
+       run(cmdlosoto)
        force_close(parmdb)
 
       
@@ -4265,7 +4272,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset
        print(cmdlosoto)
        logger.info(cmdlosoto)
-       os.system(cmdlosoto)
+       run(cmdlosoto)
     if len(tables.file._open_files.filenames) >= 1: # for debugging
       print('End runDPPPbase, some HDF5 files are not closed:', tables.file._open_files.filenames)
       force_close(parmdb)
@@ -4849,7 +4856,7 @@ def main():
    if args['resetweights']:
      for ms in mslist:
        cmd = "'update " + ms + " set WEIGHT_SPECTRUM=WEIGHT_SPECTRUM_SOLVE'"
-       os.system("taql " + cmd)
+       run("taql " + cmd)
 
    # SETUP VARIOUS PARAMETERS
    longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, maskthreshold_selfcalcycle, \
@@ -5117,7 +5124,7 @@ def main():
          if fitsmask != None:
            if os.path.isfile(imagename + '.mask.fits'):
              os.system('rm -f ' + imagename + '.mask.fits')
-         os.system(cmdm)
+         run(cmdm)
          fitsmask = imagename + '.mask.fits'
       
          # update uvmin if allowed/requested
