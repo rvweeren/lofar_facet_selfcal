@@ -3788,7 +3788,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None, \
               skymodelpointsource=None, wscleanskymodel=None, ionfactor=0.01, \
               blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, \
-              docircular=False, mslist_beforephaseup=None, dysco=True):
+              docircular=False, mslist_beforephaseup=None, dysco=True,blsmooth_chunking_size=8):
 
    soltypecycles_list_array = np.array(soltypecycles_list) # needed to slice (slicing does not work in nested l
    incol = [] # len(mslist)
@@ -3835,7 +3835,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
                      skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
                      ionfactor=ionfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
-                     selfcalcycle=selfcalcycle, dysco=dysco)
+                     selfcalcycle=selfcalcycle, dysco=dysco,blsmooth_chunking_size=blsmooth_chunking_size)
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
        
@@ -3990,17 +3990,17 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, ionfactor=0.01, \
-                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True):
+                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True,blsmooth_chunking_size=8):
     
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
     
     
     modeldata = 'MODEL_DATA' # the default, update if needed for scalarphasediff and phmin solves
     if BLsmooth:
-      print('python BLsmooth.py -n 8 -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
-                ' -s ' + str(blscalefactor) + ' ' + ms)
-      os.system('python BLsmooth.py -n 8 -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
-                ' -s ' + str(blscalefactor) + ' ' + ms)        
+      cmd = 'python BLsmooth.py -n 8 -c '+ blsmooth_chunking_size +' -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
+                ' -s ' + str(blscalefactor) + ' ' + ms
+      print(cmd)
+      os.system(cmd)
       incol = 'SMOOTHED_DATA'    
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
@@ -4768,6 +4768,7 @@ def main():
    parser.add_argument('--targetcalILT', help='Type of automated target calibration for HBA international baseline data when --auto is used. Options are: tec, tecandphase, scalarphase, type (default=tec)', default='tec', type=str)
    parser.add_argument('--makeimage-ILTlowres-HBA', help='Under development, make 1.2 arcsec tapered image. Quality check of ILT 1 arcsec imaging', action='store_true')
    parser.add_argument('--makeimage-fullpol', help='Under development, make Stokes IQUV version for quality checking', action='store_true')
+   parser.add_argument('--blsmooth_chunking_size', type=int, help='Chunking size for blsmooth. Standard is 8, larger values are slower but save on memory. Lower values are faster',default=8)
   
    parser.add_argument('ms', nargs='+', help='msfile(s)')
 
@@ -5004,7 +5005,8 @@ def main():
                              wscleanskymodel=args['wscleanskymodel'], ionfactor=args['ionfactor'], \
                              blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'],\
                              uvminscalarphasediff=args['uvminscalarphasediff'], \
-                             docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco']) 
+                             docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
+                             blsmooth_chunking_size=args['blsmooth_chunking_size']) 
 
 
   
@@ -5098,7 +5100,8 @@ def main():
                            flagslowamprms=args['flagslowamprms'], flagslowphaserms=args['flagslowphaserms'],\
                            ionfactor=args['ionfactor'], blscalefactor=args['blscalefactor'],\
                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
-                           docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'])
+                           docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
+                           blsmooth_chunking_size=args['blsmooth_chunking_size'])
 
 
  
