@@ -3997,7 +3997,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     
     modeldata = 'MODEL_DATA' # the default, update if needed for scalarphasediff and phmin solves
     if BLsmooth:
-      cmd = 'python BLsmooth.py -n 8 -c '+ blsmooth_chunking_size +' -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
+      cmd = 'python BLsmooth.py -n 8 -c '+ str(blsmooth_chunking_size) +' -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
                 ' -s ' + str(blscalefactor) + ' ' + ms
       print(cmd)
       os.system(cmd)
