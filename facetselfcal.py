@@ -4007,7 +4007,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       cmd = 'python BLsmooth.py -n 8 -c '+ str(blsmooth_chunking_size) +' -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
                 ' -s ' + str(blscalefactor) + ' ' + ms
       print(cmd)
-      os.system(cmd)
+      run(cmd)
       incol = 'SMOOTHED_DATA'    
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
