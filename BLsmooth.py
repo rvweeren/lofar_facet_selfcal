@@ -115,8 +115,9 @@ def smooth_baseline(in_bl, data, weights, std_t, std_f, outQueue=None):
 
 
 opt = optparse.OptionParser(usage="%prog [options] MS", version="%prog 3.0")
-opt.add_option('-f', '--ionfactor', help='Gives an indication on how strong is the ionosphere [default: 0.01]', type='float', default=0.01)
-opt.add_option('-s', '--bscalefactor', help='Gives an indication on how the smoothing varies with BL-lenght [default: 1.0]', type='float', default=1.0)
+opt.add_option('-f', '--ionfactor', help='Gives an indication on how strong is the ionosphere along the time axis [default: 0.01]', type='float', default=0.01)
+opt.add_option('-s', '--bscalefactor', help='Gives an indication on how the smoothing in time varies with BL-lenght [default: 1.0]', type='float', default=1.0)
+opt.add_option('-u', '--tecfactor', help='Gives an indication on how strong is the ionosphere along the freq axis [default: 1.0]', type='float', default=1.0)
 opt.add_option('-i', '--incol', help='Column name to smooth [default: DATA]', type='string', default='DATA')
 opt.add_option('-o', '--outcol', help='Output column [default: SMOOTHED_DATA]', type="string", default='SMOOTHED_DATA')
 opt.add_option('-w', '--weight', help='Save the newly computed WEIGHT_SPECTRUM, this action permanently modify the MS! [default: False]', action="store_true", default=False)
@@ -202,9 +203,13 @@ for c, idx in enumerate(np.array_split(np.arange(n_bl), options.chunks)):
         std_t = std_t / timepersample  # in samples
         # TODO: for freq this is hardcoded, it should be thought better
         # However, the limitation is probably smearing here
-        std_f = 1e6 / dist  # Hz
+        std_f = 1e6 * options.tecfactor / dist  # Hz
         std_f = std_f / freqpersample  # in samples
+        
         logging.debug("-Time: sig={:.1f} samples ({:.1f}s) -Freq: sig={:.1f} samples ({:.2f}MHz)".format(
+            std_t, timepersample * std_t, std_f, freqpersample * std_f / 1e6))
+        print('Working on baseline: {} - {} (dist = {:.2f}km)'.format(ant1, ant2, dist))
+        print("-Time: sig={:.1f} samples ({:.1f}s) -Freq: sig={:.1f} samples ({:.2f}MHz)".format(
             std_t, timepersample * std_t, std_f, freqpersample * std_f / 1e6))
         if std_t < 0.5: continue  # avoid very small smoothing and flagged ants
         # fill queue
