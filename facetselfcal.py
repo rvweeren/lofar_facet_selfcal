@@ -16,12 +16,10 @@
 
 
 # implement idea of phase detrending.
-# do not use os.system for DP3/WSClean to catch errors properly
 # decrease niter if multiscale is triggered, smart move?
 # h5 linear to circular solution conversion
 # do not predict sky second time in pertubation solve?
 # to do: log command into the FITS header
-# avg to units of Hertz and seconds? (for input data that hass different averaging) https://stackoverflow.com/questions/66909044/argparse-argument-may-be-str-or-int-and-the-simplest-way-to-handle-it
 # BLsmooth not for gain solves opttion
 # BLsmooth constant smooth for gain solves
 # only trigger HBA upper band selection for sources outside the FWHM?
@@ -999,13 +997,19 @@ def inputchecker(args):
       print('All ms need to be local, no "/" are allowed in ms name')
       sys.exit(1)
 
-  if args['ionfactor'] <= 0.0:
-    print('BLsmooth ionfactor needs to be positive')
+  if args['iontimefactor'] <= 0.0:
+    print('BLsmooth iontimefactor needs to be positive')
     sys.exit(1)
-  if args['ionfactor'] > 10.0:
-    print('BLsmooth ionfactor is way too high')
+  if args['iontimefactor'] > 10.0:
+    print('BLsmooth iontimefactor is way too high')
     sys.exit(1)
 
+  if args['ionfreqfactor'] <= 0.0:
+    print('BLsmooth tecfactor needs to be positive')
+    sys.exit(1)
+  if args['ionfreqfactor'] > 10000.0:
+    print('BLsmooth tecfactor is way too high')
+    sys.exit(1)
 
   if not os.path.isfile('lib_multiproc.py'):
     print('Cannot find lib_multiproc.py, file does not exist, use --helperscriptspath')
@@ -1022,6 +1026,10 @@ def inputchecker(args):
   if not os.path.isfile('BLsmooth.py'):
     print('Cannot find BLsmooth.py, file does not exist, use --helperscriptspath')
     sys.exit(1)
+  if not os.path.isfile('polconv.py'):
+    print('Cannot find polconv.py, file does not exist, use --helperscriptspath')
+    sys.exit(1)    
+  
 
   if args['phaseshiftbox'] != None:
     if not os.path.isfile(args['phaseshiftbox']):
@@ -1034,9 +1042,16 @@ def inputchecker(args):
   
   for antennaconstraint in args['antennaconstraint_list']:
     if antennaconstraint not in ['superterp', 'coreandfirstremotes','core', 'remote',\
-                                 'all', 'international', 'alldutch', 'core-remote','coreandallbutmostdistantremotes'] \
+                                 'all', 'international', 'alldutch', 'core-remote','coreandallbutmostdistantremotes','alldutchbutnoST001'] \
                          and antennaconstraint != None:
       print('Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
+      sys.exit(1)
+
+  for resetsols in args['resetsols_list']:
+    if resetsols not in ['superterp', 'coreandfirstremotes','core', 'remote',\
+                                 'all', 'international', 'alldutch', 'core-remote','coreandallbutmostdistantremotes', 'alldutchbutnoST001'] \
+                         and resetsols != None:
+      print('Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
       sys.exit(1)
 
   for soltype in args['soltype_list']:
@@ -1361,12 +1376,13 @@ def makemslist(mslist):
     f.close()
     return
 
-def antennaconstraintstr(ctype, antennasms, HBAorLBA):
+def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False):
     antennasms = list(antennasms)
     #print(antennasms)
     if ctype != 'superterp' and ctype != 'core' and ctype != 'coreandfirstremotes' and \
        ctype != 'remote' and ctype != 'alldutch' and ctype != 'all' and \
-       ctype != 'international' and ctype != 'core-remote' and ctype != 'coreandallbutmostdistantremotes' :
+       ctype != 'international' and ctype != 'core-remote' and ctype != 'coreandallbutmostdistantremotes' and \
+       ctype != 'alldutchbutnoST001' :
         print('Invalid input, ctype can only be "superterp" or "core"')
         sys.exit(1)
     if HBAorLBA == 'LBA':  
@@ -1399,6 +1415,14 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA):
                 'CS302LBA','CS401LBA','CS501LBA','RS503LBA','RS305LBA','RS205LBA','RS306LBA', \
                 'RS310LBA','RS406LBA','RS407LBA','RS106LBA','RS307LBA','RS208LBA','RS210LBA', \
                 'RS409LBA','RS508LBA','RS509LBA', 'ST001']
+      if ctype == 'alldutchbutnoST001':
+        antstr=['CS001LBA','CS002LBA','CS003LBA','CS004LBA','CS005LBA','CS006LBA','CS007LBA', \
+                'CS011LBA','CS013LBA','CS017LBA','CS021LBA','CS024LBA','CS026LBA','CS028LBA', \
+                'CS030LBA','CS031LBA','CS032LBA','CS101LBA','CS103LBA','CS201LBA','CS301LBA', \
+                'CS302LBA','CS401LBA','CS501LBA','RS503LBA','RS305LBA','RS205LBA','RS306LBA', \
+                'RS310LBA','RS406LBA','RS407LBA','RS106LBA','RS307LBA','RS208LBA','RS210LBA', \
+                'RS409LBA','RS508LBA','RS509LBA']
+
       if ctype == 'all':
         antstr=['CS001LBA','CS002LBA','CS003LBA','CS004LBA','CS005LBA','CS006LBA','CS007LBA', \
                 'CS011LBA','CS013LBA','CS017LBA','CS021LBA','CS024LBA','CS026LBA','CS028LBA', \
@@ -1467,6 +1491,17 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA):
                 'CS302HBA1','CS401HBA1','CS501HBA1', \
                 'RS503HBA','RS305HBA','RS205HBA','RS306HBA', 'RS310HBA','RS406HBA','RS407HBA', \
                 'RS106HBA','RS307HBA','RS208HBA','RS210HBA', 'RS409HBA','RS508HBA','RS509HBA','ST001']
+      if ctype == 'alldutchbutnoST001':
+        antstr=['CS001HBA0','CS002HBA0','CS003HBA0','CS004HBA0','CS005HBA0','CS006HBA0','CS007HBA0', \
+                'CS011HBA0','CS013HBA0','CS017HBA0','CS021HBA0','CS024HBA0','CS026HBA0','CS028HBA0', \
+                'CS030HBA0','CS031HBA0','CS032HBA0','CS101HBA0','CS103HBA0','CS201HBA0','CS301HBA0', \
+                'CS302HBA0','CS401HBA0','CS501HBA0',\
+                'CS001HBA1','CS002HBA1','CS003HBA1','CS004HBA1','CS005HBA1','CS006HBA1','CS007HBA1', \
+                'CS011HBA1','CS013HBA1','CS017HBA1','CS021HBA1','CS024HBA1','CS026HBA1','CS028HBA1', \
+                'CS030HBA1','CS031HBA1','CS032HBA1','CS101HBA1','CS103HBA1','CS201HBA1','CS301HBA1', \
+                'CS302HBA1','CS401HBA1','CS501HBA1', \
+                'RS503HBA','RS305HBA','RS205HBA','RS306HBA', 'RS310HBA','RS406HBA','RS407HBA', \
+                'RS106HBA','RS307HBA','RS208HBA','RS210HBA', 'RS409HBA','RS508HBA','RS509HBA']
       if ctype == 'all':
         antstr=['CS001HBA0','CS002HBA0','CS003HBA0','CS004HBA0','CS005HBA0','CS006HBA0','CS007HBA0', \
                 'CS011HBA0','CS013HBA0','CS017HBA0','CS021HBA0','CS024HBA0','CS026HBA0','CS028HBA0', \
@@ -1495,6 +1530,12 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA):
         antstr2=['RS503HBA','RS305HBA','RS205HBA','RS306HBA', 'RS310HBA','RS406HBA','RS407HBA', \
                 'RS106HBA','RS307HBA','RS208HBA','RS210HBA', 'RS409HBA','RS508HBA','RS509HBA']
 
+    if useforresetsols:
+        antstrtmp = list(antstr) 
+        for ant in antstr:
+            if ant not in antennasms:
+                antstrtmp.remove(ant) 
+        return antstrtmp        
 
     if ctype != 'core-remote':
         antstrtmp = list(antstr) # important to use list here, otherwise it's not a copy(!!) and antstrtmp refers to antstr
@@ -1637,6 +1678,186 @@ def resetgains(parmdb):
    H5.flush()
    H5.close()
    return
+
+def resetsolsforstations(h5parm, stationlist, refant=None):
+   print(h5parm, stationlist)
+   fulljones = fulljonesparmdb(h5parm) # True/False
+   hasphase = True
+   hasamps  = True
+   hasrotatation = True
+   hastec = True
+   
+   H=tables.open_file(h5parm, mode='a')
+   
+   # figure of we have phase and/or amplitude solutions
+   try:
+     antennas = H.root.sol000.amplitude000.ant[:]
+     axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+   except: 
+      hasamps = False
+   try:
+     antennas = H.root.sol000.phase000.ant[:]
+     axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+   except:
+     hasphase = False
+   try:
+     antennas = H.root.sol000.tec000.ant[:]
+     axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+   except:
+     hastec = False
+   try:
+     antennas = H.root.sol000.rotation000.ant[:]
+     axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+   except:
+     hasrotatation = False   
+
+   if hasamps:  
+     amp = H.root.sol000.amplitude000.val[:]
+   if hasphase: # also phasereference
+     phase = H.root.sol000.phase000.val[:]
+     refant_idx = np.where(H.root.sol000.phase000.ant[:].astype(str) == refant) # to deal with byte strings
+     print(refant_idx, refant)
+     antennaxis = axisn.index('ant')  
+     axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+     print('Referencing phase to ', refant, 'Axis entry number', axisn.index('ant'))
+     if antennaxis == 0:
+        phasen = phase - phase[refant_idx[0],...]
+     if antennaxis == 1:
+        phasen = phase - phase[:,refant_idx[0],...]
+     if antennaxis == 2:
+        phasen = phase - phase[:,:,refant_idx[0],...]
+     if antennaxis == 3:
+        phasen = phase - phase[:,:,:,refant_idx[0],...]
+     if antennaxis == 4:
+        phasen = phase - phase[:,:,:,:,refant_idx[0],...]     
+     phase = np.copy(phasen)
+     
+     
+   if hastec:
+     tec = H.root.sol000.tec000.val[:]  
+     refant_idx = np.where(H.root.sol000.tec000.ant[:].astype(str) == refant) # to deal with byte strings
+     print(refant_idx, refant)
+     antennaxis = axisn.index('ant')  
+     axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+     print('Referencing tec to ', refant, 'Axis entry number', axisn.index('ant'))
+     if antennaxis == 0:
+        tecn = tec - tec[refant_idx[0],...]
+     if antennaxis == 1:
+        tecn = tec - tec[:,refant_idx[0],...]
+     if antennaxis == 2:
+        tecn = tec - tec[:,:,refant_idx[0],...]
+     if antennaxis == 3:
+        tecn = tec - tec[:,:,:,refant_idx[0],...]
+     if antennaxis == 4:
+        tecn = tec - tec[:,:,:,:,refant_idx[0],...]     
+     tec = np.copy(tecn)
+
+   if hasrotatation:
+     rotation = H.root.sol000.rotation000.val[:]       
+     refant_idx = np.where(H.root.sol000.rotation000.ant[:].astype(str) == refant) # to deal with byte strings
+     print(refant_idx, refant)
+     antennaxis = axisn.index('ant')  
+     axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+     print('Referencing rotation to ', refant, 'Axis entry number', axisn.index('ant'))
+     if antennaxis == 0:
+        rotationn = rotation - rotation[refant_idx[0],...]
+     if antennaxis == 1:
+        rotationn = rotation - rotation[:,refant_idx[0],...]
+     if antennaxis == 2:
+        rotationn = rotation - rotation[:,:,refant_idx[0],...]
+     if antennaxis == 3:
+        rotationn = rotation - rotation[:,:,:,refant_idx[0],...]
+     if antennaxis == 4:
+        rotationn = rotation - rotation[:,:,:,:,refant_idx[0],...]     
+     rotation = np.copy(rotationn)
+     
+     
+   for antennaid,antenna in enumerate(antennas.astype(str)): # to deal with byte formatted array
+     #if not isinstance(antenna, str):
+     #  antenna_str = antenna.decode() # to deal with byte formatted antenna names
+     #else:
+     #  antenna_str = antenna # already str type 
+       
+     print(antenna, hasphase, hasamps, hastec, hasrotatation)     
+     if antenna in stationlist: # in this case reset value to 0.0 (or 1.0)
+       if hasphase:
+         antennaxis = axisn.index('ant')  
+         axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+         print('Resetting phase', antenna, 'Axis entry number', axisn.index('ant'))
+         #print(phase[:,:,antennaid,...])
+         if antennaxis == 0:
+           phase[antennaid,...] = 0.0
+         if antennaxis == 1:
+           phase[:,antennaid,...] = 0.0
+         if antennaxis == 2:
+           phase[:,:,antennaid,...] = 0.0
+         if antennaxis == 3:
+           phase[:,:,:,antennaid,...] = 0.0  
+         if antennaxis == 4:
+           phase[:,:,:,:,antennaid,...] = 0.0
+         #print(phase[:,:,antennaid,...])  
+       if hasamps:
+         antennaxis = axisn.index('ant')  
+         axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+         print('Resetting amplitude', antenna, 'Axis entry number', axisn.index('ant'))
+         if antennaxis == 0:
+           amp[antennaid,...] = 1.0
+         if antennaxis == 1:
+           amp[:,antennaid,...] = 1.0
+         if antennaxis == 2:
+           amp[:,:,antennaid,...] = 1.0
+         if antennaxis == 3:
+           amp[:,:,:,antennaid,...] = 1.0  
+         if antennaxis == 4:
+           amp[:,:,:,:,antennaid,...] = 1.0
+         if fulljones:  
+           amp[...,1] = 0.0 # XY, assumpe pol is last axis
+           amp[...,2] = 0.0 # YX, assume pol is last axis
+           
+       if hastec:
+         antennaxis = axisn.index('ant')  
+         axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+         print('Resetting TEC', antenna, 'Axis entry number', axisn.index('ant'))
+         if antennaxis == 0:
+           tec[antennaid,...] = 0.0
+         if antennaxis == 1:
+           tec[:,antennaid,...] = 0.0
+         if antennaxis == 2:
+           tec[:,:,antennaid,...] = 0.0
+         if antennaxis == 3:
+           tec[:,:,:,antennaid,...] = 0.0  
+         if antennaxis == 4:
+           tec[:,:,:,:,antennaid,...] = 0.0                         
+       if hasrotatation:
+         antennaxis = axisn.index('ant')  
+         axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+         print('Resetting rotation', antenna, 'Axis entry number', axisn.index('ant'))
+         if antennaxis == 0:
+           rotation[antennaid,...] = 0.0
+         if antennaxis == 1:
+           rotation[:,antennaid,...] = 0.0
+         if antennaxis == 2:
+           rotation[:,:,antennaid,...] = 0.0
+         if antennaxis == 3:
+           rotation[:,:,:,antennaid,...] = 0.0  
+         if antennaxis == 4:
+           rotation[:,:,:,:,antennaid,...] = 0.0     
+   # fill values back in
+   if hasphase:
+     H.root.sol000.phase000.val[:] = np.copy(phase)
+   if hasamps:  
+     H.root.sol000.amplitude000.val[:] = np.copy(amp)
+   if hastec:
+     H.root.sol000.tec000.val[:] = np.copy(tec) 
+   if hasrotatation:
+     H.root.sol000.rotation000.val[:] = np.copy(rotatation)       
+     
+   H.flush()
+   H.close()
+
+
+   return
+
 
 def removenans(parmdb, soltab):
    H5 = h5parm.h5parm(parmdb, readonly=False)
@@ -2000,11 +2221,6 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True):
   return
 
 
-#def setinitial_solint(mslist, soltype_list, longbaseline, LBA,\
-#                      innchan_list, insolint_list, insmoothnessconstraint_list, \
-#                      insmoothnessreffrequency_list, insmoothnessspectralexponent_list,\
-#                      inantennaconstraint_list, \
-#                      insoltypecycles_list):
 
 def setinitial_solint(mslist, longbaseline, LBA, options):
    """
@@ -2026,6 +2242,10 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
       antennaconstraint_list = pickle.load(f)        
       f.close()   
 
+      f = open('resetsols.p', 'rb') 
+      resetsols_list = pickle.load(f)        
+      f.close()   
+
       f = open('smoothnessconstraint.p', 'rb') 
       smoothnessconstraint_list = pickle.load(f)        
       f.close()
@@ -2036,6 +2256,10 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
       
       f = open('smoothnessspectralexponent.p', 'rb')
       smoothnessspectralexponent_list = pickle.load(f)
+      f.close()
+
+      f = open('smoothnessrefdistance.p', 'rb')
+      smoothnessrefdistance_list = pickle.load(f)
       f.close()
 
       f = open('soltypecycles.p', 'rb') 
@@ -2049,16 +2273,20 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
       smoothnessconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
       smoothnessreffrequency_list = [] # nested list with len(options.soltype_list), inner list is for ms
       smoothnessspectralexponent_list = [] # nest list with len(options.soltype_list), inner list is for ms
+      smoothnessrefdistance_list = [] #  # nest list with len(options.soltype_list), inner list is for ms
       antennaconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
+      resetsols_list = [] # nested list with len(options.soltype_list), inner list is for ms
       soltypecycles_list = []  # nested list with len(options.soltype_list), inner list is for ms
 
       for soltype_id, soltype in enumerate(options.soltype_list):
         nchan_ms   = [] # list with len(mslist)
         solint_ms  = [] # list with len(mslist)
         antennaconstraint_list_ms   = [] # list with len(mslist)
+        resetsols_list_ms = [] # list with len(mslist)
         smoothnessconstraint_list_ms  = [] # list with len(mslist)
         smoothnessreffrequency_list_ms  = [] # list with len(mslist)
         smoothnessspectralexponent_list_ms = [] # list with len(mslist)
+        smoothnessrefdistance_list_ms = [] # list with len(mslist)
         soltypecycles_list_ms = [] # list with len(mslist)
 
         for ms in mslist:
@@ -2093,12 +2321,24 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
             smoothnessspectralexponent = options.smoothnessspectralexponent_list[soltype_id]
           except:
             smoothnessspectralexponent = -1.0          
+
+          # smoothnessrefdistance 
+          try:
+            smoothnessrefdistance = options.smoothnessrefdistance_list[soltype_id]
+          except:
+            smoothnessrefdistance = 0.0          
           
           # antennaconstraint 
           try:
             antennaconstraint = options.antennaconstraint_list[soltype_id]
           except:
             antennaconstraint = None
+
+          # resetsols 
+          try:
+            resetsols = options.resetsols_list[soltype_id]
+          except:
+            resetsols = None
 
           # soltypecycles
           soltypecycles = options.soltypecycles_list[soltype_id]
@@ -2113,16 +2353,20 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
           smoothnessconstraint_list_ms.append(smoothnessconstraint)
           smoothnessreffrequency_list_ms.append(smoothnessreffrequency)
           smoothnessspectralexponent_list_ms.append(smoothnessspectralexponent)
+          smoothnessrefdistance_list_ms.append(smoothnessrefdistance)
           antennaconstraint_list_ms.append(antennaconstraint)
+          resetsols_list_ms.append(resetsols)
           soltypecycles_list_ms.append(soltypecycles)
 
         
         nchan_list.append(nchan_ms)   # list of lists
         solint_list.append(solint_ms) # list of lists
         antennaconstraint_list.append(antennaconstraint_list_ms)   # list of lists
+        resetsols_list.append(resetsols_list_ms) # list of lists
         smoothnessconstraint_list.append(smoothnessconstraint_list_ms) # list of lists
         smoothnessreffrequency_list.append(smoothnessreffrequency_list_ms) # list of lists
         smoothnessspectralexponent_list.append(smoothnessspectralexponent_list_ms) # list of lists
+        smoothnessrefdistance_list.append(smoothnessrefdistance_list_ms)
         
         soltypecycles_list.append(soltypecycles_list_ms)
 
@@ -2145,10 +2389,18 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
       f = open('smoothnessspectralexponent.p', 'wb') 
       pickle.dump(smoothnessspectralexponent_list,f)        
       f.close()  
+
+      f = open('smoothnessrefdistance.p', 'wb') 
+      pickle.dump(smoothnessrefdistance_list,f)        
+      f.close()  
       
       f = open('antennaconstraint.p', 'wb') 
       pickle.dump(antennaconstraint_list,f)        
       f.close()        
+
+      f = open('resetsols.p', 'wb') 
+      pickle.dump(resetsols_list,f)        
+      f.close()  
 
       f = open('soltypecycles.p', 'wb') 
       pickle.dump(soltypecycles_list,f)        
@@ -2161,7 +2413,9 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    print('smoothnessconstraint:',smoothnessconstraint_list)
    print('smoothnessreffrequency:',smoothnessreffrequency_list)
    print('smoothnessspectralexponent:',smoothnessspectralexponent_list)
+   print('smoothnessrefdistance:',smoothnessrefdistance_list)
    print('antennaconstraint:',antennaconstraint_list)
+   print('resetsols:',resetsols_list)
    print('soltypecycles:',soltypecycles_list)
 
    logger.info('soltype: '+ str(options.soltype_list) + ' ' + str(mslist))   
@@ -2170,10 +2424,12 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    logger.info('smoothnessconstraint: ' + str(options.smoothnessconstraint_list))
    logger.info('smoothnessreffrequency: ' + str(options.smoothnessreffrequency_list))
    logger.info('smoothnessspectralexponent: ' + str(options.smoothnessspectralexponent_list))
+   logger.info('smoothnessrefdistance: ' + str(options.smoothnessrefdistance_list))
    logger.info('antennaconstraint: ' + str(options.antennaconstraint_list))
+   logger.info('resetsols: ' + str(options.resetsols_list))
    logger.info('soltypecycles: ' + str(options.soltypecycles_list))   
    
-   return nchan_list, solint_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, antennaconstraint_list, soltypecycles_list
+   return nchan_list, solint_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, soltypecycles_list
 
 def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
    t = pt.table(ms + '/SPECTRAL_WINDOW')
@@ -2255,7 +2511,8 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
                           uvdismod=None, modelcolumn='MODEL_DATA', redo=False,\
                           insmoothnessconstraint_list=None, insmoothnessreffrequency_list=None, \
                           insmoothnessspectralexponent_list=None,\
-                          inantennaconstraint_list=None, \
+                          insmoothnessrefdistance_list=None,\
+                          inantennaconstraint_list=None, inresetsols_list=None, \
                           insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0,\
                           phasefactorsolint=1.0, delaycal=False):
    """
@@ -2553,9 +2810,17 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    f = open('smoothnessspectralexponent.p', 'wb') 
    pickle.dump(insmoothnessspectralexponent_list,f)        
    f.close()   
+
+   f = open('smoothnessrefdistance.p', 'wb') 
+   pickle.dump(insmoothnessrefdistance_list,f)        
+   f.close()   
   
    f = open('antennaconstraint.p', 'wb') 
    pickle.dump(inantennaconstraint_list,f)        
+   f.close()   
+
+   f = open('resetsols.p', 'wb') 
+   pickle.dump(inresetsols_list,f)        
    f.close()   
 
    f = open('soltypecycles.p', 'wb') 
@@ -2568,7 +2833,9 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    print('smoothnessconstraint:',insmoothnessconstraint_list)
    print('smoothnessreffrequency:',insmoothnessreffrequency_list)
    print('smoothnessspectralexponent_list:',insmoothnessspectralexponent_list)
+   print('smoothnessrefdistance_list:',insmoothnessrefdistance_list)
    print('antennaconstraint:',inantennaconstraint_list)
+   print('resetsols:',inresetsols_list)
    print('soltypecycles:',insoltypecycles_list)
 
    logger.info('soltype: '+ str(soltype_list) + ' ' + str(mslist))   
@@ -2577,11 +2844,13 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    logger.info('smoothnessconstraint: ' + str(insmoothnessconstraint_list))
    logger.info('smoothnessreffrequency: ' + str(insmoothnessreffrequency_list))
    logger.info('smoothnessspectralexponent: ' + str(insmoothnessspectralexponent_list))
+   logger.info('smoothnessrefdistance: ' + str(insmoothnessrefdistance_list))
    logger.info('antennaconstraint: ' + str(inantennaconstraint_list))
+   logger.info('resetsols: ' + str(inresetsols_list))
    logger.info('soltypecycles: ' + str(insoltypecycles_list))
 
       
-   return innchan_list, insolint_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, inantennaconstraint_list, insoltypecycles_list
+   return innchan_list, insolint_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, insmoothnessrefdistance_list, inantennaconstraint_list, inresetsols_list, insoltypecycles_list
 
 
 
@@ -2755,7 +3024,7 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
 
 def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7.0, includesphase=True, \
                                     refant='CS003HBA0', onechannel=False, medamp=2.5, flagphases=True, \
-                                    onepol=False, outplotname='slowamp'):
+                                    onepol=False, outplotname='slowamp', fulljones=False):
 
     parset= 'losoto_flag_apgrid.parset'
     os.system('rm -f ' + parset)
@@ -2781,6 +3050,21 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     f.write('minmax = [%s,%s]\n' % (str(medamp/4.0), str(medamp*2.5)))
     #f.write('minmax = [0,2.5]\n')
     f.write('prefix = plotlosoto%s/%samp\n\n\n' % (ms,outplotname))
+
+    if fulljones:
+       f.write('[plotampXYYX]\n')
+       f.write('operation = PLOT\n')
+       f.write('soltab = [sol000/amplitude000]\n')
+       f.write('pol = [XY, YX]\n')
+       if onechannel:
+         f.write('axesInPlot = [time]\n')
+       else:
+         f.write('axesInPlot = [time,freq]\n')   
+       f.write('axisInTable = ant\n')
+       f.write('minmax = [%s,%s]\n' % (str(0.0), str(0.5)))
+       f.write('prefix = plotlosoto%s/%sampXYYX\n\n\n' % (ms,outplotname))
+       
+
 
     if includesphase:   
         f.write('[plotphase]\n')
@@ -3022,14 +3306,23 @@ def circular(ms, linear=False, dysco=True):
     run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
     return
 
-def beamcor(ms, usedppp=True, dysco=True):
+
+def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=False):
     """
     correct a ms for the beam in the phase center (array_factor only)
     """
+    
+    # check if there are applybeam corrections in the header
+    # should be there unless a very old DP3 version has been used
+    usedppp = beamkeywords(ms)
+
     losoto = 'losoto'
     taql = 'taql'
     H5name = create_beamcortemplate(ms)
 
+    if lin2circ and circ2lin:
+       print('Wrong input in function, both lin2circ and circ2lin are True')
+       sys.exit()
 
     losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True)
     losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True)   
@@ -3041,13 +3334,41 @@ def beamcor(ms, usedppp=True, dysco=True):
     if usedppp and not phasedup :
         cmddppp = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmddppp += 'msin.weightcolumn=WEIGHT_SPECTRUM '
-        cmddppp += 'msout.datacolumn=CORRECTED_DATA steps=[beam] '
+        cmddppp += 'msout.datacolumn=CORRECTED_DATA '
+        if (lin2circ or circ2lin) and beam:
+          cmddppp += 'steps=[beam,pystep] '
+          cmddppp += 'beam.type=applybeam beam.updateweights=True ' # weights
+          cmddppp += 'beam.direction=[] ' # correction for the current phase center
+          #cmddppp += 'beam.beammode= ' default is full, will undo element as well(!)
+          
+          cmddppp += 'pystep.python.module=polconv '
+          cmddppp += 'pystep.python.class=PolConv '
+          cmddppp += 'pystep.type=PythonDPPP '
+          if lin2circ:
+             cmddppp += 'pystep.lin2circ=1 '
+          if circ2lin: 
+             cmddppp += 'pystep.circ2lin=1 '  
+        
+        if beam and not (lin2circ or circ2lin):
+          cmddppp += 'steps=[beam] '
+          cmddppp += 'beam.type=applybeam beam.updateweights=True ' # weights
+          cmddppp += 'beam.direction=[] ' # correction for the current phase center
+          #cmddppp += 'beam.beammode= ' default is full, will undo element as well(!)
+          
+        if (lin2circ or circ2lin) and not beam:
+          cmddppp += 'steps=[pystep] '
+          cmddppp += 'pystep.python.module=polconv '
+          cmddppp += 'pystep.python.class=PolConv '
+          cmddppp += 'pystep.type=PythonDPPP '
+          if lin2circ:
+             cmddppp += 'pystep.lin2circ=1 '
+          if circ2lin: 
+             cmddppp += 'pystep.circ2lin=1 '          
+          
         if dysco:
           cmddppp += 'msout.storagemanager=dysco '    
-        cmddppp += 'beam.type=applybeam beam.updateweights=True ' # weights
-        cmddppp += 'beam.direction=[] ' # correction for the current phase center
-        #cmddppp += 'beam.beammode= ' default is full, will undo element as well(!)
-        print('DP3 applybeam:', cmddppp)
+       
+        print('DP3 applybeam/polconv:', cmddppp)
         run(cmddppp)
         run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
     else:
@@ -3059,13 +3380,40 @@ def beamcor(ms, usedppp=True, dysco=True):
     
         cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
-        cmd += 'msout.datacolumn=CORRECTED_DATA steps=[ac1,ac2] '
+        cmd += 'msout.datacolumn=CORRECTED_DATA '
+
+        if (lin2circ or circ2lin) and beam:
+          cmd += 'steps=[ac1,ac2,pystep] '
+          cmd += 'pystep.python.module=polconv '
+          cmd += 'pystep.python.class=PolConv '
+          cmd += 'pystep.type=PythonDPPP '
+          if lin2circ:
+             cmd += 'pystep.lin2circ=1 '
+          if circ2lin: 
+             cmd += 'pystep.circ2lin=1 '  
+          
+          cmd += 'ac1.parmdb='+H5name + ' ac2.parmdb='+H5name + ' '
+          cmd += 'ac1.type=applycal ac2.type=applycal '
+          cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=True '   
+        if beam and not (lin2circ or circ2lin):
+          cmd += 'steps=[ac1,ac2] '
+          cmd += 'ac1.parmdb='+H5name + ' ac2.parmdb='+H5name + ' '
+          cmd += 'ac1.type=applycal ac2.type=applycal '
+          cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=True '           
+        if (lin2circ or circ2lin) and not beam:
+          cmd += 'steps=[pystep] '
+          cmd += 'pystep.python.module=polconv '
+          cmd += 'pystep.python.class=PolConv '
+          cmd += 'pystep.type=PythonDPPP '
+          if lin2circ:
+             cmd += 'pystep.lin2circ=1 '
+          if circ2lin: 
+             cmd += 'pystep.circ2lin=1 '       
+
+
         if dysco:
           cmd += 'msout.storagemanager=dysco '    
-        cmd += 'ac1.parmdb='+H5name + ' ac2.parmdb='+H5name + ' '
-        cmd += 'ac1.type=applycal ac2.type=applycal '
-        cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=True ' 
-        print('DP3 applycal:', cmd)
+        print('DP3 applycal/polconv:', cmd)
         run(cmd)
         run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
  
@@ -3088,8 +3436,20 @@ def beamcor(ms, usedppp=True, dysco=True):
               t.close()
            except:
               print('Warning could not update LOFAR BEAM keywords in ms, it seems this data was preprocessed with a very old DP3 version')  
-    
     return
+
+
+def beamkeywords(ms):
+    t = pt.table(ms, readonly=True)
+    applybeam_info = False
+    try:
+       beammode = t.getcolkeyword('DATA', 'LOFAR_APPLIED_BEAM_MODE')
+       applybeam_info = True
+       print('DP3 applybeam was used')
+    except:
+       print('No applybeam beam keywords were found, very old DP3 version was used in prefactor?')
+    t.close()
+    return applybeam_info
 
 def beamcormodel(ms, dysco=True):
     """
@@ -3788,13 +4148,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
 
 def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               soltype_list, soltypecycles_list, smoothnessconstraint_list, \
-              smoothnessreffrequency_list, smoothnessspectralexponent_list, \
-              antennaconstraint_list, uvmin=0, normamps=False, skymodel=None, \
+              smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, \
+              antennaconstraint_list, resetsols_list, uvmin=0, normamps=False, skymodel=None, \
               predictskywithbeam=False, restoreflags=False, flagging=False, \
               longbaseline=False, BLsmooth=False, flagslowphases=True, \
               flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None, \
-              skymodelpointsource=None, wscleanskymodel=None, ionfactor=0.01, \
-              blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, \
+              skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, \
+              ionfreqfactor=1.0, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, \
               docircular=False, mslist_beforephaseup=None, dysco=True):
 
    soltypecycles_list_array = np.array(soltypecycles_list) # needed to slice (slicing does not work in nested l
@@ -3835,13 +4195,15 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
                      SMconstraintreffreq=smoothnessreffrequency_list[soltypenumber][msnumber],\
                      SMconstraintspectralexponent=smoothnessspectralexponent_list[soltypenumber][msnumber],\
+                     SMconstraintrefdistance=smoothnessrefdistance_list[soltypenumber][msnumber],\
                      antennaconstraint=antennaconstraint_list[soltypenumber][msnumber], \
+                     resetsols=resetsols_list[soltypenumber][msnumber], \
                      restoreflags=restoreflags, maxiter=100, flagging=flagging, skymodel=skymodel, \
                      flagslowphases=flagslowphases, flagslowamprms=flagslowamprms, \
                      flagslowphaserms=flagslowphaserms, incol=incol[msnumber], \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
                      skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
-                     ionfactor=ionfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
+                     iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
                      selfcalcycle=selfcalcycle, dysco=dysco)
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
@@ -3967,7 +4329,8 @@ def predictsky_wscleanfits(ms, imagebasename, usewgridder=True):
 
 def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None):
    
-   if is_binary(skymodel):
+   if False:
+   #if is_binary(skymodel):
       sourcedb = skymodel 
    else:
       #make sourcedb
@@ -3991,12 +4354,12 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
 
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0, \
                 SMconstraint=0.0, SMconstraintreffreq=0.0, \
-                SMconstraintspectralexponent=-1.0, antennaconstraint=None, \
-                restoreflags=False, solveralgorithm='directionsolve', \
+                SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None, \
+                resetsols=None, restoreflags=False, solveralgorithm='directionsolve', \
                 maxiter=100, flagging=False, skymodel=None, flagslowphases=True, \
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
-                skymodelpointsource=None, wscleanskymodel=None, ionfactor=0.01, \
+                skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,\
                 blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True):
     
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
@@ -4004,10 +4367,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     
     modeldata = 'MODEL_DATA' # the default, update if needed for scalarphasediff and phmin solves
     if BLsmooth:
-      print('python BLsmooth.py -n 8 -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
-                ' -s ' + str(blscalefactor) + ' ' + ms)
-      run('python BLsmooth.py -n 8 -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(ionfactor) + \
-                ' -s ' + str(blscalefactor) + ' ' + ms)        
+      print('python BLsmooth.py -n 8 -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(iontimefactor) + \
+                ' -s ' + str(blscalefactor) + ' -u ' + str(ionfreqfactor) + ' ' + ms)
+      run('python BLsmooth.py -n 8 -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(iontimefactor) + \
+                ' -s ' + str(blscalefactor) + ' -u ' + str(ionfreqfactor) + ' ' + ms)        
       incol = 'SMOOTHED_DATA'    
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
@@ -4129,6 +4492,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
         cmd += 'ddecal.smoothnessconstraint=' + str(SMconstraint*1e6) + ' ' 
         cmd += 'ddecal.smoothnessreffrequency=' + str(SMconstraintreffreq*1e6) + ' '
         cmd += 'ddecal.smoothnessspectralexponent=' + str(SMconstraintspectralexponent) + ' '
+        cmd += 'ddecal.smoothnessrefdistance=' + str(SMconstraintrefdistance*1e3) + ' ' # input units in km
         
     if soltype in ['phaseonly','scalarphase','tecandphase','tec','rotation']:
        cmd += 'ddecal.tolerance=1.e-4 '
@@ -4179,6 +4543,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     if incol == 'DATA_PHASE_SLOPE':
       print('Manually updating H5 to get the cumulative phase')
       makephaseCDFh5(parmdb)
+
+    if resetsols != None:
+      if soltype in ['phaseonly','scalarphase','tecandphase','tec','rotation','fulljones','complexgain','scalarcomplexgain']:
+         refant=findrefant_core(parmdb)
+         force_close(parmdb)
+      else:
+         refant = None 
+      resetsolsforstations(parmdb, antennaconstraintstr(resetsols, antennasms, HBAorLBA, useforresetsols=True), refant=refant)
 
     if number_freqchan_h5(parmdb) > 1:
       onechannel = False
@@ -4263,7 +4635,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
        else:
           losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase, \
                          onechannel=onechannel, medamp=medamp, onepol=onepol, outplotname=outplotname,\
-                         refant=findrefant_core(parmdb)) 
+                         refant=findrefant_core(parmdb), fulljones=fulljonesparmdb(parmdb)) 
           force_close(parmdb)
 
        # MAKE losoto command    
@@ -4596,6 +4968,7 @@ def basicsetup(mslist, args):
         args['smoothnessconstraint_list'] = [10.0, 5.0] 
         args['smoothnessreffrequency_list'] = [120.0, 0.0] 
         args['smoothnessspectralexponent_list'] = [-1.0, -1.0]
+        args['smoothnessrefdistance_list'] = [0.0,0.0]
      args['uvmin'] =  20000
      if LBA:
        args['BLsmooth'] = True
@@ -4620,7 +4993,8 @@ def basicsetup(mslist, args):
      args['smoothnessconstraint_list'] = [8.0,2.0,15.0]
      args['smoothnessreffrequency_list'] = [120.,144.,0.0]
      args['smoothnessspectralexponent_list'] = [-2.0,-1.0,-1.0]
-     args['antennaconstraint_list'] = ['alldutch',None,None] 
+     args['smoothnessrefdistance_list'] = [0.0,0.0,0.0]
+     args['antennaconstraint_list'] = ['alldutch',None,None]
      args['nchan_list'] = [1,1,1]    
      args['uvmin'] =  40000 
      args['stop'] = 8
@@ -4722,10 +5096,13 @@ def main():
    parser.add_argument("--smoothnessconstraint-list", type=arg_as_list, default=[0.,0.,5.],help="List of values")
    parser.add_argument("--smoothnessreffrequency-list", type=arg_as_list, default=[0.,0.,0.],help="An optional reference frequency (in MHz) for the smoothness constraint. When unequal to 0, the size of the smoothing kernel will vary over frequency by a factor of smoothnessreffrequency*(frequnecy**smoothnessspectralexponent)")
    parser.add_argument("--smoothnessspectralexponent-list", type=arg_as_list, default=[-1.,-1.,-1.],help="If smoothnessreffrequency is not equal to zero then this paramter determines the freqeuency scaling law, default=-1 (1/nu), for scalarphasediff -2 might be useful")
+   parser.add_argument("--smoothnessrefdistance-list", type=arg_as_list, default=[0.,0.,0.],help="If smoothnessrefdistance is not equal to zero then this paramter determines the freqeuencysmoothness reference distance in units of km, with the smoothness scaling with distance, see DP3 documentation")   
    parser.add_argument("--antennaconstraint-list", type=arg_as_list, default=[None,None,None],help="List of values")
+   parser.add_argument("--resetsols-list", type=arg_as_list, default=[None,None,None],help="Values of these stations will be rest to 0.0 (phases), or 1.0 (amplitudes), default None, possible settings are the same as for antennaconstraint-list (alldutch, core, etc)")
    parser.add_argument("--soltypecycles-list", type=arg_as_list, default=[0,999,3],help="List of values, first entry is required to be 0")
    parser.add_argument("--BLsmooth", help='Employ BLsmooth for low S/N data', action='store_true')
-   parser.add_argument("--ionfactor", help='BLsmooth inonfactor (default=0.01, larger is more smoothing, see BLsmooth documentation)', type=float, default=0.01)
+   parser.add_argument("--iontimefactor", help='BLsmooth ionfactor (default=0.01, larger is more smoothing, see BLsmooth documentation)', type=float, default=0.01)
+   parser.add_argument("--ionfreqfactor", help='BLsmooth tecfactor (default=1, larger is more smoothing, see BLsmooth documentation)', type=float, default=1.0)
    parser.add_argument("--blscalefactor", help='BLsmooth blscalefactor (default=1.0, see BLsmooth documentation)', type=float, default=1.0)
    parser.add_argument('--dejumpFR', help='Dejump Faraday solutions when using scalarphasediffFR', action='store_true')
    
@@ -4747,7 +5124,7 @@ def main():
    parser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required)', action='store_true')
    parser.add_argument('--tgssfitsimage', help='Start TGSS fits image for model (if not provided use SkyView', type=str)
    parser.add_argument('--no-beamcor', help='Do not correct the visilbities for the array factor', action='store_true')
-   parser.add_argument('--use-dpppbeamcor', help='Use DP3 for beam correction, requires recent DP3 version and no phased-up stations', action='store_true')
+   #parser.add_argument('--use-dpppbeamcor', help='Use DP3 for beam correction, requires recent DP3 version and no phased-up stations', action='store_true')
    parser.add_argument('--docircular', help='Convert linear to circular correlations', action='store_true')
    parser.add_argument('--dolinear', help='Convert circular to linear correlations', action='store_true')
    parser.add_argument('--forwidefield', help='Keep solutions such that they can be used for widefield imaging/screens', action='store_true')
@@ -4773,7 +5150,7 @@ def main():
    parser.add_argument('--auto', help='Trigger fully automated processing (HBA only for now)', action='store_true')
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction', action='store_true')
    parser.add_argument('--targetcalILT', help='Type of automated target calibration for HBA international baseline data when --auto is used. Options are: tec, tecandphase, scalarphase, type (default=tec)', default='tec', type=str)
-   parser.add_argument('--makeimage-ILTlowres-HBA', help='Under development, make 1.2 arcsec tapered image. Quality check of ILT 1 arcsec imaging', action='store_true')
+   parser.add_argument('--makeimage-ILTlowres-HBA', help='Make 1.2 arcsec tapered image as quality check of ILT 1 arcsec imaging', action='store_true')
    parser.add_argument('--makeimage-fullpol', help='Under development, make Stokes IQUV version for quality checking', action='store_true')
   
    parser.add_argument('ms', nargs='+', help='msfile(s)')
@@ -4802,7 +5179,7 @@ def main():
 
    args = vars(options)
 
-   version = '4.0.1'
+   version = '5.1.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -4817,6 +5194,7 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/plot_tecandphase.py .')
    os.system('cp ' + args['helperscriptspath'] + '/lin2circ.py .')
    os.system('cp ' + args['helperscriptspath'] + '/BLsmooth.py .')
+   os.system('cp ' + args['helperscriptspath'] + '/polconv.py .')
 
    inputchecker(args)
    check_code_is_uptodate()
@@ -4920,11 +5298,13 @@ def main():
 
 
    if args['start'] == 0:
-     os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p antennaconstraint.p soltypecycles.p') 
+     os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p smoothnessrefdistance.p antennaconstraint.p resetsols.p soltypecycles.p') 
 
 
 
-   nchan_list,solint_list,smoothnessconstraint_list, smoothnessreffrequency_list,  smoothnessspectralexponent_list, antennaconstraint_list, soltypecycles_list = \
+   nchan_list,solint_list,smoothnessconstraint_list, smoothnessreffrequency_list, \
+   smoothnessspectralexponent_list, smoothnessrefdistance_list, \
+   antennaconstraint_list, resetsols_list, soltypecycles_list = \
                                               setinitial_solint(mslist, longbaseline, LBA, options)
 
 
@@ -4960,14 +5340,23 @@ def main():
 
        
      # BEAM CORRECTION
-     if not args['no_beamcor'] and i == 0:
-         for ms in mslist:
-           beamcor(ms, usedppp=args['use_dpppbeamcor'], dysco=args['dysco'])
+     #if not args['no_beamcor'] and i == 0:
+     #    for ms in mslist:
+     #      beamcor(ms, usedppp=args['use_dpppbeamcor'], dysco=args['dysco'])
 
      # CONVERT TO CIRCULAR/LINEAR CORRELATIONS      
-     if (args['docircular'] or args['dolinear']) and i == 0:
-         for ms in mslist:
-           circular(ms, linear=args['dolinear'], dysco=args['dysco'])
+     #if (args['docircular'] or args['dolinear']) and i == 0:
+     #    for ms in mslist:
+     #      circular(ms, linear=args['dolinear'], dysco=args['dysco'])
+
+     # BEAM CORRECTION AND/OR CONVERT TO CIRCULAR/LINEAR CORRELATIONS 
+     if ((args['docircular'] or args['dolinear']) or (not args['no_beamcor'])) and (i == 0):
+       for ms in mslist:
+         beamcor_and_lin2circ(ms, dysco=args['dysco'], \
+                              beam=(not args['no_beamcor']), \
+                              lin2circ=args['docircular'], \
+                              circ2lin=args['dolinear'])
+
 
      # PRE-APPLY SOLUTIONS (from a nearby direction for example)
      #if (args['preapplyH5_list'][0]) != None and i == 0:
@@ -4999,8 +5388,8 @@ def main():
          or args['wscleanskymodel'] != None) and (i ==0):
         calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
                              soltypecycles_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
-                             smoothnessspectralexponent_list, \
-                             antennaconstraint_list, uvmin=args['uvmin'], normamps=args['normampsskymodel'], \
+                             smoothnessspectralexponent_list, smoothnessrefdistance_list, \
+                             antennaconstraint_list, resetsols_list, uvmin=args['uvmin'], normamps=args['normampsskymodel'], \
                              skymodel=args['skymodel'], \
                              predictskywithbeam=args['predictskywithbeam'], \
                              restoreflags=args['restoreflags'], flagging=args['doflagging'], \
@@ -5008,7 +5397,8 @@ def main():
                              flagslowphases=args['doflagslowphases'], \
                              flagslowamprms=args['flagslowamprms'], flagslowphaserms=args['flagslowphaserms'],\
                              skymodelsource=args['skymodelsource'], skymodelpointsource=args['skymodelpointsource'],\
-                             wscleanskymodel=args['wscleanskymodel'], ionfactor=args['ionfactor'], \
+                             wscleanskymodel=args['wscleanskymodel'], iontimefactor=args['iontimefactor'], \
+                             ionfreqfactor=args['ionfreqfactor'], \
                              blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'],\
                              uvminscalarphasediff=args['uvminscalarphasediff'], \
                              docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco']) 
@@ -5080,7 +5470,8 @@ def main():
      if (i >= 0) and (args['usemodeldataforsolints']):
        print('Recomputing solints .... ')
        nchan_list,solint_list,smoothnessconstraint_list,smoothnessreffrequency_list,\
-                              smoothnessspectralexponent_list, antennaconstraint_list, \
+                              smoothnessspectralexponent_list, smoothnessrefdistance_list, \
+                              antennaconstraint_list, resetsols_list, \
                               soltypecycles_list  = \
                               auto_determinesolints(mslist, args['soltype_list'], \
                               longbaseline, LBA, \
@@ -5088,7 +5479,9 @@ def main():
                               insmoothnessconstraint_list=smoothnessconstraint_list, \
                               insmoothnessreffrequency_list=smoothnessreffrequency_list,\
                               insmoothnessspectralexponent_list=smoothnessspectralexponent_list,\
+                              insmoothnessrefdistance_list=smoothnessrefdistance_list,\
                               inantennaconstraint_list=antennaconstraint_list, \
+                              inresetsols_list=resetsols_list, \
                               insoltypecycles_list=soltypecycles_list, redo=True, \
                               tecfactorsolint=args['tecfactorsolint'], \
                               gainfactorsolint=args['gainfactorsolint'], \
@@ -5097,13 +5490,13 @@ def main():
      # CALIBRATE AND APPLYCAL
      calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], soltypecycles_list,\
                            smoothnessconstraint_list, smoothnessreffrequency_list,\
-                           smoothnessspectralexponent_list, \
-                           antennaconstraint_list, uvmin=args['uvmin'], \
+                           smoothnessspectralexponent_list, smoothnessrefdistance_list,\
+                           antennaconstraint_list, resetsols_list, uvmin=args['uvmin'], \
                            normamps=args['normamps'], restoreflags=args['restoreflags'], \
                            flagging=args['doflagging'], longbaseline=longbaseline, \
                            BLsmooth=args['BLsmooth'], flagslowphases=args['doflagslowphases'], \
                            flagslowamprms=args['flagslowamprms'], flagslowphaserms=args['flagslowphaserms'],\
-                           ionfactor=args['ionfactor'], blscalefactor=args['blscalefactor'],\
+                           iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'],\
                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
                            docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'])
 
