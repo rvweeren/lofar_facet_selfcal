@@ -18,6 +18,16 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 #ddf-pipeline
 #from auxcodes import run
 
+
+def checklongbaseline(ms):
+    t   = pt.table(ms + '/ANTENNA',ack=False)
+    antennasms = list(t.getcol('NAME'))
+    t.close()
+    substr = 'DE' # to check if a German station is present, if yes assume this is long baseline data
+    haslongbaselines =  any(substr in mystring for mystring in antennasms)
+    print('Contains long baselines?', haslongbaselines)
+    return haslongbaselines
+
 def get_physical_cpus():
     return psutil.cpu_count(logical=False)
 
@@ -604,7 +614,7 @@ parser.add_argument('--dicomask', help='Mask for filtering the Dico model, defau
 parser.add_argument('--indico', help='Input Dico model, default=None (automatically determined)', type=str)
 parser.add_argument('--nofixsym',help='Do not attempt to fix killms symlinks -- assume ok', action='store_true')
 parser.add_argument('--nopredict', help='Do not do predict step (for use if repeating last step in case of failure)', action='store_true')
-parser.add_argument('--onlyuseweightspectrum', help='Only use WEIGHT_SPECTRUM, ignore IMAGING_WEIGHT', action='store_true')
+parser.add_argument('--onlyuseweightspectrum', help='Only use WEIGHT_SPECTRUM, ignore IMAGING_WEIGHT (if internation station are present this is automatically set to True', action='store_true')
 parser.add_argument('--HMPmodelfits', help='if provided, use this HMP model fits  for predict')
 parser.add_argument('--nosubtract', help='Do not do subtract step (for use if repeating last step in case of failure)', action='store_true')
 parser.add_argument('--ddfbootstrapcorrection', help='Apply the bootstrap factor corrections from the ddf-pipeline, important for ILT data. Two files are needed for this: "obsid"_crossmatch-results-2.npy and "obsid"_freqs.npy.  This corection should not be used for LoTSS-type data at 6 arcsec resolution as it is already applied to the data products.', action='store_true')
@@ -694,6 +704,10 @@ if args['h5sols'] == None:
 msfiles   = ascii.read(args['mslist'],data_start=0)
 msfiles   = list(msfiles[:][msfiles.colnames[0]]) # convert to normal list of strings
 
+
+if checklongbaseline(msfiles[0]):
+  args['onlyuseweightspectrum'] = True
+  
 # bootstrap correction
 if args['ddfbootstrapcorrection']:
     args['column'] = ddfbootstrapcorrection(msfiles, args['column'], args['column']+'_SCALED', dysco=dysco) # update the colname here because we need to proceed from that
@@ -1090,7 +1104,3 @@ for observation in range(number_of_unique_obsids(msfiles)):
             cmd += 'msin.nchan=' + str(nchanperblock) + ' ' + 'msout=' + msout + ' '
             print(cmd)
             run(cmd)
-
-    
-    
-    
