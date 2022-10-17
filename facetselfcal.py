@@ -4722,7 +4722,7 @@ def findrefant_core(H5file):
     for cs in cs_indices:
         slc = [slice(None)]*ndims
         slc[ant_index] = cs
-        weightsum.append(np.nansum(soltab.getValues(weight=True)[0][slc]))
+        weightsum.append(np.nansum(soltab.getValues(weight=True)[0][tuple(slc)]))
     maxant = np.argmax(weightsum)
     H.close()
     #force_close(H5file) this does not work for some reasons, because it is inside a function that's called in a function call ass argument?
