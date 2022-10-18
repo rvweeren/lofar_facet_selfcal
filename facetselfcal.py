@@ -63,7 +63,6 @@ import tables
 from astropy.io import ascii
 import multiprocessing
 import ast
-from lofar.stationresponse import stationresponse
 from itertools import product
 import subprocess
 import matplotlib.pyplot as plt
@@ -1885,43 +1884,105 @@ def removenans(parmdb, soltab):
    return
 
 
-def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=True, useArrayFactor=True, useChanFreq=True):
+def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=True, useArrayFactor=True, useChanFreq=True, beamlib='stationresponse'):
     """
     Do the beam correction via this imported losoto operation
+
+    Args:
+        parmdb (str): path to the h5parm corrections will be stored in.
+        soltabname (str): name of the soltab corrections will be stored in.
+        ms (str): path to the MS (used to determine the stations present).
+        inverse (bool): calculate the inverse beam correction (i.e. undo the beam).
+        useElementResponse (bool): correct for the "element beam" (distance to the tile beam centre).
+        useArrayFactor (bool): correct for the "array factor" (sensitivity loss as function of distance to the pointing centre).
+        useChanFreq (bool): calculate a beam correction for every channel.
+        beamlib (str): beam calculation mode. Can be 'stationresponse' to use the LOFARBeam library (deprecated) or everybeam to use the EveryBeam library.
     """
 
     H5 = h5parm.h5parm(parmdb, readonly=False)
     soltab = H5.getSolset('sol000').getSoltab(soltabname)
-
-    #t = pt.table(ms)
-    sr = stationresponse(ms, inverse, useElementResponse, useArrayFactor, useChanFreq)
-
-    numants = pt.taql('select gcount(*) as numants from '+ms+'::ANTENNA').getcol('numants')[0]
     times = soltab.getAxisValues('time')
 
-    for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant','time','pol','freq'], weight=False):
-        vals = losoto.lib_operations.reorderAxes( vals, soltab.getAxesNames(), ['ant','time','freq','pol'] )
+    numants = pt.taql('select gcount(*) as numants from '+ms+'::ANTENNA').getcol('numants')[0]
+    H5ants = len(soltab.getAxisValues('ant'))
+    if numants != H5ants:
+        H5.close()
+        raise ValueError('Number of antennas in Measurement Set does not match number of antennas in H5parm.')
 
-        for stationnum in range(numants):
-            logger.debug('Working on station number %i' % stationnum)
-            for itime, time in enumerate(times):
-                beam = sr.evaluateStation(time=time, station=stationnum)
-                # Reshape from [nfreq, 2, 2] to [nfreq, 4]
-                beam = beam.reshape(beam.shape[0], 4)
+    if (beamlib.lower() == 'stationresponse') or (beamlib.lower() == 'lofarbeam'):
+        from lofar.stationresponse import stationresponse
+        sr = stationresponse(ms, inverse, useElementResponse, useArrayFactor, useChanFreq)
 
-                if soltab.getAxisLen('pol') == 2:
-                    beam = beam[:,[0,3]] # get only XX and YY
-                   
-                if soltab.getType() == 'amplitude':
-                    vals[stationnum, itime, :, :] = np.abs(beam)
-                elif soltab.getType() == 'phase':
-                    vals[stationnum, itime, :, :] = np.angle(beam)
-                else:
-                    logger.error('Beam prediction works only for amplitude/phase solution tables.')
-                    return 1
+        for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant','time','pol','freq'], weight=False):
+            vals = losoto.lib_operations.reorderAxes( vals, soltab.getAxesNames(), ['ant','time','freq','pol'] )
 
-        vals = losoto.lib_operations.reorderAxes( vals, ['ant','time','freq','pol'], [ax for ax in soltab.getAxesNames() if ax in ['ant','time','freq','pol']] )
-        soltab.setValues(vals, selection)
+            for stationnum in range(numants):
+                logger.debug('Working on station number %i' % stationnum)
+                for itime, time in enumerate(times):
+                    beam = sr.evaluateStation(time=time, station=stationnum)
+                    # Reshape from [nfreq, 2, 2] to [nfreq, 4]
+                    beam = beam.reshape(beam.shape[0], 4)
+
+                    if soltab.getAxisLen('pol') == 2:
+                        beam = beam[:,[0,3]] # get only XX and YY
+                       
+                    if soltab.getType() == 'amplitude':
+                        vals[stationnum, itime, :, :] = np.abs(beam)
+                    elif soltab.getType() == 'phase':
+                        vals[stationnum, itime, :, :] = np.angle(beam)
+                    else:
+                        logger.error('Beam prediction works only for amplitude/phase solution tables.')
+                        return 1
+
+            vals = losoto.lib_operations.reorderAxes( vals, ['ant','time','freq','pol'], [ax for ax in soltab.getAxesNames() if ax in ['ant','time','freq','pol']] )
+            soltab.setValues(vals, selection)
+    elif beamlib.lower() == 'everybeam':
+        import everybeam
+
+        freqs = soltab.getAxisValues('freq')
+        
+        if useElementResponse and useArrayFactor:
+            print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
+            obs = everybeam.load_telescope(ms, use_differential_beam=False, use_channel_frequency=useChanFreq)
+        elif not useElementResponse and useArrayFactor:
+            print('Array factor beam correction requested. Using use_differential_beam=True.')
+            obs = everybeam.load_telescope(ms, use_differential_beam=True, use_channel_frequency=useChanFreq)
+        elif useElementResponse and not useArrayFactor:
+            print('Element beam correction requested.')
+            # Not sure how to do this with EveryBeam.
+            raise NotImplementedError('Element beam correction is not implemented in facetselfcal.')
+
+        # Obtain direction to calculate beam for.
+        phasedir = pt.taql('SELECT PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
+        ra, dec = phasedir.getcol('PHASE_DIR').squeeze()
+
+        for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant','time','pol','freq'], weight=False):
+            vals = losoto.lib_operations.reorderAxes( vals, soltab.getAxesNames(), ['ant','time','freq','pol'] )
+
+            for stationnum in range(numants):
+                logger.debug('Working on station number %i' % stationnum)
+                for ifreq, freq in enumerate(freqs):
+                    for itime, time in enumerate(times):
+                        beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
+                        beam = beam.reshape(4)
+
+                        if soltab.getAxisLen('pol') == 2:
+                            beam = beam[[0,3]] # get only XX and YY
+                           
+                        if soltab.getType() == 'amplitude':
+                            vals[stationnum, itime, ifreq, :] = np.abs(beam)
+                        elif soltab.getType() == 'phase':
+                            vals[stationnum, itime, ifreq, :] = np.angle(beam)
+                        else:
+                            logger.error('Beam prediction works only for amplitude/phase solution tables.')
+                            return 1
+
+            vals = losoto.lib_operations.reorderAxes( vals, ['ant','time','freq','pol'], [ax for ax in soltab.getAxesNames() if ax in ['ant','time','freq','pol']] )
+            soltab.setValues(vals, selection)
+
+    else:
+        H5.close()
+        raise ValueError('Unsupported beam library specified')
     
     H5.close()
     return
@@ -3307,7 +3368,7 @@ def circular(ms, linear=False, dysco=True):
     return
 
 
-def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=False):
+def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=False, losotobeamlib='stationresponse'):
     """
     correct a ms for the beam in the phase center (array_factor only)
     """
@@ -3324,8 +3385,9 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
        print('Wrong input in function, both lin2circ and circ2lin are True')
        sys.exit()
 
-    losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True)
-    losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True)   
+    losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
+    losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
+
 
     phasedup = fixbeam_ST001(H5name)
     parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name))
@@ -5125,6 +5187,7 @@ def main():
    parser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required)', action='store_true')
    parser.add_argument('--tgssfitsimage', help='Start TGSS fits image for model (if not provided use SkyView', type=str)
    parser.add_argument('--no-beamcor', help='Do not correct the visilbities for the array factor', action='store_true')
+   parser.add_argument('--losotobeamcor-beamlib', help="Beam library to use when not using DP3 for the beam correction. Can be 'stationreponse', 'lofarbeam' (identical and deprecated) or 'everybeam'", type=str, default='stationresponse')
    #parser.add_argument('--use-dpppbeamcor', help='Use DP3 for beam correction, requires recent DP3 version and no phased-up stations', action='store_true')
    parser.add_argument('--docircular', help='Convert linear to circular correlations', action='store_true')
    parser.add_argument('--dolinear', help='Convert circular to linear correlations', action='store_true')
@@ -5357,7 +5420,8 @@ def main():
          beamcor_and_lin2circ(ms, dysco=args['dysco'], \
                               beam=(not args['no_beamcor']), \
                               lin2circ=args['docircular'], \
-                              circ2lin=args['dolinear'])
+                              circ2lin=args['dolinear'], \
+                              losotobeamlib=args['losotobeamcor_beamlib'])
 
 
      # PRE-APPLY SOLUTIONS (from a nearby direction for example)
