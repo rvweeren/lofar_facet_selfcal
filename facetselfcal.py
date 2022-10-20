@@ -4327,10 +4327,9 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        if mslist_beforephaseup != None:
          print('mslist_beforephaseup: ' + mslist_beforephaseup[msnumber])
          h5_merger.merge_h5(h5_out=parmdbmergename.replace("selfcalcyle",\
-                            "addCS_selfcalcyle"),h5_tables=parmdbmergelist[msnumber], \
-                            ms_files=ms, convert_tec=True, merge_all_in_one=True, \
-                            propagate_flags=True, add_cs=True, \
-                            use_ants_from_ms=mslist_beforephaseup[msnumber])  
+                            "addCS_selfcalcyle"),h5_tables=parmdbmergename, \
+                            ms_files=mslist_beforephaseup[msnumber], convert_tec=True, merge_all_in_one=True, \
+                            propagate_flags=True, add_cs=True)  
        
        # make LINEAR solutions from CIRCULAR 
        if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or docircular:
@@ -4338,10 +4337,9 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          # add CS stations back for superstation
          if mslist_beforephaseup != None:
            h5_merger.merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcyle",\
-                              "addCS_selfcalcyle"),h5_tables=parmdbmergelist[msnumber], \
-                              ms_files=ms, convert_tec=True, merge_all_in_one=True, \
-                              propagate_flags=True, add_cs=True, \
-                              use_ants_from_ms=mslist_beforephaseup[msnumber])         
+                              "addCS_selfcalcyle"),h5_tables=parmdbmergename_pc, \
+                              ms_files=mslist_beforephaseup[msnumber], convert_tec=True, merge_all_in_one=True, \
+                              propagate_flags=True, add_cs=True)         
 
        
        if False:
