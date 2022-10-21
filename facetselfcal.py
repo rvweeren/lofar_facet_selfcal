@@ -386,23 +386,20 @@ def preapplydelay(H5filelist, mslist, applydelaytype, dysco=True):
         parmdb = time_match_mstoH5(H5filelist, ms)
         # from LINEAR to CIRCULAR
         if applydelaytype == 'circular':
-           scriptn = 'python lin2circ.py'
-           cmdlin2circ = scriptn + ' -i ' + ms + ' --column=DATA --outcol=DATA_CIRC'
-           if not dysco:
-              cmdlin2circ += ' --nodysco'
-           run(cmdlin2circ)
-           # APPLY solutions
-           applycal(ms, parmdb, msincol='DATA_CIRC',
-                    msoutcol='CORRECTED_DATA', dysco=dysco)
+            scriptn = 'python lin2circ.py'
+            cmdlin2circ = scriptn + ' -i ' + ms + ' --column=DATA --outcol=DATA_CIRC'
+            if not dysco:
+                cmdlin2circ += ' --nodysco'
+            run(cmdlin2circ)
+            # APPLY solutions
+            applycal(ms, parmdb, msincol='DATA_CIRC', msoutcol='CORRECTED_DATA', dysco=dysco)
         else:
-            applycal(ms, parmdb, msincol='DATA',
-                     msoutcol='CORRECTED_DATA', dysco=dysco)
+            applycal(ms, parmdb, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
         # from CIRCULAR to LINEAR
         if applydelaytype == 'circular':
-            cmdlin2circ = scriptn + ' -i ' + ms + \
-                ' --column=CORRECTED_DATA --lincol=DATA --back'
+            cmdlin2circ = scriptn + ' -i ' + ms + ' --column=CORRECTED_DATA --lincol=DATA --back'
             if not dysco:
-              cmdlin2circ += ' --nodysco'
+                cmdlin2circ += ' --nodysco'
             run(cmdlin2circ)
         else:
             run("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
