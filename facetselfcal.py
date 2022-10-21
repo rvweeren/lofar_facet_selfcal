@@ -417,12 +417,12 @@ def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
     Returns:
         None
     '''
-   for ms in mslist:
-      parmdb = time_match_mstoH5(H5filelist, ms)
-      applycal(ms, parmdb, msincol='DATA',msoutcol='CORRECTED_DATA', dysco=dysco)
-      if updateDATA:
-         run("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
-   return
+    for ms in mslist:
+        parmdb = time_match_mstoH5(H5filelist, ms)
+        applycal(ms, parmdb, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
+        if updateDATA:
+            run("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
+    return
 
 def time_match_mstoH5(H5filelist, ms):
     ''' Find the h5parms, from a given list, that overlap in time with the specified Measurement Set.
