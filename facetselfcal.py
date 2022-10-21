@@ -869,29 +869,39 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
 # sys.exit()
 
 def phaseup(msinlist,datacolumn='DATA',superstation='core', start=0, dysco=True):
-  msoutlist = []
-  for ms in msinlist:
-    msout=ms + '.phaseup'
-    msoutlist.append(msout)
+    ''' Phase up stations into a superstation.
 
-    cmd = "DP3 msin=" + ms + " steps=[add,filter] msout.writefullresflag=False "
-    cmd += "msout=" + msout + " msin.datacolumn=" + datacolumn + " "
-    cmd += "filter.type=filter filter.remove=True "
-    if dysco:
-      cmd += "msout.storagemanager=dysco "
-    cmd += "add.type=stationadder "
-    if superstation == 'core':
-      cmd += "add.stations={ST001:'CS*'} filter.baseline='!CS*&&*' "
-    if superstation == 'superterp':
-      cmd += "add.stations={ST001:'CS00[2-7]*'} filter.baseline='!CS00[2-7]*&&*' "  
+    Args:
+        msinlist (list): list of input Measurement Sets to iterate over.
+        datacolumn (str): the input data column to phase up data from.
+        superstation (str): stations to phase up. Can be 'core' or 'superterp'.
+        start (int): selfcal cylce that is being started from. Phaseup will only occur if start == 0.
+        dysco (bool): dysco compress the output dataset.
+    Returns:
+        msoutlist (list): list of output Measurement Sets.
+    '''
+    msoutlist = []
+    for ms in msinlist:
+      msout=ms + '.phaseup'
+      msoutlist.append(msout)
 
-    if start == 0: # only phaseup if start selfcal from cycle 0, so skip for a restart
-      if os.path.isdir(msout):
-        os.system('rm -rf ' + msout)
-      print(cmd)
-      run(cmd)
-  
-  return msoutlist
+      cmd = "DP3 msin=" + ms + " steps=[add,filter] msout.writefullresflag=False "
+      cmd += "msout=" + msout + " msin.datacolumn=" + datacolumn + " "
+      cmd += "filter.type=filter filter.remove=True "
+      if dysco:
+        cmd += "msout.storagemanager=dysco "
+      cmd += "add.type=stationadder "
+      if superstation == 'core':
+        cmd += "add.stations={ST001:'CS*'} filter.baseline='!CS*&&*' "
+      if superstation == 'superterp':
+        cmd += "add.stations={ST001:'CS00[2-7]*'} filter.baseline='!CS00[2-7]*&&*' "  
+
+      if start == 0: # only phaseup if start selfcal from cycle 0, so skip for a restart
+          if os.path.isdir(msout):
+              os.system('rm -rf ' + msout)
+          print(cmd)
+          run(cmd)
+    return msoutlist
 
 def findfreqavg(ms, imsize, bwsmearlimit=1.0):
     
