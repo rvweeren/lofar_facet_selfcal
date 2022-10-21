@@ -1120,7 +1120,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
 
 def tecandphaseplotter(h5, ms, outplotname='plot.png'):
     ''' Make TEC and phase plots.
-    
+
     Args:
         h5 (str): path to the H5parm to plot.
         ms (str): path to th ecorresponding Measurement Set.
@@ -1136,7 +1136,15 @@ def tecandphaseplotter(h5, ms, outplotname='plot.png'):
     run(cmd)
     return
 
+
 def runaoflagger(mslist):
+    ''' Run aoglagger on a Measurement Set.
+
+    Args:
+        mslist (list): list of Measurement Sets to iterate over.
+    Returns:
+        None
+    '''
     for ms in mslist:
        cmd = 'aoflagger ' + ms
        run(cmd)
