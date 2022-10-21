@@ -716,6 +716,13 @@ def create_MODEL_DATA_PDIFF(inmslist):
         run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
 
 def fulljonesparmdb(h5):
+    ''' Checks if a given h5parm has a fulljones solution table as sol000.
+
+    Args:
+        h5 (str): path to the h5parm.
+    Returns:
+        fulljones (bool): whether the sol000 contains fulljones solutions.
+    '''
     H=tables.open_file(h5) 
     try:
         phase = H.root.sol000.phase000.val[:]
@@ -725,7 +732,7 @@ def fulljonesparmdb(h5):
         else:
             fulljones = False
     except:
-        fulljones = False 
+        fulljones = False
     H.close()
     return fulljones
 
