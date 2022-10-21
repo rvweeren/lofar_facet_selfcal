@@ -1119,10 +1119,19 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
 
 
 def tecandphaseplotter(h5, ms, outplotname='plot.png'):
-    if not os.path.isdir('plotlosoto%s'  % ms): # needed because if this is the first plot this directory does not yet exist
-      os.system('mkdir plotlosoto%s'  % ms)
+    ''' Make TEC and phase plots.
+    
+    Args:
+        h5 (str): path to the H5parm to plot.
+        ms (str): path to th ecorresponding Measurement Set.
+        outplotname (str): name of the output plot.
+    Returns:
+        None
+    '''
+    if not os.path.isdir('plotlosoto%s' % ms):  # needed because if this is the first plot this directory does not yet exist
+        os.system('mkdir plotlosoto%s' % ms)
     cmd = 'python plot_tecandphase.py  '
-    cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (ms,outplotname)
+    cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (ms, outplotname)
     print(cmd)
     run(cmd)
     return
