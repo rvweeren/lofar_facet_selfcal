@@ -925,14 +925,21 @@ def findfreqavg(ms, imsize, bwsmearlimit=1.0):
   return avgfactor
 
 def compute_markersize(H5file):
+    ''' Computes matplotlib markersize for an H5parm.
+
+    Args:
+        H5file (str): path to an H5parm.
+    Returns:
+        markersize (int): marker size.
+    '''
     ntimes = ntimesH5(H5file)
     markersize = 2
     if ntimes < 450:
-      markersize = 4
+        markersize = 4
     if ntimes < 100:
-      markersize = 10
+        markersize = 10
     if ntimes < 50:
-      markersize = 15      
+        markersize = 15      
     return markersize
 
 def ntimesH5(H5file):
