@@ -424,6 +424,7 @@ def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
             run("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
     return
 
+
 def time_match_mstoH5(H5filelist, ms):
     ''' Find the h5parms, from a given list, that overlap in time with the specified Measurement Set.
 
@@ -433,44 +434,39 @@ def time_match_mstoH5(H5filelist, ms):
     Returns:
         H5filematch (list): list of h5parms matching the measurement set.
     '''
-   t = pt.table(ms)
-   timesms = np.unique(t.getcol('TIME'))
-   t.close()
-   H5filematch = None
-  
-   for H5file in H5filelist:
-      H = tables.open_file(H5file, mode='r')    
+    t = pt.table(ms)
+    timesms = np.unique(t.getcol('TIME'))
+    t.close()
+    H5filematch = None
 
-      try:
-        times = H.root.sol000.amplitude000.time[:]
-      except:
-        pass
-      try:
-        times = H.root.sol000.rotation000.time[:]
-      except:
-        pass 
-      try:
-        times = H.root.sol000.phase000.time[:]
-      except:
-        pass      
-      try:
-        times = H.root.sol000.tec000.time[:]
-      except:
-        pass
-      if np.median(times) >= np.min(timesms) and np.median(times) <= np.max(timesms):
-         print(H5file, 'overlaps in time with', ms)
-         H5filematch = H5file
- 
-      H.close()
+    for H5file in H5filelist:
+        H = tables.open_file(H5file, mode='r')    
+        try:
+            times = H.root.sol000.amplitude000.time[:]
+        except:
+            pass
+        try:
+            times = H.root.sol000.rotation000.time[:]
+        except:
+            pass 
+        try:
+            times = H.root.sol000.phase000.time[:]
+        except:
+            pass      
+        try:
+            times = H.root.sol000.tec000.time[:]
+        except:
+            pass
+        if np.median(times) >= np.min(timesms) and np.median(times) <= np.max(timesms):
+            print(H5file, 'overlaps in time with', ms)
+            H5filematch = H5file
+        H.close()
 
-   if H5filematch == None:
-      print('Cannot find matching H5file and ms')
-      sys.exit()
+    if H5filematch is None:
+        print('Cannot find matching H5file and ms')
+        sys.exit()
 
-   return H5filematch
-
-
-
+    return H5filematch
 
 
 def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
