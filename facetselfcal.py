@@ -63,8 +63,8 @@ import tables
 from astropy.coordinates import SkyCoord
 from astropy.io import ascii
 from astropy.io import fits
-from astroquery.skyview import SkyView
 from astropy.wcs import WCS
+from astroquery.skyview import SkyView
 from losoto import h5parm
 
 logger = logging.getLogger(__name__)
@@ -545,13 +545,12 @@ def max_area_of_island(grid):
                     visited[r][c] = True
                     area += 1
         return area
-
     return max(island_size(r, c) for r, c in product(range(rlen), range(clen)))
 
 
 def getlargestislandsize(fitsmask):
     ''' Find the largest island in a given FITS mask.
-  
+
     Args:
         fitsmask (str): path to the FITS file.
     Returns:
@@ -649,7 +648,7 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
         # data = t.getcol(incol)
         # t.putcol(outcol, data)
         # t.close()
-        
+
         time.sleep(2)
         cmd = "taql 'update " + ms + " set "
         cmd += outcol + "[,0]=0.5*EXP(1.0i*(PHASE(" + incol + "[,0])-PHASE(" + incol + "[,3])))'"
@@ -904,18 +903,25 @@ def phaseup(msinlist,datacolumn='DATA',superstation='core', start=0, dysco=True)
     return msoutlist
 
 def findfreqavg(ms, imsize, bwsmearlimit=1.0):
-    
+  ''' Find the frequency averaging factor for a Measurement Set given a bandwidth smearing constraint.
+
+  Args:
+      ms (str): path to the Measurement Set.
+      imsize (float): size of the image in arcseconds.
+      bwsmearlimit (float): the fractional acceptable bandwidth smearing.
+  Returns:
+      avgfactor (int): the frequency averaging factor for the Measurement Set.
+  '''
   t = pt.table(ms + '/SPECTRAL_WINDOW',ack=False)
-  bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), \
-            np.min(t.getcol('CHAN_FREQ')[0]), np.float(imsize), verbose=False)
+  bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), np.float(imsize), verbose=False)
   nfreq = len(t.getcol('CHAN_FREQ')[0])
   t.close()
   avgfactor = 0
-  
-  for count in range(2,21): # try average values between 2 to 20
-     if bwsmear  < (bwsmearlimit/np.float(count)): # factor X avg
+
+  for count in range(2, 21):  # try average values between 2 to 20
+     if bwsmear < (bwsmearlimit / np.float(count)):  # factor X avg
         if nfreq % count == 0:
-           avgfactor = count
+            avgfactor = count
   return avgfactor
 
 def compute_markersize(H5file):
