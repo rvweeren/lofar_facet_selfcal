@@ -902,6 +902,7 @@ def phaseup(msinlist,datacolumn='DATA',superstation='core', start=0, dysco=True)
           run(cmd)
     return msoutlist
 
+
 def findfreqavg(ms, imsize, bwsmearlimit=1.0):
   ''' Find the frequency averaging factor for a Measurement Set given a bandwidth smearing constraint.
 
@@ -924,6 +925,7 @@ def findfreqavg(ms, imsize, bwsmearlimit=1.0):
             avgfactor = count
   return avgfactor
 
+
 def compute_markersize(H5file):
     ''' Computes matplotlib markersize for an H5parm.
 
@@ -941,6 +943,7 @@ def compute_markersize(H5file):
     if ntimes < 50:
         markersize = 15      
     return markersize
+
 
 def ntimesH5(H5file):
     ''' Returns the number of timeslots in an H5parm.
@@ -971,6 +974,7 @@ def ntimesH5(H5file):
     H.close()
     return len(times)
 
+
 def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
     ''' Creates a backup of the FLAG column.
     
@@ -998,11 +1002,18 @@ def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
     
 
 def checklongbaseline(ms):
-    t   = pt.table(ms + '/ANTENNA',ack=False)
+    ''' Check if the Measurement Set contains international stations.
+    
+    Args:
+        ms (str): path to the Measurement Set.
+    Returns:
+        None
+    '''
+    t = pt.table(ms + '/ANTENNA', ack=False)
     antennasms = list(t.getcol('NAME'))
     t.close()
-    substr = 'DE' # to check if a German station is present, if yes assume this is long baseline data
-    haslongbaselines =  any(substr in mystring for mystring in antennasms)
+    substr = 'DE'  # to check if a German station is present, if yes assume this is long baseline data
+    haslongbaselines = any(substr in mystring for mystring in antennasms)
     print('Contains long baselines?', haslongbaselines)
     return haslongbaselines
 
