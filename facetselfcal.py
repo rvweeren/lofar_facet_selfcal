@@ -694,20 +694,26 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
         data = t.getcol(incol)
         data[:, :, 0] = np.copy(np.exp(1j * np.angle(data[:, :, 0])))  # because I = xx+yy/2
         data[:, :, 3] = np.copy(np.exp(1j * np.angle(data[:, :, 3])))  # because I = xx+yy/2
-        t.putcol(outcol, data) 
+        t.putcol(outcol, data)
         t.close()
         del data
     return
 
+
 def create_MODEL_DATA_PDIFF(inmslist):
-   if not isinstance(inmslist,list):
-      inmslist = [inmslist] 
-   for ms in inmslist:
-     run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
-     run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'") # because I = RR+LL/2 (this is tricky because we work with phase diff)
-     run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'") # because I = RR+LL/2 (this is tricky because we work with phase diff)
-     run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
-     run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
+    ''' Creates the MODEL_DATA_PDIFF column.
+
+    Args:
+      inmslist (list): list of input Measurement Sets.
+    '''
+    if not isinstance(inmslist, list):
+        inmslist = [inmslist] 
+    for ms in inmslist:
+        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
+        run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
+        run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
+        run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
+        run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
 
 def fulljonesparmdb(h5):
     H=tables.open_file(h5) 
