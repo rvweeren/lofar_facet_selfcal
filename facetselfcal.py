@@ -498,31 +498,41 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
     logger.info('User specified clean mask: ' + str(fitsmask))
     logger.info('Threshold for MakeMask:    ' + str(args['maskthreshold']))
     logger.info('Briggs robust:             ' + str(args['robust']))
-    return    
+    return
+
 
 def max_area_of_island(grid):
     ''' Calculate the area of an island.
 
     Args:
         grid (ndarray): input image.
+    Returns:
+        None
     '''
     rlen, clen = len(grid), len(grid[0])
+
     def neighbors(r, c):
-        """
-        Generate the neighbor coordinates of the given row and column that
-        are within the bounds of the grid.
-        """
+        ''' Generate the neighbor coordinates of the given row and column that are within the bounds of the grid.
+
+        Args:
+            r (int): row coordinate.
+            c (int): column coordinate.
+        '''
         for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             if (0 <= r + dr < rlen) and (0 <= c + dc < clen):
                 yield r + dr, c + dc
 
     visited = [[False] * clen for _ in range(rlen)]
+
     def island_size(r, c):
-        """
-        Find the area of the land connected to the given coordinate.
-        Return 0 if the coordinate is water or if it has already been
-        explored in a previous call to island_size().
-        """
+        ''' Find the area of the land connected to the given coordinate.
+
+        Return 0 if the coordinate is water or if it has already been explored in a previous call to island_size().
+
+        Args:
+            r (int): row coordinate.
+            c (int): column coordinate.
+        '''
         if grid[r][c] == 0 or visited[r][c]:
             return 0
         area = 1
