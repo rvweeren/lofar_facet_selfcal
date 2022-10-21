@@ -667,28 +667,37 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
         run(cmd)
     return
 
+
 def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=True):
-   if not isinstance(inmslist,list):
-      inmslist = [inmslist] 
-   for ms in inmslist:
-     t = pt.table(ms, readonly=False, ack=True)    
-     if outcol not in t.colnames():
-       print('Adding',outcol,'to',ms)            
-       desc = t.getcoldesc(incol)
-       newdesc = pt.makecoldesc(outcol, desc)
-       newdmi = t.getdminfo(incol)
-       if dysco:
-          newdmi['NAME'] = 'Dysco' + outcol
-       else:
-          newdmi['NAME'] = outcol 
-       t.addcols(newdesc, newdmi) 
-     data = t.getcol(incol)
-     data[:,:,0] = np.copy(np.exp(1j * np.angle(data[:,:,0]))) # because I = xx+yy/2
-     data[:,:,3] = np.copy(np.exp(1j * np.angle(data[:,:,3]))) # because I = xx+yy/2
-     t.putcol(outcol, data) 
-     t.close()
-     del data
-   return
+    ''' Creates a new column containging visibilities with their original phase, but unity amplitude.
+
+    Args:
+        inmslist (list): list of input Measurement Sets.
+        incol (str): name of the input column to copy (meta)data from.
+        outcol (str): name of the output column that will be created.
+        dysco (bool): dysco compress the output column.
+    '''
+    if not isinstance(inmslist, list):
+        inmslist = [inmslist]
+    for ms in inmslist:
+        t = pt.table(ms, readonly=False, ack=True)
+        if outcol not in t.colnames():
+            print('Adding', outcol, 'to', ms)
+            desc = t.getcoldesc(incol)
+            newdesc = pt.makecoldesc(outcol, desc)
+            newdmi = t.getdminfo(incol)
+            if dysco:
+                newdmi['NAME'] = 'Dysco' + outcol
+            else:
+                newdmi['NAME'] = outcol
+            t.addcols(newdesc, newdmi)
+        data = t.getcol(incol)
+        data[:, :, 0] = np.copy(np.exp(1j * np.angle(data[:, :, 0])))  # because I = xx+yy/2
+        data[:, :, 3] = np.copy(np.exp(1j * np.angle(data[:, :, 3])))  # because I = xx+yy/2
+        t.putcol(outcol, data) 
+        t.close()
+        del data
+    return
 
 def create_MODEL_DATA_PDIFF(inmslist):
    if not isinstance(inmslist,list):
