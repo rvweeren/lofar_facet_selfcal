@@ -477,31 +477,28 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
         fitsmask (str): name of the user-provided FITS mask.
         mslist (list): list of input measurement sets.
     '''
-   
-   logger.info(' '.join(map(str,inputsysargs)))
-   
-   logger.info('Version:                   ' + str(version))
-   logger.info('Imsize:                    ' + str(args['imsize']))
-   logger.info('Pixelscale:                ' + str(args['pixelscale']))
-   logger.info('Niter:                     ' + str(args['niter']))
-   logger.info('Uvmin:                     ' + str(args['uvmin']  ))
-   logger.info('Multiscale:                ' + str(args['multiscale']))
-   logger.info('No beam correction:        ' + str(args['no_beamcor']))
-   logger.info('IDG:                       ' + str(args['idg']))
-   logger.info('Widefield:                 ' + str(args['forwidefield']))
-   logger.info('Flagslowamprms:            ' + str(args['flagslowamprms']))
-   logger.info('flagslowphaserms:          ' + str(args['flagslowphaserms']))
-   logger.info('Do linear:                 ' + str(args['dolinear']))
-   logger.info('Do circular:               ' + str(args['docircular']))
-   if args['boxfile'] != None:
-     logger.info('Bobxfile:                  ' + args['boxfile'])
-   logger.info('Mslist:                    ' + ' '.join(map(str,mslist)))
-   logger.info('User specified clean mask: ' + str(fitsmask))
-   logger.info('Threshold for MakeMask:    ' + str(args['maskthreshold']))
-   logger.info('Briggs robust:             ' + str(args['robust']))
+    logger.info(' '.join(map(str,inputsysargs)))
 
-    
-   return    
+    logger.info('Version:                   ' + str(version))
+    logger.info('Imsize:                    ' + str(args['imsize']))
+    logger.info('Pixelscale:                ' + str(args['pixelscale']))
+    logger.info('Niter:                     ' + str(args['niter']))
+    logger.info('Uvmin:                     ' + str(args['uvmin']  ))
+    logger.info('Multiscale:                ' + str(args['multiscale']))
+    logger.info('No beam correction:        ' + str(args['no_beamcor']))
+    logger.info('IDG:                       ' + str(args['idg']))
+    logger.info('Widefield:                 ' + str(args['forwidefield']))
+    logger.info('Flagslowamprms:            ' + str(args['flagslowamprms']))
+    logger.info('flagslowphaserms:          ' + str(args['flagslowphaserms']))
+    logger.info('Do linear:                 ' + str(args['dolinear']))
+    logger.info('Do circular:               ' + str(args['docircular']))
+    if args['boxfile'] is not None:
+        logger.info('Bobxfile:                  ' + args['boxfile'])
+    logger.info('Mslist:                    ' + ' '.join(map(str,mslist)))
+    logger.info('User specified clean mask: ' + str(fitsmask))
+    logger.info('Threshold for MakeMask:    ' + str(args['maskthreshold']))
+    logger.info('Briggs robust:             ' + str(args['robust']))
+    return    
 
 def max_area_of_island(grid):
     ''' Calculate the area of an island.
