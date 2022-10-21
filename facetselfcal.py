@@ -347,7 +347,7 @@ def force_close(h5):
     h5s = list(tables.file._open_files._handlers)
     for h in h5s:
         if h.filename == h5:
-            logger.warning('force_close: Closed --> ' + h5+'\n')
+            logger.warning('force_close: Closed --> ' + h5 + '\n')
             print('Forced (!) closing', h5)
             h.close()
             return
