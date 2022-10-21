@@ -205,36 +205,29 @@ def check_strlist_or_intlist(argin):
 
     # check for integer list
     if all([isinstance(item, int) for item in arg]):
-       if np.min(arg) < 1:
-          raise argparse.ArgumentTypeError(
-              "solint_list cannot contain values smaller than 1")
-       else:
-          return arg
+        if np.min(arg) < 1:
+            raise argparse.ArgumentTypeError("solint_list cannot contain values smaller than 1")
+        else:
+            return arg
     # so not an integer list, so now check for string list
     if all([isinstance(item, str) for item in arg]):
-       # check if string contains numbers
-       for item2 in arg:
-           # print(item2)
-           if not any([ch.isdigit() for ch in item2]):
-              raise argparse.ArgumentTypeError(
-                  "solint_list needs to contain some number characters, not only units")
-           # check in the number in there is smaller than 1
-           # print(re.findall(r'[+-]?\d+(?:\.\d+)?',item2)[0])
-           if float(re.findall(r'[+-]?\d+(?:\.\d+)?', item2)[0]) <= 0.0:
-              raise argparse.ArgumentTypeError(
-                  "numbers in solint_list cannot be smaller than zero")
-
-           # check if string contains proper time formatting
-           if ('hr' in item2) or ('min' in item2) or ('sec' in item2) or ('h' in item2) or ('m' in item2) or ('s' in item2) or ('hour' in item2) or ('minute' in item2) or ('second' in item2):
-              pass
-           else:
-              raise argparse.ArgumentTypeError(
-                  "solint_list needs to have proper time formatting (h(r), m(in), s(ec))")
-           # sys.exit()
-       return arg
+        # check if string contains numbers
+        for item2 in arg:
+            # print(item2)
+            if not any([ch.isdigit() for ch in item2]):
+                raise argparse.ArgumentTypeError("solint_list needs to contain some number characters, not only units")
+            # check in the number in there is smaller than 1
+            # print(re.findall(r'[+-]?\d+(?:\.\d+)?',item2)[0])
+            if float(re.findall(r'[+-]?\d+(?:\.\d+)?', item2)[0]) <= 0.0:
+                raise argparse.ArgumentTypeError("numbers in solint_list cannot be smaller than zero")
+            # check if string contains proper time formatting
+            if ('hr' in item2) or ('min' in item2) or ('sec' in item2) or ('h' in item2) or ('m' in item2) or ('s' in item2) or ('hour' in item2) or ('minute' in item2) or ('second' in item2):
+                pass
+            else:
+                raise argparse.ArgumentTypeError("solint_list needs to have proper time formatting (h(r), m(in), s(ec))")
+        return arg
     else:
-       raise argparse.ArgumentTypeError(
-           "solint_list must be a list of positive integers or a list of properly formatted strings")
+        raise argparse.ArgumentTypeError("solint_list must be a list of positive integers or a list of properly formatted strings")
 
 
 def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA'):
