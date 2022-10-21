@@ -548,12 +548,20 @@ def max_area_of_island(grid):
 
     return max(island_size(r, c) for r, c in product(range(rlen), range(clen)))
 
+
 def getlargestislandsize(fitsmask):
-   hdulist = fits.open(fitsmask)
-   data = hdulist[0].data
-   max_area = max_area_of_island(data[0,0,:,:])
-   hdulist.close()
-   return max_area    
+    ''' Find the largest island in a given FITS mask.
+    
+    Args:
+        fitsmask (str): path to the FITS file.
+    Returns:
+        max_area (float): area of the largest island.
+    '''
+    hdulist = fits.open(fitsmask)
+    data = hdulist[0].data
+    max_area = max_area_of_island(data[0, 0, :, :])
+    hdulist.close()
+    return max_area    
 
 
 
