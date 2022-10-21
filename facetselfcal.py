@@ -972,19 +972,26 @@ def ntimesH5(H5file):
     return len(times)
 
 def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
+    ''' Creates a backup of the FLAG column.
+    
+    Args:
+        ms (str): path to the Measurement Set.
+        flagcolname (str): name of the output column.
+    Returns:
+        None
+    '''
     cname = 'FLAG'
     flags = []
     t = pt.table(ms, readonly=False, ack=True)
     if flagcolname not in t.colnames():
-      flags = t.getcol('FLAG')  
-      print('Adding flagging column',flagcolname,'to',ms)            
-      desc = t.getcoldesc(cname)
-      newdesc = pt.makecoldesc(flagcolname, desc)
-      newdmi = t.getdminfo(cname)
-      newdmi['NAME'] = flagcolname
-      t.addcols(newdesc, newdmi)  
-      t.putcol(flagcolname, flags)     
-
+        flags = t.getcol('FLAG')
+        print('Adding flagging column',flagcolname,'to',ms)
+        desc = t.getcoldesc(cname)
+        newdesc = pt.makecoldesc(flagcolname, desc)
+        newdmi = t.getdminfo(cname)
+        newdmi['NAME'] = flagcolname
+        t.addcols(newdesc, newdmi)
+        t.putcol(flagcolname, flags)
     t.close()
     del flags
     return    
