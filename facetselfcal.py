@@ -579,30 +579,30 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        t = pt.table(ms, readonly=False, ack=True)    
+        t = pt.table(ms, readonly=False, ack=True)
         if outcol not in t.colnames():
-            print('Adding', outcol, 'to', ms)            
+            print('Adding', outcol, 'to', ms)
             desc = t.getcoldesc(incol)
             newdesc = pt.makecoldesc(outcol, desc)
             newdmi = t.getdminfo(incol)
             if dysco:
                 newdmi['NAME'] = 'Dysco' + outcol
             else:
-                newdmi['NAME'] = outcol 
-            t.addcols(newdesc, newdmi) 
+                newdmi['NAME'] = outcol
+            t.addcols(newdesc, newdmi)
         data = t.getcol(incol)
         dataslope = np.copy(data)
         for ff in range(data.shape[1] - 1):
             if ampnorm:
-                dataslope[:, ff, 0] = np.copy(np.exp(1j * (np.angle(data[:, ff, 0])-np.angle(data[:, ff+1, 0]))))
-                dataslope[:, ff, 3] = np.copy(np.exp(1j * (np.angle(data[:, ff, 3])-np.angle(data[:, ff+1, 3]))))
+                dataslope[:, ff, 0] = np.copy(np.exp(1j * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
+                dataslope[:, ff, 3] = np.copy(np.exp(1j * (np.angle(data[:, ff, 3]) -np.angle(data[:, ff + 1, 3]))))
             else:
-                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0])*np.exp(1j * (np.angle(data[:, ff, 0])-np.angle(data[:, ff+1, 0]))))
-                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3])*np.exp(1j * (np.angle(data[:, ff, 3])-np.angle(data[:, ff+1, 3]))))
+                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0]) * np.exp(1j * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
+                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3]) * np.exp(1j * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
 
         # last freq set to second to last freq because difference reduces length of freq axis with one
         dataslope[:, -1, :] = np.copy(dataslope[:, -2, :])
-        t.putcol(outcol, dataslope) 
+        t.putcol(outcol, dataslope)
         t.close()
         # print( np.nanmedian(np.abs(data)))
         # print( np.nanmedian(np.abs(dataslope)))
@@ -611,53 +611,61 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
 
 
 def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True):
-   if not isinstance(inmslist,list):
-      inmslist = [inmslist] 
-   for ms in inmslist:
-     t = pt.table(ms, readonly=False, ack=True)    
-     if outcol not in t.colnames():
-       print('Adding',outcol,'to',ms)            
-       desc = t.getcoldesc(incol)
-       newdesc = pt.makecoldesc(outcol, desc)
-       newdmi = t.getdminfo(incol)
-       if dysco:
-          newdmi['NAME'] = 'Dysco' + outcol
-       else:
-          newdmi['NAME'] = outcol  
-       t.addcols(newdesc, newdmi) 
-     
-    
-     data = t.getcol(incol)
-     phasediff =  np.copy(np.angle(data[:,:,0]) - np.angle(data[:,:,3])) #RR - LL
-     data[:,:,0] = 0.5*np.exp(1j * phasediff) # because I = RR+LL/2 (this is tricky because we work with phase diff)
-     data[:,:,3] = data[:,:,0]
-     t.putcol(outcol, data) 
-     t.close()
-     del data
-     del phasediff
-     
-     
-     if False:
+    ''' Creates a new column for the phase difference solve.
+
+    Args:
+        inmslist (list): list of input Measurement Sets.
+        incol (str): name of the input column to copy (meta)data from.
+        outcol (str): name of the output column that will be created.
+        dysco (bool): dysco compress the output column.
+    '''
+    if not isinstance(inmslist, list):
+        inmslist = [inmslist]
+    for ms in inmslist:
+        t = pt.table(ms, readonly=False, ack=True)
+        if outcol not in t.colnames():
+            print('Adding', outcol, 'to', ms)
+            desc = t.getcoldesc(incol)
+            newdesc = pt.makecoldesc(outcol, desc)
+            newdmi = t.getdminfo(incol)
+            if dysco:
+                newdmi['NAME'] = 'Dysco' + outcol
+            else:
+                newdmi['NAME'] = outcol
+            t.addcols(newdesc, newdmi)
+
+
+        data = t.getcol(incol)
+        phasediff =  np.copy(np.angle(data[:, :, 0]) - np.angle(data[:, :, 3]))  #RR - LL
+        data[:, :, 0] = 0.5 * np.exp(1j * phasediff)  # because I = RR+LL/2 (this is tricky because we work with phase diff)
+        data[:, :, 3] = data[:, :, 0]
+        t.putcol(outcol, data)
+        t.close()
+        del data
+        del phasediff
+
+
+    if False:
         # data = t.getcol(incol)
         # t.putcol(outcol, data)
         # t.close()
         
         time.sleep(2)
-        cmd = "taql 'update " + ms + " set " 
+        cmd = "taql 'update " + ms + " set "
         cmd += outcol + "[,0]=0.5*EXP(1.0i*(PHASE(" + incol + "[,0])-PHASE(" + incol + "[,3])))'"
         # cmd += outcol + "[,3]=" + outcol + "[,0],"
         # cmd += outcol + "[,1]=0+0i,"
         # cmd += outcol + "[,2]=0+0i'"
         print(cmd)
         run(cmd)
-        cmd = "taql 'update " + ms + " set " 
+        cmd = "taql 'update " + ms + " set "
         # cmd += outcol + "[,0]=0.5*EXP(1.0i*(PHASE(" + incol + "[,0])-PHASE(" + incol + "[,3]))),"
         cmd += outcol + "[,3]=" + outcol + "[,0]'"
         # cmd += outcol + "[,1]=0+0i,"
         # cmd += outcol + "[,2]=0+0i'"
         print(cmd)
         run(cmd)
-   return
+    return
 
 def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=True):
    if not isinstance(inmslist,list):
