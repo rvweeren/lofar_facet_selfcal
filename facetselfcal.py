@@ -1146,81 +1146,91 @@ def runaoflagger(mslist):
         None
     '''
     for ms in mslist:
-       cmd = 'aoflagger ' + ms
-       run(cmd)
+        cmd = 'aoflagger ' + ms
+        run(cmd)
     return
 
 
 def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='.', dysco=True):
+    ''' Apply an H5parm to a Measurement Set.
 
+    Args:
+        ms (str): path to a Measurement Set to apply solutions to.
+        inparmdblist (list): list of H5parms to apply.
+        msincol (str): input column to apply solutions to.
+        msoutcol (str): output column to store corrected data in.
+        msout (str): name of the output Measurement Set.
+        dysco (bool): Dysco compress the output Measurement Set.
+    Returns:
+        None
+    '''
     # to allow both a list or a single file (string)
-    if not isinstance(inparmdblist,list):
-     inparmdblist = [inparmdblist]    
-    
+    if not isinstance(inparmdblist, list):
+        inparmdblist = [inparmdblist]
+
     cmd = 'DP3 numthreads='+ str(multiprocessing.cpu_count()) + ' msin=' + ms
     cmd += ' msout=' + msout + ' '
     cmd += 'msin.datacolumn=' + msincol + ' '
     if msout == '.':
-      cmd += 'msout.datacolumn=' + msoutcol + ' '
+        cmd += 'msout.datacolumn=' + msoutcol + ' '
     if dysco:
-      cmd += 'msout.storagemanager=dysco '
+        cmd += 'msout.storagemanager=dysco '
     count = 0
     for parmdb in inparmdblist:
-      if fulljonesparmdb(parmdb):
-        cmd += 'ac' + str(count) +'.parmdb='+parmdb + ' '
-        cmd += 'ac' + str(count) +'.type=applycal '  
-        cmd += 'ac' + str(count) +'.correction=fulljones '
-        cmd += 'ac' + str(count) +'.soltab=[amplitude000,phase000] '  
-        count = count + 1
-      else:  
-        H=tables.open_file(parmdb) 
-        try:
-          phase = H.root.sol000.phase000.val[:]
-          cmd += 'ac' + str(count) +'.parmdb='+parmdb + ' '
-          cmd += 'ac' + str(count) +'.type=applycal '  
-          cmd += 'ac' + str(count) +'.correction=phase000 '
-          count = count + 1
-        except:
-          pass  
-        
-        try:
-          phase = H.root.sol000.tec000.val[:]
-          cmd += 'ac' + str(count) +'.parmdb='+parmdb + ' '
-          cmd += 'ac' + str(count) +'.type=applycal '  
-          cmd += 'ac' + str(count) +'.correction=tec000 '
-          count = count + 1        
-        except:
-          pass  
-        
-        try:
-          phase = H.root.sol000.rotation000.val[:]
-          cmd += 'ac' + str(count) +'.parmdb='+parmdb + ' '
-          cmd += 'ac' + str(count) +'.type=applycal '  
-          cmd += 'ac' + str(count) +'.correction=rotation000 '
-          count = count + 1        
-        except:
-          pass  
-        
-        try:
-          phase = H.root.sol000.amplitude000.val[:]
-          cmd += 'ac' + str(count) +'.parmdb='+parmdb + ' '
-          cmd += 'ac' + str(count) +'.type=applycal '  
-          cmd += 'ac' + str(count) +'.correction=amplitude000 '
-          count = count + 1        
-        except:
-          pass  
-      
-        H.close()
-    
+        if fulljonesparmdb(parmdb):
+            cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
+            cmd += 'ac' + str(count) + '.type=applycal '
+            cmd += 'ac' + str(count) + '.correction=fulljones '
+            cmd += 'ac' + str(count) + '.soltab=[amplitude000,phase000] '
+            count = count + 1
+        else:  
+            H=tables.open_file(parmdb) 
+            try:
+                phase = H.root.sol000.phase000.val[:]
+                cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
+                cmd += 'ac' + str(count) + '.type=applycal '
+                cmd += 'ac' + str(count) + '.correction=phase000 '
+                count = count + 1
+            except:
+                pass
+
+            try:
+                phase = H.root.sol000.tec000.val[:]
+                cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
+                cmd += 'ac' + str(count) + '.type=applycal '
+                cmd += 'ac' + str(count) + '.correction=tec000 '
+                count = count + 1
+            except:
+                pass
+
+            try:
+                phase = H.root.sol000.rotation000.val[:]
+                cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
+                cmd += 'ac' + str(count) + '.type=applycal '  
+                cmd += 'ac' + str(count) + '.correction=rotation000 '
+                count = count + 1        
+            except:
+                pass
+
+            try:
+                phase = H.root.sol000.amplitude000.val[:]
+                cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
+                cmd += 'ac' + str(count) + '.type=applycal '  
+                cmd += 'ac' + str(count) +' .correction=amplitude000 '
+                count = count + 1        
+            except:
+                pass
+            H.close()
+
     if count < 1:
         print('Something went wrong, cannot build the applycal command. H5 file is valid?')
         sys.exit(1)
     # build the steps command    
     cmd += 'steps=['
     for i in range(count):
-      cmd += 'ac'+ str(i)
-      if i < count-1: # to avoid last comma in the steps list
-        cmd += ','
+        cmd += 'ac'+ str(i)
+        if i < count-1: # to avoid last comma in the steps list
+            cmd += ','
     cmd += ']'
 
     print('DP3 applycal:', cmd)
