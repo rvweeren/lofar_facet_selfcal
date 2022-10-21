@@ -240,25 +240,22 @@ def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA'):
         None
     '''
     if HBAorLBA == 'HBA':
-      warn_distance = 1.25
+        warn_distance = 1.25
     if HBAorLBA == 'LBA':
-      warn_distance = 3.0
+        warn_distance = 3.0
 
     field_table = pt.table(msname + '::FIELD')
     direction = field_table.getcol('PHASE_DIR').squeeze()
     ref_direction = field_table.getcol('REFERENCE_DIR').squeeze()
     field_table.close()
-    c1 = SkyCoord(direction[0]*units.radian,
-                  direction[1]*units.radian, frame='icrs')
-    c2 = SkyCoord(ref_direction[0]*units.radian,
-                  ref_direction[1]*units.radian, frame='icrs')
+    c1 = SkyCoord(direction[0] * units.radian, direction[1] * units.radian, frame='icrs')
+    c2 = SkyCoord(ref_direction[0] * units.radian, ref_direction[1] * units.radian, frame='icrs')
     seperation = c1.separation(c2).to(units.deg)
     print('Distance to pointing center', seperation)
     logger.info('Distance to pointing center:' + str(seperation))
     if seperation.value > warn_distance:
-       print('Warning: you are trying to selfcal a source far from the pointing, this is probably going to produce bad results')
-       logger.warning(
-           'Warning: you are trying to selfcal a source far from the pointing, this is probably going to produce bad results')
+        print('Warning: you are trying to selfcal a source far from the pointing, this is probably going to produce bad results')
+        logger.warning('Warning: you are trying to selfcal a source far from the pointing, this is probably going to produce bad results')
     return
 
 
