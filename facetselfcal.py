@@ -366,8 +366,7 @@ def create_mergeparmdbname(mslist, selfcalcycle):
     '''
     parmdblist = mslist[:]
     for ms_id, ms in enumerate(mslist):
-        parmdblist[ms_id] = 'merged_selfcalcyle' + \
-            str(selfcalcycle).zfill(3) + '_' + ms + '.avg.h5'
+        parmdblist[ms_id] = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.avg.h5'
     print('Created parmdblist', parmdblist)
     return parmdblist
 
