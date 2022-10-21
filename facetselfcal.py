@@ -1018,90 +1018,101 @@ def checklongbaseline(ms):
     return haslongbaselines
 
 def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, timeresolution='32', freqresolution='195.3125kHz', dysco=True):
+    ''' Average and/or phase-shift a list of Measurement Sets.
+    
+    Args:
+        mslist (list): list of Measurement Sets to iterate over.
+        freqstep (int): the number of frequency slots to average.
+        timestep (int): the number of time slots to average.
+        start (int): selfcal cycle that is being started from.
+        msinnchan (int): number of channels to take from the input Measurement Set.
+        phaseshiftbox (str): path to a DS9 region file to phaseshift to.
+        msinntimes (int): number of timeslots to take from the input Measurement Set.
+        makecopy (bool): appends '.copy' when making a copy of a Measurement Set.
+        dysco (bool): Dysco compress the output Measurement Set.
+    Returns:
+        outmslist (list): list of output Measurement Sets.
+    '''
     # sanity check
     if len(mslist) != len(freqstep):
-      print('Hmm, made a mistake with freqstep?')
-      sys.exit()
+        print('Hmm, made a mistake with freqstep?')
+        sys.exit()
     
     outmslist = []
     for ms_id, ms in enumerate(mslist):
-      if (freqstep[ms_id] > 0) or (timestep != None) or (msinnchan != None) or \
-          (phaseshiftbox != None) or (msinntimes != None): # if this is True then average
-        if makecopy:
-          msout = ms + '.copy'
+        if (freqstep[ms_id] > 0) or (timestep != None) or (msinnchan != None) or (phaseshiftbox != None) or (msinntimes != None):  # if this is True then average
+            if makecopy:
+                msout = ms + '.copy'
+            else:
+                msout = ms + '.avg'
+            cmd = 'DP3 msin=' + ms + ' av.type=averager '
+            cmd += 'msout='+ msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
+            if dysco:
+                cmd += 'msout.storagemanager=dysco '
+            if phaseshiftbox != None:
+                cmd += ' steps=[shift,av] '
+                cmd += ' shift.type=phaseshifter '
+                cmd += ' shift.phasecenter=\['+getregionboxcenter(phaseshiftbox)+'\] '
+            else:    
+                cmd +=' steps=[av] '
+
+            if freqstep[ms_id] != None:
+                cmd +='av.freqstep=' + str(freqstep[ms_id]) + ' '
+            if timestep != None:
+                cmd +='av.timestep=' + str(timestep) + ' '
+            if msinnchan != None:
+                cmd +='msin.nchan=' + str(msinnchan) + ' '
+            if msinntimes != None:
+                cmd +='msin.ntimes=' + str(msinntimes) + ' '
+            if start == 0:
+                print('Average with default WEIGHT_SPECTRUM:', cmd)
+                if os.path.isdir(msout):
+                    os.system('rm -rf ' + msout)
+                run(cmd)
+
+            msouttmp = ms + '.avgtmp'  
+            cmd = 'DP3 msin=' + ms + ' steps=[av] av.type=averager '
+            if dysco:
+                cmd+= ' msout.storagemanager=dysco '
+            cmd+= 'msout='+ msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
+            if freqstep[ms_id] != None:
+                cmd+='av.freqstep=' + str(freqstep[ms_id]) + ' '
+            if timestep != None:  
+                cmd+='av.timestep=' + str(timestep) + ' '
+            if msinnchan != None:
+                cmd+='msin.nchan=' + str(msinnchan) + ' '
+            if msinntimes != None:
+                cmd +='msin.ntimes=' + str(msinntimes) + ' ' 
+              
+            if start == 0:
+                t = pt.table(ms)
+                if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if present otherwise this is not needed
+                    t.close()
+                    print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
+                    if os.path.isdir(msouttmp):
+                        os.system('rm -rf ' + msouttmp)
+                    run(cmd)
+                  
+                    # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
+                    t  = pt.table(msout, readonly=False)
+                    print('Adding WEIGHT_SPECTRUM_SOLVE')
+                    desc = t.getcoldesc('WEIGHT_SPECTRUM')
+                    desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
+                    t.addcols(desc)
+
+                    t2 = pt.table(msouttmp, readonly=True)
+                    imweights = t2.getcol('WEIGHT_SPECTRUM')
+                    t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
+
+                    # Fill WEIGHT_SPECTRUM with WEIGHT_SPECTRUM from second ms
+                    t2.close()
+                    t.close()
+
+                    # clean up
+                    os.system('rm -rf ' + msouttmp)
+            outmslist.append(msout)
         else:
-          msout = ms + '.avg'  
-        cmd = 'DP3 msin=' + ms + ' av.type=averager '
-        cmd += 'msout='+ msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
-        if dysco:
-          cmd += 'msout.storagemanager=dysco '    
-        if phaseshiftbox != None:
-          cmd += ' steps=[shift,av] '
-          cmd += ' shift.type=phaseshifter '
-          cmd += ' shift.phasecenter=\['+getregionboxcenter(phaseshiftbox)+'\] '
-        else:    
-          cmd +=' steps=[av] ' 
-        
-        if freqstep[ms_id] != None:
-          cmd +='av.freqstep=' + str(freqstep[ms_id]) + ' '
-        if timestep != None:  
-          cmd +='av.timestep=' + str(timestep) + ' '
-        if msinnchan != None:
-           cmd +='msin.nchan=' + str(msinnchan) + ' ' 
-        if msinntimes != None:
-           cmd +='msin.ntimes=' + str(msinntimes) + ' ' 
-        if start == 0:
-          print('Average with default WEIGHT_SPECTRUM:', cmd)
-          if os.path.isdir(msout):
-            os.system('rm -rf ' + msout)
-          run(cmd)
-
-        msouttmp = ms + '.avgtmp'  
-        cmd = 'DP3 msin=' + ms + ' steps=[av] av.type=averager '
-        if dysco:
-            cmd+= ' msout.storagemanager=dysco '
-        cmd+= 'msout='+ msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
-        if freqstep[ms_id] != None:
-          cmd+='av.freqstep=' + str(freqstep[ms_id]) + ' '
-        if timestep != None:  
-          cmd+='av.timestep=' + str(timestep) + ' '
-        if msinnchan != None:
-           cmd+='msin.nchan=' + str(msinnchan) + ' '
-        if msinntimes != None:
-           cmd +='msin.ntimes=' + str(msinntimes) + ' ' 
-           
-        if start == 0:
-          t = pt.table(ms)
-          if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames(): # check if present otherwise this is not needed
-            t.close()   
-            print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
-            if os.path.isdir(msouttmp):
-              os.system('rm -rf ' + msouttmp)
-            run(cmd)
-          
-            # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-            t  = pt.table(msout, readonly=False)
-            print('Adding WEIGHT_SPECTRUM_SOLVE')
-            desc = t.getcoldesc('WEIGHT_SPECTRUM')
-            desc['name']='WEIGHT_SPECTRUM_SOLVE'
-            t.addcols(desc)
-
-            t2 = pt.table(msouttmp, readonly=True)
-            imweights = t2.getcol('WEIGHT_SPECTRUM')
-            t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
-
-            # Fill WEIGHT_SPECTRUM with WEIGHT_SPECTRUM from second ms
-            t2.close()
-            t.close() 
-
-            # clean up
-            os.system('rm -rf ' + msouttmp)
-          
-          
-        outmslist.append(msout)
-      else:
-        outmslist.append(ms)  # so no averaging happened
-    
+          outmslist.append(ms)  # so no averaging happened
     return outmslist
 
 
