@@ -943,27 +943,33 @@ def compute_markersize(H5file):
     return markersize
 
 def ntimesH5(H5file):
-   # function to return number of timeslots in H5 solution
-   H=tables.open_file(H5file, mode='r')
-   try:
-     times= H.root.sol000.amplitude000.time[:]
-   except: # apparently no slow amps available
-     try:
-       times= H.root.sol000.phase000.time[:]
-     except:
-       try:  
-         times= H.root.sol000.tec000.time[:]    
-       except:  
-         try:
-           times= H.root.sol000.rotationmeasure000.time[:]    
-         except:
-           try:
-             times= H.root.sol000.rotation000.time[:]
-           except:    
-             print('No amplitude000,phase000, tec000, rotation000, or rotationmeasure000 solutions found')  
-             sys.exit()
-   H.close()
-   return len(times)
+    ''' Returns the number of timeslots in an H5parm.
+
+    Args:
+        H5file (str): path to H5parm.
+    Returns:
+        times (int): length of the time axis.
+    '''
+    H=tables.open_file(H5file, mode='r')
+    try:
+        times= H.root.sol000.amplitude000.time[:]
+    except: # apparently no slow amps available
+        try:
+            times= H.root.sol000.phase000.time[:]
+        except:
+            try:  
+                times= H.root.sol000.tec000.time[:]    
+            except:  
+                try:
+                    times= H.root.sol000.rotationmeasure000.time[:]    
+                except:
+                    try:
+                        times= H.root.sol000.rotation000.time[:]
+                    except:    
+                        print('No amplitude000,phase000, tec000, rotation000, or rotationmeasure000 solutions found')  
+                        sys.exit()
+    H.close()
+    return len(times)
 
 def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
     cname = 'FLAG'
