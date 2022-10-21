@@ -715,6 +715,7 @@ def create_MODEL_DATA_PDIFF(inmslist):
         run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
         run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
 
+
 def fulljonesparmdb(h5):
     ''' Checks if a given h5parm has a fulljones solution table as sol000.
 
@@ -736,123 +737,133 @@ def fulljonesparmdb(h5):
     H.close()
     return fulljones
 
-def reset_gains_noncore(h5parm, keepanntennastr='CS'):
-   fulljones = fulljonesparmdb(h5parm) # True/False
-   hasphase = True
-   hasamps  = True
-   hasrotatation = True
-   hastec = True
-   
-   H=tables.open_file(h5parm, mode='a')
-   # figure of we have phase and/or amplitude solutions
-   try:
-     antennas = H.root.sol000.amplitude000.ant[:]
-     axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
-   except: 
-      hasamps = False
-   try:
-     antennas = H.root.sol000.phase000.ant[:]
-     axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
-   except:
-     hasphase = False
-   try:
-     antennas = H.root.sol000.tec000.ant[:]
-     axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
-   except:
-     hastec = False
-   try:
-     antennas = H.root.sol000.rotation000.ant[:]
-     axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
-   except:
-     hasrotatation = False     
 
-   if hasphase:
-     phase = H.root.sol000.phase000.val[:]
-   if hasamps:  
-     amp = H.root.sol000.amplitude000.val[:]
-   if hastec:
-     tec = H.root.sol000.tec000.val[:]  
-   if hasrotatation:
-     rotation = H.root.sol000.rotation000.val[:]       
-     
-     
-   for antennaid,antenna in enumerate(antennas):
-     if antenna[0:2] != keepanntennastr:
-       if hasphase:
-         antennaxis = axisn.index('ant')  
-         axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
-         print('Resetting phase', antenna, 'Axis entry number', axisn.index('ant'))
-         # print(phase[:,:,antennaid,...])
-         if antennaxis == 0:
-           phase[antennaid,...] = 0.0
-         if antennaxis == 1:
-           phase[:,antennaid,...] = 0.0
-         if antennaxis == 2:
-           phase[:,:,antennaid,...] = 0.0
-         if antennaxis == 3:
-           phase[:,:,:,antennaid,...] = 0.0  
-         if antennaxis == 4:
-           phase[:,:,:,:,antennaid,...] = 0.0
-         # print(phase[:,:,antennaid,...])  
-       if hasamps:
-         antennaxis = axisn.index('ant')  
-         axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
-         print('Resetting amplitude', antenna, 'Axis entry number', axisn.index('ant'))
-         if antennaxis == 0:
-           amp[antennaid,...] = 1.0
-         if antennaxis == 1:
-           amp[:,antennaid,...] = 1.0
-         if antennaxis == 2:
-           amp[:,:,antennaid,...] = 1.0
-         if antennaxis == 3:
-           amp[:,:,:,antennaid,...] = 1.0  
-         if antennaxis == 4:
-           amp[:,:,:,:,antennaid,...] = 1.0
-         if fulljones:  
-           amp[...,1] = 0.0 # XY, assumpe pol is last axis
-           amp[...,2] = 0.0 # YX, assume pol is last axis
+def reset_gains_noncore(h5parm, keepanntennastr='CS'):
+    ''' Resets the gain of non-CS stations to unity amplitude and zero phase.
+    
+    Args:
+        h5parm (str): path to the H5parm to reset gains of.
+        keepantennastr (str): string containing antennas to keep.
+    Returns:
+      None
+    '''
+    fulljones = fulljonesparmdb(h5parm)  # True/False
+    hasphase = True
+    hasamps  = True
+    hasrotatation = True
+    hastec = True
+
+    H=tables.open_file(h5parm, mode='a')
+    # Figure out if we have phase and/or amplitude solutions.
+    try:
+        antennas = H.root.sol000.amplitude000.ant[:]
+        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+    except: 
+        hasamps = False
+    try:
+        antennas = H.root.sol000.phase000.ant[:]
+        axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+    except:
+        hasphase = False
+    try:
+        antennas = H.root.sol000.tec000.ant[:]
+        axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+    except:
+        hastec = False
+    try:
+        antennas = H.root.sol000.rotation000.ant[:]
+        axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+    except:
+        hasrotatation = False     
+
+    if hasphase:
+        phase = H.root.sol000.phase000.val[:]
+    if hasamps:  
+        amp = H.root.sol000.amplitude000.val[:]
+    if hastec:
+        tec = H.root.sol000.tec000.val[:]
+    if hasrotatation:
+        rotation = H.root.sol000.rotation000.val[:]
+
+    for antennaid, antenna in enumerate(antennas):
+        if antenna[0:2] != keepanntennastr:
+            if hasphase:
+                antennaxis = axisn.index('ant')  
+                axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+                print('Resetting phase', antenna, 'Axis entry number', axisn.index('ant'))
+                # print(phase[:,:,antennaid,...])
+                if antennaxis == 0:
+                    phase[antennaid, ...] = 0.0
+                if antennaxis == 1:
+                    phase[:, antennaid, ...] = 0.0
+                if antennaxis == 2:
+                    phase[:, :, antennaid, ...] = 0.0
+                if antennaxis == 3:
+                    phase[:, :, :, antennaid, ...] = 0.0  
+                if antennaxis == 4:
+                    phase[:, :, :, :, antennaid, ...] = 0.0
+                # print(phase[:,:,antennaid,...])  
+            if hasamps:
+                antennaxis = axisn.index('ant')  
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                print('Resetting amplitude', antenna, 'Axis entry number', axisn.index('ant'))
+                if antennaxis == 0:
+                    amp[antennaid, ...] = 1.0
+                if antennaxis == 1:
+                    amp[:, antennaid, ...] = 1.0
+                if antennaxis == 2:
+                    amp[:, :, antennaid, ...] = 1.0
+                if antennaxis == 3:
+                    amp[:, :, :, antennaid, ...] = 1.0  
+                if antennaxis == 4:
+                    amp[:, :, :, :, antennaid, ...] = 1.0
+                if fulljones:  
+                    amp[..., 1] = 0.0  # XY, assume pol is last axis
+                    amp[..., 2] = 0.0  # YX, assume pol is last axis
            
-       if hastec:
-         antennaxis = axisn.index('ant')  
-         axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
-         print('Resetting TEC', antenna, 'Axis entry number', axisn.index('ant'))
-         if antennaxis == 0:
-           tec[antennaid,...] = 0.0
-         if antennaxis == 1:
-           tec[:,antennaid,...] = 0.0
-         if antennaxis == 2:
-           tec[:,:,antennaid,...] = 0.0
-         if antennaxis == 3:
-           tec[:,:,:,antennaid,...] = 0.0  
-         if antennaxis == 4:
-           tec[:,:,:,:,antennaid,...] = 0.0                         
-       if hasrotatation:
-         antennaxis = axisn.index('ant')  
-         axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
-         print('Resetting rotation', antenna, 'Axis entry number', axisn.index('ant'))
-         if antennaxis == 0:
-           rotation[antennaid,...] = 0.0
-         if antennaxis == 1:
-           rotation[:,antennaid,...] = 0.0
-         if antennaxis == 2:
-           rotation[:,:,antennaid,...] = 0.0
-         if antennaxis == 3:
-           rotation[:,:,:,antennaid,...] = 0.0  
-         if antennaxis == 4:
-           rotation[:,:,:,:,antennaid,...] = 0.0     
-   # fill values back in
-   if hasphase:
-     H.root.sol000.phase000.val[:] = np.copy(phase)
-   if hasamps:  
-     H.root.sol000.amplitude000.val[:] = np.copy(amp)
-   if hastec:
-     H.root.sol000.tec000.val[:] = np.copy(tec) 
-   if hasrotatation:
-     H.root.sol000.rotation000.val[:] = np.copy(rotatation)       
-     
-   H.flush()
-   H.close()
-   return
+            if hastec:
+              antennaxis = axisn.index('ant')  
+              axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+              print('Resetting TEC', antenna, 'Axis entry number', axisn.index('ant'))
+              if antennaxis == 0:
+                tec[antennaid,...] = 0.0
+              if antennaxis == 1:
+                tec[:,antennaid,...] = 0.0
+              if antennaxis == 2:
+                tec[:,:,antennaid,...] = 0.0
+              if antennaxis == 3:
+                tec[:,:,:,antennaid,...] = 0.0  
+              if antennaxis == 4:
+                tec[:,:,:,:,antennaid,...] = 0.0 
+                        
+            if hasrotatation:
+              antennaxis = axisn.index('ant')  
+              axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+              print('Resetting rotation', antenna, 'Axis entry number', axisn.index('ant'))
+              if antennaxis == 0:
+                rotation[antennaid, ...] = 0.0
+              if antennaxis == 1:
+                rotation[:, antennaid, ...] = 0.0
+              if antennaxis == 2:
+                rotation[:, :, antennaid, ...] = 0.0
+              if antennaxis == 3:
+                rotation[:, :, :, antennaid, ...] = 0.0  
+              if antennaxis == 4:
+                rotation[:, :, :, :, antennaid, ...] = 0.0     
+    
+    # fill values back in
+    if hasphase:
+        H.root.sol000.phase000.val[:] = np.copy(phase)
+    if hasamps:  
+        H.root.sol000.amplitude000.val[:] = np.copy(amp)
+    if hastec:
+        H.root.sol000.tec000.val[:] = np.copy(tec) 
+    if hasrotatation:
+        H.root.sol000.rotation000.val[:] = np.copy(rotatation)       
+
+    H.flush()
+    H.close()
+    return
 
 # reset_gains_noncore('merged_selfcalcyle11_testquick260.ms.avg.h5')
 # sys.exit()
