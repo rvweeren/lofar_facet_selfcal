@@ -551,7 +551,7 @@ def max_area_of_island(grid):
 
 def getlargestislandsize(fitsmask):
     ''' Find the largest island in a given FITS mask.
-    
+  
     Args:
         fitsmask (str): path to the FITS file.
     Returns:
@@ -561,44 +561,53 @@ def getlargestislandsize(fitsmask):
     data = hdulist[0].data
     max_area = max_area_of_island(data[0, 0, :, :])
     hdulist.close()
-    return max_area    
-
-
+    return max_area
 
 
 def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnorm=False, dysco=True):
-   if not isinstance(inmslist,list):
-      inmslist = [inmslist] 
-   for ms in inmslist:
-     t = pt.table(ms, readonly=False, ack=True)    
-     if outcol not in t.colnames():
-       print('Adding',outcol,'to',ms)            
-       desc = t.getcoldesc(incol)
-       newdesc = pt.makecoldesc(outcol, desc)
-       newdmi = t.getdminfo(incol)
-       if dysco:
-          newdmi['NAME'] = 'Dysco' + outcol
-       else:
-          newdmi['NAME'] = outcol 
-       t.addcols(newdesc, newdmi) 
-     data = t.getcol(incol)
-     dataslope = np.copy(data)
-     for ff in range(data.shape[1]-1):
-       if ampnorm:
-         dataslope[:,ff,0] = np.copy(np.exp(1j * (np.angle(data[:,ff,0])-np.angle(data[:,ff+1,0]))))
-         dataslope[:,ff,3] = np.copy(np.exp(1j * (np.angle(data[:,ff,3])-np.angle(data[:,ff+1,3]))))
-       else:
-         dataslope[:,ff,0] = np.copy(np.abs(data[:,ff,0])*np.exp(1j * (np.angle(data[:,ff,0])-np.angle(data[:,ff+1,0]))))
-         dataslope[:,ff,3] = np.copy(np.abs(data[:,ff,3])*np.exp(1j * (np.angle(data[:,ff,3])-np.angle(data[:,ff+1,3]))))
-       
-     # last freq set to second to last freq because difference reduces length of freq axis with one
-     dataslope[:,-1,:] = np.copy(dataslope[:,-2,:])
-     t.putcol(outcol, dataslope) 
-     t.close()
-     # print( np.nanmedian(np.abs(data)))
-     # print( np.nanmedian(np.abs(dataslope)))
-     del data, dataslope
-   return
+    ''' Creates a new column to solve for a phase slope from.
+    
+    Args:
+        inmslist (list): list of input measurement sets.
+        incol (str): name of the input column to copy (meta)data from.
+        outcol (str): name of the output column that will be created.
+        ampnorm (bool): If True, only takes phases from the input visibilities and sets their amplitude to 1.
+        dysco (bool): dysco compress the output column.
+    Returns:
+        None
+    '''
+    if not isinstance(inmslist, list):
+        inmslist = [inmslist]
+    for ms in inmslist:
+        t = pt.table(ms, readonly=False, ack=True)    
+        if outcol not in t.colnames():
+            print('Adding', outcol, 'to', ms)            
+            desc = t.getcoldesc(incol)
+            newdesc = pt.makecoldesc(outcol, desc)
+            newdmi = t.getdminfo(incol)
+            if dysco:
+                newdmi['NAME'] = 'Dysco' + outcol
+            else:
+                newdmi['NAME'] = outcol 
+            t.addcols(newdesc, newdmi) 
+        data = t.getcol(incol)
+        dataslope = np.copy(data)
+        for ff in range(data.shape[1] - 1):
+            if ampnorm:
+                dataslope[:, ff, 0] = np.copy(np.exp(1j * (np.angle(data[:, ff, 0])-np.angle(data[:, ff+1, 0]))))
+                dataslope[:, ff, 3] = np.copy(np.exp(1j * (np.angle(data[:, ff, 3])-np.angle(data[:, ff+1, 3]))))
+            else:
+                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0])*np.exp(1j * (np.angle(data[:, ff, 0])-np.angle(data[:, ff+1, 0]))))
+                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3])*np.exp(1j * (np.angle(data[:, ff, 3])-np.angle(data[:, ff+1, 3]))))
+        
+        # last freq set to second to last freq because difference reduces length of freq axis with one
+        dataslope[:, -1, :] = np.copy(dataslope[:, -2, :])
+        t.putcol(outcol, dataslope) 
+        t.close()
+        # print( np.nanmedian(np.abs(data)))
+        # print( np.nanmedian(np.abs(dataslope)))
+        del data, dataslope
+    return
 
 
 def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True):
