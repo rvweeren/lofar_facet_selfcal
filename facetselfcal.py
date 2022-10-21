@@ -61,7 +61,6 @@ import pyregion
 import tables
 
 from astropy.coordinates import SkyCoord
-from astropy.io import ascii
 from astropy.io import fits
 from astropy.wcs import WCS
 from astroquery.skyview import SkyView
@@ -80,17 +79,19 @@ os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
 # this function does not work, for some reason cannot modify the source table
-# def copy_over_sourcedirection_h5(h5ref, h5):
-   # Href = tables.open_file(h5ref, mode='r')
-   # ssdir = np.copy(Href.root.sol000.source[0]['dir'])
-   # Href.close()
-   # H = tables.open_file(h5, mode='a')
-   # print(ssdir, H.root.sol000.source[0]['dir'])
-   # H.root.sol000.source[0]['dir'] = np.copy(ssdir)
-   # H.flush()
-   # print(ssdir, H.root.sol000.source[0]['dir'])
-   # H.close()
-   # return
+'''
+def copy_over_sourcedirection_h5(h5ref, h5):
+    Href = tables.open_file(h5ref, mode='r')
+    ssdir = np.copy(Href.root.sol000.source[0]['dir'])
+    Href.close()
+    H = tables.open_file(h5, mode='a')
+    print(ssdir, H.root.sol000.source[0]['dir'])
+    H.root.sol000.source[0]['dir'] = np.copy(ssdir)
+    H.flush()
+    print(ssdir, H.root.sol000.source[0]['dir'])
+    H.close()
+    return
+'''
 
 
 def run(command):
@@ -103,7 +104,7 @@ def run(command):
     '''
     retval = subprocess.call(command, shell=True)
     if retval != 0:
-        print('FAILED to run '+command+': return value is '+str(retval))
+        print('FAILED to run ' + command + ': return value is ' + str(retval))
         raise Exception(command)
     return retval
 
@@ -156,37 +157,36 @@ def format_solint(solint, ms):
 
 
 def FFTdelayfinder(h5, refant):
-   from scipy.fftpack import fft, fftfreq
-   H = tables.open_file(h5)
-   upsample_factor = 10
+    from scipy.fftpack import fft, fftfreq
+    H = tables.open_file(h5)
+    upsample_factor = 10
 
-   # reference to refant
-   refant_idx = np.where(H.root.sol000.phase000.ant[:] == refant)
-   phase = H.root.sol000.phase000.val[:]
-   phasen = phase - phase[:, :, refant_idx[0], :]
+    # reference to refant
+    refant_idx = np.where(H.root.sol000.phase000.ant[:] == refant)
+    phase = H.root.sol000.phase000.val[:]
+    phasen = phase - phase[:, :, refant_idx[0], :]
 
-   phasecomplex = np.exp(phasen * 1j)
-   freq = H.root.sol000.phase000.freq[:]
-   timeaxis = H.root.sol000.phase000.time[:]
-   timeaxis = timeaxis - np.min(timeaxis)
+    phasecomplex = np.exp(phasen * 1j)
+    freq = H.root.sol000.phase000.freq[:]
+    timeaxis = H.root.sol000.phase000.time[:]
+    timeaxis = timeaxis - np.min(timeaxis)
 
-   delayaxis = fftfreq(upsample_factor*freq.size,
-                       d=np.abs(freq[1]-freq[0])/float(upsample_factor))
+    delayaxis = fftfreq(upsample_factor * freq.size,
+                        d=np.abs(freq[1] - freq[0]) / float(upsample_factor))
 
-   for ant_id, ant in enumerate(H.root.sol000.phase000.ant[:]):
-      delay = 0.0*H.root.sol000.phase000.time[:]
-      print('FFT delay finding for:', ant)
-      for time_id, time in enumerate(H.root.sol000.phase000.time[:]):
-         delay[time_id] = delayaxis[np.argmax(
-             np.abs(fft(phasecomplex[time_id, :, ant_id, 0], n=upsample_factor*len(freq))))]
-      plt.plot(timeaxis/3600., delay*1e9)
-   plt.ylim(-2e-6*1e9, 2e-6*1e9)
-   plt.ylabel('Delay [ns]')
-   plt.xlabel('Time [hr]')
-   # plt.title(ant)
-   plt.show()
-   H.close()
-   return
+    for ant_id, ant in enumerate(H.root.sol000.phase000.ant[:]):
+        delay = 0.0 * H.root.sol000.phase000.time[:]
+        print('FFT delay finding for:', ant)
+        for time_id, time in enumerate(H.root.sol000.phase000.time[:]):
+            delay[time_id] = delayaxis[np.argmax(np.abs(fft(phasecomplex[time_id, :, ant_id, 0], n=upsample_factor * len(freq))))]
+        plt.plot(timeaxis/3600., delay*1e9)
+    plt.ylim(-2e-6 * 1e9, 2e-6 * 1e9)
+    plt.ylabel('Delay [ns]')
+    plt.xlabel('Time [hr]')
+    # plt.title(ant)
+    plt.show()
+    H.close()
+    return
 
 
 def check_strlist_or_intlist(argin):
@@ -739,7 +739,7 @@ def fulljonesparmdb(h5):
 
 def reset_gains_noncore(h5parm, keepanntennastr='CS'):
     ''' Resets the gain of non-CS stations to unity amplitude and zero phase.
-    
+
     Args:
         h5parm (str): path to the H5parm to reset gains of.
         keepantennastr (str): string containing antennas to keep.
@@ -748,11 +748,11 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
     '''
     fulljones = fulljonesparmdb(h5parm)  # True/False
     hasphase = True
-    hasamps  = True
+    hasamps = True
     hasrotatation = True
     hastec = True
 
-    H=tables.open_file(h5parm, mode='a')
+    H = tables.open_file(h5parm, mode='a')
     # Figure out if we have phase and/or amplitude solutions.
     try:
         antennas = H.root.sol000.amplitude000.ant[:]
@@ -819,37 +819,37 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                 if fulljones:  
                     amp[..., 1] = 0.0  # XY, assume pol is last axis
                     amp[..., 2] = 0.0  # YX, assume pol is last axis
-           
+
             if hastec:
-              antennaxis = axisn.index('ant')  
-              axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
-              print('Resetting TEC', antenna, 'Axis entry number', axisn.index('ant'))
-              if antennaxis == 0:
-                tec[antennaid,...] = 0.0
-              if antennaxis == 1:
-                tec[:,antennaid,...] = 0.0
-              if antennaxis == 2:
-                tec[:,:,antennaid,...] = 0.0
-              if antennaxis == 3:
-                tec[:,:,:,antennaid,...] = 0.0  
-              if antennaxis == 4:
-                tec[:,:,:,:,antennaid,...] = 0.0 
-                        
+                antennaxis = axisn.index('ant')  
+                axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+                print('Resetting TEC', antenna, 'Axis entry number', axisn.index('ant'))
+                if antennaxis == 0:
+                    tec[antennaid, ...] = 0.0
+                if antennaxis == 1:
+                    tec[:, antennaid, ...] = 0.0
+                if antennaxis == 2:
+                    tec[:, :, antennaid, ...] = 0.0
+                if antennaxis == 3:
+                    tec[:, :, :, antennaid, ...] = 0.0
+                if antennaxis == 4:
+                    tec[:, :, :, :, antennaid, ...] = 0.0
+
             if hasrotatation:
-              antennaxis = axisn.index('ant')  
-              axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
-              print('Resetting rotation', antenna, 'Axis entry number', axisn.index('ant'))
-              if antennaxis == 0:
-                rotation[antennaid, ...] = 0.0
-              if antennaxis == 1:
-                rotation[:, antennaid, ...] = 0.0
-              if antennaxis == 2:
-                rotation[:, :, antennaid, ...] = 0.0
-              if antennaxis == 3:
-                rotation[:, :, :, antennaid, ...] = 0.0  
-              if antennaxis == 4:
-                rotation[:, :, :, :, antennaid, ...] = 0.0     
-    
+                antennaxis = axisn.index('ant')  
+                axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+                print('Resetting rotation', antenna, 'Axis entry number', axisn.index('ant'))
+                if antennaxis == 0:
+                    rotation[antennaid, ...] = 0.0
+                if antennaxis == 1:
+                    rotation[:, antennaid, ...] = 0.0
+                if antennaxis == 2:
+                    rotation[:, :, antennaid, ...] = 0.0
+                if antennaxis == 3:
+                    rotation[:, :, :, antennaid, ...] = 0.0  
+                if antennaxis == 4:
+                    rotation[:, :, :, :, antennaid, ...] = 0.0     
+
     # fill values back in
     if hasphase:
         H.root.sol000.phase000.val[:] = np.copy(phase)
@@ -858,7 +858,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
     if hastec:
         H.root.sol000.tec000.val[:] = np.copy(tec) 
     if hasrotatation:
-        H.root.sol000.rotation000.val[:] = np.copy(rotatation)       
+        H.root.sol000.rotation000.val[:] = np.copy(rotation)
 
     H.flush()
     H.close()
@@ -867,7 +867,8 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
 # reset_gains_noncore('merged_selfcalcyle11_testquick260.ms.avg.h5')
 # sys.exit()
 
-def phaseup(msinlist,datacolumn='DATA',superstation='core', start=0, dysco=True):
+
+def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=True):
     ''' Phase up stations into a superstation.
 
     Args:
@@ -881,49 +882,49 @@ def phaseup(msinlist,datacolumn='DATA',superstation='core', start=0, dysco=True)
     '''
     msoutlist = []
     for ms in msinlist:
-      msout=ms + '.phaseup'
-      msoutlist.append(msout)
+        msout = ms + '.phaseup'
+        msoutlist.append(msout)
 
-      cmd = "DP3 msin=" + ms + " steps=[add,filter] msout.writefullresflag=False "
-      cmd += "msout=" + msout + " msin.datacolumn=" + datacolumn + " "
-      cmd += "filter.type=filter filter.remove=True "
-      if dysco:
-        cmd += "msout.storagemanager=dysco "
-      cmd += "add.type=stationadder "
-      if superstation == 'core':
-        cmd += "add.stations={ST001:'CS*'} filter.baseline='!CS*&&*' "
-      if superstation == 'superterp':
-        cmd += "add.stations={ST001:'CS00[2-7]*'} filter.baseline='!CS00[2-7]*&&*' "  
+        cmd = "DP3 msin=" + ms + " steps=[add,filter] msout.writefullresflag=False "
+        cmd += "msout=" + msout + " msin.datacolumn=" + datacolumn + " "
+        cmd += "filter.type=filter filter.remove=True "
+        if dysco:
+            cmd += "msout.storagemanager=dysco "
+        cmd += "add.type=stationadder "
+        if superstation == 'core':
+            cmd += "add.stations={ST001:'CS*'} filter.baseline='!CS*&&*' "
+        if superstation == 'superterp':
+            cmd += "add.stations={ST001:'CS00[2-7]*'} filter.baseline='!CS00[2-7]*&&*' "
 
-      if start == 0: # only phaseup if start selfcal from cycle 0, so skip for a restart
-          if os.path.isdir(msout):
-              os.system('rm -rf ' + msout)
-          print(cmd)
-          run(cmd)
+        if start == 0:  # only phaseup if start selfcal from cycle 0, so skip for a restart
+            if os.path.isdir(msout):
+                os.system('rm -rf ' + msout)
+            print(cmd)
+            run(cmd)
     return msoutlist
 
 
 def findfreqavg(ms, imsize, bwsmearlimit=1.0):
-  ''' Find the frequency averaging factor for a Measurement Set given a bandwidth smearing constraint.
+    ''' Find the frequency averaging factor for a Measurement Set given a bandwidth smearing constraint.
 
-  Args:
-      ms (str): path to the Measurement Set.
-      imsize (float): size of the image in arcseconds.
-      bwsmearlimit (float): the fractional acceptable bandwidth smearing.
-  Returns:
-      avgfactor (int): the frequency averaging factor for the Measurement Set.
-  '''
-  t = pt.table(ms + '/SPECTRAL_WINDOW',ack=False)
-  bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), np.float(imsize), verbose=False)
-  nfreq = len(t.getcol('CHAN_FREQ')[0])
-  t.close()
-  avgfactor = 0
+    Args:
+        ms (str): path to the Measurement Set.
+        imsize (float): size of the image in arcseconds.
+        bwsmearlimit (float): the fractional acceptable bandwidth smearing.
+    Returns:
+        avgfactor (int): the frequency averaging factor for the Measurement Set.
+    '''
+    t = pt.table(ms + '/SPECTRAL_WINDOW',ack=False)
+    bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), np.float(imsize), verbose=False)
+    nfreq = len(t.getcol('CHAN_FREQ')[0])
+    t.close()
+    avgfactor = 0
 
-  for count in range(2, 21):  # try average values between 2 to 20
-     if bwsmear < (bwsmearlimit / np.float(count)):  # factor X avg
-        if nfreq % count == 0:
-            avgfactor = count
-  return avgfactor
+    for count in range(2, 21):  # try average values between 2 to 20
+        if bwsmear < (bwsmearlimit / np.float(count)):  # factor X avg
+            if nfreq % count == 0:
+                avgfactor = count
+    return avgfactor
 
 
 def compute_markersize(H5file):
@@ -953,21 +954,21 @@ def ntimesH5(H5file):
     Returns:
         times (int): length of the time axis.
     '''
-    H=tables.open_file(H5file, mode='r')
+    H = tables.open_file(H5file, mode='r')
     try:
-        times= H.root.sol000.amplitude000.time[:]
+        times = H.root.sol000.amplitude000.time[:]
     except: # apparently no slow amps available
         try:
-            times= H.root.sol000.phase000.time[:]
+            times = H.root.sol000.phase000.time[:]
         except:
             try:  
-                times= H.root.sol000.tec000.time[:]    
+                times = H.root.sol000.tec000.time[:]    
             except:  
                 try:
-                    times= H.root.sol000.rotationmeasure000.time[:]    
+                    times = H.root.sol000.rotationmeasure000.time[:]    
                 except:
                     try:
-                        times= H.root.sol000.rotation000.time[:]
+                        times = H.root.sol000.rotation000.time[:]
                     except:    
                         print('No amplitude000,phase000, tec000, rotation000, or rotationmeasure000 solutions found')  
                         sys.exit()
@@ -977,7 +978,7 @@ def ntimesH5(H5file):
 
 def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
     ''' Creates a backup of the FLAG column.
-    
+
     Args:
         ms (str): path to the Measurement Set.
         flagcolname (str): name of the output column.
@@ -989,7 +990,7 @@ def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
     t = pt.table(ms, readonly=False, ack=True)
     if flagcolname not in t.colnames():
         flags = t.getcol('FLAG')
-        print('Adding flagging column',flagcolname,'to',ms)
+        print('Adding flagging column', flagcolname, 'to', ms)
         desc = t.getcoldesc(cname)
         newdesc = pt.makecoldesc(flagcolname, desc)
         newdmi = t.getdminfo(cname)
@@ -998,12 +999,12 @@ def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
         t.putcol(flagcolname, flags)
     t.close()
     del flags
-    return    
-    
+    return
+
 
 def checklongbaseline(ms):
     ''' Check if the Measurement Set contains international stations.
-    
+
     Args:
         ms (str): path to the Measurement Set.
     Returns:
@@ -1017,9 +1018,10 @@ def checklongbaseline(ms):
     print('Contains long baselines?', haslongbaselines)
     return haslongbaselines
 
+
 def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, timeresolution='32', freqresolution='195.3125kHz', dysco=True):
     ''' Average and/or phase-shift a list of Measurement Sets.
-    
+
     Args:
         mslist (list): list of Measurement Sets to iterate over.
         freqstep (int): the number of frequency slots to average.
@@ -1037,53 +1039,53 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
     if len(mslist) != len(freqstep):
         print('Hmm, made a mistake with freqstep?')
         sys.exit()
-    
+
     outmslist = []
     for ms_id, ms in enumerate(mslist):
-        if (freqstep[ms_id] > 0) or (timestep != None) or (msinnchan != None) or (phaseshiftbox != None) or (msinntimes != None):  # if this is True then average
+        if (freqstep[ms_id] > 0) or (timestep is not None) or (msinnchan is not None) or (phaseshiftbox is not None) or (msinntimes is not None):  # if this is True then average
             if makecopy:
                 msout = ms + '.copy'
             else:
                 msout = ms + '.avg'
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
-            cmd += 'msout='+ msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
+            cmd += 'msout=' + msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
             if dysco:
                 cmd += 'msout.storagemanager=dysco '
-            if phaseshiftbox != None:
+            if phaseshiftbox is not None:
                 cmd += ' steps=[shift,av] '
                 cmd += ' shift.type=phaseshifter '
                 cmd += ' shift.phasecenter=\['+getregionboxcenter(phaseshiftbox)+'\] '
             else:    
-                cmd +=' steps=[av] '
+                cmd += ' steps=[av] '
 
-            if freqstep[ms_id] != None:
-                cmd +='av.freqstep=' + str(freqstep[ms_id]) + ' '
-            if timestep != None:
-                cmd +='av.timestep=' + str(timestep) + ' '
-            if msinnchan != None:
-                cmd +='msin.nchan=' + str(msinnchan) + ' '
-            if msinntimes != None:
-                cmd +='msin.ntimes=' + str(msinntimes) + ' '
+            if freqstep[ms_id] is not None:
+                cmd += 'av.freqstep=' + str(freqstep[ms_id]) + ' '
+            if timestep is not None:
+                cmd += 'av.timestep=' + str(timestep) + ' '
+            if msinnchan is not None:
+                cmd += 'msin.nchan=' + str(msinnchan) + ' '
+            if msinntimes is not None:
+                cmd += 'msin.ntimes=' + str(msinntimes) + ' '
             if start == 0:
                 print('Average with default WEIGHT_SPECTRUM:', cmd)
                 if os.path.isdir(msout):
                     os.system('rm -rf ' + msout)
                 run(cmd)
 
-            msouttmp = ms + '.avgtmp'  
+            msouttmp = ms + '.avgtmp'
             cmd = 'DP3 msin=' + ms + ' steps=[av] av.type=averager '
             if dysco:
-                cmd+= ' msout.storagemanager=dysco '
-            cmd+= 'msout='+ msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
-            if freqstep[ms_id] != None:
-                cmd+='av.freqstep=' + str(freqstep[ms_id]) + ' '
-            if timestep != None:  
-                cmd+='av.timestep=' + str(timestep) + ' '
-            if msinnchan != None:
-                cmd+='msin.nchan=' + str(msinnchan) + ' '
-            if msinntimes != None:
-                cmd +='msin.ntimes=' + str(msinntimes) + ' ' 
-              
+                cmd += ' msout.storagemanager=dysco '
+            cmd += 'msout=' + msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
+            if freqstep[ms_id] is not None:
+                cmd += 'av.freqstep=' + str(freqstep[ms_id]) + ' '
+            if timestep is not None:
+                cmd += 'av.timestep=' + str(timestep) + ' '
+            if msinnchan is not None:
+                cmd += 'msin.nchan=' + str(msinnchan) + ' '
+            if msinntimes is not None:
+                cmd += 'msin.ntimes=' + str(msinntimes) + ' '
+
             if start == 0:
                 t = pt.table(ms)
                 if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if present otherwise this is not needed
@@ -1092,9 +1094,9 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                     if os.path.isdir(msouttmp):
                         os.system('rm -rf ' + msouttmp)
                     run(cmd)
-                  
+
                     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-                    t  = pt.table(msout, readonly=False)
+                    t = pt.table(msout, readonly=False)
                     print('Adding WEIGHT_SPECTRUM_SOLVE')
                     desc = t.getcoldesc('WEIGHT_SPECTRUM')
                     desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
@@ -1112,7 +1114,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                     os.system('rm -rf ' + msouttmp)
             outmslist.append(msout)
         else:
-          outmslist.append(ms)  # so no averaging happened
+            outmslist.append(ms)  # so no averaging happened
     return outmslist
 
 
