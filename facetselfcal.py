@@ -272,42 +272,40 @@ def remove_flagged_data_startend(mslist):
     mslistout = []
 
     for ms in mslist:
+        t = pt.table(ms, readonly=True, ack=False)
+        alltimes = t.getcol('TIME')
+        alltimes = np.unique(alltimes)
 
-       t = pt.table(ms, readonly=True, ack=False)
-       alltimes = t.getcol('TIME')
-       alltimes = np.unique(alltimes)
+        newt = pt.taql('select TIME from $t where FLAG[0,0]=False')
+        time = newt.getcol('TIME')
+        time = np.unique(time)
 
-       newt = pt.taql('select TIME from $t where FLAG[0,0]=False')
-       time = newt.getcol('TIME')
-       time = np.unique(time)
+        print('There are', len(alltimes), 'times')
+        print('There are', len(time), 'unique unflagged times')
 
-       print('There are', len(alltimes), 'times')
-       print('There are', len(time), 'unique unflagged times')
+        print('First unflagged time', np.min(time))
+        print('Last unflagged time', np.max(time))
 
-       print('First unflagged time', np.min(time))
-       print('Last unflagged time', np.max(time))
+        goodstartid = np.where(alltimes == np.min(time))[0][0]
+        goodendid = np.where(alltimes == np.max(time))[0][0] + 1
 
-       goodstartid = np.where(alltimes == np.min(time))[0][0]
-       goodendid = np.where(alltimes == np.max(time))[0][0] + 1
+        print(goodstartid, goodendid)
+        t.close()
 
-       print(goodstartid, goodendid)
-       t.close()
+        if (goodstartid != 0) or (goodendid != len(alltimes)):
+            msout = ms + '.cut'
+            if os.path.isdir(msout):
+                os.system('rm -rf ' + msout)
 
-       if (goodstartid != 0) or (goodendid != len(alltimes)):
-          msout = ms + '.cut'
-          if os.path.isdir(msout):
-             os.system('rm -rf ' + msout)
-
-          cmd = taql + " ' select from " + ms + \
-              " where TIME in (select distinct TIME from " + ms
-          cmd += " offset " + str(goodstartid)
-          cmd += " limit " + str((goodendid-goodstartid)) + ") giving "
-          cmd += msout + " as plain'"
-          print(cmd)
-          run(cmd)
-          mslistout.append(msout)
-       else:
-          mslistout.append(ms)
+            cmd = taql + " ' select from " + ms + " where TIME in (select distinct TIME from " + ms
+            cmd += " offset " + str(goodstartid)
+            cmd += " limit " + str((goodendid - goodstartid)) + ") giving "
+            cmd += msout + " as plain'"
+            print(cmd)
+            run(cmd)
+            mslistout.append(msout)
+        else:
+            mslistout.append(ms)
     return mslistout
 
 
