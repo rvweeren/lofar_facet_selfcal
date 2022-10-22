@@ -1514,36 +1514,40 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     return 'tgss.skymodel'
 
 def getregionboxcenter(regionfile, standardbox=True):
-    """
-    Extract box center of a DS9 box region. 
-    Input is regionfile Return DP3 compatible string for phasecenter shifting
-    """
+    ''' Extract box center of a DS9 box region.
+
+    Args:
+        regionfile (str): path to the region file.
+        standardbox (bool): only allow square, non-rotated boxes.
+    Returns:
+        regioncenter (str): DP3 compatible string for phasecenter shifting.
+    '''
     r = pyregion.open(regionfile)
-    
+
     if len(r[:]) > 1:
-      print('Only one region can be specified, your file contains', len(r[:]))
-      sys.exit() 
-    
+        print('Only one region can be specified, your file contains', len(r[:]))
+        sys.exit() 
+
     if r[0].name != 'box':
-      print('Only box region supported')
-      sys.exit()
-    
-    ra  = r[0].coord_list[0]
-    dec = r[0].coord_list[1]
-    boxsizex = r[0].coord_list[2]
-    boxsizey = r[0].coord_list[3]
-    angle = r[0].coord_list[4]
-    
-    if standardbox:
-      if boxsizex != boxsizey:
-        print('Only a square box region supported, you have these sizes:', boxsizex, boxsizey)
+        print('Only box region supported')
         sys.exit()
-      if np.abs(angle) > 1:
-        print('Only normally oriented sqaure boxes are supported, your region is oriented under angle:', angle)
-        sys.exit()   
-    
-    regioncenter =  ('{:12.8f}'.format(ra) + 'deg,' + '{:12.8f}'.format(dec) + 'deg').replace(' ', '')
-    return regioncenter
+
+      ra  = r[0].coord_list[0]
+      dec = r[0].coord_list[1]
+      boxsizex = r[0].coord_list[2]
+      boxsizey = r[0].coord_list[3]
+      angle = r[0].coord_list[4]
+
+      if standardbox:
+          if boxsizex != boxsizey:
+              print('Only a square box region supported, you have these sizes:', boxsizex, boxsizey)
+              sys.exit()
+          if np.abs(angle) > 1:
+              print('Only normally oriented sqaure boxes are supported, your region is oriented under angle:', angle)
+              sys.exit()
+      
+      regioncenter =  ('{:12.8f}'.format(ra) + 'deg,' + '{:12.8f}'.format(dec) + 'deg').replace(' ', '')
+      return regioncenter
 
 
 
