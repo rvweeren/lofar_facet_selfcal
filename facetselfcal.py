@@ -1453,7 +1453,17 @@ def get_uvwmax(ms):
     return np.max(ssq)    
 
 def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=None, ms=None):
-
+    ''' Creates a TGSS skymodel in DP3-readable format.
+    
+    Args:
+        boxfile (str): path to the DS9 region to create a model for.
+        fitsimage (str): name of the FITS image the model will be created from.
+        pixelscale (float): number of arcsec per pixel.
+        imsize (int): image size in pixels.
+        ms (str): if no box file is given, use this Measurement Set to determine the sky area to make a model of.
+    Returns:
+        tgss.skymodel: name of the output skymodel (always tgss.skymodel).
+    '''
     tgsspixsize = 6.2    
     if boxfile == None and imsize == None:
         print('Wring input detected, boxfile or imsize needs to be set')
@@ -1465,17 +1475,17 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
           sys.exit()
        phasecenter = getregionboxcenter(boxfile)
        phasecenterc = phasecenter.replace('deg','')
-       xs = np.ceil((r[0].coord_list[2])*3600./tgsspixsize)
-       ys = np.ceil((r[0].coord_list[3])*3600./tgsspixsize)
+       xs = np.ceil((r[0].coord_list[2]) * 3600./tgsspixsize)
+       ys = np.ceil((r[0].coord_list[3]) * 3600./tgsspixsize)
     else:
        t2 = pt.table(ms + '::FIELD')
        phasedir = t2.getcol('PHASE_DIR').squeeze()
        t2.close()
-       phasecenterc =  ('{:12.8f}'.format(180.*np.mod(phasedir[0], 2.*np.pi)/np.pi) + ',' + '{:12.8f}'.format(180.*phasedir[1]/np.pi)).replace(' ','')
+       phasecenterc =  ('{:12.8f}'.format(180. * np.mod(phasedir[0], 2. * np.pi) / np.pi) + ',' + '{:12.8f}'.format(180. * phasedir[1] / np.pi)).replace(' ','')
        
        # phasecenterc = str() + ', ' + str()
-       xs = np.ceil(imsize*pixelscale/tgsspixsize)
-       ys = np.ceil(imsize*pixelscale/tgsspixsize)
+       xs = np.ceil(imsize * pixelscale / tgsspixsize)
+       ys = np.ceil(imsize * pixelscale / tgsspixsize)
     
     print('TGSS imsize:', xs)
     print('TGSS image center:', phasecenterc)
@@ -1485,10 +1495,10 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     # sys.exit()
  
     if fitsimage == None:
-        filename = SkyView.get_image_list(position=phasecenterc,survey='TGSS ADR1', pixels=np.int(xs), cache=False)
+        filename = SkyView.get_image_list(position=phasecenterc, survey='TGSS ADR1', pixels=np.int(xs), cache=False)
         print(filename)
         if os.path.isfile(filename[0].split('/')[-1]):
-          os.system('rm -f ' + filename[0].split('/')[-1])
+            os.system('rm -f ' + filename[0].split('/')[-1])
         time.sleep(10)
         os.system('wget ' + filename[0])
         filename = filename[0].split('/')[-1]
