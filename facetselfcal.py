@@ -909,7 +909,7 @@ def findfreqavg(ms, imsize, bwsmearlimit=1.0):
 
     Args:
         ms (str): path to the Measurement Set.
-        imsize (float): size of the image in arcseconds.
+        imsize (float): size of the image in pixels.
         bwsmearlimit (float): the fractional acceptable bandwidth smearing.
     Returns:
         avgfactor (int): the frequency averaging factor for the Measurement Set.
@@ -1532,36 +1532,43 @@ def getregionboxcenter(regionfile, standardbox=True):
         print('Only box region supported')
         sys.exit()
 
-      ra  = r[0].coord_list[0]
-      dec = r[0].coord_list[1]
-      boxsizex = r[0].coord_list[2]
-      boxsizey = r[0].coord_list[3]
-      angle = r[0].coord_list[4]
+    ra  = r[0].coord_list[0]
+    dec = r[0].coord_list[1]
+    boxsizex = r[0].coord_list[2]
+    boxsizey = r[0].coord_list[3]
+    angle = r[0].coord_list[4]
 
-      if standardbox:
-          if boxsizex != boxsizey:
-              print('Only a square box region supported, you have these sizes:', boxsizex, boxsizey)
-              sys.exit()
-          if np.abs(angle) > 1:
-              print('Only normally oriented sqaure boxes are supported, your region is oriented under angle:', angle)
-              sys.exit()
-      
-      regioncenter =  ('{:12.8f}'.format(ra) + 'deg,' + '{:12.8f}'.format(dec) + 'deg').replace(' ', '')
-      return regioncenter
-
+    if standardbox:
+        if boxsizex != boxsizey:
+            print('Only a square box region supported, you have these sizes:', boxsizex, boxsizey)
+            sys.exit()
+        if np.abs(angle) > 1:
+            print('Only normally oriented sqaure boxes are supported, your region is oriented under angle:', angle)
+            sys.exit()
+    
+    regioncenter =  ('{:12.8f}'.format(ra) + 'deg,' + '{:12.8f}'.format(dec) + 'deg').replace(' ', '')
+    return regioncenter
 
 
 def bandwidthsmearing(chanw, freq, imsize, verbose=True):
-
-  R =  (chanw/freq)*(imsize/6.) # asume we have used 3 pixels per beam
-  if verbose:
-    print('R value for bandwidth smearing is:', R)
-    logger.info('R value for bandwidth smearing is: ' + str(R))
-    if R > 1.:
-      print('Warning, try to increase your frequency resolution, or lower imsize, to reduce the R value below 1')
-      logger.warning('Warning, try to increase your frequency resolution, or lower imsize, to reduce the R value below 1')
-  
-  return R
+    ''' Calculate the fractional intensity loss due to bandwidth smearing.
+    
+    Args:
+        chanw (float): bandwidth.
+        freq (float): observing frequency.
+        imsize (int): image size in pixels.
+        verbose (bool): print information to the screen.
+    Returns:
+        R (float): fractional intensity loss.
+    '''
+    R = (chanw / freq) * (imsize / 6.)  # asume we have used 3 pixels per beam
+    if verbose:
+        print('R value for bandwidth smearing is:', R)
+        logger.info('R value for bandwidth smearing is: ' + str(R))
+        if R > 1.:
+            print('Warning, try to increase your frequency resolution, or lower imsize, to reduce the R value below 1')
+            logger.warning('Warning, try to increase your frequency resolution, or lower imsize, to reduce the R value below 1')
+    return R
 
 def number_freqchan_h5(h5parmin):
     '''
