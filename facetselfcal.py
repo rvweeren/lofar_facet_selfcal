@@ -1607,7 +1607,14 @@ def number_freqchan_h5(h5parmin):
 
 
 def calculate_restoringbeam(mslist, LBA):
-    
+    ''' Returns the restoring beam.
+
+    Args:
+        mslist (list): currently unused.
+        LBA (bool): if data is LBA or not.
+    Returns:
+        restoringbeam (float): the restoring beam in arcsec.
+    '''
     if LBA: # so we have LBA
       restoringbeam = 15.
     else : # so we have HBA
