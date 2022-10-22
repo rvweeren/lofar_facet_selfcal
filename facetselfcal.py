@@ -1658,10 +1658,17 @@ def print_title(version):
     return
 
 def makemslist(mslist):
+    ''' Create the input list for e.g. ddf-pipeline.
+    
+    Args:
+        mslist (list): list of input Measurement Sets
+    Returns:
+        None
+    '''
     os.system('rm -rf mslist.txt')
     f=open('mslist.txt', 'w')
     for ms in mslist:
-       f.write(str(ms)+'\n')
+        f.write(str(ms)+'\n')
     f.close()
     return
 
