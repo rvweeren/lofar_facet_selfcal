@@ -1341,7 +1341,7 @@ def inputchecker(args):
         if not checklongbaseline(sorted(args['ms'])[0]):
             print('Incomplete input detected, either boxfile or imsize is required')
             sys.exit(1)
-      
+
     if args['boxfile'] is not None and args['imsize'] is not None:
         print('Wrong input detected, both boxfile and imsize are set')
         sys.exit(1)
@@ -1362,7 +1362,7 @@ def inputchecker(args):
     if len(args['soltypecycles_list']) != len(args['soltype_list']): 
         print('Wrong input detected, length soltypecycles-list does not match that of soltype-list') 
         sys.exit(1)
- 
+
     for soltype_id, soltype in enumerate(args['soltype_list']):
         wronginput = False
         if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin']:    
@@ -1374,7 +1374,7 @@ def inputchecker(args):
                 pass    
             if wronginput:
                 sys.exit(1)
-  
+
     for smoothnessconstraint in args['smoothnessconstraint_list']:
         if smoothnessconstraint < 0.0:
             print('Smoothnessconstraint must be equal or larger than 0.0')
@@ -1384,7 +1384,7 @@ def inputchecker(args):
         if smoothnessreffrequency < 0.0:
             print('Smoothnessreffrequency must be equal or larger than 0.0')
             sys.exit(1)
-  
+
     if (args['skymodel'] is not None) and (args['skymodelpointsource']) is not None:
         print('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
         sys.exit(1)
@@ -1438,6 +1438,13 @@ def inputchecker(args):
   
 
 def get_uvwmax(ms):
+    ''' Find the maximum squared sum of UVW coordinates.
+    
+    Args:
+        ms (str): path to a Measurement Set.
+    Returns:
+        None
+    '''
     t = pt.table(ms)
     uvw = t.getcol('UVW')
     ssq = np.sqrt(np.sum(uvw**2, axis=1))
