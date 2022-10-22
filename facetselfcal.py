@@ -1571,31 +1571,33 @@ def bandwidthsmearing(chanw, freq, imsize, verbose=True):
     return R
 
 def number_freqchan_h5(h5parmin):
-    '''
-    Function to get the number of freqcencies in H5 solution file
-    Input: H5 file
-    Return: Number of freqcencies in the H5 file
+    ''' Function to get the number of freqcencies in H5 solution file.
+
+    Args:
+        h5parmin (str): input H5parm.
+    Returns:
+        freqs (int): number of freqcencies in the H5 file.
     '''
     H=tables.open_file(h5parmin)
     
     try:
-       freq = H.root.sol000.phase000.freq[:]
-       # print('You solutions do not contain phase values')
+        freq = H.root.sol000.phase000.freq[:]
+        # print('You solutions do not contain phase values')
     except:    
-       pass
-    
-    try:
-        freq = H.root.sol000.amplitude000.freq[:] # apparently we only have amplitudes
-    except:
         pass
-    
+
     try:
-        freq = H.root.sol000.rotation000.freq[:] # apparently we only have rotatioon
+        freq = H.root.sol000.amplitude000.freq[:]  # apparently we only have amplitudes
     except:
         pass
 
     try:
-        freq = H.root.sol000.tec000.freq[:] # apparently we only have rotatioon
+        freq = H.root.sol000.rotation000.freq[:]  # apparently we only have rotatioon
+    except:
+        pass
+
+    try:
+        freq = H.root.sol000.tec000.freq[:]  # apparently we only have rotatioon
     except:
         pass
 
