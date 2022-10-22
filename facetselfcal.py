@@ -1168,7 +1168,7 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
     if not isinstance(inparmdblist, list):
         inparmdblist = [inparmdblist]
 
-    cmd = 'DP3 numthreads='+ str(multiprocessing.cpu_count()) + ' msin=' + ms
+    cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms
     cmd += ' msout=' + msout + ' '
     cmd += 'msin.datacolumn=' + msincol + ' '
     if msout == '.':
@@ -1228,8 +1228,8 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
     # build the steps command    
     cmd += 'steps=['
     for i in range(count):
-        cmd += 'ac'+ str(i)
-        if i < count-1: # to avoid last comma in the steps list
+        cmd += 'ac' + str(i)
+        if i < count - 1:  # to avoid last comma in the steps list
             cmd += ','
     cmd += ']'
 
@@ -1239,198 +1239,202 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
 
 
 def inputchecker(args):
+    ''' Check input validity.
 
-  for ms_id, ms in enumerate(args['ms']):
-    if ms.find('/') != -1:
-      print('All ms need to be local, no "/" are allowed in ms name')
-      sys.exit(1)
+    Args:
+        args (dict): argparse inputs.
+    '''
+    for ms_id, ms in enumerate(args['ms']):
+        if ms.find('/') != -1:
+            print('All ms need to be local, no "/" are allowed in ms name')
+            sys.exit(1)
 
-  if args['iontimefactor'] <= 0.0:
-    print('BLsmooth iontimefactor needs to be positive')
-    sys.exit(1)
-  if args['iontimefactor'] > 10.0:
-    print('BLsmooth iontimefactor is way too high')
-    sys.exit(1)
+    if args['iontimefactor'] <= 0.0:
+        print('BLsmooth iontimefactor needs to be positive')
+        sys.exit(1)
+    if args['iontimefactor'] > 10.0:
+        print('BLsmooth iontimefactor is way too high')
+        sys.exit(1)
 
-  if args['ionfreqfactor'] <= 0.0:
-    print('BLsmooth tecfactor needs to be positive')
-    sys.exit(1)
-  if args['ionfreqfactor'] > 10000.0:
-    print('BLsmooth tecfactor is way too high')
-    sys.exit(1)
+    if args['ionfreqfactor'] <= 0.0:
+        print('BLsmooth tecfactor needs to be positive')
+        sys.exit(1)
+    if args['ionfreqfactor'] > 10000.0:
+        print('BLsmooth tecfactor is way too high')
+        sys.exit(1)
 
-  if not os.path.isfile('lib_multiproc.py'):
-    print('Cannot find lib_multiproc.py, file does not exist, use --helperscriptspath')
-    sys.exit(1)
-  if not os.path.isfile('h5_merger.py'):
-    print('Cannot find h5_merger.py, file does not exist, use --helperscriptspath or --helperscriptspathh5merge')
-    sys.exit(1)
-  if not os.path.isfile('plot_tecandphase.py'):
-    print('Cannot find plot_tecandphase.py, file does not exist, use --helperscriptspath')
-    sys.exit(1)
-  if not os.path.isfile('lin2circ.py'):
-    print('Cannot find lin2circ.py, file does not exist, use --helperscriptspath')
-    sys.exit(1)    
-  if not os.path.isfile('BLsmooth.py'):
-    print('Cannot find BLsmooth.py, file does not exist, use --helperscriptspath')
-    sys.exit(1)
-  if not os.path.isfile('polconv.py'):
-    print('Cannot find polconv.py, file does not exist, use --helperscriptspath')
-    sys.exit(1)    
-  
+    if not os.path.isfile('lib_multiproc.py'):
+        print('Cannot find lib_multiproc.py, file does not exist, use --helperscriptspath')
+        sys.exit(1)
+    if not os.path.isfile('h5_merger.py'):
+        print('Cannot find h5_merger.py, file does not exist, use --helperscriptspath or --helperscriptspathh5merge')
+        sys.exit(1)
+    if not os.path.isfile('plot_tecandphase.py'):
+        print('Cannot find plot_tecandphase.py, file does not exist, use --helperscriptspath')
+        sys.exit(1)
+    if not os.path.isfile('lin2circ.py'):
+        print('Cannot find lin2circ.py, file does not exist, use --helperscriptspath')
+        sys.exit(1)
+    if not os.path.isfile('BLsmooth.py'):
+        print('Cannot find BLsmooth.py, file does not exist, use --helperscriptspath')
+        sys.exit(1)
+    if not os.path.isfile('polconv.py'):
+        print('Cannot find polconv.py, file does not exist, use --helperscriptspath')
+        sys.exit(1)
 
-  if args['phaseshiftbox'] != None:
-    if not os.path.isfile(args['phaseshiftbox']):
-      print('Cannot find:',args['phaseshiftbox'])
-      sys.exit(1)
-  
-  if not args['no_beamcor'] and args['idg']:
-    print('beamcor=True and IDG=True is not possible')
-    sys.exit(1)
-  
-  for antennaconstraint in args['antennaconstraint_list']:
-    if antennaconstraint not in ['superterp', 'coreandfirstremotes','core', 'remote',\
-                                 'all', 'international', 'alldutch', 'core-remote','coreandallbutmostdistantremotes','alldutchbutnoST001'] \
-                         and antennaconstraint != None:
-      print('Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
-      sys.exit(1)
+    if args['phaseshiftbox'] is not None:
+        if not os.path.isfile(args['phaseshiftbox']):
+            print('Cannot find:', args['phaseshiftbox'])
+            sys.exit(1)
 
-  for resetsols in args['resetsols_list']:
-    if resetsols not in ['superterp', 'coreandfirstremotes','core', 'remote',\
-                                 'all', 'international', 'alldutch', 'core-remote','coreandallbutmostdistantremotes', 'alldutchbutnoST001'] \
-                         and resetsols != None:
-      print('Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
-      sys.exit(1)
+    if not args['no_beamcor'] and args['idg']:
+        print('beamcor=True and IDG=True is not possible')
+        sys.exit(1)
 
-  for soltype in args['soltype_list']:
-    if soltype not in ['complexgain','scalarcomplexgain','scalaramplitude','amplitudeonly', 'phaseonly',\
-                       'fulljones', 'rotation', 'rotation+diagonal','tec','tecandphase','scalarphase',\
-                       'scalarphasediff','scalarphasediffFR' , 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin',\
-                       'tecandphase_phmin','scalarphase_phmin','scalarphase_slope','phaseonly_slope']:
-      print('Invalid soltype input')
-      sys.exit(1)    
+    for antennaconstraint in args['antennaconstraint_list']:
+        if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote',
+                                     'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes','alldutchbutnoST001'] \
+                            and antennaconstraint is not None:
+            print('Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
+            sys.exit(1)
 
-  if args['boxfile'] != None:
-    if not (os.path.isfile(args['boxfile'])):
-      print('Cannot find boxfile, file does not exist')
-      sys.exit(1)
+    for resetsols in args['resetsols_list']:
+        if resetsols not in ['superterp', 'coreandfirstremotes', 'core', 'remote',
+                             'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes', 'alldutchbutnoST001'] \
+                            and resetsols is not None:
+            print('Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
+            sys.exit(1)
+
+    for soltype in args['soltype_list']:
+        if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly',
+                           'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase',
+                           'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin',
+                           'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
+            print('Invalid soltype input')
+            sys.exit(1)
+
+    if args['boxfile'] is not None:
+        if not (os.path.isfile(args['boxfile'])):
+            print('Cannot find boxfile, file does not exist')
+            sys.exit(1)
+        
+    if args['fitsmask'] is not None:
+        if not (os.path.isfile(args['fitsmask'])):
+            print('Cannot find fitsmask, file does not exist')
+            sys.exit(1)
+
+    if args['skymodel'] is not None:
+        if not (os.path.isfile(args['skymodel'])) and not (os.path.isdir(args['skymodel'])):
+            print('Cannot find skymodel, file does not exist')
+            sys.exit(1)
+
+    if args['docircular'] and args['dolinear']:
+        print('Conflicting input, docircular and dolinear used')
+        sys.exit(1)
+
+    if which('DP3') is None:
+        print('Cannot find DP3, forgot to source lofarinit.[c]sh?')
+        sys.exit(1)
+
+    # Check boxfile and imsize settings
+    if args['boxfile'] is None and args['imsize'] is None:
+        if not checklongbaseline(sorted(args['ms'])[0]):
+            print('Incomplete input detected, either boxfile or imsize is required')
+            sys.exit(1)
       
-  if args['fitsmask'] != None:
-    if not (os.path.isfile(args['fitsmask'])):
-      print('Cannot find fitsmask, file does not exist')
-      sys.exit(1)      
+    if args['boxfile'] is not None and args['imsize'] is not None:
+        print('Wrong input detected, both boxfile and imsize are set')
+        sys.exit(1)
 
-  if args['skymodel'] != None:
-    if not (os.path.isfile(args['skymodel'])) and not (os.path.isdir(args['skymodel'])):
-      print('Cannot find skymodel, file does not exist')
-      sys.exit(1)
+    if args['imager'] not in ['DDFACET', 'WSCLEAN']: 
+        print('Wrong input detected for option --imager, should be DDFACET or WSCLEAN')
+        sys.exit(1)  
 
-  if args['docircular'] and args['dolinear']:
-      print('Conflicting input, docircular and dolinear used')
-      sys.exit(1)
+    if args['phaseupstations'] is not None:
+        if args['phaseupstations'] not in ['core', 'superterp']:    
+            print('Wrong input detected for option --phaseupstations, should be core or superterp')
+            sys.exit(1)
 
-  if which('DP3') == None:
-    print('Cannot find DP3, forgot to source lofarinit.[c]sh?')
-    sys.exit(1)
+    if args['soltypecycles_list'][0] != 0:
+        print('Wrong input detected for option --soltypecycles-list should always start with 0') 
+        sys.exit(1)
 
-  # Check boxfile and imsize settings
-  if args['boxfile'] == None and args['imsize'] == None:
-    if not checklongbaseline(sorted(args['ms'])[0]):      
-      print('Incomplete input detected, either boxfile or imsize is required')
-      sys.exit(1)
-    
-  if args['boxfile'] != None and args['imsize'] != None:
-    print('Wrong input detected, both boxfile and imsize are set')
-    sys.exit(1)
-
-  if args['imager'] not in ['DDFACET', 'WSCLEAN']: 
-    print('Wrong input detected for option --imager, should be DDFACET or WSCLEAN')
-    sys.exit(1)  
-
-  if args['phaseupstations'] != None:
-    if args['phaseupstations'] not in ['core', 'superterp']:    
-      print('Wrong input detected for option --phaseupstations, should be core or superterp')
-      sys.exit(1)  
-
-  if args['soltypecycles_list'][0] != 0:
-     print('Wrong input detected for option --soltypecycles-list should always start with 0') 
-     sys.exit(1)
-
-  if len(args['soltypecycles_list']) != len(args['soltype_list']): 
-     print('Wrong input detected, length soltypecycles-list does not match that of soltype-list') 
-     sys.exit(1)
+    if len(args['soltypecycles_list']) != len(args['soltype_list']): 
+        print('Wrong input detected, length soltypecycles-list does not match that of soltype-list') 
+        sys.exit(1)
  
-  for soltype_id, soltype in enumerate(args['soltype_list']):
-    wronginput = False
-    if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin']:    
-      try: # in smoothnessconstraint_list is not filled by the user
-        if args['smoothnessconstraint_list'][soltype_id] > 0.0:
-          print('smoothnessconstraint should be 0.0 for a tec-like solve')
-          wronginput = True
-      except:
-        pass    
-      if wronginput:
-       sys.exit(1)    
+    for soltype_id, soltype in enumerate(args['soltype_list']):
+        wronginput = False
+        if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin']:    
+            try:  # in smoothnessconstraint_list is not filled by the user
+                if args['smoothnessconstraint_list'][soltype_id] > 0.0:
+                    print('smoothnessconstraint should be 0.0 for a tec-like solve')
+                    wronginput = True
+            except:
+                pass    
+            if wronginput:
+                sys.exit(1)
   
-  for smoothnessconstraint in args['smoothnessconstraint_list']:
-    if smoothnessconstraint < 0.0:
-      print('Smoothnessconstraint must be equal or larger than 0.0')
-      sys.exit(1)
-  for smoothnessreffrequency in args['smoothnessreffrequency_list']:
-    if smoothnessreffrequency < 0.0:
-      print('Smoothnessreffrequency must be equal or larger than 0.0')
-      sys.exit(1)
+    for smoothnessconstraint in args['smoothnessconstraint_list']:
+        if smoothnessconstraint < 0.0:
+            print('Smoothnessconstraint must be equal or larger than 0.0')
+            sys.exit(1)
+
+    for smoothnessreffrequency in args['smoothnessreffrequency_list']:
+        if smoothnessreffrequency < 0.0:
+            print('Smoothnessreffrequency must be equal or larger than 0.0')
+            sys.exit(1)
   
-  if (args['skymodel'] != None) and (args['skymodelpointsource']) !=None:
-    print('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
-    sys.exit(1)
-  if (args['skymodelpointsource'] != None):
-    if (args['skymodelpointsource'] <= 0.0):
-      print('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
-      sys.exit(1)
-  if (args['msinnchan'] != None):
-    if (args['msinnchan'] <= 0):
-      print('Wrong input for msinnchan, must be larger than zero')
-      sys.exit(1)
-  if (args['msinntimes'] != None):
-    if (args['msinntimes'] <= 1):
-      print('Wrong input for msinntimes, must be larger than 1')
-      sys.exit(1)
+    if (args['skymodel'] is not None) and (args['skymodelpointsource']) is not None:
+        print('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
+        sys.exit(1)
+    if (args['skymodelpointsource'] is not None):
+        if (args['skymodelpointsource'] <= 0.0):
+            print('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
+            sys.exit(1)
+    if (args['msinnchan'] is not None):
+        if (args['msinnchan'] <= 0):
+            print('Wrong input for msinnchan, must be larger than zero')
+            sys.exit(1)
+    if (args['msinntimes'] is not None):
+        if (args['msinntimes'] <= 1):
+            print('Wrong input for msinntimes, must be larger than 1')
+            sys.exit(1)
 
 
-  if (args['skymodelpointsource'] != None) and (args['predictskywithbeam']):
-    print('Combination of skymodelpointsource and predictskywithbeam not supported')
-    print('Provide a skymodel file to predict the sky with the beam')
-    sys.exit(1)
+    if (args['skymodelpointsource'] is not None) and (args['predictskywithbeam']):
+        print('Combination of skymodelpointsource and predictskywithbeam not supported')
+        print('Provide a skymodel file to predict the sky with the beam')
+        sys.exit(1)
 
-  if (args['wscleanskymodel'] != None) and (args['skymodelpointsource']) !=None:
-    print('Wrong input, you cannot use a wscleanskymodel and then also set skymodelpointsource')
-    sys.exit(1)
+    if (args['wscleanskymodel'] is not None) and (args['skymodelpointsource']) is not None:
+        print('Wrong input, you cannot use a wscleanskymodel and then also set skymodelpointsource')
+        sys.exit(1)
 
-  if (args['wscleanskymodel'] != None) and (args['skymodel']) !=None:
-    print('Wrong input, you cannot use a wscleanskymodel and then also set skymodel')
-    sys.exit(1)
+    if (args['wscleanskymodel'] is not None) and (args['skymodel']) is not None:
+        print('Wrong input, you cannot use a wscleanskymodel and then also set skymodel')
+        sys.exit(1)
 
-  if (args['wscleanskymodel'] != None) and (args['predictskywithbeam']):
-    print('Combination of wscleanskymodel and predictskywithbeam not supported')
-    print('Provide a skymodel component file to predict the sky with the beam')
-    sys.exit(1)
+    if (args['wscleanskymodel'] is not None) and (args['predictskywithbeam']):
+        print('Combination of wscleanskymodel and predictskywithbeam not supported')
+        print('Provide a skymodel component file to predict the sky with the beam')
+        sys.exit(1)
 
-  if (args['wscleanskymodel'] != None) and (args['imager'] == 'DDFACET'):
-    print('Combination of wscleanskymodel and DDFACET as an imager is not supported')
-    sys.exit(1)
-  if (args['wscleanskymodel'] != None): 
-    if len(glob.glob(args['wscleanskymodel'] + '-????-model.fits')) < 2:
-      print('Not enough WSClean channel model images found')
-      print(glob.glob(args['wscleanskymodel'] + '-????-model.fits'))
-      sys.exit(1)
-    if (args['wscleanskymodel'].find('/') != -1):
-      print('wscleanskymodel contains a slash, not allowed, needs to be in pwd') 
-      sys.exit(1)
-    if (args['wscleanskymodel'].find('..') != -1):
-      print('wscleanskymodel contains .., not allowed, needs to be in pwd')      
-      sys.exit(1)  
-  return
+    if (args['wscleanskymodel'] is not None) and (args['imager'] == 'DDFACET'):
+        print('Combination of wscleanskymodel and DDFACET as an imager is not supported')
+        sys.exit(1)
+    if (args['wscleanskymodel'] is not None): 
+        if len(glob.glob(args['wscleanskymodel'] + '-????-model.fits')) < 2:
+            print('Not enough WSClean channel model images found')
+            print(glob.glob(args['wscleanskymodel'] + '-????-model.fits'))
+            sys.exit(1)
+        if (args['wscleanskymodel'].find('/') != -1):
+            print('wscleanskymodel contains a slash, not allowed, needs to be in pwd') 
+            sys.exit(1)
+        if (args['wscleanskymodel'].find('..') != -1):
+            print('wscleanskymodel contains .., not allowed, needs to be in pwd')      
+            sys.exit(1)  
+    return
   
 
 def get_uvwmax(ms):
