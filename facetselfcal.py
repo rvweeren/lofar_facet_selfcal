@@ -49,6 +49,7 @@ from astropy.io import fits
 import astropy.units as units
 from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
 from astropy.time import Time
+import astropy.units as u
 import astropy.stats
 import astropy
 from astroquery.skyview import SkyView
@@ -1974,10 +1975,8 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
 
         # Obtain direction to calculate beam for.
         dirs = pt.taql('SELECT REFERENCE_DIR,PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
-        ra_ref, dec_ref = phasedir.getcol('REFERENCE_DIR').squeeze()
-        ra, dec = phasedir.getcol('PHASE_DIR').squeeze()
-        reference_xyz = radec_to_xyz(ra_ref * u.rad, dec_ref * u.rad, time)
-        phase_xyz = radec_to_xyz(ra * u.rad, dec * u.rad, time)
+        ra_ref, dec_ref = dirs.getcol('REFERENCE_DIR').squeeze()
+        ra, dec = dirs.getcol('PHASE_DIR').squeeze()
 
 
         for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant','time','pol','freq'], weight=False):
@@ -1989,6 +1988,8 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
                     for itime, time in enumerate(times):
                         if not useElementResponse and useArrayFactor:
                             # Array-factor-only correction.
+                            reference_xyz = radec_to_xyz(ra_ref * u.rad, dec_ref * u.rad, time)
+                            phase_xyz = radec_to_xyz(ra * u.rad, dec * u.rad, time)
                             beam = obs.array_factor(time, stationnum, freq, phase_xyz, reference_xyz)
                         else:
                             beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
