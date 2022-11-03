@@ -47,7 +47,8 @@ import losoto.lib_operations
 import glob, time, re
 from astropy.io import fits
 import astropy.units as units
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
+from astropy.time import Time
 import astropy.stats
 import astropy
 from astroquery.skyview import SkyView
@@ -1883,6 +1884,25 @@ def removenans(parmdb, soltab):
    H5.close()
    return
 
+def radec_to_xyz(ra, dec, time):
+    ''' Convert ra and dec coordinates to ITRS coordinates for LOFAR observations.
+    
+    Args:
+        ra (astropy Quantity): right ascension
+        dec (astropy Quantity): declination
+        time (float): MJD time in seconds
+    Returns:
+        pointing_xyz (ndarray): NumPy array containing the X, Y and Z coordinates
+    '''
+    obstime = Time(time/3600/24, scale='utc', format='mjd')
+    loc_LOFAR = EarthLocation(lon=0.11990128407256424, lat=0.9203091252660295, height=6364618.852935438*u.m)
+
+    dir_pointing = SkyCoord(ra, dec)
+    dir_pointing_altaz = dir_pointing.transform_to(AltAz(obstime=obstime, location=loc_LOFAR))
+    dir_pointing_xyz = dir_pointing_altaz.transform_to(ITRS)
+
+    pointing_xyz = np.asarray([dir_pointing_xyz.x, dir_pointing_xyz.y, dir_pointing_xyz.z])
+    return pointing_xyz
 
 def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=True, useArrayFactor=True, useChanFreq=True, beamlib='stationresponse'):
     """
