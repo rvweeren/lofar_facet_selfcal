@@ -1973,8 +1973,12 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
             raise NotImplementedError('Element beam correction is not implemented in facetselfcal.')
 
         # Obtain direction to calculate beam for.
-        phasedir = pt.taql('SELECT PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
+        dirs = pt.taql('SELECT REFERENCE_DIR,PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
+        ra_ref, dec_ref = phasedir.getcol('REFERENCE_DIR').squeeze()
         ra, dec = phasedir.getcol('PHASE_DIR').squeeze()
+        reference_xyz = radec_to_xyz(ra_ref * u.rad, dec_ref * u.rad, time)
+        phase_xyz = radec_to_xyz(ra * u.rad, dec * u.rad, time)
+
 
         for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant','time','pol','freq'], weight=False):
             vals = losoto.lib_operations.reorderAxes( vals, soltab.getAxesNames(), ['ant','time','freq','pol'] )
@@ -1983,7 +1987,11 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
                 logger.debug('Working on station number %i' % stationnum)
                 for ifreq, freq in enumerate(freqs):
                     for itime, time in enumerate(times):
-                        beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
+                        if not useElementResponse and useArrayFactor:
+                            # Array-factor-only correction.
+                            beam = obs.array_factor(time, stationnum, freq, phase_xyz, reference_xyz)
+                        else:
+                            beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
                         beam = beam.reshape(4)
 
                         if soltab.getAxisLen('pol') == 2:
