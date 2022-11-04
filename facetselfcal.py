@@ -1973,7 +1973,7 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
                 stationloop.update()
                 logger.debug('Working on station number %i' % stationnum)
                 # Need to parallelise over channels to speed things along.
-                with parallel_backend('loky', n_jobs=psutil.Process().cpu_affinity()):
+                with parallel_backend('loky', n_jobs=len(psutil.Process().cpu_affinity())):
                     results = Parallel()(delayed(process_channel_everybeam)(f, stationnum=stationnum, useElementResponse=useElementResponse, useArrayFactor=useArrayFactor, useChanFreq=useChanFreq, ms=ms, freqs=freqs, times=times) for f in range(len(freqs)))
 
                     for freqslot in results:
@@ -1998,6 +1998,9 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
     H5.close()
     return
 
+#from numba import jit
+
+#@jit
 def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFactor, useChanFreq, ms, freqs, times):
     import everybeam
     if useElementResponse and useArrayFactor:
