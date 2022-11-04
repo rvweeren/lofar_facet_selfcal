@@ -1958,50 +1958,32 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
             vals = losoto.lib_operations.reorderAxes( vals, ['ant','time','freq','pol'], [ax for ax in soltab.getAxesNames() if ax in ['ant','time','freq','pol']] )
             soltab.setValues(vals, selection)
     elif beamlib.lower() == 'everybeam':
-        import everybeam
-
+        from tqdm import tqdm
+        from joblib import Parallel, delayed, parallel_backend
+        import dill as pickle
+        import psutil
         freqs = soltab.getAxisValues('freq')
-        
-        if useElementResponse and useArrayFactor:
-            print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
-            obs = everybeam.load_telescope(ms, use_differential_beam=False, use_channel_frequency=useChanFreq)
-        elif not useElementResponse and useArrayFactor:
-            print('Array factor beam correction requested. Using use_differential_beam=True.')
-            obs = everybeam.load_telescope(ms, use_differential_beam=True, use_channel_frequency=useChanFreq)
-        elif useElementResponse and not useArrayFactor:
-            print('Element beam correction requested.')
-            # Not sure how to do this with EveryBeam.
-            raise NotImplementedError('Element beam correction is not implemented in facetselfcal.')
-
-        # Obtain direction to calculate beam for.
-        dirs = pt.taql('SELECT REFERENCE_DIR,PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
-        ra_ref, dec_ref = dirs.getcol('REFERENCE_DIR').squeeze()
-        ra, dec = dirs.getcol('PHASE_DIR').squeeze()
 
 
         for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant','time','pol','freq'], weight=False):
             vals = losoto.lib_operations.reorderAxes( vals, soltab.getAxesNames(), ['ant','time','freq','pol'] )
-
+            stationloop = tqdm(range(numants))
+            stationloop.set_description('Stations processed: ')
             for stationnum in range(numants):
+                stationloop.update()
                 logger.debug('Working on station number %i' % stationnum)
-                for ifreq, freq in enumerate(freqs):
-                    for itime, time in enumerate(times):
-                        if not useElementResponse and useArrayFactor:
-                            # Array-factor-only correction.
-                            reference_xyz = radec_to_xyz(ra_ref * u.rad, dec_ref * u.rad, time)
-                            phase_xyz = radec_to_xyz(ra * u.rad, dec * u.rad, time)
-                            beam = obs.array_factor(time, stationnum, freq, phase_xyz, reference_xyz)
-                        else:
-                            beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
-                        beam = beam.reshape(4)
+                # Need to parallelise over channels to speed things along.
+                with parallel_backend('loky', n_jobs=psutil.Process().cpu_affinity()):
+                    results = Parallel()(delayed(process_channel_everybeam)(f, stationnum=stationnum, useElementResponse=useElementResponse, useArrayFactor=useArrayFactor, useChanFreq=useChanFreq, ms=ms, freqs=freqs, times=times) for f in range(len(freqs)))
 
+                    for freqslot in results:
+                        ifreq, beam = freqslot
                         if soltab.getAxisLen('pol') == 2:
-                            beam = beam[[0,3]] # get only XX and YY
-                           
+                            beam = beam.reshape((beam.shape[0], 4))[:, [0, 3]] # get only XX and YY
                         if soltab.getType() == 'amplitude':
-                            vals[stationnum, itime, ifreq, :] = np.abs(beam)
+                            vals[stationnum, :, ifreq, :] = np.abs(beam)
                         elif soltab.getType() == 'phase':
-                            vals[stationnum, itime, ifreq, :] = np.angle(beam)
+                            vals[stationnum, :, ifreq, :] = np.angle(beam)
                         else:
                             logger.error('Beam prediction works only for amplitude/phase solution tables.')
                             return 1
@@ -2015,6 +1997,40 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
     
     H5.close()
     return
+
+def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFactor, useChanFreq, ms, freqs, times):
+    import everybeam
+    if useElementResponse and useArrayFactor:
+        #print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
+        obs = everybeam.load_telescope(ms, use_differential_beam=False, use_channel_frequency=useChanFreq)
+    elif not useElementResponse and useArrayFactor:
+        #print('Array factor beam correction requested. Using use_differential_beam=True.')
+        obs = everybeam.load_telescope(ms, use_differential_beam=True, use_channel_frequency=useChanFreq)
+    elif useElementResponse and not useArrayFactor:
+        #print('Element beam correction requested.')
+        # Not sure how to do this with EveryBeam.
+        raise NotImplementedError('Element beam correction is not implemented in facetselfcal.')
+
+    # Obtain direction to calculate beam for.
+    dirs = pt.taql('SELECT REFERENCE_DIR,PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
+    ra_ref, dec_ref = dirs.getcol('REFERENCE_DIR').squeeze()
+    ra, dec = dirs.getcol('PHASE_DIR').squeeze()
+
+    #print(f'Processing channel {ifreq}')
+    freq = freqs[ifreq]
+    timeslices = np.empty((len(times), 2, 2), dtype=np.complex128)
+    for itime, time in enumerate(times):
+        #timeloop.update()
+        if not useElementResponse and useArrayFactor:
+            # Array-factor-only correction.
+            reference_xyz = radec_to_xyz(ra_ref * u.rad, dec_ref * u.rad, time)
+            phase_xyz = radec_to_xyz(ra * u.rad, dec * u.rad, time)
+            beam = obs.array_factor(time, stationnum, freq, phase_xyz, reference_xyz)
+        else:
+            beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
+        #beam = beam.reshape(4)
+        timeslices[itime] = beam
+    return ifreq, timeslices
  
 
 #losotolofarbeam('P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive_templatejones.h5', 'amplitude000', 'P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive', inverse=False, useElementResponse=False, useArrayFactor=True, useChanFreq=True)
