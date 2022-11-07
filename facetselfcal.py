@@ -71,6 +71,11 @@ import matplotlib.pyplot as plt
 from astropy.wcs import WCS
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # for NFS mounted disks
 
+try:
+    import everybeam
+except ImportError:
+    logger.warning('Failed to import EveryBeam, functionality will not be available.')
+
 
 #from astropy.utils.data import clear_download_cache
 #clear_download_cache()
@@ -1964,6 +1969,13 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
         import psutil
         freqs = soltab.getAxisValues('freq')
 
+        # Obtain direction to calculate beam for.
+        dirs = pt.taql('SELECT REFERENCE_DIR,PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
+        ra_ref, dec_ref = dirs.getcol('REFERENCE_DIR').squeeze()
+        ra, dec = dirs.getcol('PHASE_DIR').squeeze()
+        reference_xyz = list(zip(*radec_to_xyz(ra_ref * u.rad, dec_ref * u.rad, times)))
+        phase_xyz = list(zip(*radec_to_xyz(ra * u.rad, dec * u.rad, times)))
+
 
         for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant','time','pol','freq'], weight=False):
             vals = losoto.lib_operations.reorderAxes( vals, soltab.getAxesNames(), ['ant','time','freq','pol'] )
@@ -1972,10 +1984,9 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
             for stationnum in range(numants):
                 stationloop.update()
                 logger.debug('Working on station number %i' % stationnum)
-                # Need to parallelise over channels to speed things along.
+                # Parallelise over channels to speed things along.
                 with parallel_backend('loky', n_jobs=len(psutil.Process().cpu_affinity())):
-                    results = Parallel()(delayed(process_channel_everybeam)(f, stationnum=stationnum, useElementResponse=useElementResponse, useArrayFactor=useArrayFactor, useChanFreq=useChanFreq, ms=ms, freqs=freqs, times=times) for f in range(len(freqs)))
-
+                    results = Parallel()(delayed(process_channel_everybeam)(f, stationnum=stationnum, useElementResponse=useElementResponse, useArrayFactor=useArrayFactor, useChanFreq=useChanFreq, ms=ms, freqs=freqs, times=times, ra=ra, dec=dec, ra_ref=ra_ref, dec_ref=dec_ref, reference_xyz=reference_xyz, phase_xyz=phase_xyz) for f in range(len(freqs)))
                     for freqslot in results:
                         ifreq, beam = freqslot
                         if soltab.getAxisLen('pol') == 2:
@@ -1987,7 +1998,6 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
                         else:
                             logger.error('Beam prediction works only for amplitude/phase solution tables.')
                             return 1
-
             vals = losoto.lib_operations.reorderAxes( vals, ['ant','time','freq','pol'], [ax for ax in soltab.getAxesNames() if ax in ['ant','time','freq','pol']] )
             soltab.setValues(vals, selection)
 
@@ -1998,11 +2008,7 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
     H5.close()
     return
 
-#from numba import jit
-
-#@jit
-def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFactor, useChanFreq, ms, freqs, times):
-    import everybeam
+def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFactor, useChanFreq, ms, freqs, times, ra, dec, ra_ref, dec_ref, reference_xyz, phase_xyz):
     if useElementResponse and useArrayFactor:
         #print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
         obs = everybeam.load_telescope(ms, use_differential_beam=False, use_channel_frequency=useChanFreq)
@@ -2012,12 +2018,7 @@ def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFac
     elif useElementResponse and not useArrayFactor:
         #print('Element beam correction requested.')
         # Not sure how to do this with EveryBeam.
-        raise NotImplementedError('Element beam correction is not implemented in facetselfcal.')
-
-    # Obtain direction to calculate beam for.
-    dirs = pt.taql('SELECT REFERENCE_DIR,PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
-    ra_ref, dec_ref = dirs.getcol('REFERENCE_DIR').squeeze()
-    ra, dec = dirs.getcol('PHASE_DIR').squeeze()
+        raise NotImplementedError('Element beam only correction is not implemented in facetselfcal.')
 
     #print(f'Processing channel {ifreq}')
     freq = freqs[ifreq]
@@ -2026,15 +2027,12 @@ def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFac
         #timeloop.update()
         if not useElementResponse and useArrayFactor:
             # Array-factor-only correction.
-            reference_xyz = radec_to_xyz(ra_ref * u.rad, dec_ref * u.rad, time)
-            phase_xyz = radec_to_xyz(ra * u.rad, dec * u.rad, time)
-            beam = obs.array_factor(time, stationnum, freq, phase_xyz, reference_xyz)
+            beam = obs.array_factor(times[itime], stationnum, freq, phase_xyz[itime], reference_xyz[itime])
         else:
             beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
         #beam = beam.reshape(4)
         timeslices[itime] = beam
     return ifreq, timeslices
- 
 
 #losotolofarbeam('P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive_templatejones.h5', 'amplitude000', 'P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive', inverse=False, useElementResponse=False, useArrayFactor=True, useChanFreq=True)
 
