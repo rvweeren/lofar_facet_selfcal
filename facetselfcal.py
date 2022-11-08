@@ -47,7 +47,9 @@ import losoto.lib_operations
 import glob, time, re
 from astropy.io import fits
 import astropy.units as units
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
+from astropy.time import Time
+import astropy.units as u
 import astropy.stats
 import astropy
 from astroquery.skyview import SkyView
@@ -68,6 +70,11 @@ import subprocess
 import matplotlib.pyplot as plt
 from astropy.wcs import WCS
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE" # for NFS mounted disks
+
+try:
+    import everybeam
+except ImportError:
+    logger.warning('Failed to import EveryBeam, functionality will not be available.')
 
 
 #from astropy.utils.data import clear_download_cache
@@ -1883,6 +1890,25 @@ def removenans(parmdb, soltab):
    H5.close()
    return
 
+def radec_to_xyz(ra, dec, time):
+    ''' Convert ra and dec coordinates to ITRS coordinates for LOFAR observations.
+    
+    Args:
+        ra (astropy Quantity): right ascension
+        dec (astropy Quantity): declination
+        time (float): MJD time in seconds
+    Returns:
+        pointing_xyz (ndarray): NumPy array containing the X, Y and Z coordinates
+    '''
+    obstime = Time(time/3600/24, scale='utc', format='mjd')
+    loc_LOFAR = EarthLocation(lon=0.11990128407256424, lat=0.9203091252660295, height=6364618.852935438*u.m)
+
+    dir_pointing = SkyCoord(ra, dec)
+    dir_pointing_altaz = dir_pointing.transform_to(AltAz(obstime=obstime, location=loc_LOFAR))
+    dir_pointing_xyz = dir_pointing_altaz.transform_to(ITRS)
+
+    pointing_xyz = np.asarray([dir_pointing_xyz.x, dir_pointing_xyz.y, dir_pointing_xyz.z])
+    return pointing_xyz
 
 def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=True, useArrayFactor=True, useChanFreq=True, beamlib='stationresponse'):
     """
@@ -1937,46 +1963,41 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
             vals = losoto.lib_operations.reorderAxes( vals, ['ant','time','freq','pol'], [ax for ax in soltab.getAxesNames() if ax in ['ant','time','freq','pol']] )
             soltab.setValues(vals, selection)
     elif beamlib.lower() == 'everybeam':
-        import everybeam
-
+        from tqdm import tqdm
+        from joblib import Parallel, delayed, parallel_backend
+        import dill as pickle
+        import psutil
         freqs = soltab.getAxisValues('freq')
-        
-        if useElementResponse and useArrayFactor:
-            print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
-            obs = everybeam.load_telescope(ms, use_differential_beam=False, use_channel_frequency=useChanFreq)
-        elif not useElementResponse and useArrayFactor:
-            print('Array factor beam correction requested. Using use_differential_beam=True.')
-            obs = everybeam.load_telescope(ms, use_differential_beam=True, use_channel_frequency=useChanFreq)
-        elif useElementResponse and not useArrayFactor:
-            print('Element beam correction requested.')
-            # Not sure how to do this with EveryBeam.
-            raise NotImplementedError('Element beam correction is not implemented in facetselfcal.')
 
         # Obtain direction to calculate beam for.
-        phasedir = pt.taql('SELECT PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
-        ra, dec = phasedir.getcol('PHASE_DIR').squeeze()
+        dirs = pt.taql('SELECT REFERENCE_DIR,PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
+        ra_ref, dec_ref = dirs.getcol('REFERENCE_DIR').squeeze()
+        ra, dec = dirs.getcol('PHASE_DIR').squeeze()
+        reference_xyz = list(zip(*radec_to_xyz(ra_ref * u.rad, dec_ref * u.rad, times)))
+        phase_xyz = list(zip(*radec_to_xyz(ra * u.rad, dec * u.rad, times)))
+
 
         for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant','time','pol','freq'], weight=False):
             vals = losoto.lib_operations.reorderAxes( vals, soltab.getAxesNames(), ['ant','time','freq','pol'] )
-
+            stationloop = tqdm(range(numants))
+            stationloop.set_description('Stations processed: ')
             for stationnum in range(numants):
+                stationloop.update()
                 logger.debug('Working on station number %i' % stationnum)
-                for ifreq, freq in enumerate(freqs):
-                    for itime, time in enumerate(times):
-                        beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
-                        beam = beam.reshape(4)
-
+                # Parallelise over channels to speed things along.
+                with parallel_backend('loky', n_jobs=len(psutil.Process().cpu_affinity())):
+                    results = Parallel()(delayed(process_channel_everybeam)(f, stationnum=stationnum, useElementResponse=useElementResponse, useArrayFactor=useArrayFactor, useChanFreq=useChanFreq, ms=ms, freqs=freqs, times=times, ra=ra, dec=dec, ra_ref=ra_ref, dec_ref=dec_ref, reference_xyz=reference_xyz, phase_xyz=phase_xyz) for f in range(len(freqs)))
+                    for freqslot in results:
+                        ifreq, beam = freqslot
                         if soltab.getAxisLen('pol') == 2:
-                            beam = beam[[0,3]] # get only XX and YY
-                           
+                            beam = beam.reshape((beam.shape[0], 4))[:, [0, 3]] # get only XX and YY
                         if soltab.getType() == 'amplitude':
-                            vals[stationnum, itime, ifreq, :] = np.abs(beam)
+                            vals[stationnum, :, ifreq, :] = np.abs(beam)
                         elif soltab.getType() == 'phase':
-                            vals[stationnum, itime, ifreq, :] = np.angle(beam)
+                            vals[stationnum, :, ifreq, :] = np.angle(beam)
                         else:
                             logger.error('Beam prediction works only for amplitude/phase solution tables.')
                             return 1
-
             vals = losoto.lib_operations.reorderAxes( vals, ['ant','time','freq','pol'], [ax for ax in soltab.getAxesNames() if ax in ['ant','time','freq','pol']] )
             soltab.setValues(vals, selection)
 
@@ -1986,7 +2007,32 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
     
     H5.close()
     return
- 
+
+def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFactor, useChanFreq, ms, freqs, times, ra, dec, ra_ref, dec_ref, reference_xyz, phase_xyz):
+    if useElementResponse and useArrayFactor:
+        #print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
+        obs = everybeam.load_telescope(ms, use_differential_beam=False, use_channel_frequency=useChanFreq)
+    elif not useElementResponse and useArrayFactor:
+        #print('Array factor beam correction requested. Using use_differential_beam=True.')
+        obs = everybeam.load_telescope(ms, use_differential_beam=True, use_channel_frequency=useChanFreq)
+    elif useElementResponse and not useArrayFactor:
+        #print('Element beam correction requested.')
+        # Not sure how to do this with EveryBeam.
+        raise NotImplementedError('Element beam only correction is not implemented in facetselfcal.')
+
+    #print(f'Processing channel {ifreq}')
+    freq = freqs[ifreq]
+    timeslices = np.empty((len(times), 2, 2), dtype=np.complex128)
+    for itime, time in enumerate(times):
+        #timeloop.update()
+        if not useElementResponse and useArrayFactor:
+            # Array-factor-only correction.
+            beam = obs.array_factor(times[itime], stationnum, freq, phase_xyz[itime], reference_xyz[itime])
+        else:
+            beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
+        #beam = beam.reshape(4)
+        timeslices[itime] = beam
+    return ifreq, timeslices
 
 #losotolofarbeam('P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive_templatejones.h5', 'amplitude000', 'P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive', inverse=False, useElementResponse=False, useArrayFactor=True, useChanFreq=True)
 
