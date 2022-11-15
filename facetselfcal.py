@@ -161,17 +161,27 @@ def FFTdelayfinder(h5, refant):
    plt.show()
    H.close()
    return
-    
+
+
+def str_or_int(arg):
+    try:
+        return int(arg)  # try convert to int
+    except ValueError:
+        pass
+    if isinstance(arg, str):
+        return arg
+    raise argparse.ArgumentTypeError("Input must be an int or string")
+
+
 
 def check_strlist_or_intlist(argin):
     '''
     check if argument is list of integers or list of strings with correct formatting
-    '''
-    
+    '''    
     # check if input is a list and make proper list format
     arg = ast.literal_eval(argin)                                                    
     if type(arg) is not list:                                                    
-        raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (s))
+        raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (argin))
     
     # check for integer list
     if all([isinstance(item, int) for item in arg]):
@@ -814,7 +824,7 @@ def checklongbaseline(ms):
     print('Contains long baselines?', haslongbaselines)
     return haslongbaselines
 
-def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, timeresolution='32', freqresolution='195.3125kHz', dysco=True):
+def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, freqresolution='195.3125kHz', dysco=True):
     # sanity check
     if len(mslist) != len(freqstep):
       print('Hmm, made a mistake with freqstep?')
@@ -822,7 +832,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
     
     outmslist = []
     for ms_id, ms in enumerate(mslist):
-      if (freqstep[ms_id] > 0) or (timestep != None) or (msinnchan != None) or \
+      if (np.int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep != None) or (msinnchan != None) or \
           (phaseshiftbox != None) or (msinntimes != None): # if this is True then average
         if makecopy:
           msout = ms + '.copy'
@@ -839,10 +849,32 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
         else:    
           cmd +=' steps=[av] ' 
         
+        # freqavg
         if freqstep[ms_id] != None:
-          cmd +='av.freqstep=' + str(freqstep[ms_id]) + ' '
+          if str(freqstep[ms_id]).isdigit():
+            cmd +='av.freqstep=' + str(freqstep[ms_id]) + ' '
+          else: 
+            freqstepstr = ''.join([i for i in freqstep[ms_id] if not i.isalpha()])
+            freqstepstrnot = ''.join([i for i in freqstep[ms_id] if i.isalpha()])
+            if freqstepstrnot != 'Hz' and freqstepstrnot != 'kHz'and freqstepstrnot != 'MHz':
+               print('For frequency averaging only units of (k/M)Hz are allowed, used:', freqstepstrnot)
+               raise Exception('For frequency averaging only units of " (k/M)Hz" are allowed')
+            cmd+='av.freqresolution=' + str(freqstep[ms_id]) + ' '        
+
+
+        # timeavg
         if timestep != None:  
-          cmd +='av.timestep=' + str(timestep) + ' '
+          if str(timestep).isdigit():
+            cmd +='av.timestep=' + str(np.int(timestep)) + ' '
+          else:
+            timestepstr = ''.join([i for i in timestep if not i.isalpha()])
+            timestepstrnot = ''.join([i for i in timestep if i.isalpha()])
+            if timestepstrnot != 's' and timestepstrnot != 'sec':
+               print('For time averaging only units of s(ec) are allowed, used:', timestepstrnot)
+               raise Exception('For time averaging only units of "s(ec)" are allowed')
+            cmd +='av.timeresolution=' + str(timestepstr) + ' '
+
+        
         if msinnchan != None:
            cmd +='msin.nchan=' + str(msinnchan) + ' ' 
         if msinntimes != None:
@@ -858,10 +890,30 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
         if dysco:
             cmd+= ' msout.storagemanager=dysco '
         cmd+= 'msout='+ msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
+
+        # freqavg
         if freqstep[ms_id] != None:
-          cmd+='av.freqstep=' + str(freqstep[ms_id]) + ' '
+          if str(freqstep[ms_id]).isdigit():
+            cmd +='av.freqstep=' + str(freqstep[ms_id]) + ' '
+          else: 
+            freqstepstr = ''.join([i for i in freqstep[ms_id] if not i.isalpha()])
+            freqstepstrnot = ''.join([i for i in freqstep[ms_id] if i.isalpha()])
+            if freqstepstrnot != 'Hz' and freqstepstrnot != 'kHz'and freqstepstrnot != 'MHz':
+               print('For frequency averaging only units of (k/M)Hz are allowed, used:', freqstepstrnot)
+               raise Exception('For frequency averaging only units of " (k/M)Hz" are allowed')
+            cmd+='av.freqresolution=' + str(freqstep[ms_id]) + ' '        
+
+        # timeavg
         if timestep != None:  
-          cmd+='av.timestep=' + str(timestep) + ' '
+          if str(timestep).isdigit():
+            cmd +='av.timestep=' + str(np.int(timestep)) + ' '
+          else:
+            timestepstr = ''.join([i for i in timestep if not i.isalpha()])
+            timestepstrnot = ''.join([i for i in timestep if i.isalpha()])
+            if timestepstrnot != 's' and timestepstrnot != 'sec':
+               print('For time averaging only units of s(ec) are allowed, used:', timestepstrnot)
+               raise Exception('For time averaging only units of "s(ec)" are allowed')
+            cmd +='av.timeresolution=' + str(timestepstr) + ' '
         if msinnchan != None:
            cmd+='msin.nchan=' + str(msinnchan) + ' '
         if msinntimes != None:
@@ -5184,8 +5236,8 @@ def main():
    parser.add_argument('--autofrequencyaverage', help='Try frequency averaging if it does not result in bandwidth smearing',  action='store_true')
    parser.add_argument('--autofrequencyaverage-calspeedup', help='Try extra averaging during some selfcalcycles to speed up calibration', action='store_true')
    
-   parser.add_argument('--avgfreqstep', help='Extra DP3 frequnecy averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators', type=int, default=None)
-   parser.add_argument('--avgtimestep', help='Extra DP3 time averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators', type=int, default=None)
+   parser.add_argument('--avgfreqstep', help='Extra DP3 frequency averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators (allowed are integer values or for example "195.3125kHz"; options for units: "Hz", "kHz", or "MHz")', type=str_or_int, default=None)
+   parser.add_argument('--avgtimestep', help='Extra DP3 time averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators (allowed are integer values or for example "16.1s"; options for units: "s" or "sec")', type=str_or_int, default=None)
    parser.add_argument('--msinnchan', help='Before averarging, only take this number input channels', type=int, default=None)
    parser.add_argument('--msinntimes', help='DP3 msin.ntimes setting, mainly for testing purposes', type=int, default=None)
    parser.add_argument('--weightspectrum-clipvalue', help='Extra option to take out bad WEIGHT_SPECTRUM values above the provided number, use with care and first check manually and set the appropriate value (default None, so nothing happens)', type=float, default=None)
@@ -5287,7 +5339,7 @@ def main():
 
    args = vars(options)
 
-   version = '5.1.0'
+   version = '5.3.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -5327,7 +5379,7 @@ def main():
       
    if not args['skipbackup']: # work on copy of input data as a backup
       print('Creating a copy of the data and work on that....')
-      mslist = average(mslist, freqstep= [0]*len(mslist), timestep=1, start=args['start'], \
+      mslist = average(mslist, freqstep=[0]*len(mslist), timestep=1, start=args['start'], \
                        makecopy=True, dysco=args['dysco'])
 
    # take out bad WEIGHT_SPECTRUM values if weightspectrum_clipvalue is set
