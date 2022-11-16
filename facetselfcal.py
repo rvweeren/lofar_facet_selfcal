@@ -201,7 +201,7 @@ def check_strlist_or_intlist(argin):
     # check if input is a list and make proper list format
     arg = ast.literal_eval(argin)
     if type(arg) is not list:
-        raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (s))
+        raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (argin))
 
     # check for integer list
     if all([isinstance(item, int) for item in arg]):
@@ -1978,48 +1978,55 @@ def copyovergain(gaininh5,gainouth5, soltype):
     return
 
 def resetgains(parmdb):
-   H5 = tables.open_file(parmdb, mode='a')
-   H5.root.sol000.phase000.val[:] = 0.0
-   H5.root.sol000.amplitude000.val[:] = 1.0
-   H5.flush()
-   H5.close()
-   return
+    H5 = tables.open_file(parmdb, mode='a')
+    H5.root.sol000.phase000.val[:] = 0.0
+    H5.root.sol000.amplitude000.val[:] = 1.0
+    H5.flush()
+    H5.close()
+    return
 
 def resetsolsforstations(h5parm, stationlist, refant=None):
-   print(h5parm, stationlist)
-   fulljones = fulljonesparmdb(h5parm) # True/False
-   hasphase = True
-   hasamps  = True
-   hasrotatation = True
-   hastec = True
+    ''' Reset solutions for stations
 
-   H=tables.open_file(h5parm, mode='a')
+    Args:
+      h5parm: h5parm file
+      stationlist: station name list
+      refant: reference antenna
+    '''
+    print(h5parm, stationlist)
+    fulljones = fulljonesparmdb(h5parm) # True/False
+    hasphase = True
+    hasamps  = True
+    hasrotatation = True
+    hastec = True
 
-   # figure of we have phase and/or amplitude solutions
-   try:
+    H=tables.open_file(h5parm, mode='a')
+
+    # figure of we have phase and/or amplitude solutions
+    try:
      antennas = H.root.sol000.amplitude000.ant[:]
      axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
-   except:
+    except:
       hasamps = False
-   try:
+    try:
      antennas = H.root.sol000.phase000.ant[:]
      axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
-   except:
+    except:
      hasphase = False
-   try:
+    try:
      antennas = H.root.sol000.tec000.ant[:]
      axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
-   except:
+    except:
      hastec = False
-   try:
+    try:
      antennas = H.root.sol000.rotation000.ant[:]
      axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
-   except:
+    except:
      hasrotatation = False
 
-   if hasamps:
+    if hasamps:
      amp = H.root.sol000.amplitude000.val[:]
-   if hasphase: # also phasereference
+    if hasphase: # also phasereference
      phase = H.root.sol000.phase000.val[:]
      refant_idx = np.where(H.root.sol000.phase000.ant[:].astype(str) == refant) # to deal with byte strings
      print(refant_idx, refant)
@@ -2039,7 +2046,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
      phase = np.copy(phasen)
 
 
-   if hastec:
+    if hastec:
      tec = H.root.sol000.tec000.val[:]
      refant_idx = np.where(H.root.sol000.tec000.ant[:].astype(str) == refant) # to deal with byte strings
      print(refant_idx, refant)
@@ -2058,7 +2065,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
         tecn = tec - tec[:,:,:,:,refant_idx[0],...]
      tec = np.copy(tecn)
 
-   if hasrotatation:
+    if hasrotatation:
      rotation = H.root.sol000.rotation000.val[:]
      refant_idx = np.where(H.root.sol000.rotation000.ant[:].astype(str) == refant) # to deal with byte strings
      print(refant_idx, refant)
@@ -2078,13 +2085,13 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
      rotation = np.copy(rotationn)
 
 
-   for antennaid,antenna in enumerate(antennas.astype(str)): # to deal with byte formatted array
+    for antennaid,antenna in enumerate(antennas.astype(str)): # to deal with byte formatted array
      # if not isinstance(antenna, str):
      #  antenna_str = antenna.decode() # to deal with byte formatted antenna names
      # else:
-     #  antenna_str = antenna # already str type 
-       
-     print(antenna, hasphase, hasamps, hastec, hasrotatation)     
+     #  antenna_str = antenna # already str type
+
+     print(antenna, hasphase, hasamps, hastec, hasrotatation)
      if antenna in stationlist: # in this case reset value to 0.0 (or 1.0)
        if hasphase:
          antennaxis = axisn.index('ant')
@@ -2101,7 +2108,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
            phase[:,:,:,antennaid,...] = 0.0
          if antennaxis == 4:
            phase[:,:,:,:,antennaid,...] = 0.0
-         # print(phase[:,:,antennaid,...])  
+         # print(phase[:,:,antennaid,...])
        if hasamps:
          antennaxis = axisn.index('ant')
          axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
@@ -2148,47 +2155,53 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
            rotation[:,:,:,antennaid,...] = 0.0
          if antennaxis == 4:
            rotation[:,:,:,:,antennaid,...] = 0.0
-   # fill values back in
-   if hasphase:
+    # fill values back in
+    if hasphase:
      H.root.sol000.phase000.val[:] = np.copy(phase)
-   if hasamps:
+    if hasamps:
      H.root.sol000.amplitude000.val[:] = np.copy(amp)
-   if hastec:
+    if hastec:
      H.root.sol000.tec000.val[:] = np.copy(tec)
-   if hasrotatation:
-     H.root.sol000.rotation000.val[:] = np.copy(rotatation)
+    if hasrotatation:
+     H.root.sol000.rotation000.val[:] = np.copy(rotation)
 
-   H.flush()
-   H.close()
+    H.flush()
+    H.close()
 
 
-   return
+    return
 
 
 def removenans(parmdb, soltab):
-   H5 = h5parm.h5parm(parmdb, readonly=False)
-   vals =H5.getSolset('sol000').getSoltab(soltab).getValues()[0]
-   weights = H5.getSolset('sol000').getSoltab(soltab).getValues(weight=True)[0]   
-   
-   idxnan  = np.where((~np.isfinite(vals))) 
-   
-   # print(idxnan)
-   # print('Found some NaNs', vals[idxnan])
-   print('Found some NaNs, flagging them....')
+    ''' Remove nan values in h5parm
 
-   if H5.getSolset('sol000').getSoltab(soltab).getType() == 'phase':
+    Args:
+      parmdb: h5parm file
+      soltab: solution table name (amplitude000, phase000, rotation000, ...)
+    '''
+    H5 = h5parm.h5parm(parmdb, readonly=False)
+    vals =H5.getSolset('sol000').getSoltab(soltab).getValues()[0]
+    weights = H5.getSolset('sol000').getSoltab(soltab).getValues(weight=True)[0]
+
+    idxnan  = np.where((~np.isfinite(vals)))
+
+    # print(idxnan)
+    # print('Found some NaNs', vals[idxnan])
+    print('Found some NaNs, flagging them....')
+
+    if H5.getSolset('sol000').getSoltab(soltab).getType() == 'phase':
        vals[idxnan] = 0.0
-   if H5.getSolset('sol000').getSoltab(soltab).getType() == 'amplitude':
+    if H5.getSolset('sol000').getSoltab(soltab).getType() == 'amplitude':
        vals[idxnan] = 1.0
-   if H5.getSolset('sol000').getSoltab(soltab).getType() == 'rotation':
+    if H5.getSolset('sol000').getSoltab(soltab).getType() == 'rotation':
        vals[idxnan] = 0.0
 
-   weights[idxnan] = 0.0
+    weights[idxnan] = 0.0
 
-   H5.getSolset('sol000').getSoltab(soltab).setValues(weights,weight=True)
-   H5.getSolset('sol000').getSoltab(soltab).setValues(vals)
-   H5.close()
-   return
+    H5.getSolset('sol000').getSoltab(soltab).setValues(weights,weight=True)
+    H5.getSolset('sol000').getSoltab(soltab).setValues(vals)
+    H5.close()
+    return
 
 def radec_to_xyz(ra, dec, time):
     ''' Convert ra and dec coordinates to ITRS coordinates for LOFAR observations.
@@ -2201,7 +2214,7 @@ def radec_to_xyz(ra, dec, time):
         pointing_xyz (ndarray): NumPy array containing the X, Y and Z coordinates
     '''
     obstime = Time(time/3600/24, scale='utc', format='mjd')
-    loc_LOFAR = EarthLocation(lon=0.11990128407256424, lat=0.9203091252660295, height=6364618.852935438*u.m)
+    loc_LOFAR = EarthLocation(lon=0.11990128407256424, lat=0.9203091252660295, height=6364618.852935438*units.m)
 
     dir_pointing = SkyCoord(ra, dec)
     dir_pointing_altaz = dir_pointing.transform_to(AltAz(obstime=obstime, location=loc_LOFAR))
@@ -2273,8 +2286,8 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
         dirs = pt.taql('SELECT REFERENCE_DIR,PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
         ra_ref, dec_ref = dirs.getcol('REFERENCE_DIR').squeeze()
         ra, dec = dirs.getcol('PHASE_DIR').squeeze()
-        reference_xyz = list(zip(*radec_to_xyz(ra_ref * u.rad, dec_ref * u.rad, times)))
-        phase_xyz = list(zip(*radec_to_xyz(ra * u.rad, dec * u.rad, times)))
+        reference_xyz = list(zip(*radec_to_xyz(ra_ref * units.rad, dec_ref * units.rad, times)))
+        phase_xyz = list(zip(*radec_to_xyz(ra * units.rad, dec * units.rad, times)))
 
 
         for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant','time','pol','freq'], weight=False):
@@ -2338,7 +2351,11 @@ def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFac
 
 
 def cleanup(mslist):
+    ''' Clean up directory
 
+    Args:
+        mslist: list with MS files
+    '''
     for ms in mslist:
         os.system('rm -rf ' + ms)
 
@@ -2353,6 +2370,13 @@ def cleanup(mslist):
 
 
 def flagms_startend(ms, tecsolsfile, tecsolint):
+    '''
+
+    Args:
+        ms: measurement set
+        tecsolsfile: solution file with TEC
+        tecsolint:
+    '''
 
     taql = 'taql'
 
@@ -2386,7 +2410,6 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
       goodtimesvec.append(np.count_nonzero( tecvals[timeid,:]))
 
 
-
     goodstartid = np.argmax (np.array(goodtimesvec) > 0)
     goodendid   = len(goodtimesvec) - np.argmax (np.array(goodtimesvec[::-1]) > 0)
 
@@ -2413,8 +2436,6 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
 # sys.exit()
 
 
-
-
 def removestartendms(ms, starttime=None, endtime=None, dysco=True):
 
     # chdeck if output is already there and remove
@@ -2422,7 +2443,6 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
           os.system('rm -rf ' + ms + '.cut')
     if os.path.isdir(ms + '.cuttmp'):
           os.system('rm -rf ' + ms + '.cuttmp')
-
 
     cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cut '
     if dysco:
@@ -2446,7 +2466,6 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     print(cmd)
     run(cmd)
 
-
     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
     t  = pt.table(ms + '.cut' , readonly=False)
 
@@ -2466,9 +2485,6 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     # clean up
     os.system('rm -rf ' + ms + '.cuttmp')
 
-
-
-
     return
 
 # removestartendms('P219+50_PSZ2G084.10+58.72.dysco.sub.shift.avg.weights.ms.archive',endtime='16-Apr-2015/02:14:47.0')
@@ -2476,8 +2492,6 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
 # removestartendms('P223+52_PSZ2G088.98+55.07.dysco.sub.shift.avg.weights.ms.archive',starttime='19-Feb-2015/22:40:00.0')
 # removestartendms('P223+55_PSZ2G096.14+56.24.dysco.sub.shift.avg.weights.ms.archive',starttime='31-Mar-2015/20:11:00.0')
 # removestartendms('P227+53_PSZ2G088.98+55.07.dysco.sub.shift.avg.weights.ms.archive',starttime='19-Feb-2015/22:40:00.0')
-
-
 
 def which(file_name):
     for path in os.environ["PATH"].split(os.pathsep):
@@ -2487,15 +2501,23 @@ def which(file_name):
     return None
 
 def _add_astropy_beam(fitsname):
-  head = fits.getheader(fitsname)
-  bmaj = head['BMAJ']
-  bmin = head['BMIN']
-  bpa  = head['BPA']
-  cdelt = head['CDELT2']
-  bmajpix = bmaj/cdelt
-  bminpix = bmin/cdelt
-  ellipse = matplotlib.patches.Ellipse((20,20), bmajpix,bminpix,bpa)
-  return ellipse
+    ''' Add beam from astropy
+
+    Args:
+        fitsname: name of fits file
+    Returns:
+        ellipse
+    '''
+
+    head = fits.getheader(fitsname)
+    bmaj = head['BMAJ']
+    bmin = head['BMIN']
+    bpa  = head['BPA']
+    cdelt = head['CDELT2']
+    bmajpix = bmaj/cdelt
+    bminpix = bmin/cdelt
+    ellipse = matplotlib.patches.Ellipse((20,20), bmajpix,bminpix,bpa)
+    return ellipse
 
 def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
   # image noise for plotting
