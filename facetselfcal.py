@@ -1251,6 +1251,15 @@ def get_uvwmax(ms):
     t.close()
     return np.max(ssq)    
 
+def makeBBSmodelforVLASS(filename):
+    img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10))#, \
+                            # frequency=150e6, beam=(25./3600,25./3600,0.0) )
+    img.write_catalog(format='bbs', bbs_patches='single', outfile='vlass.skymodel', clobber=True)
+    #bbsmodel = 'bla.skymodel'
+    del img
+    return 'vlass.skymodel'    
+    
+
 def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=None, ms=None):
 
     tgsspixsize = 6.2    
@@ -3482,13 +3491,19 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
        print('Wrong input in function, both lin2circ and circ2lin are True')
        raise Exception('Wrong input in function, both lin2circ and circ2lin are True')
 
-    losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
-    losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
+    if beam:
+       losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
+       losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
 
-
-    phasedup = fixbeam_ST001(H5name)
-    parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name))
-    force_close(H5name)
+       phasedup = fixbeam_ST001(H5name)
+       parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name))
+       force_close(H5name)
+    
+       #print('Phase up dataset, cannot use DPPP beam, do manual correction')
+       cmdlosoto = losoto + ' ' + H5name + ' ' + parset
+       print(cmdlosoto)
+       logger.info(cmdlosoto)
+       run(cmdlosoto)
 
     if usedppp and not phasedup :
         cmddppp = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
@@ -3532,10 +3547,10 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
         run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
     else:
         #print('Phase up dataset, cannot use DPPP beam, do manual correction')
-        cmdlosoto = losoto + ' ' + H5name + ' ' + parset
-        print(cmdlosoto)
-        logger.info(cmdlosoto)
-        run(cmdlosoto)
+        #cmdlosoto = losoto + ' ' + H5name + ' ' + parset
+        #print(cmdlosoto)
+        #logger.info(cmdlosoto)
+        #run(cmdlosoto)
     
         cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
@@ -5280,6 +5295,7 @@ def main():
    parser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict)', type=str, default=None)
    parser.add_argument('--predictskywithbeam', help='predict the skymodel with the beam array factor', action='store_true')
    parser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required)', action='store_true')
+   parser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data (not yet implemented)', action='store_true')
    parser.add_argument('--tgssfitsimage', help='Start TGSS fits image for model (if not provided use SkyView', type=str)
    parser.add_argument('--no-beamcor', help='Do not correct the visilbities for the array factor', action='store_true')
    parser.add_argument('--losotobeamcor-beamlib', help="Beam library to use when not using DP3 for the beam correction. Can be 'stationreponse', 'lofarbeam' (identical and deprecated) or 'everybeam'", type=str, default='stationresponse')
@@ -5452,10 +5468,16 @@ def main():
        args['skymodel'] = makeBBSmodelforTGSS(args['boxfile'],fitsimage = args['tgssfitsimage'], \
                                               pixelscale=args['pixelscale'], imsize=args['imsize'], ms=mslist[0])
      else:
-       #print('You need to provide a boxfile to use --startfromtgss')
        print('You cannot provide a skymodel file manually while using --startfromtgss')
        raise Exception('You cannot provide a skymodel file manually while using --startfromtgss')
 
+   if args['startfromvlass'] and args['start'] == 0:
+     if args['skymodel'] == None:
+       run('vlass_search.py '+ mslist[0])
+       args['skymodel'] = makeBBSmodelforVLASS('fitsimagefromvlass')
+     else:
+       print('You cannot provide a skymodel file manually while using --startfromvlass')
+       raise Exception('You cannot provide a skymodel file manually while using --startfromvlass')
 
    if args['start'] == 0:
      os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p smoothnessrefdistance.p antennaconstraint.p resetsols.p soltypecycles.p') 
