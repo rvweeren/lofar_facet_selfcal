@@ -617,7 +617,7 @@ parser.add_argument('--nopredict', help='Do not do predict step (for use if repe
 parser.add_argument('--onlyuseweightspectrum', help='Only use WEIGHT_SPECTRUM, ignore IMAGING_WEIGHT (if internation station are present this is automatically set to True', action='store_true')
 parser.add_argument('--HMPmodelfits', help='if provided, use this HMP model fits  for predict')
 parser.add_argument('--nosubtract', help='Do not do subtract step (for use if repeating last step in case of failure)', action='store_true')
-parser.add_argument('--ddfbootstrapcorrection', help='Apply the bootstrap factor corrections from the ddf-pipeline, important for ILT data. Two files are needed for this: "obsid"_crossmatch-results-2.npy and "obsid"_freqs.npy.  This corection should not be used for LoTSS-type data at 6 arcsec resolution as it is already applied to the data products.', action='store_true')
+#parser.add_argument('--ddfbootstrapcorrection', help='Apply the bootstrap factor corrections from the ddf-pipeline, important for ILT data. Two files are needed for this: "obsid"_crossmatch-results-2.npy and "obsid"_freqs.npy.  This corection should not be used for LoTSS-type data at 6 arcsec resolution as it is already applied to the data products.', action='store_true')
 parser.add_argument('--overwriteoutput', help='Overwrite concat ms if it exists', action='store_true')
 parser.add_argument('--useHMP', help='Use HMP', action='store_true')
 
@@ -709,11 +709,9 @@ if checklongbaseline(msfiles[0]):
   args['onlyuseweightspectrum'] = True
   
 # bootstrap correction
-if args['ddfbootstrapcorrection']:
-    args['column'] = ddfbootstrapcorrection(msfiles, args['column'], args['column']+'_SCALED', dysco=dysco) # update the colname here because we need to proceed from that
-#print(args['column'])
-#run('pwd')
-#sys.exit()
+#if args['ddfbootstrapcorrection']:
+#    args['column'] = ddfbootstrapcorrection(msfiles, args['column'], args['column']+'_SCALED', dysco=dysco) # update the colname here because we need to proceed from that
+
 
 t = pt.table(msfiles[0] + '/OBSERVATION')
 fieldname = t.getcol('LOFAR_TARGET')['array'][0]
