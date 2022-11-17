@@ -3474,7 +3474,8 @@ def circular(ms, linear=False, dysco=True):
     return
 
 
-def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=False, losotobeamlib='stationresponse'):
+def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, \
+                         circ2lin=False, losotobeamlib='stationresponse'):
     """
     correct a ms for the beam in the phase center (array_factor only)
     """
@@ -3485,7 +3486,8 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
 
     losoto = 'losoto'
     taql = 'taql'
-    H5name = create_beamcortemplate(ms)
+    H5name  = create_beamcortemplate(ms)
+    phasedup = check_phaseup(H5name) # in case no beamcor is done we still need this
 
     if lin2circ and circ2lin:
        print('Wrong input in function, both lin2circ and circ2lin are True')
@@ -3545,13 +3547,7 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
         print('DP3 applybeam/polconv:', cmddppp)
         run(cmddppp)
         run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
-    else:
-        #print('Phase up dataset, cannot use DPPP beam, do manual correction')
-        #cmdlosoto = losoto + ' ' + H5name + ' ' + parset
-        #print(cmdlosoto)
-        #logger.info(cmdlosoto)
-        #run(cmdlosoto)
-    
+    else:    
         cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
         cmd += 'msout.datacolumn=CORRECTED_DATA '
