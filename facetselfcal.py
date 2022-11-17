@@ -161,27 +161,17 @@ def FFTdelayfinder(h5, refant):
    plt.show()
    H.close()
    return
-
-
-def str_or_int(arg):
-    try:
-        return int(arg)  # try convert to int
-    except ValueError:
-        pass
-    if isinstance(arg, str):
-        return arg
-    raise argparse.ArgumentTypeError("Input must be an int or string")
-
-
+    
 
 def check_strlist_or_intlist(argin):
     '''
     check if argument is list of integers or list of strings with correct formatting
-    '''    
+    '''
+    
     # check if input is a list and make proper list format
     arg = ast.literal_eval(argin)                                                    
     if type(arg) is not list:                                                    
-        raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (argin))
+        raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (s))
     
     # check for integer list
     if all([isinstance(item, int) for item in arg]):
@@ -824,7 +814,7 @@ def checklongbaseline(ms):
     print('Contains long baselines?', haslongbaselines)
     return haslongbaselines
 
-def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, freqresolution='195.3125kHz', dysco=True):
+def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, timeresolution='32', freqresolution='195.3125kHz', dysco=True):
     # sanity check
     if len(mslist) != len(freqstep):
       print('Hmm, made a mistake with freqstep?')
@@ -832,7 +822,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
     
     outmslist = []
     for ms_id, ms in enumerate(mslist):
-      if (np.int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep != None) or (msinnchan != None) or \
+      if (freqstep[ms_id] > 0) or (timestep != None) or (msinnchan != None) or \
           (phaseshiftbox != None) or (msinntimes != None): # if this is True then average
         if makecopy:
           msout = ms + '.copy'
@@ -849,32 +839,10 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
         else:    
           cmd +=' steps=[av] ' 
         
-        # freqavg
         if freqstep[ms_id] != None:
-          if str(freqstep[ms_id]).isdigit():
-            cmd +='av.freqstep=' + str(freqstep[ms_id]) + ' '
-          else: 
-            freqstepstr = ''.join([i for i in freqstep[ms_id] if not i.isalpha()])
-            freqstepstrnot = ''.join([i for i in freqstep[ms_id] if i.isalpha()])
-            if freqstepstrnot != 'Hz' and freqstepstrnot != 'kHz'and freqstepstrnot != 'MHz':
-               print('For frequency averaging only units of (k/M)Hz are allowed, used:', freqstepstrnot)
-               raise Exception('For frequency averaging only units of " (k/M)Hz" are allowed')
-            cmd+='av.freqresolution=' + str(freqstep[ms_id]) + ' '        
-
-
-        # timeavg
+          cmd +='av.freqstep=' + str(freqstep[ms_id]) + ' '
         if timestep != None:  
-          if str(timestep).isdigit():
-            cmd +='av.timestep=' + str(np.int(timestep)) + ' '
-          else:
-            timestepstr = ''.join([i for i in timestep if not i.isalpha()])
-            timestepstrnot = ''.join([i for i in timestep if i.isalpha()])
-            if timestepstrnot != 's' and timestepstrnot != 'sec':
-               print('For time averaging only units of s(ec) are allowed, used:', timestepstrnot)
-               raise Exception('For time averaging only units of "s(ec)" are allowed')
-            cmd +='av.timeresolution=' + str(timestepstr) + ' '
-
-        
+          cmd +='av.timestep=' + str(timestep) + ' '
         if msinnchan != None:
            cmd +='msin.nchan=' + str(msinnchan) + ' ' 
         if msinntimes != None:
@@ -890,30 +858,10 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
         if dysco:
             cmd+= ' msout.storagemanager=dysco '
         cmd+= 'msout='+ msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
-
-        # freqavg
         if freqstep[ms_id] != None:
-          if str(freqstep[ms_id]).isdigit():
-            cmd +='av.freqstep=' + str(freqstep[ms_id]) + ' '
-          else: 
-            freqstepstr = ''.join([i for i in freqstep[ms_id] if not i.isalpha()])
-            freqstepstrnot = ''.join([i for i in freqstep[ms_id] if i.isalpha()])
-            if freqstepstrnot != 'Hz' and freqstepstrnot != 'kHz'and freqstepstrnot != 'MHz':
-               print('For frequency averaging only units of (k/M)Hz are allowed, used:', freqstepstrnot)
-               raise Exception('For frequency averaging only units of " (k/M)Hz" are allowed')
-            cmd+='av.freqresolution=' + str(freqstep[ms_id]) + ' '        
-
-        # timeavg
+          cmd+='av.freqstep=' + str(freqstep[ms_id]) + ' '
         if timestep != None:  
-          if str(timestep).isdigit():
-            cmd +='av.timestep=' + str(np.int(timestep)) + ' '
-          else:
-            timestepstr = ''.join([i for i in timestep if not i.isalpha()])
-            timestepstrnot = ''.join([i for i in timestep if i.isalpha()])
-            if timestepstrnot != 's' and timestepstrnot != 'sec':
-               print('For time averaging only units of s(ec) are allowed, used:', timestepstrnot)
-               raise Exception('For time averaging only units of "s(ec)" are allowed')
-            cmd +='av.timeresolution=' + str(timestepstr) + ' '
+          cmd+='av.timestep=' + str(timestep) + ' '
         if msinnchan != None:
            cmd+='msin.nchan=' + str(msinnchan) + ' '
         if msinntimes != None:
@@ -1048,12 +996,6 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
 
 
 def inputchecker(args):
-
-  for ms_id, ms in enumerate(args['ms']):
-    if ms.find('/') != -1:
-      print('All ms need to be local, no "/" are allowed in ms name')
-      raise Exception('All ms need to be local, no "/" are allowed in ms name')
-
 
   if args['iontimefactor'] <= 0.0:
     print('BLsmooth iontimefactor needs to be positive')
@@ -1250,15 +1192,6 @@ def get_uvwmax(ms):
     print(uvw.shape)
     t.close()
     return np.max(ssq)    
-
-def makeBBSmodelforVLASS(filename):
-    img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10))#, \
-                            # frequency=150e6, beam=(25./3600,25./3600,0.0) )
-    img.write_catalog(format='bbs', bbs_patches='single', outfile='vlass.skymodel', clobber=True)
-    #bbsmodel = 'bla.skymodel'
-    del img
-    return 'vlass.skymodel'    
-    
 
 def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=None, ms=None):
 
@@ -3491,19 +3424,13 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
        print('Wrong input in function, both lin2circ and circ2lin are True')
        raise Exception('Wrong input in function, both lin2circ and circ2lin are True')
 
-    if beam:
-       losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
-       losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
+    losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
+    losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
 
-       phasedup = fixbeam_ST001(H5name)
-       parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name))
-       force_close(H5name)
-    
-       #print('Phase up dataset, cannot use DPPP beam, do manual correction')
-       cmdlosoto = losoto + ' ' + H5name + ' ' + parset
-       print(cmdlosoto)
-       logger.info(cmdlosoto)
-       run(cmdlosoto)
+
+    phasedup = fixbeam_ST001(H5name)
+    parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name))
+    force_close(H5name)
 
     if usedppp and not phasedup :
         cmddppp = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
@@ -3547,10 +3474,10 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
         run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
     else:
         #print('Phase up dataset, cannot use DPPP beam, do manual correction')
-        #cmdlosoto = losoto + ' ' + H5name + ' ' + parset
-        #print(cmdlosoto)
-        #logger.info(cmdlosoto)
-        #run(cmdlosoto)
+        cmdlosoto = losoto + ' ' + H5name + ' ' + parset
+        print(cmdlosoto)
+        logger.info(cmdlosoto)
+        run(cmdlosoto)
     
         cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
@@ -4360,9 +4287,9 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
            pertubation[msnumber] = False     
              
          if skymodel != None and selfcalcycle == 0:  
-           parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
+           parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
          else:
-           parmdb = soltype + str(soltypenumber) + '_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
+           parmdb = soltype + str(soltypenumber) + '_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
           
          runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
                      longbaseline=longbaseline, uvmin=uvmin, \
@@ -4415,11 +4342,11 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
      #import h5_merger
      for msnumber, ms in enumerate(mslist):
        if skymodel != None and selfcalcycle == 0: 
-         parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
-         parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + ms + '.h5'
+         parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+         parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
        else:
-         parmdbmergename = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
-         parmdbmergename_pc = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + ms + '.h5' 
+         parmdbmergename = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+         parmdbmergename_pc = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + os.path.basename(ms) + '.h5' 
        if os.path.isfile(parmdbmergename):
          os.system('rm -f ' + parmdbmergename)
        if os.path.isfile(parmdbmergename_pc):
@@ -4461,7 +4388,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        # plot merged solution file
        losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, \
                             medamp=medianamp(parmdbmergename), \
-                            outplotname=parmdbmergename.split('_' + ms + '.h5')[0], \
+                            outplotname=parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0], \
                             refant=findrefant_core(parmdbmergename))  
        run('losoto ' + parmdbmergename + ' ' + losotoparset)
        force_close(parmdbmergename)
@@ -4681,7 +4608,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     print('DP3 solve:', cmd)
     logger.info('DP3 solve: ' + cmd)    
     if selfcalcycle > 0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
-        h5_tocopy = glob.glob("*_"+ms+".h5.scbackup")[0] # What if your ms nums somehow share a common base??
+        h5_tocopy = glob.glob("*_"+os.path.basename(ms)+".h5.scbackup")[0] # What if your ms nums somehow share a common base??
         print("COPYING PREVIOUS SCALARPHASEDIFF SOLUTION")
         os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
     else:
@@ -4697,7 +4624,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       print('Template solve, not going to make plots or do solution flagging')
       return    
 
-    outplotname = parmdb.split('_' + ms + '.h5')[0]
+    outplotname = parmdb.split('_' + os.path.basename(ms) + '.h5')[0]
 
     if incol == 'DATA_CIRCULAR_PHASEDIFF':
       print('Manually updating H5 to get the phase difference correct')
@@ -5251,8 +5178,8 @@ def main():
    parser.add_argument('--autofrequencyaverage', help='Try frequency averaging if it does not result in bandwidth smearing',  action='store_true')
    parser.add_argument('--autofrequencyaverage-calspeedup', help='Try extra averaging during some selfcalcycles to speed up calibration', action='store_true')
    
-   parser.add_argument('--avgfreqstep', help='Extra DP3 frequency averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators (allowed are integer values or for example "195.3125kHz"; options for units: "Hz", "kHz", or "MHz")', type=str_or_int, default=None)
-   parser.add_argument('--avgtimestep', help='Extra DP3 time averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators (allowed are integer values or for example "16.1s"; options for units: "s" or "sec")', type=str_or_int, default=None)
+   parser.add_argument('--avgfreqstep', help='Extra DP3 frequnecy averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators', type=int, default=None)
+   parser.add_argument('--avgtimestep', help='Extra DP3 time averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators', type=int, default=None)
    parser.add_argument('--msinnchan', help='Before averarging, only take this number input channels', type=int, default=None)
    parser.add_argument('--msinntimes', help='DP3 msin.ntimes setting, mainly for testing purposes', type=int, default=None)
    parser.add_argument('--weightspectrum-clipvalue', help='Extra option to take out bad WEIGHT_SPECTRUM values above the provided number, use with care and first check manually and set the appropriate value (default None, so nothing happens)', type=float, default=None)
@@ -5295,7 +5222,6 @@ def main():
    parser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict)', type=str, default=None)
    parser.add_argument('--predictskywithbeam', help='predict the skymodel with the beam array factor', action='store_true')
    parser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required)', action='store_true')
-   parser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data (not yet implemented)', action='store_true')
    parser.add_argument('--tgssfitsimage', help='Start TGSS fits image for model (if not provided use SkyView', type=str)
    parser.add_argument('--no-beamcor', help='Do not correct the visilbities for the array factor', action='store_true')
    parser.add_argument('--losotobeamcor-beamlib', help="Beam library to use when not using DP3 for the beam correction. Can be 'stationreponse', 'lofarbeam' (identical and deprecated) or 'everybeam'", type=str, default='stationresponse')
@@ -5355,7 +5281,7 @@ def main():
 
    args = vars(options)
 
-   version = '5.3.0'
+   version = '5.1.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -5383,6 +5309,8 @@ def main():
 
    mslist = sorted(args['ms'])
 
+   #mslist = [os.path.basename(ms) for ms in mslist] ###DEBUG
+
    # remove non-ms that ended up in mslist
    mslist = removenonms(mslist)
 
@@ -5395,7 +5323,7 @@ def main():
       
    if not args['skipbackup']: # work on copy of input data as a backup
       print('Creating a copy of the data and work on that....')
-      mslist = average(mslist, freqstep=[0]*len(mslist), timestep=1, start=args['start'], \
+      mslist = average(mslist, freqstep= [0]*len(mslist), timestep=1, start=args['start'], \
                        makecopy=True, dysco=args['dysco'])
 
    # take out bad WEIGHT_SPECTRUM values if weightspectrum_clipvalue is set
@@ -5468,16 +5396,10 @@ def main():
        args['skymodel'] = makeBBSmodelforTGSS(args['boxfile'],fitsimage = args['tgssfitsimage'], \
                                               pixelscale=args['pixelscale'], imsize=args['imsize'], ms=mslist[0])
      else:
+       #print('You need to provide a boxfile to use --startfromtgss')
        print('You cannot provide a skymodel file manually while using --startfromtgss')
        raise Exception('You cannot provide a skymodel file manually while using --startfromtgss')
 
-   if args['startfromvlass'] and args['start'] == 0:
-     if args['skymodel'] == None:
-       run('vlass_search.py '+ mslist[0])
-       args['skymodel'] = makeBBSmodelforVLASS('fitsimagefromvlass')
-     else:
-       print('You cannot provide a skymodel file manually while using --startfromvlass')
-       raise Exception('You cannot provide a skymodel file manually while using --startfromvlass')
 
    if args['start'] == 0:
      os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p smoothnessrefdistance.p antennaconstraint.p resetsols.p soltypecycles.p') 
