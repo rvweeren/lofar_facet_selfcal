@@ -849,7 +849,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
         else:    
           cmd +=' steps=[av] ' 
         
-       # freqavg
+        # freqavg
         if freqstep[ms_id] != None:
           if str(freqstep[ms_id]).isdigit():
             cmd +='av.freqstep=' + str(freqstep[ms_id]) + ' '
@@ -874,7 +874,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                raise Exception('For time averaging only units of "s(ec)" are allowed')
             cmd +='av.timeresolution=' + str(timestepstr) + ' '
 
-            
+
         if msinnchan != None:
            cmd +='msin.nchan=' + str(msinnchan) + ' ' 
         if msinntimes != None:
@@ -1252,7 +1252,7 @@ def makeBBSmodelforVLASS(filename):
     #bbsmodel = 'bla.skymodel'
     del img
     return 'vlass.skymodel'    
-
+    
 
 def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=None, ms=None):
 
@@ -3485,7 +3485,7 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
        print('Wrong input in function, both lin2circ and circ2lin are True')
        raise Exception('Wrong input in function, both lin2circ and circ2lin are True')
 
- if beam:
+    if beam:
        losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
        losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
 
@@ -3498,7 +3498,7 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
        print(cmdlosoto)
        logger.info(cmdlosoto)
        run(cmdlosoto)
-    
+
     if usedppp and not phasedup :
         cmddppp = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmddppp += 'msin.weightcolumn=WEIGHT_SPECTRUM '
@@ -5247,6 +5247,7 @@ def main():
    
    parser.add_argument('--avgfreqstep', help='Extra DP3 frequency averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators (allowed are integer values or for example "195.3125kHz"; options for units: "Hz", "kHz", or "MHz")', type=str_or_int, default=None)
    parser.add_argument('--avgtimestep', help='Extra DP3 time averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators (allowed are integer values or for example "16.1s"; options for units: "s" or "sec")', type=str_or_int, default=None)   parser.add_argument('--msinnchan', help='Before averarging, only take this number input channels', type=int, default=None)
+   parser.add_argument('--msinnchan', help='Before averarging, only take this number input channels', type=int, default=None)
    parser.add_argument('--msinntimes', help='DP3 msin.ntimes setting, mainly for testing purposes', type=int, default=None)
    parser.add_argument('--weightspectrum-clipvalue', help='Extra option to take out bad WEIGHT_SPECTRUM values above the provided number, use with care and first check manually and set the appropriate value (default None, so nothing happens)', type=float, default=None)
    
@@ -5463,8 +5464,8 @@ def main():
      else:
        print('You cannot provide a skymodel file manually while using --startfromtgss')
        raise Exception('You cannot provide a skymodel file manually while using --startfromtgss')
-        
-    if args['startfromvlass'] and args['start'] == 0:
+
+   if args['startfromvlass'] and args['start'] == 0:
      if args['skymodel'] == None:
        run('vlass_search.py '+ mslist[0])
        args['skymodel'] = makeBBSmodelforVLASS('fitsimagefromvlass')
