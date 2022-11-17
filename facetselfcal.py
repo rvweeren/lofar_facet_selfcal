@@ -874,7 +874,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                raise Exception('For time averaging only units of "s(ec)" are allowed')
             cmd +='av.timeresolution=' + str(timestepstr) + ' '
 
-
+        
         if msinnchan != None:
            cmd +='msin.nchan=' + str(msinnchan) + ' ' 
         if msinntimes != None:
@@ -3492,7 +3492,7 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
        phasedup = fixbeam_ST001(H5name)
        parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name))
        force_close(H5name)
-
+    
        #print('Phase up dataset, cannot use DPPP beam, do manual correction')
        cmdlosoto = losoto + ' ' + H5name + ' ' + parset
        print(cmdlosoto)
