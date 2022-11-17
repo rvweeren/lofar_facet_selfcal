@@ -5246,7 +5246,7 @@ def main():
    parser.add_argument('--autofrequencyaverage-calspeedup', help='Try extra averaging during some selfcalcycles to speed up calibration', action='store_true')
    
    parser.add_argument('--avgfreqstep', help='Extra DP3 frequency averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators (allowed are integer values or for example "195.3125kHz"; options for units: "Hz", "kHz", or "MHz")', type=str_or_int, default=None)
-   parser.add_argument('--avgtimestep', help='Extra DP3 time averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators (allowed are integer values or for example "16.1s"; options for units: "s" or "sec")', type=str_or_int', default=None)
+   parser.add_argument('--avgtimestep', help='Extra DP3 time averaging to speed up a solve, this is done before any other correction, could be useful for long baseline infield calibrators (allowed are integer values or for example "16.1s"; options for units: "s" or "sec")', type=str_or_int, default=None)
    parser.add_argument('--msinnchan', help='Before averarging, only take this number input channels', type=int, default=None)
    parser.add_argument('--msinntimes', help='DP3 msin.ntimes setting, mainly for testing purposes', type=int, default=None)
    parser.add_argument('--weightspectrum-clipvalue', help='Extra option to take out bad WEIGHT_SPECTRUM values above the provided number, use with care and first check manually and set the appropriate value (default None, so nothing happens)', type=float, default=None)
