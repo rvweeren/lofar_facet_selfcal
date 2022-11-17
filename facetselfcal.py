@@ -5507,7 +5507,6 @@ def main():
    parser.add_argument('--msinntimes', help="DP3 msin.ntimes setting. This is mainly used for testing purposes. The default is None.", type=int, default=None)
    parser.add_argument('--autofrequencyaverage-calspeedup', help="Try extra averaging during some selfcalcycles to speed up calibration.", action='store_true')
    parser.add_argument('--autofrequencyaverage', help='Try frequency averaging if it does not result in bandwidth smearing',  action='store_true')
-
    parser.add_argument('--phaseupstations', help="Phase up to a superstation. Possible input: 'core' or 'superterp'. The default is None.", default=None, type=str)
    parser.add_argument('--phaseshiftbox', help="DS9 region file to shift the phasecenter to. This is by default None.", default=None, type=str)
    parser.add_argument('--weightspectrum-clipvalue', help="Extra option to clip WEIGHT_SPECTRUM values above the provided number. Use with care and test first manually to see what is a fitting value. The default is None.", type=float, default=None)
@@ -5544,6 +5543,7 @@ def main():
    parser.add_argument('--skymodelpointsource', help='If set, start from a point source in the phase center with the flux density given by this parameter. The default is None (means do not use this option).', type=float, default=None)
    parser.add_argument('--predictskywithbeam', help='Predict the skymodel with the beam array factor.', action='store_true')
    parser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required).', action='store_true')
+   parser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data (not yet implemented).', action='store_true')
    parser.add_argument('--tgssfitsimage', help='Start TGSS fits image for model (if not provided use SkyView). The default is None.', type=str)
    parser.add_argument('--no-beamcor', help='Do not correct the visilbities for the array factor.', action='store_true')
    parser.add_argument('--losotobeamcor-beamlib', help="Beam library to use when not using DP3 for the beam correction. Possible input: 'stationreponse', 'lofarbeam' (identical and deprecated). The default is 'stationresponse'.", type=str, default='stationresponse')
