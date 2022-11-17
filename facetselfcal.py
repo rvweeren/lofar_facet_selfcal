@@ -5261,14 +5261,22 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
 
 # to remove H5/h5 and other files out of a wildcard selection if needed
 def removenonms(mslist):
-  newmslist = []
-  for ms in mslist:
-   if ms.lower().endswith(('.h5', '.png', '.parset', '.fits', '.backup', '.obj', '.log', '.p', '.reg', '.gz', '.tar', '.tmp', '.ddfcache')) or \
-      ms.lower().startswith(('plotlosoto','solintimage')):
-     print('WARNING, removing ', ms, 'not a ms-type? Removed it!')
-   else:
-     newmslist.append(ms)
-  return newmslist
+    """ Remove files that are not MS (ending on wrong extension)
+
+    Args:
+        mslist: measurement set list
+
+    Returns:
+        New list
+    """
+    newmslist = []
+    for ms in mslist:
+        if ms.lower().endswith(('.h5', '.png', '.parset', '.fits', '.backup', '.obj', '.log', '.p', '.reg', '.gz', '.tar', '.tmp', '.ddfcache')) or \
+        ms.lower().startswith(('plotlosoto','solintimage')):
+            print('WARNING, removing ', ms, 'not a ms-type? Removed it!')
+        else:
+            newmslist.append(ms)
+    return newmslist
 
 # check is there are enough timesteps in the ms
 # for example this will remove an observations of length 600s
@@ -5835,8 +5843,6 @@ def main():
                              uvminscalarphasediff=args['uvminscalarphasediff'], \
                              docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
                              blsmooth_chunking_size=args['blsmooth_chunking_size'])
-
-
 
      # TRIGGER MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
