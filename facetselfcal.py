@@ -1216,7 +1216,7 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
                 phase = H.root.sol000.amplitude000.val[:]
                 cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                 cmd += 'ac' + str(count) + '.type=applycal '  
-                cmd += 'ac' + str(count) +' .correction=amplitude000 '
+                cmd += 'ac' + str(count) + '.correction=amplitude000 '
                 count = count + 1        
             except:
                 pass
