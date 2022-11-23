@@ -1452,6 +1452,15 @@ def get_uvwmax(ms):
     t.close()
     return np.max(ssq)
 
+def makeBBSmodelforVLASS(filename):
+    img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10))#, \
+                            # frequency=150e6, beam=(25./3600,25./3600,0.0) )
+    img.write_catalog(format='bbs', bbs_patches='single', outfile='vlass.skymodel', clobber=True)
+    #bbsmodel = 'bla.skymodel'
+    del img
+    return 'vlass.skymodel'    
+    
+
 def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=None, ms=None):
     ''' Creates a TGSS skymodel in DP3-readable format.
     
@@ -3736,7 +3745,8 @@ def circular(ms, linear=False, dysco=True):
     return
 
 
-def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=False, losotobeamlib='stationresponse'):
+def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, \
+                         circ2lin=False, losotobeamlib='stationresponse'):
     """
     correct a ms for the beam in the phase center (array_factor only)
     """
@@ -3747,19 +3757,26 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
 
     losoto = 'losoto'
     taql = 'taql'
-    H5name = create_beamcortemplate(ms)
+    H5name  = create_beamcortemplate(ms)
+    phasedup = check_phaseup(H5name) # in case no beamcor is done we still need this
 
     if lin2circ and circ2lin:
        print('Wrong input in function, both lin2circ and circ2lin are True')
        raise Exception('Wrong input in function, both lin2circ and circ2lin are True')
 
-    losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
-    losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
+    if beam:
+       losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
+       losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True, beamlib=losotobeamlib)
 
-
-    phasedup = fixbeam_ST001(H5name)
-    parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name))
-    force_close(H5name)
+       phasedup = fixbeam_ST001(H5name)
+       parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name))
+       force_close(H5name)
+    
+       #print('Phase up dataset, cannot use DPPP beam, do manual correction')
+       cmdlosoto = losoto + ' ' + H5name + ' ' + parset
+       print(cmdlosoto)
+       logger.info(cmdlosoto)
+       run(cmdlosoto)
 
     if usedppp and not phasedup :
         cmddppp = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
@@ -3802,12 +3819,6 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, circ2lin=Fal
         run(cmddppp)
         run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
     else:
-        # print('Phase up dataset, cannot use DPPP beam, do manual correction')
-        cmdlosoto = losoto + ' ' + H5name + ' ' + parset
-        print(cmdlosoto)
-        logger.info(cmdlosoto)
-        run(cmdlosoto)
-
         cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
         cmd += 'msout.datacolumn=CORRECTED_DATA '
@@ -5515,6 +5526,7 @@ def main():
    parser.add_argument('--msinntimes', help="DP3 msin.ntimes setting. This is mainly used for testing purposes. The default is None.", type=int, default=None)
    parser.add_argument('--autofrequencyaverage-calspeedup', help="Try extra averaging during some selfcalcycles to speed up calibration.", action='store_true')
    parser.add_argument('--autofrequencyaverage', help='Try frequency averaging if it does not result in bandwidth smearing',  action='store_true')
+
    parser.add_argument('--phaseupstations', help="Phase up to a superstation. Possible input: 'core' or 'superterp'. The default is None.", default=None, type=str)
    parser.add_argument('--phaseshiftbox', help="DS9 region file to shift the phasecenter to. This is by default None.", default=None, type=str)
    parser.add_argument('--weightspectrum-clipvalue', help="Extra option to clip WEIGHT_SPECTRUM values above the provided number. Use with care and test first manually to see what is a fitting value. The default is None.", type=float, default=None)
@@ -5555,7 +5567,6 @@ def main():
    parser.add_argument('--tgssfitsimage', help='Start TGSS fits image for model (if not provided use SkyView). The default is None.', type=str)
    parser.add_argument('--no-beamcor', help='Do not correct the visilbities for the array factor.', action='store_true')
    parser.add_argument('--losotobeamcor-beamlib', help="Beam library to use when not using DP3 for the beam correction. Possible input: 'stationreponse', 'lofarbeam' (identical and deprecated). The default is 'stationresponse'.", type=str, default='stationresponse')
-   #parser.add_argument('--use-dpppbeamcor', help='Use DP3 for beam correction, requires recent DP3 version and no phased-up stations', action='store_true')
    parser.add_argument('--docircular', help='Convert linear to circular correlations.', action='store_true')
    parser.add_argument('--dolinear', help='Convert circular to linear correlations.', action='store_true')
    parser.add_argument('--forwidefield', help='Keep solutions such that they can be used for widefield imaging/screens.', action='store_true')
@@ -5730,10 +5741,16 @@ def main():
        args['skymodel'] = makeBBSmodelforTGSS(args['boxfile'],fitsimage = args['tgssfitsimage'], \
                                               pixelscale=args['pixelscale'], imsize=args['imsize'], ms=mslist[0])
      else:
-       # print('You need to provide a boxfile to use --startfromtgss')
        print('You cannot provide a skymodel file manually while using --startfromtgss')
        raise Exception('You cannot provide a skymodel file manually while using --startfromtgss')
 
+   if args['startfromvlass'] and args['start'] == 0:
+     if args['skymodel'] == None:
+       run('vlass_search.py '+ mslist[0])
+       args['skymodel'] = makeBBSmodelforVLASS('fitsimagefromvlass')
+     else:
+       print('You cannot provide a skymodel file manually while using --startfromvlass')
+       raise Exception('You cannot provide a skymodel file manually while using --startfromvlass')
 
    if args['start'] == 0:
      os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p smoothnessrefdistance.p antennaconstraint.p resetsols.p soltypecycles.p')
