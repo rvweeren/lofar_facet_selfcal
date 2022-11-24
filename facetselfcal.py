@@ -1128,8 +1128,8 @@ def tecandphaseplotter(h5, ms, outplotname='plot.png'):
     Returns:
         None
     '''
-    if not os.path.isdir('plotlosoto%s' % ms):  # needed because if this is the first plot this directory does not yet exist
-        os.system('mkdir plotlosoto%s' % ms)
+    if not os.path.isdir('plotlosoto%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
+        os.system('mkdir plotlosoto%s' % os.path.basename(ms))
     cmd = 'python plot_tecandphase.py  '
     cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (ms, outplotname)
     print(cmd)
@@ -1239,6 +1239,7 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
 
 
 def inputchecker(args):
+
     ''' Check input validity.
     Args:
         args (dict): argparse inputs.
@@ -1429,7 +1430,7 @@ def inputchecker(args):
         if (args['wscleanskymodel'].find('..') != -1):
             print('wscleanskymodel contains .., not allowed, needs to be in pwd')      
             sys.exit(1)  
-    return  
+    return
 
   
 def get_uvwmax(ms):
@@ -3322,7 +3323,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-0.5,0.5]\n')
-    f.write('prefix = plotlosoto%s/phases_beam\n' % ms)
+    f.write('prefix = plotlosoto%s/phases_beam\n' % os.path.basename(ms))
     f.write('refAnt = %s\n\n\n' % refant)
 
     f.write('[plotamp]\n')
@@ -3331,7 +3332,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [0.2,1]\n')
-    f.write('prefix = plotlosoto%s/amplitudes_beam\n' %ms)
+    f.write('prefix = plotlosoto%s/amplitudes_beam\n' % os.path.basename(ms))
 
     f.close()
     return parset
@@ -3353,7 +3354,7 @@ def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttec
     f.write('soltabToAdd = tec000\n')
     f.write('figSize=[120,20]\n')
     f.write('markerSize=%s\n' % np.int(markersize))
-    f.write('prefix = plotlosoto%s/fasttecandphase\n' % ms)
+    f.write('prefix = plotlosoto%s/fasttecandphase\n' % os.path.basename(ms))
     f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -3626,7 +3627,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
       f.write('minmax = [0,2.5]\n')
     else:
       f.write('minmax = [0,2.5]\n')
-    f.write('prefix = plotlosoto%s/amps_smoothed\n\n\n' % ms)
+    f.write('prefix = plotlosoto%s/amps_smoothed\n\n\n' % os.path.basename(ms))
 
     if includesphase:
         f.write('[plotphase_after]\n')
@@ -3638,7 +3639,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
           f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = plotlosoto%s/phases_smoothed\n\n\n' % ms)
+        f.write('prefix = plotlosoto%s/phases_smoothed\n\n\n' % os.path.basename(ms))
         f.write('refAnt = %s\n' % refant)
 
 
@@ -3651,7 +3652,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
           f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-1,1]\n')
-        f.write('prefix = plotlosoto%s/phases_smoothed1rad\n' % ms)
+        f.write('prefix = plotlosoto%s/phases_smoothed1rad\n' % os.path.basename(ms))
         f.write('refAnt = %s\n' % refant)
 
     f.close()
