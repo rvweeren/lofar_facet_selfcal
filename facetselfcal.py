@@ -1239,8 +1239,11 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
 
 
 def inputchecker(args):
-
     ''' Check input validity.
+    Args:
+        args (dict): argparse inputs.
+    '''
+    
     if args['iontimefactor'] <= 0.0:
         print('BLsmooth iontimefactor needs to be positive')
         sys.exit(1)
@@ -1428,6 +1431,7 @@ def inputchecker(args):
             sys.exit(1)  
     return  
 
+  
 def get_uvwmax(ms):
     ''' Find the maximum squared sum of UVW coordinates.
     
@@ -4614,8 +4618,8 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
            else:
              pertubation[msnumber] = False
          else:
-           pertubation[msnumber] = False     
-             
+           pertubation[msnumber] = False
+
          if skymodel != None and selfcalcycle == 0:  
            parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
          else:
@@ -4671,7 +4675,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
    if True:
      # import h5_merger
      for msnumber, ms in enumerate(mslist):
-       if skymodel != None and selfcalcycle == 0: 
+       if skymodel != None and selfcalcycle == 0:
          parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
          parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
        else:
@@ -4719,7 +4723,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, \
                             medamp=medianamp(parmdbmergename), \
                             outplotname=parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0], \
-                            refant=findrefant_core(parmdbmergename))  
+                            refant=findrefant_core(parmdbmergename))
        run('losoto ' + parmdbmergename + ' ' + losotoparset)
        force_close(parmdbmergename)
    return
