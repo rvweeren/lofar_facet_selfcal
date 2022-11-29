@@ -1128,8 +1128,8 @@ def tecandphaseplotter(h5, ms, outplotname='plot.png'):
     Returns:
         None
     '''
-    if not os.path.isdir('plotlosoto%s' % ms):  # needed because if this is the first plot this directory does not yet exist
-        os.system('mkdir plotlosoto%s' % ms)
+    if not os.path.isdir('plotlosoto%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
+        os.system('mkdir plotlosoto%s' % os.path.basename(ms))
     cmd = 'python plot_tecandphase.py  '
     cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (ms, outplotname)
     print(cmd)
@@ -1239,16 +1239,12 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
 
 
 def inputchecker(args):
-    ''' Check input validity.
 
+    ''' Check input validity.
     Args:
         args (dict): argparse inputs.
     '''
-    for ms_id, ms in enumerate(args['ms']):
-        if ms.find('/') != -1:
-            print('All ms need to be local, no "/" are allowed in ms name')
-            sys.exit(1)
-
+    
     if args['iontimefactor'] <= 0.0:
         print('BLsmooth iontimefactor needs to be positive')
         sys.exit(1)
@@ -1435,8 +1431,8 @@ def inputchecker(args):
             print('wscleanskymodel contains .., not allowed, needs to be in pwd')      
             sys.exit(1)  
     return
-  
 
+  
 def get_uvwmax(ms):
     ''' Find the maximum squared sum of UVW coordinates.
     
@@ -3327,7 +3323,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-0.5,0.5]\n')
-    f.write('prefix = plotlosoto%s/phases_beam\n' % ms)
+    f.write('prefix = plotlosoto%s/phases_beam\n' % os.path.basename(ms))
     f.write('refAnt = %s\n\n\n' % refant)
 
     f.write('[plotamp]\n')
@@ -3336,7 +3332,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [0.2,1]\n')
-    f.write('prefix = plotlosoto%s/amplitudes_beam\n' %ms)
+    f.write('prefix = plotlosoto%s/amplitudes_beam\n' % os.path.basename(ms))
 
     f.close()
     return parset
@@ -3358,7 +3354,7 @@ def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttec
     f.write('soltabToAdd = tec000\n')
     f.write('figSize=[120,20]\n')
     f.write('markerSize=%s\n' % np.int(markersize))
-    f.write('prefix = plotlosoto%s/fasttecandphase\n' % ms)
+    f.write('prefix = plotlosoto%s/fasttecandphase\n' % os.path.basename(ms))
     f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -3631,7 +3627,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
       f.write('minmax = [0,2.5]\n')
     else:
       f.write('minmax = [0,2.5]\n')
-    f.write('prefix = plotlosoto%s/amps_smoothed\n\n\n' % ms)
+    f.write('prefix = plotlosoto%s/amps_smoothed\n\n\n' % os.path.basename(ms))
 
     if includesphase:
         f.write('[plotphase_after]\n')
@@ -3643,7 +3639,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
           f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = plotlosoto%s/phases_smoothed\n\n\n' % ms)
+        f.write('prefix = plotlosoto%s/phases_smoothed\n\n\n' % os.path.basename(ms))
         f.write('refAnt = %s\n' % refant)
 
 
@@ -3656,7 +3652,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
           f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-1,1]\n')
-        f.write('prefix = plotlosoto%s/phases_smoothed1rad\n' % ms)
+        f.write('prefix = plotlosoto%s/phases_smoothed1rad\n' % os.path.basename(ms))
         f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -4625,11 +4621,11 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          else:
            pertubation[msnumber] = False
 
-         if skymodel != None and selfcalcycle == 0:
-           parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
+         if skymodel != None and selfcalcycle == 0:  
+           parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
          else:
-           parmdb = soltype + str(soltypenumber) + '_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
-
+           parmdb = soltype + str(soltypenumber) + '_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+          
          runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
                      longbaseline=longbaseline, uvmin=uvmin, \
                      SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
@@ -4681,11 +4677,11 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
      # import h5_merger
      for msnumber, ms in enumerate(mslist):
        if skymodel != None and selfcalcycle == 0:
-         parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
-         parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + ms + '.h5'
+         parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+         parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
        else:
-         parmdbmergename = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.h5'
-         parmdbmergename_pc = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + ms + '.h5'
+         parmdbmergename = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+         parmdbmergename_pc = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + os.path.basename(ms) + '.h5' 
        if os.path.isfile(parmdbmergename):
          os.system('rm -f ' + parmdbmergename)
        if os.path.isfile(parmdbmergename_pc):
@@ -4727,7 +4723,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        # plot merged solution file
        losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, \
                             medamp=medianamp(parmdbmergename), \
-                            outplotname=parmdbmergename.split('_' + ms + '.h5')[0], \
+                            outplotname=parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0], \
                             refant=findrefant_core(parmdbmergename))
        run('losoto ' + parmdbmergename + ' ' + losotoparset)
        force_close(parmdbmergename)
@@ -4947,7 +4943,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     print('DP3 solve:', cmd)
     logger.info('DP3 solve: ' + cmd)
     if selfcalcycle > 0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
-        h5_tocopy = glob.glob("*_"+ms+".h5.scbackup")[0] # What if your ms nums somehow share a common base??
+        h5_tocopy = glob.glob("*_"+os.path.basename(ms)+".h5.scbackup")[0] # What if your ms nums somehow share a common base??
         print("COPYING PREVIOUS SCALARPHASEDIFF SOLUTION")
         os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
     else:
@@ -4963,7 +4959,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       print('Template solve, not going to make plots or do solution flagging')
       return
 
-    outplotname = parmdb.split('_' + ms + '.h5')[0]
+    outplotname = parmdb.split('_' + os.path.basename(ms) + '.h5')[0]
 
     if incol == 'DATA_CIRCULAR_PHASEDIFF':
       print('Manually updating H5 to get the phase difference correct')
