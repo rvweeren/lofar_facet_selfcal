@@ -63,6 +63,8 @@ import tables
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.wcs import WCS
+from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
+from astropy.time import Time
 from astroquery.skyview import SkyView
 from losoto import h5parm
 
