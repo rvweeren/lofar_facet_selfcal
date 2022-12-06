@@ -1051,9 +1051,9 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
 
     outmslist = []
     for ms_id, ms in enumerate(mslist):
-        if (np.int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep != None) or (
-                msinnchan != None) or \
-                (phaseshiftbox != None) or (msinntimes != None):  # if this is True then average
+        if (np.int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep is not None) or (
+                msinnchan is not None) or \
+                (phaseshiftbox is not None) or (msinntimes is not None):  # if this is True then average
             if makecopy:
                 msout = ms + '.copy'
             else:
@@ -1062,7 +1062,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
             cmd += 'msout=' + msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
             if dysco:
                 cmd += 'msout.storagemanager=dysco '
-            if phaseshiftbox != None:
+            if phaseshiftbox is not None:
                 cmd += ' steps=[shift,av] '
                 cmd += ' shift.type=phaseshifter '
                 cmd += ' shift.phasecenter=\[' + getregionboxcenter(phaseshiftbox) + '\] '
@@ -1070,7 +1070,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                 cmd += ' steps=[av] '
 
                 # freqavg
-            if freqstep[ms_id] != None:
+            if freqstep[ms_id] is not None:
                 if str(freqstep[ms_id]).isdigit():
                     cmd += 'av.freqstep=' + str(freqstep[ms_id]) + ' '
                 else:
@@ -1082,7 +1082,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                     cmd += 'av.freqresolution=' + str(freqstep[ms_id]) + ' '
 
                     # timeavg
-            if timestep != None:
+            if timestep is not None:
                 if str(timestep).isdigit():
                     cmd += 'av.timestep=' + str(np.int(timestep)) + ' '
                 else:
@@ -1093,9 +1093,9 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                         raise Exception('For time averaging only units of "s(ec)" are allowed')
                     cmd += 'av.timeresolution=' + str(timestepstr) + ' '
 
-            if msinnchan != None:
+            if msinnchan is not None:
                 cmd += 'msin.nchan=' + str(msinnchan) + ' '
-            if msinntimes != None:
+            if msinntimes is not None:
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
             if start == 0:
                 print('Average with default WEIGHT_SPECTRUM:', cmd)
@@ -1110,7 +1110,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
             cmd += 'msout=' + msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
 
             # freqavg
-            if freqstep[ms_id] != None:
+            if freqstep[ms_id] is not None:
                 if str(freqstep[ms_id]).isdigit():
                     cmd += 'av.freqstep=' + str(freqstep[ms_id]) + ' '
                 else:
@@ -1122,7 +1122,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                     cmd += 'av.freqresolution=' + str(freqstep[ms_id]) + ' '
 
                     # timeavg
-            if timestep != None:
+            if timestep is not None:
                 if str(timestep).isdigit():
                     cmd += 'av.timestep=' + str(np.int(timestep)) + ' '
                 else:
@@ -1132,9 +1132,9 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                         print('For time averaging only units of s(ec) are allowed, used:', timestepstrnot)
                         raise Exception('For time averaging only units of "s(ec)" are allowed')
                     cmd += 'av.timeresolution=' + str(timestepstr) + ' '
-            if msinnchan != None:
+            if msinnchan is not None:
                 cmd += 'msin.nchan=' + str(msinnchan) + ' '
-            if msinntimes != None:
+            if msinntimes is not None:
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
 
             if start == 0:
@@ -1336,7 +1336,7 @@ def inputchecker(args):
         print('Cannot find polconv.py, file does not exist, use --helperscriptspath')
         raise Exception('Cannot find polconv.py, file does not exist, use --helperscriptspath')
 
-    if args['phaseshiftbox'] != None:
+    if args['phaseshiftbox'] is not None:
         if not os.path.isfile(args['phaseshiftbox']):
             print('Cannot find:', args['phaseshiftbox'])
             raise Exception('Cannot find:' + args['phaseshiftbox'])
@@ -1349,7 +1349,7 @@ def inputchecker(args):
         if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
                                      'all', 'international', 'alldutch', 'core-remote',
                                      'coreandallbutmostdistantremotes', 'alldutchbutnoST001'] \
-                and antennaconstraint != None:
+                and antennaconstraint is not None:
             print(
                 'Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
             raise Exception(
@@ -1359,7 +1359,7 @@ def inputchecker(args):
         if resetsols not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
                              'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes',
                              'alldutchbutnoST001'] \
-                and resetsols != None:
+                and resetsols is not None:
             print(
                 'Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
             raise Exception(
@@ -1373,17 +1373,17 @@ def inputchecker(args):
             print('Invalid soltype input')
             raise Exception('Invalid soltype input')
 
-    if args['boxfile'] != None:
+    if args['boxfile'] is not None:
         if not (os.path.isfile(args['boxfile'])):
             print('Cannot find boxfile, file does not exist')
             raise Exception('Cannot find boxfile, file does not exist')
 
-    if args['fitsmask'] != None:
+    if args['fitsmask'] is not None:
         if not (os.path.isfile(args['fitsmask'])):
             print('Cannot find fitsmask, file does not exist')
             raise Exception('Cannot find fitsmask, file does not exist')
 
-    if args['skymodel'] != None:
+    if args['skymodel'] is not None:
         if not (os.path.isfile(args['skymodel'])) and not (os.path.isdir(args['skymodel'])):
             print('Cannot find skymodel, file does not exist')
             raise Exception('Cannot find skymodel, file does not exist')
@@ -1402,7 +1402,7 @@ def inputchecker(args):
             print('Incomplete input detected, either boxfile or imsize is required')
             raise Exception('Incomplete input detected, either boxfile or imsize is required')
 
-    if args['boxfile'] != None and args['imsize'] != None:
+    if args['boxfile'] is not None and args['imsize'] is not None:
         print('Wrong input detected, both boxfile and imsize are set')
         raise Exception('Wrong input detected, both boxfile and imsize are set')
 
@@ -1410,7 +1410,7 @@ def inputchecker(args):
         print('Wrong input detected for option --imager, should be DDFACET or WSCLEAN')
         raise Exception('Wrong input detected for option --imager, should be DDFACET or WSCLEAN')
 
-    if args['phaseupstations'] != None:
+    if args['phaseupstations'] is not None:
         if args['phaseupstations'] not in ['core', 'superterp']:
             print('Wrong input detected for option --phaseupstations, should be core or superterp')
             raise Exception('Wrong input detected for option --phaseupstations, should be core or superterp')
@@ -1444,44 +1444,44 @@ def inputchecker(args):
             print('Smoothnessreffrequency must be equal or larger than 0.0')
             raise Exception('Smoothnessreffrequency must be equal or larger than 0.0')
 
-    if (args['skymodel'] != None) and (args['skymodelpointsource']) != None:
+    if (args['skymodel'] is not None) and (args['skymodelpointsource']) is not None:
         print('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
         raise Exception('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
-    if (args['skymodelpointsource'] != None):
+    if (args['skymodelpointsource'] is not None):
         if (args['skymodelpointsource'] <= 0.0):
             print('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
             raise Exception('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
-    if (args['msinnchan'] != None):
+    if (args['msinnchan'] is not None):
         if (args['msinnchan'] <= 0):
             print('Wrong input for msinnchan, must be larger than zero')
             raise Exception('Wrong input for msinnchan, must be larger than zero')
-    if (args['msinntimes'] != None):
+    if (args['msinntimes'] is not None):
         if (args['msinntimes'] <= 1):
             print('Wrong input for msinntimes, must be larger than 1')
             raise Exception('Wrong input for msinntimes, must be larger than 1')
 
-    if (args['skymodelpointsource'] != None) and (args['predictskywithbeam']):
+    if (args['skymodelpointsource'] is not None) and (args['predictskywithbeam']):
         print('Combination of skymodelpointsource and predictskywithbeam not supported')
         print('Provide a skymodel file to predict the sky with the beam')
         raise Exception('Combination of skymodelpointsource and predictskywithbeam not supported')
 
-    if (args['wscleanskymodel'] != None) and (args['skymodelpointsource']) != None:
+    if (args['wscleanskymodel'] is not None) and (args['skymodelpointsource']) is not None:
         print('Wrong input, you cannot use a wscleanskymodel and then also set skymodelpointsource')
         raise Exception('Wrong input, you cannot use a wscleanskymodel and then also set skymodelpointsource')
 
-    if (args['wscleanskymodel'] != None) and (args['skymodel']) != None:
+    if (args['wscleanskymodel'] is not None) and (args['skymodel']) is not None:
         print('Wrong input, you cannot use a wscleanskymodel and then also set skymodel')
         raise Exception('Wrong input, you cannot use a wscleanskymodel and then also set skymodel')
 
-    if (args['wscleanskymodel'] != None) and (args['predictskywithbeam']):
+    if (args['wscleanskymodel'] is not None) and (args['predictskywithbeam']):
         print('Combination of wscleanskymodel and predictskywithbeam not supported')
         print('Provide a skymodel component file to predict the sky with the beam')
         raise Exception('Combination of wscleanskymodel and predictskywithbeam not supported')
 
-    if (args['wscleanskymodel'] != None) and (args['imager'] == 'DDFACET'):
+    if (args['wscleanskymodel'] is not None) and (args['imager'] == 'DDFACET'):
         print('Combination of wscleanskymodel and DDFACET as an imager is not supported')
         raise Exception('Combination of wscleanskymodel and DDFACET as an imager is not supported')
-    if (args['wscleanskymodel'] != None):
+    if (args['wscleanskymodel'] is not None):
         if len(glob.glob(args['wscleanskymodel'] + '-????-model.fits')) < 2:
             print('Not enough WSClean channel model images found')
             print(glob.glob(args['wscleanskymodel'] + '-????-model.fits'))
@@ -1536,7 +1536,7 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     if boxfile == None and imsize == None:
         print('Wring input detected, boxfile or imsize needs to be set')
         raise Exception('Wring input detected, boxfile or imsize needs to be set')
-    if boxfile != None:
+    if boxfile is not None:
        r = pyregion.open(boxfile)
        if len(r[:]) > 1:
           print('Composite region file, not allowed')
@@ -2697,11 +2697,11 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True):
   msliststring = ' '.join(map(str, glob.glob('*.calibrated') ))
   cmd = 'tar -zcf ' + outtarname + ' ' + msliststring + ' selfcal.log ' +  imagename + ' '
 
-  if fitsmask != None:  # add fitsmask to tar if it exists
+  if fitsmask is not None:  # add fitsmask to tar if it exists
     if os.path.isfile(fitsmask):
       cmd +=  fitsmask + ' '
 
-  if regionfile != None:  # add box regionfile to tar if it exists
+  if regionfile is not None:  # add box regionfile to tar if it exists
     if os.path.isfile(regionfile):
       cmd +=  regionfile + ' '
 
@@ -4514,13 +4514,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
          cmd += '-multiscale '
          cmd += '-multiscale-scale-bias ' + str(multiscalescalebias) + ' '
          cmd += '-multiscale-max-scales ' + str(np.int(np.rint(np.log2(np.float(imsize)) -3))) + ' '
-      if fitsmask != None:
+      if fitsmask is not None:
         if os.path.isfile(fitsmask):
           cmd += '-fits-mask '+ fitsmask + ' '
         else:
           print('fitsmask: ', fitsmask, 'does not exist')
           raise Exception('fitsmask does not exist')
-      if uvtaper != None:
+      if uvtaper is not None:
          cmd += '-taper-gaussian ' + uvtaper + ' '
       if taperinnertukey !=None:
          cmd += '-taper-inner-tukey ' + str(taperinnertukey) + ' '
@@ -4634,7 +4634,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
               '--Comp-BDAMode=1 --DDESolutions-DDModeGrid=AP --DDESolutions-DDModeDeGrid=AP --Cache-Reset=1 ' + \
               '--RIME-ForwardMode=BDA-degrid --Predict-ColName=MODEL_DATA --Selection-UVRange=[0.1,2000.] ' + \
               '--Output-RestoringBeam=' + str(restoringbeam) + ' --Mask-SigTh=5.0 '
-        if fitsmask != None:
+        if fitsmask is not None:
            cmd += '--Mask-External=' + fitsmask + ' --Mask-Auto=0 '
         else:
            cmd += '--Mask-Auto=1 '
@@ -4682,7 +4682,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          else:
            pertubation[msnumber] = False
 
-         if skymodel != None and selfcalcycle == 0:  
+         if skymodel is not None and selfcalcycle == 0:
            parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
          else:
            parmdb = soltype + str(soltypenumber) + '_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
@@ -4737,7 +4737,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
    if True:
      # import h5_merger
      for msnumber, ms in enumerate(mslist):
-       if skymodel != None and selfcalcycle == 0:
+       if skymodel is not None and selfcalcycle == 0:
          parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
          parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
        else:
@@ -4749,7 +4749,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          os.system('rm -f ' + parmdbmergename_pc)
 
        # add extra from preapplyH5_list
-       if args['preapplyH5_list'][0] != None:
+       if args['preapplyH5_list'][0] is not None:
          preapplyh5parm = time_match_mstoH5(args['preapplyH5_list'], ms)
          # replace the source direction coordinates so that the merge goes correctly
          # copy_over_sourcedirection_h5(parmdbmergelist[msnumber][0], preapplyh5parm)
@@ -4759,7 +4759,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        h5_merger.merge_h5(h5_out=parmdbmergename,h5_tables=parmdbmergelist[msnumber],ms_files=ms,\
                           convert_tec=True, merge_all_in_one=True, propagate_flags=True)
        # add CS stations back for superstation
-       if mslist_beforephaseup != None:
+       if mslist_beforephaseup is not None:
          print('mslist_beforephaseup: ' + mslist_beforephaseup[msnumber])
          h5_merger.merge_h5(h5_out=parmdbmergename.replace("selfcalcyle",\
                             "addCS_selfcalcyle"),h5_tables=parmdbmergename, \
@@ -4770,7 +4770,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or docircular:
          h5_merger.merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True)
          # add CS stations back for superstation
-         if mslist_beforephaseup != None:
+         if mslist_beforephaseup is not None:
            h5_merger.merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcyle",\
                               "addCS_selfcalcyle"),h5_tables=parmdbmergename_pc, \
                               ms_files=mslist_beforephaseup[msnumber], convert_tec=True, merge_all_in_one=True, \
@@ -4840,7 +4840,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
 
    cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msout=. '
    cmd += 'p.sourcedb=' + sourcedb + ' steps=[p] p.type=predict msout.datacolumn=' + modeldata + ' '
-   if sources != None:
+   if sources is not None:
       cmd += 'p.sources=[' + str(sources) + '] '
    if predictskywithbeam:
       cmd += 'p.usebeammodel=True p.usechannelfreq=True p.beammode=array_factor '
@@ -4973,7 +4973,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
 
     # SET UVMIN
     if soltypein == 'scalarphasediff' or soltypein == 'scalarphasediffFR':
-       if uvminscalarphasediff != None:
+       if uvminscalarphasediff is not None:
          cmd += 'ddecal.uvlambdamin=' + str(uvminscalarphasediff) + ' '
        else:
          if uvmin != 0:
@@ -4982,7 +4982,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
        if uvmin != 0:
          cmd += 'ddecal.uvlambdamin=' + str(uvmin) + ' '
 
-    if antennaconstraint != None:
+    if antennaconstraint is not None:
         cmd += 'ddecal.antennaconstraint=' + antennaconstraintstr(antennaconstraint, antennasms, HBAorLBA) + ' '
     if SMconstraint > 0.0 and nchan != 0:
         cmd += 'ddecal.smoothnessconstraint=' + str(SMconstraint*1e6) + ' '
@@ -5040,7 +5040,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       print('Manually updating H5 to get the cumulative phase')
       makephaseCDFh5(parmdb)
 
-    if resetsols != None:
+    if resetsols is not None:
       if soltype in ['phaseonly','scalarphase','tecandphase','tec','rotation','fulljones','complexgain','scalarcomplexgain']:
          refant=findrefant_core(parmdb)
          force_close(parmdb)
@@ -5439,7 +5439,7 @@ def basicsetup(mslist, args):
      if args['imsize'] == None:
        args['imsize'] = 2048
 
-   if args['boxfile'] != None:
+   if args['boxfile'] is not None:
      args['imsize']   = getimsize(args['boxfile'], args['pixelscale'])
    if args['niter'] == None:
      args['niter'] = niter_from_imsize(args['imsize'])
@@ -5523,12 +5523,12 @@ def basicsetup(mslist, args):
      automask = args['maskthreshold'][-1] # in case we use a low value for maskthreshold, like Herc A
 
    args['imagename']  = args['imagename'] + '_'
-   if args['fitsmask'] != None:
+   if args['fitsmask'] is not None:
      fitsmask = args['fitsmask']
    else:
      fitsmask = None
 
-   if args['boxfile'] != None:
+   if args['boxfile'] is not None:
      outtarname = (args['boxfile'].split('/')[-1]).split('.reg')[0] + '.tar.gz'
    else:
      outtarname = 'calibrateddata' + '.tar.gz'
@@ -5689,7 +5689,7 @@ def main():
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
-   if args['helperscriptspathh5merge'] != None:
+   if args['helperscriptspathh5merge'] is not None:
      os.system('cp ' + args['helperscriptspathh5merge'] + '/h5_merger.py .')
      sys.path.append(os.path.abspath(args['helperscriptspathh5merge']))
    else:
@@ -5707,7 +5707,7 @@ def main():
 
 
    for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
-     if h5parmdb != None:
+     if h5parmdb is not None:
        os.system('cp ' + h5parmdb +  ' .') # make them local because source direction will ne updated for merging
        args['preapplyH5_list'][h5parm_id] = h5parmdb.split('/')[-1] # update input list to local location
 
@@ -5729,7 +5729,7 @@ def main():
                        makecopy=True, dysco=args['dysco'])
 
    # take out bad WEIGHT_SPECTRUM values if weightspectrum_clipvalue is set
-   if args['weightspectrum_clipvalue'] != None:
+   if args['weightspectrum_clipvalue'] is not None:
       fix_bad_weightspectrum(mslist, clipvalue=args['weightspectrum_clipvalue'])
 
    # extra flagging if requested
@@ -5748,7 +5748,7 @@ def main():
 
 
    # PRE-APPLY SOLUTIONS (from a nearby direction for example)
-   # if (args['applydelaycalH5_list'][0]) != None and  args['start'] == 0:
+   # if (args['applydelaycalH5_list'][0]) is not None and  args['start'] == 0:
    #      preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'], dyso=args['dysco'])
 
    # check if we could average more
@@ -5758,7 +5758,7 @@ def main():
         and not args['autofrequencyaverage_calspeedup']: # autoaverage
         avgfreqstep.append(findfreqavg(ms,np.float(args['imsize'])))
       else:
-        if args['avgfreqstep'] != None:
+        if args['avgfreqstep'] is not None:
            avgfreqstep.append(args['avgfreqstep']) # take over handpicked average value
         else:
            avgfreqstep.append(0) # put to zero, zero means no average
@@ -5824,7 +5824,7 @@ def main():
    restoringbeam = calculate_restoringbeam(mslist, LBA)
 
    # set once here, will be updated in the loop below if phaseup is requested
-   if args['phaseupstations'] != None:
+   if args['phaseupstations'] is not None:
       # used for h5_merge add_CS option
       mslist_beforephaseup = mslist[:]  # note copy by slicing otherwise list refers to original
    else:
@@ -5873,7 +5873,7 @@ def main():
 
 
      # PRE-APPLY SOLUTIONS (from a nearby direction for example)
-     # if (args['preapplyH5_list'][0]) != None and i == 0:
+     # if (args['preapplyH5_list'][0]) is not None and i == 0:
      #    preapply(args['preapplyH5_list'], mslist, dysco=args['dysco'])
 
      # TMP AVERAGE TO SPEED UP CALIBRATION
@@ -5888,18 +5888,18 @@ def main():
          preapply(create_mergeparmdbname(mslist, i-1), mslist, updateDATA=False, dysco=args['dysco']) # do not overwrite DATA column
 
      # PHASE-UP if requested
-     if args['phaseupstations'] != None:
+     if args['phaseupstations'] is not None:
          if (i == 0) or (i == args['start']):
              mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], \
                               start=i, dysco=args['dysco'])
      # PRE-APPLY SOLUTIONS (from a nearby direction for example)
-     if (args['preapplyH5_list'][0]) != None and i == 0:
+     if (args['preapplyH5_list'][0]) is not None and i == 0:
          preapply(args['preapplyH5_list'], mslist, dysco=args['dysco'])
 
 
      # CALIBRATE AGAINST SKYMODEL
-     if (args['skymodel'] != None or args['skymodelpointsource'] != None \
-         or args['wscleanskymodel'] != None) and (i ==0):
+     if (args['skymodel'] is not None or args['skymodelpointsource'] is not None \
+         or args['wscleanskymodel'] is not None) and (i ==0):
         calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
                              soltypecycles_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
                              smoothnessspectralexponent_list, smoothnessrefdistance_list, \
@@ -6029,7 +6029,7 @@ def main():
 
        if maskthreshold_selfcalcycle[i] > 0.0:
          cmdm  = 'MakeMask.py --Th='+ str(maskthreshold_selfcalcycle[i]) + ' --RestoredIm=' + imagename
-         if fitsmask != None:
+         if fitsmask is not None:
            if os.path.isfile(imagename + '.mask.fits'):
              os.system('rm -f ' + imagename + '.mask.fits')
          run(cmdm)
