@@ -72,6 +72,12 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(filename='selfcal.log',
                     format='%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 logger.setLevel(logging.DEBUG)
+
+try:
+    import everybeam
+except ImportError:
+    logger.warning('Failed to import EveryBeam, functionality will not be available.')
+
 matplotlib.use('Agg')
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
@@ -334,7 +340,7 @@ def check_code_is_uptodate():
     with open('h5_merger.py') as f:
         if 'propagate_flags' not in f.read():
             print("Update h5_merger, this version misses the propagate_flags option")
-            sys.exit()
+            raise Exception("Update h5_merger, this version misses the propagate_flags option")
     return
 
 
@@ -466,7 +472,7 @@ def time_match_mstoH5(H5filelist, ms):
 
     if H5filematch is None:
         print('Cannot find matching H5file and ms')
-        sys.exit()
+        raise Exception('Cannot find matching H5file and ms')
 
     return H5filematch
 
@@ -973,7 +979,7 @@ def ntimesH5(H5file):
                         times = H.root.sol000.rotation000.time[:]
                     except:    
                         print('No amplitude000,phase000, tec000, rotation000, or rotationmeasure000 solutions found')  
-                        sys.exit()
+                        raise Exception('No amplitude000,phase000, tec000, rotation000, or rotationmeasure000 solutions found')
     H.close()
     return len(times)
 
@@ -1021,7 +1027,8 @@ def checklongbaseline(ms):
     return haslongbaselines
 
 
-def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None, makecopy=False, delaycal=False, timeresolution='32', freqresolution='195.3125kHz', dysco=True):
+def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None,
+            makecopy=False, delaycal=False, freqresolution='195.3125kHz', dysco=True):
     ''' Average and/or phase-shift a list of Measurement Sets.
 
     Args:
@@ -1040,11 +1047,13 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
     # sanity check
     if len(mslist) != len(freqstep):
         print('Hmm, made a mistake with freqstep?')
-        sys.exit()
+        raise Exception('len(mslist) != len(freqstep)')
 
     outmslist = []
     for ms_id, ms in enumerate(mslist):
-        if (freqstep[ms_id] > 0) or (timestep is not None) or (msinnchan is not None) or (phaseshiftbox is not None) or (msinntimes is not None):  # if this is True then average
+        if (np.int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep != None) or (
+                msinnchan != None) or \
+                (phaseshiftbox != None) or (msinntimes != None):  # if this is True then average
             if makecopy:
                 msout = ms + '.copy'
             else:
@@ -1053,20 +1062,40 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
             cmd += 'msout=' + msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
             if dysco:
                 cmd += 'msout.storagemanager=dysco '
-            if phaseshiftbox is not None:
+            if phaseshiftbox != None:
                 cmd += ' steps=[shift,av] '
                 cmd += ' shift.type=phaseshifter '
-                cmd += ' shift.phasecenter=\['+getregionboxcenter(phaseshiftbox)+'\] '
-            else:    
+                cmd += ' shift.phasecenter=\[' + getregionboxcenter(phaseshiftbox) + '\] '
+            else:
                 cmd += ' steps=[av] '
 
-            if freqstep[ms_id] is not None:
-                cmd += 'av.freqstep=' + str(freqstep[ms_id]) + ' '
-            if timestep is not None:
-                cmd += 'av.timestep=' + str(timestep) + ' '
-            if msinnchan is not None:
+                # freqavg
+            if freqstep[ms_id] != None:
+                if str(freqstep[ms_id]).isdigit():
+                    cmd += 'av.freqstep=' + str(freqstep[ms_id]) + ' '
+                else:
+                    freqstepstr = ''.join([i for i in freqstep[ms_id] if not i.isalpha()])
+                    freqstepstrnot = ''.join([i for i in freqstep[ms_id] if i.isalpha()])
+                    if freqstepstrnot != 'Hz' and freqstepstrnot != 'kHz' and freqstepstrnot != 'MHz':
+                        print('For frequency averaging only units of (k/M)Hz are allowed, used:', freqstepstrnot)
+                        raise Exception('For frequency averaging only units of " (k/M)Hz" are allowed')
+                    cmd += 'av.freqresolution=' + str(freqstep[ms_id]) + ' '
+
+                    # timeavg
+            if timestep != None:
+                if str(timestep).isdigit():
+                    cmd += 'av.timestep=' + str(np.int(timestep)) + ' '
+                else:
+                    timestepstr = ''.join([i for i in timestep if not i.isalpha()])
+                    timestepstrnot = ''.join([i for i in timestep if i.isalpha()])
+                    if timestepstrnot != 's' and timestepstrnot != 'sec':
+                        print('For time averaging only units of s(ec) are allowed, used:', timestepstrnot)
+                        raise Exception('For time averaging only units of "s(ec)" are allowed')
+                    cmd += 'av.timeresolution=' + str(timestepstr) + ' '
+
+            if msinnchan != None:
                 cmd += 'msin.nchan=' + str(msinnchan) + ' '
-            if msinntimes is not None:
+            if msinntimes != None:
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
             if start == 0:
                 print('Average with default WEIGHT_SPECTRUM:', cmd)
@@ -1079,13 +1108,33 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
             if dysco:
                 cmd += ' msout.storagemanager=dysco '
             cmd += 'msout=' + msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
-            if freqstep[ms_id] is not None:
-                cmd += 'av.freqstep=' + str(freqstep[ms_id]) + ' '
-            if timestep is not None:
-                cmd += 'av.timestep=' + str(timestep) + ' '
-            if msinnchan is not None:
+
+            # freqavg
+            if freqstep[ms_id] != None:
+                if str(freqstep[ms_id]).isdigit():
+                    cmd += 'av.freqstep=' + str(freqstep[ms_id]) + ' '
+                else:
+                    freqstepstr = ''.join([i for i in freqstep[ms_id] if not i.isalpha()])
+                    freqstepstrnot = ''.join([i for i in freqstep[ms_id] if i.isalpha()])
+                    if freqstepstrnot != 'Hz' and freqstepstrnot != 'kHz' and freqstepstrnot != 'MHz':
+                        print('For frequency averaging only units of (k/M)Hz are allowed, used:', freqstepstrnot)
+                        raise Exception('For frequency averaging only units of " (k/M)Hz" are allowed')
+                    cmd += 'av.freqresolution=' + str(freqstep[ms_id]) + ' '
+
+                    # timeavg
+            if timestep != None:
+                if str(timestep).isdigit():
+                    cmd += 'av.timestep=' + str(np.int(timestep)) + ' '
+                else:
+                    timestepstr = ''.join([i for i in timestep if not i.isalpha()])
+                    timestepstrnot = ''.join([i for i in timestep if i.isalpha()])
+                    if timestepstrnot != 's' and timestepstrnot != 'sec':
+                        print('For time averaging only units of s(ec) are allowed, used:', timestepstrnot)
+                        raise Exception('For time averaging only units of "s(ec)" are allowed')
+                    cmd += 'av.timeresolution=' + str(timestepstr) + ' '
+            if msinnchan != None:
                 cmd += 'msin.nchan=' + str(msinnchan) + ' '
-            if msinntimes is not None:
+            if msinntimes != None:
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
 
             if start == 0:
@@ -1114,10 +1163,13 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
 
                     # clean up
                     os.system('rm -rf ' + msouttmp)
+
             outmslist.append(msout)
         else:
             outmslist.append(ms)  # so no averaging happened
+
     return outmslist
+
 
 
 def tecandphaseplotter(h5, ms, outplotname='plot.png'):
@@ -1241,198 +1293,207 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
 
 
 def inputchecker(args):
-
     ''' Check input validity.
     Args:
         args (dict): argparse inputs.
     '''
-    
+    for ms_id, ms in enumerate(args['ms']):
+        if ms.find('/') != -1:
+            print('All ms need to be local, no "/" are allowed in ms name')
+            raise Exception('All ms need to be local, no "/" are allowed in ms name')
+
     if args['iontimefactor'] <= 0.0:
         print('BLsmooth iontimefactor needs to be positive')
-        sys.exit(1)
+        raise Exception('BLsmooth iontimefactor needs to be positive')
     if args['iontimefactor'] > 10.0:
         print('BLsmooth iontimefactor is way too high')
-        sys.exit(1)
+        raise Exception('BLsmooth iontimefactor is way too high')
 
     if args['ionfreqfactor'] <= 0.0:
         print('BLsmooth tecfactor needs to be positive')
-        sys.exit(1)
+        raise Exception('BLsmooth tecfactor needs to be positive')
     if args['ionfreqfactor'] > 10000.0:
         print('BLsmooth tecfactor is way too high')
-        sys.exit(1)
+        raise Exception('BLsmooth tecfactor is way too high')
 
     if not os.path.isfile('lib_multiproc.py'):
         print('Cannot find lib_multiproc.py, file does not exist, use --helperscriptspath')
-        sys.exit(1)
+        raise Exception('Cannot find lib_multiproc.py, file does not exist, use --helperscriptspath')
     if not os.path.isfile('h5_merger.py'):
         print('Cannot find h5_merger.py, file does not exist, use --helperscriptspath or --helperscriptspathh5merge')
-        sys.exit(1)
+        raise Exception(
+            'Cannot find h5_merger.py, file does not exist, use --helperscriptspath or --helperscriptspathh5merge')
     if not os.path.isfile('plot_tecandphase.py'):
         print('Cannot find plot_tecandphase.py, file does not exist, use --helperscriptspath')
-        sys.exit(1)
+        raise Exception('Cannot find plot_tecandphase.py, file does not exist, use --helperscriptspath')
     if not os.path.isfile('lin2circ.py'):
         print('Cannot find lin2circ.py, file does not exist, use --helperscriptspath')
-        sys.exit(1)
+        raise Exception('Cannot find lin2circ.py, file does not exist, use --helperscriptspath')
     if not os.path.isfile('BLsmooth.py'):
         print('Cannot find BLsmooth.py, file does not exist, use --helperscriptspath')
-        sys.exit(1)
+        raise Exception('Cannot find BLsmooth.py, file does not exist, use --helperscriptspath')
     if not os.path.isfile('polconv.py'):
         print('Cannot find polconv.py, file does not exist, use --helperscriptspath')
-        sys.exit(1)
+        raise Exception('Cannot find polconv.py, file does not exist, use --helperscriptspath')
 
-    if args['phaseshiftbox'] is not None:
+    if args['phaseshiftbox'] != None:
         if not os.path.isfile(args['phaseshiftbox']):
             print('Cannot find:', args['phaseshiftbox'])
-            sys.exit(1)
+            raise Exception('Cannot find:' + args['phaseshiftbox'])
 
     if not args['no_beamcor'] and args['idg']:
         print('beamcor=True and IDG=True is not possible')
-        sys.exit(1)
+        raise Exception('beamcor=True and IDG=True is not possible')
 
     for antennaconstraint in args['antennaconstraint_list']:
-        if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote',
-                                     'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes','alldutchbutnoST001'] \
-                            and antennaconstraint is not None:
-            print('Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
-            sys.exit(1)
+        if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
+                                     'all', 'international', 'alldutch', 'core-remote',
+                                     'coreandallbutmostdistantremotes', 'alldutchbutnoST001'] \
+                and antennaconstraint != None:
+            print(
+                'Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
+            raise Exception(
+                'Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
 
     for resetsols in args['resetsols_list']:
-        if resetsols not in ['superterp', 'coreandfirstremotes', 'core', 'remote',
-                             'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes', 'alldutchbutnoST001'] \
-                            and resetsols is not None:
-            print('Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
-            sys.exit(1)
+        if resetsols not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
+                             'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes',
+                             'alldutchbutnoST001'] \
+                and resetsols != None:
+            print(
+                'Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
+            raise Exception(
+                'Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
 
     for soltype in args['soltype_list']:
-        if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly',
-                           'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase',
-                           'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin',
+        if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', \
+                           'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase', \
+                           'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', \
                            'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
             print('Invalid soltype input')
-            sys.exit(1)
+            raise Exception('Invalid soltype input')
 
-    if args['boxfile'] is not None:
+    if args['boxfile'] != None:
         if not (os.path.isfile(args['boxfile'])):
             print('Cannot find boxfile, file does not exist')
-            sys.exit(1)
-        
-    if args['fitsmask'] is not None:
+            raise Exception('Cannot find boxfile, file does not exist')
+
+    if args['fitsmask'] != None:
         if not (os.path.isfile(args['fitsmask'])):
             print('Cannot find fitsmask, file does not exist')
-            sys.exit(1)
+            raise Exception('Cannot find fitsmask, file does not exist')
 
-    if args['skymodel'] is not None:
+    if args['skymodel'] != None:
         if not (os.path.isfile(args['skymodel'])) and not (os.path.isdir(args['skymodel'])):
             print('Cannot find skymodel, file does not exist')
-            sys.exit(1)
+            raise Exception('Cannot find skymodel, file does not exist')
 
     if args['docircular'] and args['dolinear']:
         print('Conflicting input, docircular and dolinear used')
-        sys.exit(1)
+        raise Exception('Conflicting input, docircular and dolinear used')
 
-    if which('DP3') is None:
+    if which('DP3') == None:
         print('Cannot find DP3, forgot to source lofarinit.[c]sh?')
-        sys.exit(1)
+        raise Exception('Cannot find DP3, forgot to source lofarinit.[c]sh?')
 
     # Check boxfile and imsize settings
-    if args['boxfile'] is None and args['imsize'] is None:
+    if args['boxfile'] == None and args['imsize'] == None:
         if not checklongbaseline(sorted(args['ms'])[0]):
             print('Incomplete input detected, either boxfile or imsize is required')
-            sys.exit(1)
+            raise Exception('Incomplete input detected, either boxfile or imsize is required')
 
-    if args['boxfile'] is not None and args['imsize'] is not None:
+    if args['boxfile'] != None and args['imsize'] != None:
         print('Wrong input detected, both boxfile and imsize are set')
-        sys.exit(1)
+        raise Exception('Wrong input detected, both boxfile and imsize are set')
 
-    if args['imager'] not in ['DDFACET', 'WSCLEAN']: 
+    if args['imager'] not in ['DDFACET', 'WSCLEAN']:
         print('Wrong input detected for option --imager, should be DDFACET or WSCLEAN')
-        sys.exit(1)  
+        raise Exception('Wrong input detected for option --imager, should be DDFACET or WSCLEAN')
 
-    if args['phaseupstations'] is not None:
-        if args['phaseupstations'] not in ['core', 'superterp']:    
+    if args['phaseupstations'] != None:
+        if args['phaseupstations'] not in ['core', 'superterp']:
             print('Wrong input detected for option --phaseupstations, should be core or superterp')
-            sys.exit(1)
+            raise Exception('Wrong input detected for option --phaseupstations, should be core or superterp')
 
     if args['soltypecycles_list'][0] != 0:
-        print('Wrong input detected for option --soltypecycles-list should always start with 0') 
-        sys.exit(1)
+        print('Wrong input detected for option --soltypecycles-list should always start with 0')
+        raise Exception('Wrong input detected for option --soltypecycles-list should always start with 0')
 
-    if len(args['soltypecycles_list']) != len(args['soltype_list']): 
-        print('Wrong input detected, length soltypecycles-list does not match that of soltype-list') 
-        sys.exit(1)
+    if len(args['soltypecycles_list']) != len(args['soltype_list']):
+        print('Wrong input detected, length soltypecycles-list does not match that of soltype-list')
+        raise Exception('Wrong input detected, length soltypecycles-list does not match that of soltype-list')
 
     for soltype_id, soltype in enumerate(args['soltype_list']):
         wronginput = False
-        if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin']:    
+        if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin']:
             try:  # in smoothnessconstraint_list is not filled by the user
                 if args['smoothnessconstraint_list'][soltype_id] > 0.0:
                     print('smoothnessconstraint should be 0.0 for a tec-like solve')
                     wronginput = True
             except:
-                pass    
+                pass
             if wronginput:
-                sys.exit(1)
+                raise Exception('smoothnessconstraint should be 0.0 for a tec-like solve')
 
     for smoothnessconstraint in args['smoothnessconstraint_list']:
         if smoothnessconstraint < 0.0:
             print('Smoothnessconstraint must be equal or larger than 0.0')
-            sys.exit(1)
-
+            raise Exception('Smoothnessconstraint must be equal or larger than 0.0')
     for smoothnessreffrequency in args['smoothnessreffrequency_list']:
         if smoothnessreffrequency < 0.0:
             print('Smoothnessreffrequency must be equal or larger than 0.0')
-            sys.exit(1)
+            raise Exception('Smoothnessreffrequency must be equal or larger than 0.0')
 
-    if (args['skymodel'] is not None) and (args['skymodelpointsource']) is not None:
+    if (args['skymodel'] != None) and (args['skymodelpointsource']) != None:
         print('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
-        sys.exit(1)
-    if (args['skymodelpointsource'] is not None):
+        raise Exception('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
+    if (args['skymodelpointsource'] != None):
         if (args['skymodelpointsource'] <= 0.0):
             print('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
-            sys.exit(1)
-    if (args['msinnchan'] is not None):
+            raise Exception('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
+    if (args['msinnchan'] != None):
         if (args['msinnchan'] <= 0):
             print('Wrong input for msinnchan, must be larger than zero')
-            sys.exit(1)
-    if (args['msinntimes'] is not None):
+            raise Exception('Wrong input for msinnchan, must be larger than zero')
+    if (args['msinntimes'] != None):
         if (args['msinntimes'] <= 1):
             print('Wrong input for msinntimes, must be larger than 1')
-            sys.exit(1)
+            raise Exception('Wrong input for msinntimes, must be larger than 1')
 
-
-    if (args['skymodelpointsource'] is not None) and (args['predictskywithbeam']):
+    if (args['skymodelpointsource'] != None) and (args['predictskywithbeam']):
         print('Combination of skymodelpointsource and predictskywithbeam not supported')
         print('Provide a skymodel file to predict the sky with the beam')
-        sys.exit(1)
+        raise Exception('Combination of skymodelpointsource and predictskywithbeam not supported')
 
-    if (args['wscleanskymodel'] is not None) and (args['skymodelpointsource']) is not None:
+    if (args['wscleanskymodel'] != None) and (args['skymodelpointsource']) != None:
         print('Wrong input, you cannot use a wscleanskymodel and then also set skymodelpointsource')
-        sys.exit(1)
+        raise Exception('Wrong input, you cannot use a wscleanskymodel and then also set skymodelpointsource')
 
-    if (args['wscleanskymodel'] is not None) and (args['skymodel']) is not None:
+    if (args['wscleanskymodel'] != None) and (args['skymodel']) != None:
         print('Wrong input, you cannot use a wscleanskymodel and then also set skymodel')
-        sys.exit(1)
+        raise Exception('Wrong input, you cannot use a wscleanskymodel and then also set skymodel')
 
-    if (args['wscleanskymodel'] is not None) and (args['predictskywithbeam']):
+    if (args['wscleanskymodel'] != None) and (args['predictskywithbeam']):
         print('Combination of wscleanskymodel and predictskywithbeam not supported')
         print('Provide a skymodel component file to predict the sky with the beam')
-        sys.exit(1)
+        raise Exception('Combination of wscleanskymodel and predictskywithbeam not supported')
 
-    if (args['wscleanskymodel'] is not None) and (args['imager'] == 'DDFACET'):
+    if (args['wscleanskymodel'] != None) and (args['imager'] == 'DDFACET'):
         print('Combination of wscleanskymodel and DDFACET as an imager is not supported')
-        sys.exit(1)
-    if (args['wscleanskymodel'] is not None): 
+        raise Exception('Combination of wscleanskymodel and DDFACET as an imager is not supported')
+    if (args['wscleanskymodel'] != None):
         if len(glob.glob(args['wscleanskymodel'] + '-????-model.fits')) < 2:
             print('Not enough WSClean channel model images found')
             print(glob.glob(args['wscleanskymodel'] + '-????-model.fits'))
-            sys.exit(1)
+            raise Exception('Not enough WSClean channel model images found')
         if (args['wscleanskymodel'].find('/') != -1):
-            print('wscleanskymodel contains a slash, not allowed, needs to be in pwd') 
-            sys.exit(1)
+            print('wscleanskymodel contains a slash, not allowed, needs to be in pwd')
+            raise Exception('wscleanskymodel contains a slash, not allowed, needs to be in pwd')
         if (args['wscleanskymodel'].find('..') != -1):
-            print('wscleanskymodel contains .., not allowed, needs to be in pwd')      
-            sys.exit(1)  
+            print('wscleanskymodel contains .., not allowed, needs to be in pwd')
+            raise Exception('wscleanskymodel contains .., not allowed, needs to be in pwd')
     return
+
 
   
 def get_uvwmax(ms):
@@ -1533,11 +1594,11 @@ def getregionboxcenter(regionfile, standardbox=True):
 
     if len(r[:]) > 1:
         print('Only one region can be specified, your file contains', len(r[:]))
-        sys.exit() 
+        raise Exception('Only one region can be specified, your file contains')
 
     if r[0].name != 'box':
         print('Only box region supported')
-        sys.exit()
+        raise Exception('Only box region supported')
 
     ra  = r[0].coord_list[0]
     dec = r[0].coord_list[1]
@@ -1548,10 +1609,10 @@ def getregionboxcenter(regionfile, standardbox=True):
     if standardbox:
         if boxsizex != boxsizey:
             print('Only a square box region supported, you have these sizes:', boxsizex, boxsizey)
-            sys.exit()
+            raise Exception('Only a square box region supported')
         if np.abs(angle) > 1:
             print('Only normally oriented sqaure boxes are supported, your region is oriented under angle:', angle)
-            sys.exit()
+            raise Exception('Only normally oriented sqaure boxes are supported, your region is oriented under angle')
     
     regioncenter =  ('{:12.8f}'.format(ra) + 'deg,' + '{:12.8f}'.format(dec) + 'deg').replace(' ', '')
     return regioncenter
@@ -1697,7 +1758,7 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False):
        ctype != 'international' and ctype != 'core-remote' and ctype != 'coreandallbutmostdistantremotes' and \
        ctype != 'alldutchbutnoST001' :
         print('Invalid input, ctype can only be "superterp" or "core"')
-        sys.exit(1)
+        raise Exception('Invalid input, ctype can only be "superterp" or "core"')
     if HBAorLBA == 'LBA':  
         if ctype == 'superterp':  
             antstr=['CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', 'ST001']
@@ -2440,7 +2501,6 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
 
 
 # flagms_startend('P215+50_PSZ2G089.52+62.34.dysco.sub.shift.avg.weights.ms.archive','phaseonlyP215+50_PSZ2G089.52+62.34.dysco.sub.shift.avg.weights.ms.archivesolsgrid_9.h5', 2)
-# sys.exit()
 
 
 def removestartendms(ms, starttime=None, endtime=None, dysco=True):
@@ -4125,7 +4185,6 @@ def getdeclinationms(ms):
     return 360.*direction[1]/(2.*np.pi)
 
 # print getdeclinationms('1E216.dysco.sub.shift.avg.weights.set0.ms')
-# sys.exit()
 
 def declination_sensivity_factor(declination):
     '''
