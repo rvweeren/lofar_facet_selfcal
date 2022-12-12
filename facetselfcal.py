@@ -13,16 +13,15 @@
 #     print(selfcalcycle,soltypecycles_list[soltypenumber+1][msnumber])
 # IndexError: list index out of range
 
+# wsclean syntax -gridder vs -use-wgridder update
+# DP3 modeldata syntaxt
 # implement idea of phase detrending.
-# decrease niter if multiscale is triggered, smart move?
-# h5 linear to circular solution conversion
 # do not predict sky second time in pertubation solve?
 # to do: log command into the FITS header
 # BLsmooth not for gain solves opttion
 # BLsmooth constant smooth for gain solves
 # only trigger HBA upper band selection for sources outside the FWHM?
 # if noise goes up stop selfcal
-# for phaseup option add back core stations in solution file via https://github.com/lmorabit/lofar-vlbi/blob/master/bin/gains_toCS_h5parm.py
 # make Ateam plot
 
 
@@ -1335,6 +1334,12 @@ def inputchecker(args):
     if not os.path.isfile('polconv.py'):
         print('Cannot find polconv.py, file does not exist, use --helperscriptspath')
         raise Exception('Cannot find polconv.py, file does not exist, use --helperscriptspath')
+    if not os.path.isfile('vlass_search.py'):
+        print('Cannot find vlass_search.py, file does not exist, use --helperscriptspath')
+        raise Exception('Cannot find vlass_search.py, file does not exist, use --helperscriptspath')
+    if not os.path.isfile('VLASS_dyn_summary.php'):
+        print('Cannot find VLASS_dyn_summary.php, file does not exist, use --helperscriptspath')
+        raise Exception('Cannot find VLASS_dyn_summary.php, file does not exist, use --helperscriptspath')      
 
     if args['phaseshiftbox'] is not None:
         if not os.path.isfile(args['phaseshiftbox']):
@@ -1716,7 +1721,7 @@ def print_title(version):
     |_______/    |_______||_______||__|      \______|/__/     \__\ |_______|
                                                                               
     
-                      Reinout van Weeren (2021, A&A, in press)
+                      Reinout van Weeren (2021, A&A, 651, 115)
 
                               Starting.........
           """)
@@ -3186,7 +3191,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
               (soltype_id == return_soltype_index(soltype_list, 'scalarcomplexgain', occurence=1))):
 
              thr_disable_gain = 64. # 32. #  72.
-             thr_SM15Mhz = 4.
+             thr_SM15Mhz = 1.5
              thr_gain_trigger_allantenna =  32. # 16. # 8.
 
              tgain_max = 4. # do not allow ap solves that are more than 4 hrs
@@ -3219,14 +3224,14 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
                logger.info('Setting gain solint to 20 min (the min value allowed): ' + str(np.float(solint)*tint/3600.))
 
              # do not allow ap solves that are more than tgain_max (4) hrs
-             if ((solint_sf*((noise/flux)**2)*(chanw/390.625e3))*tint/3600.) > tgain_max: # so check if larger than 30 min
+             if ((solint_sf*((noise/flux)**2)*(chanw/390.625e3))*tint/3600.) > tgain_max: # so check if larger than 4 hrs
                print('Warning, it seems there is not enough flux density for gain solving')
                logger.warning('Warning, it seems there is not enough flux density for gain solving')
                solint = np.rint(tgain_max*3600./tint) # max is tgain_max (4) hrs
 
              # trigger 15 MHz smoothnessconstraint 
              # print('TEST:', ((solint_sf*((noise/flux)**2)*(chanw/390.625e3))*tint/3600.))
-             if ((solint_sf*((noise/flux)**2)*(chanw/390.625e3))*tint/3600.) < thr_SM15Mhz: # so check if larger than 30 min
+             if ((solint_sf*((noise/flux)**2)*(chanw/390.625e3))*tint/3600.) < thr_SM15Mhz: # so check if smaller than 2 hr
                insmoothnessconstraint_list[soltype_id][ms_id] = 5.0
              else:
                print('Increasing smoothnessconstraint to 15 MHz')
@@ -4957,7 +4962,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       print('H5 file exists  ', parmdb)
       os.system('rm -f ' + parmdb)
 
-    cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=' + incol + ' '
+    cmd = 'DP3 numthreads='+str(np.min([multiprocessing.cpu_count(),24]))+ ' msin=' + ms + ' msin.datacolumn=' + incol + ' '
     cmd += 'msout=. ddecal.mode=' + soltype + ' '
     cmd += 'msin.weightcolumn='+weight_spectrum + ' '
     cmd += 'steps=[ddecal] ddecal.type=ddecal '
@@ -5474,6 +5479,10 @@ def basicsetup(mslist, args):
         args['smoothnessspectralexponent_list'] = [-1.0, -1.0]
         args['smoothnessrefdistance_list'] = [0.0,0.0]
      args['uvmin'] =  20000
+     
+     if args['imsize'] > 1600:
+        args['paralleldeconvolution'] = np.min([2600,np.int(args['imsize']/2)])
+     
      if LBA:
        args['BLsmooth'] = True
 
@@ -5534,6 +5543,9 @@ def basicsetup(mslist, args):
      outtarname = 'calibrateddata' + '.tar.gz'
 
    maskthreshold_selfcalcycle = makemaskthresholdlist(args['maskthreshold'], args['stop'])
+
+   if args['start'] == 0:
+     os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p smoothnessrefdistance.p antennaconstraint.p resetsols.p soltypecycles.p')
 
    return longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, \
           maskthreshold_selfcalcycle, outtarname, args
@@ -5685,7 +5697,7 @@ def main():
 
    args = vars(options)
 
-   version = '5.3.0'
+   version = '6.0.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -5701,6 +5713,9 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/lin2circ.py .')
    os.system('cp ' + args['helperscriptspath'] + '/BLsmooth.py .')
    os.system('cp ' + args['helperscriptspath'] + '/polconv.py .')
+   os.system('cp ' + args['helperscriptspath'] + '/vlass_search.py .')
+   os.system('cp ' + args['helperscriptspath'] + '/VLASS_dyn_summary.php .')
+
 
    inputchecker(args)
    check_code_is_uptodate()
@@ -5745,7 +5760,6 @@ def main():
    # SETUP VARIOUS PARAMETERS
    longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, maskthreshold_selfcalcycle, \
        outtarname, args = basicsetup(mslist, args)
-
 
    # PRE-APPLY SOLUTIONS (from a nearby direction for example)
    # if (args['applydelaycalH5_list'][0]) is not None and  args['start'] == 0:
@@ -5793,24 +5807,23 @@ def main():
    logbasicinfo(args, fitsmask, mslist, version, sys.argv)
 
 
+   # Make starting skymodel from TGSS or VLASS survey if requested
    if args['startfromtgss'] and args['start'] == 0:
      if args['skymodel'] == None:
        args['skymodel'] = makeBBSmodelforTGSS(args['boxfile'],fitsimage = args['tgssfitsimage'], \
                                               pixelscale=args['pixelscale'], imsize=args['imsize'], ms=mslist[0])
      else:
-       print('You cannot provide a skymodel file manually while using --startfromtgss')
-       raise Exception('You cannot provide a skymodel file manually while using --startfromtgss')
+       print('You cannot provide a skymodel/skymodelpointsource file manually while using --startfromtgss')
+       raise Exception('You cannot provide a skymodel/skymodelpointsource manually while using --startfromtgss')
 
    if args['startfromvlass'] and args['start'] == 0:
-     if args['skymodel'] == None:
-       run('vlass_search.py '+ mslist[0])
-       args['skymodel'] = makeBBSmodelforVLASS('fitsimagefromvlass')
+     if args['skymodel'] == None and args['skymodelpointsource'] == None:
+       run('python vlass_search.py '+ mslist[0])
+       args['skymodel'] = makeBBSmodelforVLASS('vlass_poststamp.fits')
      else:
-       print('You cannot provide a skymodel file manually while using --startfromvlass')
-       raise Exception('You cannot provide a skymodel file manually while using --startfromvlass')
+       print('You cannot provide a skymodel/skymodelpointsource manually while using --startfromvlass')
+       raise Exception('You cannot provide a skymodel/skymodelpointsource manually while using --startfromvlass')
 
-   if args['start'] == 0:
-     os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p smoothnessrefdistance.p antennaconstraint.p resetsols.p soltypecycles.p')
 
 
 
@@ -5937,9 +5950,13 @@ def main():
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
                taperinnertukey=args['taperinnertukey'])
      if args['makeimage_ILTlowres_HBA']:
+       if args['phaseupstations'] == None:
+          briggslowres = -1.5
+       else:
+          briggslowres = -0.5
        makeimage(mslist, args['imagename'] +'1.2arcsectaper' + str(i).zfill(3), \
                args['pixelscale'], args['imsize'], \
-               args['channelsout'], args['niter'], -0.2, uvtaper='1.2arcsec', \
+               args['channelsout'], args['niter'],briggslowres, uvtaper='1.2arcsec', \
                multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
                uvminim=args['uvminim'], fitspectralpol=args['fitspectralpol'], \
                automask=automask, removenegativecc=False, \
@@ -6038,8 +6055,8 @@ def main():
          # update uvmin if allowed/requested
          if not longbaseline and args['update_uvmin']:
            if getlargestislandsize(fitsmask) > 1000:
-             print('Size is largest island [pixels]:', getlargestislandsize(fitsmask))
-             logger.info('Size is largest island [pixels]:' + str(getlargestislandsize(fitsmask)))
+             print('Size of largest island [pixels]:', getlargestislandsize(fitsmask))
+             logger.info('Size of largest island [pixels]:' + str(getlargestislandsize(fitsmask)))
              if not LBA:
                print('Extended emission found, setting uvmin to 750 klambda')
                logger.info('Extended emission found, setting uvmin to 750 klambda')
