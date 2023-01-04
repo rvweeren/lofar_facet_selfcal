@@ -208,8 +208,8 @@ for c, idx in enumerate(np.array_split(np.arange(n_bl), options.chunks)):
         
         logging.debug("-Time: sig={:.1f} samples ({:.1f}s) -Freq: sig={:.1f} samples ({:.2f}MHz)".format(
             std_t, timepersample * std_t, std_f, freqpersample * std_f / 1e6))
-        print('Working on baseline: {} - {} (dist = {:.2f}km)'.format(ant1, ant2, dist))
-        print("-Time: sig={:.1f} samples ({:.1f}s) -Freq: sig={:.1f} samples ({:.2f}MHz)".format(
+        logging.debug('Working on baseline: {} - {} (dist = {:.2f}km)'.format(ant1, ant2, dist))
+        logging.debug("-Time: sig={:.1f} samples ({:.1f}s) -Freq: sig={:.1f} samples ({:.2f}MHz)".format(
             std_t, timepersample * std_t, std_f, freqpersample * std_f / 1e6))
         if std_t < 0.5: continue  # avoid very small smoothing and flagged ants
         # fill queue
