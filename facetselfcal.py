@@ -1207,7 +1207,7 @@ def tecandphaseplotter(h5, ms, outplotname='plot.png'):
     if not os.path.isdir('plotlosoto%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
         os.system('mkdir plotlosoto%s' % os.path.basename(ms))
     cmd = 'python plot_tecandphase.py  '
-    cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (ms, outplotname)
+    cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (os.path.basename(ms), outplotname)
     print(cmd)
     run(cmd)
     return
