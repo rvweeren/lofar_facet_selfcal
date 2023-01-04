@@ -13,6 +13,9 @@
 #     print(selfcalcycle,soltypecycles_list[soltypenumber+1][msnumber])
 # IndexError: list index out of range
 
+# MFS image name fixes for channelsout 1
+# turn of baseline based avg for MeerKAT?
+# check if channels are equidistant
 # wsclean syntax -gridder vs -use-wgridder update
 # DP3 modeldata syntaxt
 # implement idea of phase detrending.
@@ -100,6 +103,26 @@ def copy_over_sourcedirection_h5(h5ref, h5):
     return
 '''
 
+def check_equidistant_freqs(mslist):
+    ''' Check if freuqencies in mslist are equidistant
+
+    Args:
+        command (list): the list of ms
+    Returns:
+        reval (int): the returncode of the command.
+    '''
+    for ms in mslist:
+        t = pt.table(ms + '/SPECTRAL_WINDOW')
+        chan_freqs = t.getcol('CHAN_FREQ')[0]
+        if len(chan_freqs) == 1: # single channel data
+            return  
+        diff_freqs = np.diff(chan_freqs)
+        t.close()
+        if len(np.unique(diff_freqs)) != 1:
+            print(ms, 'Frequency channels are not equidistant, made a mistake in DP3 concat?')
+            raise Exception(ms +': Freqeuency channels are no equidistant, made a mistake in DP3 concat?')
+        t.close()
+    return
 
 def run(command):
     ''' Execute a shell command through subprocess
@@ -107,7 +130,7 @@ def run(command):
     Args:
         command (str): the command to execute.
     Returns:
-        reval (int): the returncode of the command.
+        None
     '''
     retval = subprocess.call(command, shell=True)
     if retval != 0:
@@ -4459,7 +4482,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
               fitspectralpolorder=3, imager='WSCLEAN', restoringbeam=15, automask=2.5, \
               removenegativecc=True, usewgridder=False, paralleldeconvolution=0, \
               deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8, \
-              fullpol=False, taperinnertukey=None):
+              fullpol=False, taperinnertukey=None, gapchanneldivision=False):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
 
@@ -4469,6 +4492,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         cmd = 'wsclean -padding 1.8 -predict '
         if channelsout > 1:
           cmd += '-channels-out ' + str(channelsout) + ' '
+          if gapchanneldivision:
+            cmd += '-gap-channel-division '
         if idg:
           cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
           cmd += '-beam-aterm-update 800 '
@@ -4503,6 +4528,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
       cmd += '-mgain 0.8 -data-column ' + imcol + ' -padding 1.4 '
       if channelsout > 1:
         cmd += ' -join-channels -channels-out ' + str(channelsout) + ' '
+        if gapchanneldivision:
+          cmd += '-gap-channel-division '
       if paralleldeconvolution > 0:
         cmd += '-parallel-deconvolution ' +  str(paralleldeconvolution) + ' '
       if parallelgridding > 1:
@@ -4562,6 +4589,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         cmdp += str(np.int(imsize)) + ' ' + str(np.int(imsize)) +  ' -padding 1.8 -predict '
         if channelsout > 1:
            cmdp += ' -channels-out ' + str(channelsout) + ' '
+           if gapchanneldivision:
+             cmdp += '-gap-channel-division '
         if idg:
           cmdp += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
           cmdp += '-beam-aterm-update 800 '
@@ -4607,6 +4636,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         cmd += str(np.int(imsize)) + ' ' + str(np.int(imsize)) +  ' -padding 1.8 -predict '
         if channelsout > 1:
           cmd += ' -channels-out ' + str(channelsout) + ' '
+          if gapchanneldivision:
+            cmd += '-gap-channel-division '
         if idg:
           cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
           cmd += '-beam-aterm-update 800 '
@@ -4657,7 +4688,8 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None, \
               skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, \
               ionfreqfactor=1.0, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, \
-              docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8):
+              docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8, \
+              gapchanneldivision=False):
 
    soltypecycles_list_array = np.array(soltypecycles_list) # needed to slice (slicing does not work in nested l
    incol = [] # len(mslist)
@@ -4706,7 +4738,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
                      skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
                      iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
-                     selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size)
+                     selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision)
 
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
@@ -4861,7 +4893,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,\
-                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True, blsmooth_chunking_size=8):
+                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True, blsmooth_chunking_size=8, gapchanneldivision=False):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
@@ -4887,7 +4919,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
 
     if wscleanskymodel !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
         makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')), 0, 0.0, \
-               onlypredict=True, idg=False, usewgridder=True)
+               onlypredict=True, idg=False, usewgridder=True, gapchanneldivision=gapchanneldivision)
 
 
     if skymodelpointsource !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
@@ -5209,6 +5241,23 @@ def findrefant_core(H5file):
     if 'ST001' in ants:
         return 'ST001'
     cs_indices = np.where(['CS' in ant for ant in ants])[0]
+
+    # temporary MeerKAT fix
+    if 'm013' in ants:
+        return 'm013'
+    if 'm012' in ants:
+        return 'm012'
+    if 'm011' in ants:
+        return 'm011'
+    if 'm010' in ants:
+        return 'm010'
+    if 'm009' in ants:
+        return 'm009'      
+    if 'm002' in ants:
+        return 'm002'    
+    if 'm001' in ants:
+        return 'm001'          
+
 
     if len(cs_indices) == 0: # in case there are no CS stations try with RS
        cs_indices = np.where(['RS' in ant for ant in ants])[0]
@@ -5585,6 +5634,7 @@ def main():
    parser.add_argument('--idg', help="Use the Image Domain gridder (see WSClean documentation).", action='store_true')
    parser.add_argument('--fitspectralpol', help="Use fit-spectral-pol in WSClean (see WSClean documentation). The default is True.", type=ast.literal_eval, default=True)
    parser.add_argument('--fitspectralpolorder', help="fit-spectral-pol order for WSClean (see WSClean documentation). The default is 3.", default=3, type=int)
+   parser.add_argument("--gapchanneldivision", help='Use the -gap-channel-division option in wsclean imaging and predicts (default is not to use it)', action='store_true')
    parser.add_argument('--taperinnertukey', help="Value for taper-inner-tukey in WSClean (see WSClean documentation), useful to supress negative bowls when using --uvminim. Typically values between 1.5 and 4.0 give good results. The default is None.", default=None, type=float)
    parser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict). The default is None.', type=str, default=None)
 
@@ -5734,6 +5784,9 @@ def main():
    # remove ms which are too short (to catch Elais-N1 case of 600s of data)
    mslist = sorted(select_valid_ms(mslist))
 
+   # check if ms channels are equidistant in freuqency (to confirm DP3 concat was used properly)
+   check_equidistant_freqs(mslist)
+
    # cut ms if there are flagged times at the start or end of the ms
    if args['remove_flagged_from_startend']:
       mslist = sorted(remove_flagged_data_startend(mslist))
@@ -5793,7 +5846,7 @@ def main():
      runaoflagger(mslist)
 
 
-   t    = pt.table(mslist[0] + '/SPECTRAL_WINDOW',ack=False)
+   t = pt.table(mslist[0] + '/SPECTRAL_WINDOW',ack=False)
    bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), np.float(args['imsize']))
    t.close()
 
@@ -5862,7 +5915,8 @@ def main():
          if args['imager'] == 'DDFACET':
            if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + '.app.restored.fits'):
                fitsmask = args['imagename'] + str(i-1).zfill(3) + '.app.restored.fits.mask.fits'
-
+       if args['channelsout'] == 1:
+             fitsmask = fitsmask.replace('-MFS', '').replace('-I','')
 
      # BEAM CORRECTION
      # if not args['no_beamcor'] and i == 0:
@@ -5929,7 +5983,8 @@ def main():
                              blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'],\
                              uvminscalarphasediff=args['uvminscalarphasediff'], \
                              docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
-                             blsmooth_chunking_size=args['blsmooth_chunking_size'])
+                             blsmooth_chunking_size=args['blsmooth_chunking_size'], \
+                             gapchanneldivision=args['gapchanneldivision'])
 
      # TRIGGER MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
@@ -5948,7 +6003,7 @@ def main():
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
-               taperinnertukey=args['taperinnertukey'])
+               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'])
      if args['makeimage_ILTlowres_HBA']:
        if args['phaseupstations'] == None:
           briggslowres = -1.5
@@ -5964,7 +6019,7 @@ def main():
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
-               taperinnertukey=args['taperinnertukey'])
+               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'])
      if args['makeimage_fullpol']:
        makeimage(mslist, args['imagename'] +'fullpol' + str(i).zfill(3), \
                args['pixelscale'], args['imsize'], \
@@ -5976,21 +6031,27 @@ def main():
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'],\
                multiscalescalebias=args['multiscalescalebias'], fullpol=True,\
-               taperinnertukey=args['taperinnertukey'])
+               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'])
 
 
 
      # MAKE FIGURE WITH APLPY
      if args['imager'] == 'WSCLEAN':
        if args['idg']:
-         plotimage(args['imagename'] + str(i).zfill(3) +'-MFS-I-image.fits',args['imagename'] + str(i).zfill(3) + '.png' , \
-                   mask=fitsmask, rmsnoiseimage=args['imagename'] + str(0).zfill(3) +'-MFS-I-image.fits')
+         plotpngimage = args['imagename'] + str(i).zfill(3) + '.png'
+         plotfitsimage= args['imagename'] + str(0).zfill(3) +'-MFS-I-image.fits'
        else:
-         plotimage(args['imagename'] + str(i).zfill(3) +'-MFS-image.fits',args['imagename'] + str(i) + '.png' , \
-                   mask=fitsmask, rmsnoiseimage=args['imagename'] + str(0).zfill(3) +'-MFS-image.fits')
+         plotpngimage = args['imagename'] + str(i).zfill(3) + '.png'
+         plotfitsimage= args['imagename'] + str(0).zfill(3) +'-MFS-image.fits'
      if args['imager'] == 'DDFACET':
-       plotimage(args['imagename'] + str(i).zfill(3) +'.app.restored.fits',args['imagename'] + str(i) + '.png' , \
-                   mask=fitsmask, rmsnoiseimage=args['imagename'] + str(0).zfill(3) +'.app.restored.fits')
+       plotpngimage = args['imagename'] + str(i) + '.png'   
+       plotfitsimage = args['imagename'] + str(0).zfill(3) +'.app.restored.fits'
+       
+     if args['channelsout'] == 1:
+       plotpngimage = plotpngimage.replace('-MFS', '').replace('-I','')
+       plotfitsimage = plotfitsimage.replace('-MFS', '').replace('-I','')
+     plotimage(plotfitsimage, plotpngimage, mask=fitsmask, rmsnoiseimage=plotfitsimage)
+
 
      if args['stopafterskysolve']:
        print('Stopping as requested via --stopafterskysolve')
@@ -6030,7 +6091,8 @@ def main():
                            iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'],\
                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
                            docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
-                           blsmooth_chunking_size=args['blsmooth_chunking_size'])
+                           blsmooth_chunking_size=args['blsmooth_chunking_size'], \
+                           gapchanneldivision=args['gapchanneldivision'])
 
 
 
@@ -6043,7 +6105,8 @@ def main():
            imagename  = args['imagename'] + str(i).zfill(3) + '-MFS-image.fits'
        if args['imager'] == 'DDFACET':
          imagename  = args['imagename'] + str(i).zfill(3) +'.app.restored.fits'
-
+       if args['channelsout'] == 1: # strip MFS from name if no channels images present
+         imagename = imagename.replace('-MFS', '').replace('-I','')
        if maskthreshold_selfcalcycle[i] > 0.0:
          cmdm  = 'MakeMask.py --Th='+ str(maskthreshold_selfcalcycle[i]) + ' --RestoredIm=' + imagename
          if fitsmask is not None:
