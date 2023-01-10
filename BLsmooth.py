@@ -31,8 +31,6 @@ import casacore.tables as pt
 
 from lib_multiproc import multiprocManager
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
-logging.info('BL-based smoother - Francesco de Gasperin, Henrik Edler')
 
 
 def addcol(ms, incol, outcol):
@@ -128,12 +126,23 @@ opt.add_option('-t', '--notime', help='Do not do smoothing in time [default: Fal
 opt.add_option('-q', '--nofreq', help='Do not do smoothing in frequency [default: False]', action="store_true", default=False)
 opt.add_option('-c', '--chunks', help='Split the I/O in n chunks. If you run out of memory, set this to a value > 2.', default=8, type='int')
 opt.add_option('-n', '--ncpu', help='Number of cores', default=4, type='int')
+opt.add_option('-v', '--verbose', help='Change verbosity to DEBUG', action='store_true', default=False)
 (options, msfile) = opt.parse_args()
+
 
 if msfile == []:
     opt.print_help()
     sys.exit(0)
 msfile = msfile[0]
+
+if options.verbose:
+    loglevel = logging.DEBUG
+else:
+    loglevel = logging.INFO
+
+logging.basicConfig(level=loglevel, format='%(asctime)s - %(levelname)s: %(message)s')
+logging.info('BL-based smoother - Francesco de Gasperin, Henrik Edler')
+
 if not os.path.exists(msfile):
     logging.error("Cannot find MS file {}.".format(msfile))
     sys.exit(1)
@@ -208,8 +217,8 @@ for c, idx in enumerate(np.array_split(np.arange(n_bl), options.chunks)):
         
         logging.debug("-Time: sig={:.1f} samples ({:.1f}s) -Freq: sig={:.1f} samples ({:.2f}MHz)".format(
             std_t, timepersample * std_t, std_f, freqpersample * std_f / 1e6))
-        print('Working on baseline: {} - {} (dist = {:.2f}km)'.format(ant1, ant2, dist))
-        print("-Time: sig={:.1f} samples ({:.1f}s) -Freq: sig={:.1f} samples ({:.2f}MHz)".format(
+        logging.debug('Working on baseline: {} - {} (dist = {:.2f}km)'.format(ant1, ant2, dist))
+        logging.debug("-Time: sig={:.1f} samples ({:.1f}s) -Freq: sig={:.1f} samples ({:.2f}MHz)".format(
             std_t, timepersample * std_t, std_f, freqpersample * std_f / 1e6))
         if std_t < 0.5: continue  # avoid very small smoothing and flagged ants
         # fill queue
