@@ -1080,6 +1080,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                 msout = ms + '.copy'
             else:
                 msout = ms + '.avg'
+            msout = os.path.basename(msout)
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
             cmd += 'msout=' + msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
             if dysco:
@@ -1126,6 +1127,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                 run(cmd)
 
             msouttmp = ms + '.avgtmp'
+            msouttmp = os.path.basename(msouttmp)
             cmd = 'DP3 msin=' + ms + ' steps=[av] av.type=averager '
             if dysco:
                 cmd += ' msout.storagemanager=dysco '
@@ -1369,9 +1371,9 @@ def inputchecker(args):
             print('Cannot find:', args['phaseshiftbox'])
             raise Exception('Cannot find:' + args['phaseshiftbox'])
 
-    if not args['no_beamcor'] and args['idg']:
-        print('beamcor=True and IDG=True is not possible')
-        raise Exception('beamcor=True and IDG=True is not possible')
+    #if not args['no_beamcor'] and args['idg']:
+    #    print('beamcor=True and IDG=True is not possible')
+    #    raise Exception('beamcor=True and IDG=True is not possible')
 
     for antennaconstraint in args['antennaconstraint_list']:
         if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
@@ -4497,7 +4499,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         if idg:
           cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
           cmd += '-beam-aterm-update 800 '
-          cmd += '-pol iquv '
+          #cmd += '-pol iquv '
+          cmd += '-pol i '
         else:
           if usewgridder:
             cmd +='-use-wgridder '
@@ -4559,7 +4562,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
       if idg:
         cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
         cmd += '-beam-aterm-update 800 '
-        cmd += '-pol iquv -link-polarizations i '
+        #cmd += '-pol iquv -link-polarizations i '
+        cmd += '-pol i '
       else:
         if fitspectralpol and channelsout > 1:
            if fitspectrallogpol:
@@ -4594,7 +4598,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         if idg:
           cmdp += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
           cmdp += '-beam-aterm-update 800 '
-          cmdp += '-pol iquv '
+          #cmdp += '-pol iquv '
+          cmdp += '-pol i '
         else:
           if usewgridder:    
             cmd +='-use-wgridder '  
@@ -4621,13 +4626,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
       # REMOVE nagetive model components, these are artifacts (only for Stokes I)
       if removenegativecc:
         if idg:
-            removenegativefrommodel(sorted(glob.glob(imageout +'-????-I-model*.fits')))  # only Stokes I
+            removenegativefrommodel(sorted(glob.glob(imageout +'-????-model*.fits')))  # only Stokes I
         else:
             removenegativefrommodel(sorted(glob.glob(imageout + '-????-model.fits')))
 
       # Check is anything was cleaned. If not, stop the selfcal to avoid obscure errors later
       if idg:
-        checkforzerocleancomponents(glob.glob(imageout +'-????-I-model*.fits'))  # only Stokes I
+        checkforzerocleancomponents(glob.glob(imageout +'-????-model*.fits'))  # only Stokes I
       else:
         checkforzerocleancomponents(glob.glob(imageout + '-????-model.fits'))
 
@@ -4641,7 +4646,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         if idg:
           cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
           cmd += '-beam-aterm-update 800 '
-          cmd += '-pol iquv '
+          #cmd += '-pol iquv '
+          cmd += '-pol i '
         else:
           if usewgridder:
             cmd +='-use-wgridder '  
@@ -4836,7 +4842,10 @@ def is_binary(file_name):
     Returns:
         result (bool): returns whether the file is binary (True) or not (False).
     '''
-    import magic
+    try:
+      import magic
+    except:
+      return False # if magic is not installed just assume this is not a binary
     f = magic.Magic(mime=True)
     mime = f.from_file(file_name)
     if 'text' in mime:
@@ -4862,8 +4871,8 @@ def predictsky_wscleanfits(ms, imagebasename, usewgridder=True):
 
 def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None):
 
-   if False:
-   # if is_binary(skymodel):
+   #if False:
+   if is_binary(skymodel):
       sourcedb = skymodel 
    else:
       # make sourcedb
@@ -5906,8 +5915,8 @@ def main():
      # AUTOMATICALLY PICKUP PREVIOUS MASK (in case of a restart)
      if (i > 0) and (args['fitsmask'] == None):
        if args['idg']:
-         if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + '-MFS-I-image.fits.mask.fits'):
-             fitsmask = args['imagename'] + str(i-1).zfill(3) + '-MFS-I-image.fits.mask.fits'
+         if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + '-MFS-image.fits.mask.fits'):
+             fitsmask = args['imagename'] + str(i-1).zfill(3) + '-MFS-image.fits.mask.fits'
        else:
          if args['imager'] == 'WSCLEAN':
            if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + '-MFS-image.fits.mask.fits'):
@@ -6039,7 +6048,7 @@ def main():
      if args['imager'] == 'WSCLEAN':
        if args['idg']:
          plotpngimage = args['imagename'] + str(i).zfill(3) + '.png'
-         plotfitsimage= args['imagename'] + str(0).zfill(3) +'-MFS-I-image.fits'
+         plotfitsimage= args['imagename'] + str(0).zfill(3) +'-MFS-image.fits'
        else:
          plotpngimage = args['imagename'] + str(i).zfill(3) + '.png'
          plotfitsimage= args['imagename'] + str(0).zfill(3) +'-MFS-image.fits'
@@ -6100,7 +6109,7 @@ def main():
      if args['fitsmask'] == None:
        if args['imager'] == 'WSCLEAN':
          if args['idg']:
-           imagename  = args['imagename'] + str(i).zfill(3) + '-MFS-I-image.fits'
+           imagename  = args['imagename'] + str(i).zfill(3) + '-MFS-image.fits'
          else:
            imagename  = args['imagename'] + str(i).zfill(3) + '-MFS-image.fits'
        if args['imager'] == 'DDFACET':
