@@ -4871,8 +4871,7 @@ def predictsky_wscleanfits(ms, imagebasename, usewgridder=True):
 
 def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None):
 
-   #if False:
-   if is_binary(skymodel):
+   if run('showsourcedb in=' + skymodel + ' > /dev/null') == 0:
       sourcedb = skymodel 
    else:
       # make sourcedb
