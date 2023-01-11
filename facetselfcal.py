@@ -6048,13 +6048,13 @@ def main():
      if args['imager'] == 'WSCLEAN':
        if args['idg']:
          plotpngimage = args['imagename'] + str(i).zfill(3) + '.png'
-         plotfitsimage= args['imagename'] + str(0).zfill(3) +'-MFS-image.fits'
+         plotfitsimage= args['imagename'] + str(i).zfill(3) +'-MFS-image.fits'
        else:
          plotpngimage = args['imagename'] + str(i).zfill(3) + '.png'
-         plotfitsimage= args['imagename'] + str(0).zfill(3) +'-MFS-image.fits'
+         plotfitsimage= args['imagename'] + str(i).zfill(3) +'-MFS-image.fits'
      if args['imager'] == 'DDFACET':
        plotpngimage = args['imagename'] + str(i) + '.png'   
-       plotfitsimage = args['imagename'] + str(0).zfill(3) +'.app.restored.fits'
+       plotfitsimage = args['imagename'] + str(i).zfill(3) +'.app.restored.fits'
        
      if args['channelsout'] == 1:
        plotpngimage = plotpngimage.replace('-MFS', '').replace('-I','')
