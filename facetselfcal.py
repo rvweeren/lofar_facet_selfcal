@@ -1321,10 +1321,10 @@ def inputchecker(args):
     Args:
         args (dict): argparse inputs.
     '''
-    for ms_id, ms in enumerate(args['ms']):
-        if ms.find('/') != -1:
-            print('All ms need to be local, no "/" are allowed in ms name')
-            raise Exception('All ms need to be local, no "/" are allowed in ms name')
+    #for ms_id, ms in enumerate(args['ms']):
+    #    if ms.find('/') != -1:
+    #        print('All ms need to be local, no "/" are allowed in ms name')
+    #        raise Exception('All ms need to be local, no "/" are allowed in ms name')
 
     if args['iontimefactor'] <= 0.0:
         print('BLsmooth iontimefactor needs to be positive')
