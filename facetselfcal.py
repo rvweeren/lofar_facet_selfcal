@@ -5752,7 +5752,10 @@ def main():
             if '[' in lineval:
                 lineval = arg_as_list(lineval)
          # this updates the vaue if it exists, or creates a new one if it doesn't
-         setattr( options, line.split('=')[0].rstrip(), lineval )
+         arg = line.split('=')[0].rstrip()
+         if arg not in vars(options).keys():
+            raise KeyError('Encountered invalid option {:s} in config file {:s}.'.format(arg))
+         setattr( options, arg, lineval )
 
 
    args = vars(options)
