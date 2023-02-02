@@ -21,9 +21,13 @@ import numpy as np
 import sys
 
 #hacky way to figure out the DPPP/DP3 version (important to run this script properly)
-rgx = '[0-9]+(\.[0-9]+)+'
-grep_version_string = str(check_output(DP3name+' --version', shell=True), 'utf-8')
-DP3_VERSION = float(re.search(rgx, grep_version_string).group()[0:3])
+try:
+    rgx = '[0-9]+(\.[0-9]+)+'
+    grep_version_string = str(check_output(DP3name+' --version', shell=True), 'utf-8')
+    DP3_VERSION = float(re.search(rgx, grep_version_string).group()[0:3])
+except AttributeError:
+    print('WARNING: grep of DP3 version failed.')
+    DP3_VERSION=0.0 # set to default
 
 if DP3_VERSION > 5.3:
     from dp3 import Fields
