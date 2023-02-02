@@ -10,11 +10,23 @@ export PYTHONPATH=/somewhere/you/like:$PYTHONPATH
 
 try:
     from dppp import DPStep as Step
+    DP3name = 'DPPP' # default
 except:
     from dp3 import Step
+    DP3name = 'DP3'
 
+from subprocess import check_output
+import re
 import numpy as np
 import sys
+
+#hacky way to figure out the DPPP/DP3 version (important to run this script properly)
+rgx = '[0-9]+(\.[0-9]+)+'
+grep_version_string = str(check_output(DP3name+' --version', shell=True), 'utf-8')
+DP3_VERSION = float(re.search(rgx, grep_version_string).group()[0:3])
+
+if DP3_VERSION > 5.3:
+    from dp3 import Fields
 
 class PolConv(Step):
     """
@@ -66,10 +78,27 @@ class PolConv(Step):
 
         super().__init__()
 
-        try: self.lin2circ = bool(parset.getInt(prefix + "lin2circ"))
-        except RuntimeError: self.lin2circ = False
-        try: self.circ2lin = bool(parset.getInt(prefix + "circ2lin"))
-        except RuntimeError: self.circ2lin=False
+        try:
+            self.lin2circ = bool(parset.getInt(prefix + "lin2circ"))
+        except RuntimeError:
+            self.lin2circ = False
+        except AttributeError:
+            # DP3 Python bindings have been renamed.
+            try:
+                self.lin2circ = bool(parset.get_int(prefix + "lin2circ"))
+            except RuntimeError:
+                self.lin2circ = False
+
+        try:
+            self.circ2lin = bool(parset.getInt(prefix + "circ2lin"))
+        except RuntimeError:
+            self.circ2lin=False
+        except AttributeError:
+            # DP3 Python bindings have been renamed.
+            try:
+                self.circ2lin = bool(parset.get_int(prefix + "circ2lin"))
+            except RuntimeError:
+                self.circ2lin=False
 
         if self.lin2circ and self.circ2lin:
             sys.exit("Cannot do both lin2circ and circ2lin."
@@ -86,6 +115,18 @@ class PolConv(Step):
                      "\npystep.circ2lin=0 pystep.lin2circ=0")
 
         self.fetch_uvw = True
+
+    def get_required_fields(self):
+        if DP3_VERSION>5.3:
+            return (Fields.DATA | Fields.FLAGS | Fields.WEIGHTS | Fields.UVW)
+        else:
+            pass
+
+    def get_provided_fields(self):
+        if DP3_VERSION>5.3:
+            return Fields()
+        else:
+            pass
 
     def update_info(self, dpinfo):
         """
@@ -161,7 +202,12 @@ class PolConv(Step):
         data += newdata
 
         # Send processed data to the next step
-        self.process_next_step(dpbuffer)
+        if DP3_VERSION>5.3:
+            next_step = self.get_next_step()
+            if next_step is not None:
+                next_step.process(dpbuffer)
+        else:
+            self.process_next_step(dpbuffer)
 
     def finish(self):
         """
@@ -173,5 +219,4 @@ class PolConv(Step):
             print('Converted UV data from circular (RR,RL,LR,LL) to linear polarization (XX,XY,YX,YY)')
         elif self.lin2circ:
             print('Converted UV data from linear (XX,XY,YX,YY) to circular polarization (RR,RL,LR,LL)')
-
         pass
