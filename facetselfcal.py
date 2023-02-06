@@ -1189,7 +1189,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                     os.system('rm -rf ' + msouttmp)
                 else:
                     t.close()
-
+        
             outmslist.append(msout)
         else:
             outmslist.append(ms)  # so no averaging happened
@@ -3835,7 +3835,7 @@ def circular(ms, linear=False, dysco=True):
     return
 
 
-def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, \
+def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
                          circ2lin=False, losotobeamlib='stationresponse'):
     """
     correct a ms for the beam in the phase center (array_factor only)
@@ -3869,9 +3869,11 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, \
        run(cmdlosoto)
 
     if usedppp and not phasedup :
-        cmddppp = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
+        cmddppp = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA '
+        cmddppp += 'msout=' + msout + ' '
         cmddppp += 'msin.weightcolumn=WEIGHT_SPECTRUM '
-        cmddppp += 'msout.datacolumn=CORRECTED_DATA '
+        if msout == '.':
+          cmddppp += 'msout.datacolumn=CORRECTED_DATA '
         if (lin2circ or circ2lin) and beam:
           cmddppp += 'steps=[beam,pystep] '
           cmddppp += 'beam.type=applybeam beam.updateweights=True ' # weights
@@ -3907,11 +3909,14 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, \
 
         print('DP3 applybeam/polconv:', cmddppp)
         run(cmddppp)
-        run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
+        if msout == '.':
+          run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
     else:
-        cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
+        cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA '
+        cmd += 'msout=' + msout + ' '
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
-        cmd += 'msout.datacolumn=CORRECTED_DATA '
+        if msout == '.':
+          cmd += 'msout.datacolumn=CORRECTED_DATA '
 
         if (lin2circ or circ2lin) and beam:
           cmd += 'steps=[ac1,ac2,pystep] '
@@ -3946,7 +3951,8 @@ def beamcor_and_lin2circ(ms, dysco=True, beam=True, lin2circ=False, \
           cmd += 'msout.storagemanager=dysco '
         print('DP3 applycal/polconv:', cmd)
         run(cmd)
-        run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
+        if msout == '.':
+          run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
 
         # Add beam correction keyword here.
         # This code only applies the array factor and assumes the element beam was corrected already.
@@ -4746,7 +4752,9 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
                      skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
                      iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
-                     selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber)
+                     selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,\
+                     clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],\
+                     clipsollow=args['clipsollow'])
 
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
@@ -4904,7 +4912,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,\
-                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True, blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0):
+                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True, blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, \
+                clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
@@ -5110,7 +5119,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     if soltype in ['scalarcomplexgain','complexgain','amplitudeonly','scalaramplitude','fulljones','rotation+diagonal']:
       flagbadamps(parmdb, setweightsphases=includesphase)
       removenans(parmdb, 'amplitude000')
-      medamp = medianamp(parmdb) # fu
+      medamp = medianamp(parmdb)
 
       if soltype != 'amplitudeonly' and soltype != 'scalaramplitude':
          try:
@@ -5120,6 +5129,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
          removenans(parmdb, 'phase000')
       flaglowamps(parmdb, lowampval=medamp*0.1, flagging=flagging, setweightsphases=includesphase)
       flaghighamps(parmdb, highampval=medamp*10., flagging=flagging, setweightsphases=includesphase)
+
+      if soltype == 'fulljones' and clipsolutions:
+        print('Fulljones and solution clipping not supported')
+      if clipsolutions:
+        flaglowamps(parmdb, lowampval=clipsollow, flagging=True, setweightsphases=True)
+        flaghighamps(parmdb, highampval=clipsolhigh, flagging=True, setweightsphases=True)
 
     # makes plots and do LOSOTO flagging
     if soltype in ['rotation','rotation+diagonal']:
@@ -5587,6 +5602,7 @@ def basicsetup(mslist, args):
 
    if args['forwidefield']:
       args['doflagging'] = False
+      args['clipsolutions'] = False
 
    automask = 2.5
    if args['maskthreshold'][-1] < automask:
@@ -5701,7 +5717,12 @@ def main():
    parser.add_argument('--docircular', help='Convert linear to circular correlations.', action='store_true')
    parser.add_argument('--dolinear', help='Convert circular to linear correlations.', action='store_true')
    parser.add_argument('--forwidefield', help='Keep solutions such that they can be used for widefield imaging/screens.', action='store_true')
-   parser.add_argument('--doflagging', help='Flag on complexgain solutions (True/False, default=True). The default is True.', type=ast.literal_eval, default=True)
+   parser.add_argument('--doflagging', help='Flag on complexgain solutions via rms outlier detection (True/False, default=True). The default is True (will be set to False if --forwidefield is set).', type=ast.literal_eval, default=True)
+   parser.add_argument('--clipsolutions', help='Flag amplitude solutions above --clipsolhigh and below  --clipsollow (will be set to False if --forwidefield is set).', action='store_true')
+   parser.add_argument('--clipsolhigh', help='Flag amplitude solutions above this value, only done if --clipsolutions is set.', default=1.5, type=float)
+   parser.add_argument('--clipsollow', help='Flag amplitude solutions below this value, only done if --clipsolutions is set.', default=0.667, type=float)
+   
+  
    parser.add_argument('--dysco', help='Use Dysco compression. The default is True.', type=ast.literal_eval, default=True)
    parser.add_argument('--restoreflags', help='Restore flagging column after each selfcal cycle, only relevant if --doflagging=True.', action='store_true')
    parser.add_argument('--remove-flagged-from-startend', help='Remove flagged time slots at the start and end of an observations. Do not use if you want to combine DD solutions later for widefield imaging.', action='store_true')
