@@ -1187,6 +1187,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
 
                     # clean up
                     os.system('rm -rf ' + msouttmp)
+                else:
+                    t.close()
 
             outmslist.append(msout)
         else:
