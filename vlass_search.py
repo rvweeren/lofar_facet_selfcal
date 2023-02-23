@@ -8,9 +8,6 @@ Original code by Anna Ho
 Edited by Roland Timmerman
 """
 
-## TO DO
-# figure out the weird 1 pixel offset
-
 
 #Imports
 import os
@@ -21,13 +18,15 @@ import glob
 import argparse
 import numpy as np
 from astropy.io import fits
-from urllib.request import urlopen
 from astropy.coordinates import SkyCoord
 from astropy.wcs.utils import skycoord_to_pixel
 from astropy.wcs import WCS
 from astropy.nddata import Cutout2D
 import casacore.tables as pt
-
+try:
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import urlopen
 
 #Settings to potentially tweak
 summary_file_location = "VLASS_dyn_summary.php"
@@ -96,12 +95,12 @@ def get_subtiles(tilename, epoch, consider_QA_rejected):
     """
     
     #Obtain the HTML for the given tile
-    urlpath = urlopen(f"https://archive-new.nrao.edu/vlass/quicklook/{epoch}v2/{tilename}")
+    urlpath = urlopen("https://archive-new.nrao.edu/vlass/quicklook/{}v2/{}".format(epoch, tilename))
     string = urlpath.read().decode('utf-8').split("\n")
 
     if consider_QA_rejected:
         #Obtain the HTML for the QA Rejected
-        urlpath_rejected = urlopen(f"https://archive-new.nrao.edu/vlass/quicklook/{epoch}v2/QA_REJECTED")
+        urlpath_rejected = urlopen("https://archive-new.nrao.edu/vlass/quicklook/{}v2/QA_REJECTED".format(epoch))
         string += urlpath_rejected.read().decode('utf-8').split("\n")
 
     #Select only the subtile parts
@@ -127,8 +126,8 @@ def get_subtiles(tilename, epoch, consider_QA_rejected):
             rah = '00'
         else:
             rah = val[1:3]
-        ra.append(f"{rah}h{val[3:5]}m{val[5:]}s")
-        dec.append(f"{dec_raw[ii][:2]}d{dec_raw[ii][2:4]}m{dec_raw[ii][4:]}s")
+        ra.append("{}h{}m{}s".format(rah, val[3:5], val[5:]))
+        dec.append("{}d{}m{}s".format(dec_raw[ii][:2], dec_raw[ii][2:4], dec_raw[ii][4:]))
     ra = np.array(ra)
     dec = np.array(dec)
     c = SkyCoord(ra, dec, frame='icrs')#.directional_offset_by(45*u.deg, 0.75*u.deg)
@@ -151,7 +150,7 @@ def get_cutout(imname, c, crop_scale):
     pixel_coords = skycoord_to_pixel(SkyCoord(c.ra.deg, c.dec.deg, unit='deg', frame='icrs'), wcs)
     
     if pixel_coords[0] < 0  or pixel_coords[1] < 0 or pixel_coords[0] > data.shape[0]  or pixel_coords[1] > data.shape[1]:
-        subprocess.call(f"rm -f {imname}", shell=True)
+        subprocess.call("rm -f {}".format(imname), shell=True)
         raise Exception("Requested coordinate not within the available subtiles. Consider running with consider_QA_rejected=True to also search additional subtiles which failed initial QA checks")
         
     #Produce a cutout
@@ -172,7 +171,7 @@ def get_cutout(imname, c, crop_scale):
     hdu_list.writeto(output_fits, overwrite=True)
     
     #Cleanup
-    subprocess.call(f"rm -f {imname}", shell=True)
+    subprocess.call("rm -f {}".format(imname), shell=True)
 
     return output_fits
 
@@ -193,15 +192,15 @@ def search_vlass(c, crop=False, crop_scale=256, consider_QA_rejected=False):
     dist = c.separation(c_tiles)
     subtile = subtiles[np.argmin(dist)]
 
-    imname = f"{subtile[:-1]}.I.iter1.image.pbcor.tt0.subim.fits"
+    imname = "{}.I.iter1.image.pbcor.tt0.subim.fits".format(subtile[:-1])
     if len(glob.glob(imname)) == 0:
-        url_get = f"https://archive-new.nrao.edu/vlass/quicklook/{epoch}v2/{tilename}/{subtile}"
-        fname = f"{url_get}{imname}"
-        result = subprocess.run(["wget", fname], capture_output=True)
-        if result.stderr and consider_QA_rejected:
-            url_get = f"https://archive-new.nrao.edu/vlass/quicklook/{epoch}v2/QA_REJECTED/{subtile}"
-            fname = f"{url_get}{imname}"
-            subprocess.run(["wget", fname])
+        url_get = "https://archive-new.nrao.edu/vlass/quicklook/{}v2/{}/{}".format(epoch, tilename, subtile)
+        fname = "{}{}".format(url_get, imname)
+        subprocess.call("wget {}".format(fname), shell=True)
+        if not os.path.exists(subtile) and consider_QA_rejected:
+            url_get = "https://archive-new.nrao.edu/vlass/quicklook/{}v2/QA_REJECTED/{}".format(epoch, subtile)
+            fname = "{}{}".format(url_get, imname)
+            subprocess.call("wget {}".format(fname), shell=True)
     if crop:    
         out = get_cutout(imname, c, crop_scale=crop_scale)
         return out
@@ -220,13 +219,17 @@ if __name__=="__main__":
     
     #Test coords: 232.517541667 60.4054444
     try:
+        ra = 15*(float(sys.argv[1]) + float(sys.argv[2])/60 + float(sys.argv[3])/3600)
+        dec = float(sys.argv[4]) + sign(float(sys.argv[4]))*float(sys.argv[5])/60 + sign(float(sys.argv[4]))*float(sys.argv[6])/3600
+    except IndexError:
         ra = float(sys.argv[1])
         dec = float(sys.argv[2])
     except ValueError:
+        pi = 3.14159265358979
         table = pt.table(sys.argv[1]+"::FIELD")
         direction = table.getcol('PHASE_DIR').squeeze()
-        ra=(direction[0]%(2.*np.pi))/np.pi*180.
-        dec=direction[1]/np.pi*180.
+        ra=(direction[0]%(2*pi))/pi*180
+        dec=direction[1]/pi*180
         table.close()
     except Exception:
         raise TypeError("Incorrect inputs given. Usage: vlass_search.py <RA [deg]> <Dec [deg]> or vlass_search.py <MS>")
