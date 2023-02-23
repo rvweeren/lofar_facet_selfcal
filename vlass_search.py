@@ -18,13 +18,15 @@ import glob
 import argparse
 import numpy as np
 from astropy.io import fits
-from urllib.request import urlopen
 from astropy.coordinates import SkyCoord
 from astropy.wcs.utils import skycoord_to_pixel
 from astropy.wcs import WCS
 from astropy.nddata import Cutout2D
 import casacore.tables as pt
-
+try:
+    from urllib.request import urlopen
+except ImportError:
+    from urllib2 import urlopen
 
 #Settings to potentially tweak
 summary_file_location = "VLASS_dyn_summary.php"
@@ -93,7 +95,7 @@ def get_subtiles(tilename, epoch, consider_QA_rejected):
     """
     
     #Obtain the HTML for the given tile
-    urlpath = urlopen("https://archive-new.nrao.edu/vlass/quicklook/{}v2/{}"format(epoch, tilename))
+    urlpath = urlopen("https://archive-new.nrao.edu/vlass/quicklook/{}v2/{}".format(epoch, tilename))
     string = urlpath.read().decode('utf-8').split("\n")
 
     if consider_QA_rejected:
@@ -194,11 +196,11 @@ def search_vlass(c, crop=False, crop_scale=256, consider_QA_rejected=False):
     if len(glob.glob(imname)) == 0:
         url_get = "https://archive-new.nrao.edu/vlass/quicklook/{}v2/{}/{}".format(epoch, tilename, subtile)
         fname = "{}{}".format(url_get, imname)
-        result = subprocess.run(["wget", fname], capture_output=True)
-        if result.stderr and consider_QA_rejected:
+        subprocess.call("wget {}".format(fname), shell=True)
+        if not os.path.exists(subtile) and consider_QA_rejected:
             url_get = "https://archive-new.nrao.edu/vlass/quicklook/{}v2/QA_REJECTED/{}".format(epoch, subtile)
             fname = "{}{}".format(url_get, imname)
-            subprocess.run(["wget", fname])
+            subprocess.call("wget {}".format(fname), shell=True)
     if crop:    
         out = get_cutout(imname, c, crop_scale=crop_scale)
         return out
