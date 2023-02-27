@@ -5804,7 +5804,7 @@ def main():
 
 
    inputchecker(args)
-   if args['helperscriptspathh5merge'] == None:  
+   if args['helperscriptspathh5merge'] is None:  
       check_code_is_uptodate()
 
 
