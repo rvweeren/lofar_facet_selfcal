@@ -5804,7 +5804,8 @@ def main():
 
 
    inputchecker(args)
-   check_code_is_uptodate()
+   if args['helperscriptspathh5merge'] == None:  
+      check_code_is_uptodate()
 
 
    for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
