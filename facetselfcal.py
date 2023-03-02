@@ -2272,6 +2272,16 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
     return
 
 
+def str_or_int(arg):
+    try:
+        return int(arg)  # try convert to int
+    except ValueError:
+        pass
+    if isinstance(arg, str):
+        return arg
+    raise argparse.ArgumentTypeError("Input must be an int or string")
+
+
 def removenans(parmdb, soltab):
     ''' Remove nan values in h5parm
 
@@ -5667,8 +5677,8 @@ def main():
    parser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict). The default is None.', type=str, default=None)
 
    # Calibration options
-   parser.add_argument('--avgfreqstep', help="Extra DP3 frequency averaging to speed up a solve. This is done before any other correction and could be useful for long baseline infield calibrators. Allowed are integer values or for example '195.3125kHz'; options for units: 'Hz', 'kHz', or 'MHz'. The default is None.", type=int, default=None)
-   parser.add_argument('--avgtimestep', help="Extra DP3 time averaging to speed up a solve. This is done before any other correction and could be useful for long baseline infield calibrators. Allowed are integer values or for example '16.1s'; options for units: 's' or 'sec'. The default is None.", type=int, default=None)
+   parser.add_argument('--avgfreqstep', help="Extra DP3 frequency averaging to speed up a solve. This is done before any other correction and could be useful for long baseline infield calibrators. Allowed are integer values or for example '195.3125kHz'; options for units: 'Hz', 'kHz', or 'MHz'. The default is None.", type=str_or_int, default=None)
+   parser.add_argument('--avgtimestep', help="Extra DP3 time averaging to speed up a solve. This is done before any other correction and could be useful for long baseline infield calibrators. Allowed are integer values or for example '16.1s'; options for units: 's' or 'sec'. The default is None.", type=str_or_int, default=None)
    parser.add_argument('--msinnchan', help="Before averaging, only take this number of input channels. The default is None.", type=int, default=None)
    parser.add_argument('--msinntimes', help="DP3 msin.ntimes setting. This is mainly used for testing purposes. The default is None.", type=int, default=None)
    parser.add_argument('--autofrequencyaverage-calspeedup', help="Try extra averaging during some selfcalcycles to speed up calibration.", action='store_true')
