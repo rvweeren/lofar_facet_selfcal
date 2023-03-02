@@ -5760,8 +5760,8 @@ def main():
    # if a config file exists, then read the information
 
    if os.path.isfile('facetselfcal_config.txt'):
-      print( 'A config file exists, using it. This contains:' )
-      with open('facetselfcal_config.txt','r') as f:
+      print('A config file exists, using it. This contains:')
+      with open('facetselfcal_config.txt', 'r') as f:
          lines = f.readlines()
       for line in lines:
          print( line )
@@ -5777,8 +5777,8 @@ def main():
          # this updates the vaue if it exists, or creates a new one if it doesn't
          arg = line.split('=')[0].rstrip()
          if arg not in vars(options).keys():
-            raise KeyError('Encountered invalid option {:s} in config file {:s}.'.format(arg))
-         setattr( options, arg, lineval )
+            raise KeyError('Encountered invalid option {:s} in config file {:s}.'.format(arg, os.path.abspath('facetselfcal_config.txt')))
+         setattr(options, arg, lineval)
 
 
    args = vars(options)
