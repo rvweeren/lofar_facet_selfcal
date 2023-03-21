@@ -13,10 +13,7 @@
 #     print(selfcalcycle,soltypecycles_list[soltypenumber+1][msnumber])
 # IndexError: list index out of range
 
-# MFS image name fixes for channelsout 1
 # turn of baseline based avg for MeerKAT?
-# check if channels are equidistant
-# wsclean syntax -gridder vs -use-wgridder update
 # DP3 modeldata syntaxt
 # implement idea of phase detrending.
 # do not predict sky second time in pertubation solve?
@@ -26,6 +23,7 @@
 # only trigger HBA upper band selection for sources outside the FWHM?
 # if noise goes up stop selfcal
 # make Ateam plot
+
 
 
 # example:
@@ -62,10 +60,9 @@ import numpy as np
 import pyregion
 import tables
 
-from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.wcs import WCS
-from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
+from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord, angular_separation
 from astropy.time import Time
 from astroquery.skyview import SkyView
 from losoto import h5parm
@@ -103,6 +100,54 @@ def copy_over_sourcedirection_h5(h5ref, h5):
     return
 '''
 
+def set_beamcor(ms, beamcor_var):
+   """
+   Determine whether to do beam correction or note
+   """
+   if beamcor_var == 'no':
+      logger.info('Run DP3 applybeam: no')
+      return False
+   if beamcor_var == 'yes':
+      logger.info('Run DP3 applybeam: yes')
+      return True  
+
+   t = pt.table(ms + '/OBSERVATION', ack=False)
+   if t.getcol('TELESCOPE_NAME')[0] != 'LOFAR':
+      t.close()
+      logger.info('Run DP3 applybeam: no (because we are not using LOFAR observations)')
+      return False
+   t.close()
+
+   # If we arrive here beamcor_var was set to auto and we are using a LOFAR observation   
+   if not beamkeywords(ms):
+      # we have old prefactor data in this case, no beam keywords available
+      # assume beam was taken out in the field center only if user as set 'auto'
+      logger.info('Run DP3 applybeam: yes')
+      return True
+
+   # now check if beam was taken out in the current phase center
+   t = pt.table(ms, readonly=True, ack=False)
+   beamdir = t.getcolkeyword('DATA', 'LOFAR_APPLIED_BEAM_DIR')
+   
+   t2 = pt.table(ms + '::FIELD', ack=False)
+   phasedir = t2.getcol('PHASE_DIR').squeeze()
+   t.close()
+   t2.close()
+   angsep = 3600.*180.*astropy.coordinates.angular_separation(phasedir[0], phasedir[1], beamdir['m0']['value'], beamdir['m1']['value'])/np.pi
+   print('Angular separation between phase center and applied beam direction is', angsep, '[arcsec]')
+   logger.info('Distance to pointing center:' + str(angsep) + ' [arcsec]')
+   
+   # of less than 10 arcsec than do beam correction
+   if angsep < 10.0: 
+      logger.info('Run DP3 applybeam: no')
+      return False
+   else:
+      logger.info('Run DP3 applybeam: yes')
+      return True
+
+
+ 
+ 
 def check_equidistant_freqs(mslist):
     ''' Check if freuqencies in mslist are equidistant
 
@@ -515,7 +560,7 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
     logger.info('Niter:                     ' + str(args['niter']))
     logger.info('Uvmin:                     ' + str(args['uvmin']  ))
     logger.info('Multiscale:                ' + str(args['multiscale']))
-    logger.info('No beam correction:        ' + str(args['no_beamcor']))
+    logger.info('Beam correction:           ' + str(args['beamcor']))
     logger.info('IDG:                       ' + str(args['idg']))
     logger.info('Widefield:                 ' + str(args['forwidefield']))
     logger.info('Flagslowamprms:            ' + str(args['flagslowamprms']))
@@ -1372,10 +1417,6 @@ def inputchecker(args):
         if not os.path.isfile(args['phaseshiftbox']):
             print('Cannot find:', args['phaseshiftbox'])
             raise Exception('Cannot find:' + args['phaseshiftbox'])
-
-    #if not args['no_beamcor'] and args['idg']:
-    #    print('beamcor=True and IDG=True is not possible')
-    #    raise Exception('beamcor=True and IDG=True is not possible')
 
     for antennaconstraint in args['antennaconstraint_list']:
         if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
@@ -3846,7 +3887,7 @@ def circular(ms, linear=False, dysco=True):
 
 
 def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
-                         circ2lin=False, losotobeamlib='stationresponse'):
+                         circ2lin=False, losotobeamlib='stationresponse', update_poltable=True):
     """
     correct a ms for the beam in the phase center (array_factor only)
     """
@@ -3963,6 +4004,15 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
         run(cmd)
         if msout == '.':
           run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
+
+        # update ms POLTABLE 
+        if (lin2circ or circ2lin) and update_poltable:
+           tp = pt.table(ms+'/POLARIZATION',readonly=False,ack=True)
+           if lin2circ:
+              tp.putcol('CORR_TYPE',numpy.array([[5,6,7,8]],dtype=numpy.int32)) # FROM LIN-->CIRC
+           if circ2lin:  
+              tp.putcol('CORR_TYPE',numpy.array([[9,10,11,12]],dtype=numpy.int32)) # FROM CIRC-->LIN
+           tp.close()
 
         # Add beam correction keyword here.
         # This code only applies the array factor and assumes the element beam was corrected already.
@@ -4515,13 +4565,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
           if gapchanneldivision:
             cmd += '-gap-channel-division '
         if idg:
-          cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
+          cmd += '-gridder idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
           cmd += '-beam-aterm-update 800 '
           #cmd += '-pol iquv '
           cmd += '-pol i '
         else:
           if usewgridder:
-            cmd +='-use-wgridder '
+            cmd +='-gridder wgridder '
           if parallelgridding > 1:
             cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
         cmd += '-name ' + imageout + ' ' + msliststring
@@ -4578,7 +4628,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
       if taperinnertukey !=None:
          cmd += '-taper-inner-tukey ' + str(taperinnertukey) + ' '
       if idg:
-        cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
+        cmd += '-gridder idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
         cmd += '-beam-aterm-update 800 '
         #cmd += '-pol iquv -link-polarizations i '
         cmd += '-pol i '
@@ -4595,7 +4645,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         cmdbtmp = '-baseline-averaging ' + baselineav + ' '
         cmd += '-baseline-averaging ' + baselineav + ' '
         if usewgridder:
-          cmd +='-use-wgridder '  
+          cmd +='-gridder wgridder '
           # cmd +='-wgridder-accuracy 1e-4 '
     
       cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' 
@@ -4614,13 +4664,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
            if gapchanneldivision:
              cmdp += '-gap-channel-division '
         if idg:
-          cmdp += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
+          cmdp += '-gridder idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
           cmdp += '-beam-aterm-update 800 '
           #cmdp += '-pol iquv '
           cmdp += '-pol i '
         else:
           if usewgridder:    
-            cmd +='-use-wgridder '  
+            cmd +='-gridder wgridder '  
             # cmd +='-wgridder-accuracy 1e-4 '
 
         cmdp += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' + msliststring
@@ -4662,13 +4712,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
           if gapchanneldivision:
             cmd += '-gap-channel-division '
         if idg:
-          cmd += '-use-idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
+          cmd += '-gridder idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
           cmd += '-beam-aterm-update 800 '
           #cmd += '-pol iquv '
           cmd += '-pol i '
         else:
           if usewgridder:
-            cmd +='-use-wgridder '  
+            cmd +='-gridder wgridder '  
             # cmd +='-wgridder-accuracy 1e-4 '
           if parallelgridding > 1:
             cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
@@ -4881,7 +4931,7 @@ def predictsky_wscleanfits(ms, imagebasename, usewgridder=True):
     channelsout = len(glob.glob(imagebasename + '-????-model.fits'))
     cmd = 'wsclean -channels-out '+ str(channelsout)+ ' -padding 1.8 -pol i '
     if usewgridder:
-       cmd +='-use-wgridder '
+       cmd +='-gridder wgridder '
     cmd+= '-name ' + imagebasename + ' -predict ' + ms
     print(cmd)
     run(cmd)
@@ -5722,7 +5772,8 @@ def main():
    parser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required).', action='store_true')
    parser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data (not yet implemented).', action='store_true')
    parser.add_argument('--tgssfitsimage', help='Start TGSS fits image for model (if not provided use SkyView). The default is None.', type=str)
-   parser.add_argument('--no-beamcor', help='Do not correct the visilbities for the array factor.', action='store_true')
+   #parser.add_argument('--no-beamcor', help='Do not correct the visilbities for the array factor.', action='store_true')
+   parser.add_argument('--beamcor', help='Correct the visibilities for beam in the phase center, options: yes, no, auto (default is auto, auto means beam is taken out in the curent phase center, tolerance for that is 10 arcsec)', type=str, default='auto')
    parser.add_argument('--losotobeamcor-beamlib', help="Beam library to use when not using DP3 for the beam correction. Possible input: 'stationreponse', 'lofarbeam' (identical and deprecated). The default is 'stationresponse'.", type=str, default='stationresponse')
    parser.add_argument('--docircular', help='Convert linear to circular correlations.', action='store_true')
    parser.add_argument('--dolinear', help='Convert circular to linear correlations.', action='store_true')
@@ -5977,10 +6028,10 @@ def main():
      #      circular(ms, linear=args['dolinear'], dysco=args['dysco'])
 
      # BEAM CORRECTION AND/OR CONVERT TO CIRCULAR/LINEAR CORRELATIONS
-     if ((args['docircular'] or args['dolinear']) or (not args['no_beamcor'])) and (i == 0):
-       for ms in mslist:
+     for ms in mslist:
+       if ((args['docircular'] or args['dolinear']) or (set_beamcor(ms, args['beamcor']))) and (i == 0):
          beamcor_and_lin2circ(ms, dysco=args['dysco'], \
-                              beam=(not args['no_beamcor']), \
+                              beam=set_beamcor(ms, args['beamcor']), \
                               lin2circ=args['docircular'], \
                               circ2lin=args['dolinear'], \
                               losotobeamlib=args['losotobeamcor_beamlib'])
