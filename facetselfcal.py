@@ -1418,6 +1418,10 @@ def inputchecker(args):
             print('Cannot find:', args['phaseshiftbox'])
             raise Exception('Cannot find:' + args['phaseshiftbox'])
 
+    if args['beamcor'] not in ['auto','yes','no']:
+        print('beamcor is not auto, yes, or no')
+        raise Exception('Invalid input, beamcor is not auto, yes, or no')
+
     for antennaconstraint in args['antennaconstraint_list']:
         if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
                                      'all', 'international', 'alldutch', 'core-remote',
@@ -2009,7 +2013,7 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False):
     return antstr
 
 
-def makephasediffh5(phaseh5): 
+def makephasediffh5(phaseh5, refant): 
     # note for scalarphase/phaseonly solve, does not work for tecandphase as freq axis is missing there for phase000
     H5pol = tables.open_file(phaseh5,mode='a')
 
@@ -2018,9 +2022,12 @@ def makephasediffh5(phaseh5):
     # antenna   = H5pol.root.sol000.phase000.ant[:]
     print('Shape to make phase diff array', phase_pol.shape)
 
-    # for ant in range(len(antenna)):
-    phase_pol[:, :, :, :,0]  = phase_pol_tmp[:, :, :, :,0] # XX
-    phase_pol[:, :, :, :,-1] = 0.0*phase_pol_tmp[:, :, :, :,0] # YY
+    #Reference phases so that we correct the phase difference with respect to a reference station
+    refant_idx = np.where(H5pol.root.sol000.phase000.ant[:].astype(str) == refant)
+    phase_pol_tmp_ref = phase_pol_tmp - phase_pol_tmp[:,:,refant_idx[0],:,:]
+
+    phase_pol[:, :, :, :,0]  = phase_pol_tmp_ref[:, :, :, :,0] # XX
+    phase_pol[:, :, :, :,-1] = 0.0*phase_pol_tmp_ref[:, :, :, :,0] # YY
 
 
     H5pol.root.sol000.phase000.val[:] = phase_pol
@@ -3439,7 +3446,7 @@ def create_beamcortemplate(ms):
   """
   H5name = ms + '_templatejones.h5'
 
-  cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
+  cmd = 'DP3 numthreads='+str(np.min([multiprocessing.cpu_count(),24]))+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
   cmd += 'msin.modelcolumn=DATA '
   cmd += 'steps=[ddecal] ddecal.type=ddecal '
   cmd += 'ddecal.maxiter=1 ddecal.usemodelcolumn=True ddecal.nchan=1 '
@@ -3900,6 +3907,26 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
     taql = 'taql'
     H5name  = create_beamcortemplate(ms)
     phasedup = check_phaseup(H5name) # in case no beamcor is done we still need this
+
+    if (lin2circ or circ2lin):
+       tp = pt.table(ms+'/POLARIZATION',ack=False)
+       polinfo = tp.getcol('CORR_TYPE')
+       if lin2circ: # so in this case input must be linear
+          if not np.array_equal(np.array([[9,10,11,12]]), polinfo):
+             print(polinfo)
+             raise Exception('Input data is not linear, cannot convert to circular')
+       if circ2lin:  # so in this case input must be circular
+          if not np.array_equal(np.array([[5,6,7,8]]), polinfo):
+             print(polinfo)
+             raise Exception('Input data is not circular, cannot convert to linear')  
+       tp.close()
+
+    if beam:
+       tp = pt.table(ms+'/POLARIZATION',ack=False)
+       polinfo = tp.getcol('CORR_TYPE')
+       tp.close()
+       if np.array_equal(np.array([[5,6,7,8]]), polinfo): # so we have circular data
+          raise Exception('Cannot do DP3 beam correction on input data that is circular')
 
     if lin2circ and circ2lin:
        print('Wrong input in function, both lin2circ and circ2lin are True')
@@ -5142,7 +5169,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
 
     if incol == 'DATA_CIRCULAR_PHASEDIFF':
       print('Manually updating H5 to get the phase difference correct')
-      makephasediffh5(parmdb)
+      refant=findrefant_core(parmdb) # phase matrix plot
+      force_close(parmdb)
+      makephasediffh5(parmdb, refant)
     if incol == 'DATA_CIRCULAR_PHASEDIFF' and soltypein == 'scalarphasediffFR':
       print('Fiting for Faraday Rotation with losoto on the phase differences')
       # work with copies H5 because losoto changes the format splitting off the length 1 direction axis creating issues with H5merge (also add additional solution talbes which we do not want)
