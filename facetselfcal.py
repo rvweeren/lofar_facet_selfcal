@@ -4036,9 +4036,9 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
         if (lin2circ or circ2lin) and update_poltable:
            tp = pt.table(ms+'/POLARIZATION',readonly=False,ack=True)
            if lin2circ:
-              tp.putcol('CORR_TYPE',numpy.array([[5,6,7,8]],dtype=numpy.int32)) # FROM LIN-->CIRC
+              tp.putcol('CORR_TYPE',np.array([[5,6,7,8]],dtype=np.int32)) # FROM LIN-->CIRC
            if circ2lin:  
-              tp.putcol('CORR_TYPE',numpy.array([[9,10,11,12]],dtype=numpy.int32)) # FROM CIRC-->LIN
+              tp.putcol('CORR_TYPE',np.array([[9,10,11,12]],dtype=np.int32)) # FROM CIRC-->LIN
            tp.close()
 
         # Add beam correction keyword here.
