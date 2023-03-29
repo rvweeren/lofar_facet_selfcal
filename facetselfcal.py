@@ -2,7 +2,7 @@
 
 # normamps full jones, deal with solnorm on crosshands only? currently normaps not used for fulljones
 
-# restart with updated soltype_list?
+# restart with updated soltype_list?, do not rely on pickle files?
 # ('selfcalcycle, soltypenumber', 10, 2)
 # Traceback (most recent call last):
 #   File "/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/facetselfcal.py", line 4955, in <module>
@@ -169,7 +169,7 @@ def check_equidistant_freqs(mslist):
         t.close()
     return
 
-def run(command):
+def run(command, log=False):
     ''' Execute a shell command through subprocess
 
     Args:
@@ -177,6 +177,9 @@ def run(command):
     Returns:
         None
     '''
+    if log:
+        print(command)
+        logger.info(command)  
     retval = subprocess.call(command, shell=True)
     if retval != 0:
         print('FAILED to run ' + command + ': return value is ' + str(retval))
@@ -1581,7 +1584,7 @@ def get_uvwmax(ms):
     Returns:
         None
     '''
-    t = pt.table(ms)
+    t = pt.table(ms, ack=False)
     uvw = t.getcol('UVW')
     ssq = np.sqrt(np.sum(uvw**2, axis=1))
     print(uvw.shape)
@@ -3017,6 +3020,35 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
 
    return nchan_list, solint_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, soltypecycles_list
 
+def getms_amp_stats(ms, datacolumn='DATA',uvcutfraction=0.666, robustsigma=True):
+   uvdismod = get_uvwmax(ms)*uvcutfraction  
+   t = pt.taql('SELECT ' + datacolumn + ',UVW,TIME,FLAG FROM ' + ms + ' WHERE SQRT(SUMSQR(UVW[:2])) > '+ str(uvdismod) )
+   flags = t.getcol('FLAG')
+   data  = t.getcol(datacolumn)
+   data = np.ma.masked_array(data, flags)
+   t.close()
+  
+   amps_rr = np.abs(data[:,:,0])
+   amps_ll = np.abs(data[:,:,3])
+   
+   # remove zeros from LL
+   idx = np.where(amps_ll != 0.0)
+   amps_ll = amps_ll[idx]
+   amps_rr = amps_rr[idx]
+
+   # remove zeros from RR
+   idx = np.where(amps_rr != 0.0)
+   amps_ll = amps_ll[idx]
+   amps_rr = amps_rr[idx]
+
+   amplogratio = np.log10(amps_rr/amps_ll) # we assume Stokes V = 0, so RR = LL
+   if robustsigma:
+      lognoise = astropy.stats.sigma_clipping.sigma_clipped_stats(amplogratio)[2]
+   else:
+      lognoise = np.std(amplogratio)
+   print(ms, lognoise, np.mean(amplogratio))
+   return lognoise
+
 def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
    t = pt.table(ms + '/SPECTRAL_WINDOW')
    chanw = np.median(t.getcol('CHAN_WIDTH'))
@@ -3904,7 +3936,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
     usedppp = beamkeywords(ms)
 
     losoto = 'losoto'
-    taql = 'taql'
+    #taql = 'taql'
     H5name  = create_beamcortemplate(ms)
     phasedup = check_phaseup(H5name) # in case no beamcor is done we still need this
 
@@ -3988,7 +4020,8 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
         print('DP3 applybeam/polconv:', cmddppp)
         run(cmddppp)
         if msout == '.':
-          run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
+          #run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
+          run("DP3 msin=" + ms + " msout=. msin.datacolumn=CORRECTED_DATA msout.datacolumn=DATA steps=[]", log=True)
     else:
         cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msin.datacolumn=DATA '
         cmd += 'msout=' + msout + ' '
@@ -4030,7 +4063,8 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
         print('DP3 applycal/polconv:', cmd)
         run(cmd)
         if msout == '.':
-          run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
+          #run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
+          run("DP3 msin=" + ms + " msout=. msin.datacolumn=CORRECTED_DATA msout.datacolumn=DATA steps=[]", log=True)
 
         # update ms POLTABLE 
         if (lin2circ or circ2lin) and update_poltable:
@@ -5873,7 +5907,7 @@ def main():
 
    args = vars(options)
 
-   version = '6.0.0'
+   version = '6.2.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
