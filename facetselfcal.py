@@ -5831,7 +5831,7 @@ def basicsetup(mslist, args):
      if args['targetcalILT'] == 'tec' or args['targetcalILT'] == 'tecandphase':
         args['smoothnessconstraint_list'] = [0.0, 5.0]
      else:
-        args['smoothnessconstraint_list'] = [30.0, 5.0]
+        args['smoothnessconstraint_list'] = [10.0, 5.0]
         args['smoothnessreffrequency_list'] = [120.0, 0.0]
         args['smoothnessspectralexponent_list'] = [-1.0, -1.0]
         args['smoothnessrefdistance_list'] = [0.0,0.0]
