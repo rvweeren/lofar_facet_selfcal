@@ -62,7 +62,8 @@ import tables
 
 from astropy.io import fits
 from astropy.wcs import WCS
-from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord, angular_separation
+from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
+#from astropy.coordinates import angular_separation
 from astropy.time import Time
 from astroquery.skyview import SkyView
 from losoto import h5parm
@@ -133,18 +134,160 @@ def set_beamcor(ms, beamcor_var):
    phasedir = t2.getcol('PHASE_DIR').squeeze()
    t.close()
    t2.close()
-   angsep = 3600.*180.*astropy.coordinates.angular_separation(phasedir[0], phasedir[1], beamdir['m0']['value'], beamdir['m1']['value'])/np.pi
-   print('Angular separation between phase center and applied beam direction is', angsep, '[arcsec]')
-   logger.info('Distance to pointing center:' + str(angsep) + ' [arcsec]')
+   
+   c1 = SkyCoord(beamdir['m0']['value']* units.radian, beamdir['m1']['value'] * units.radian, frame='icrs')
+   c2 = SkyCoord(phasedir[0] * units.radian,  phasedir[1] * units.radian, frame='icrs')
+   angsep = c1.separation(c2).to(units.arcsec)
+   
+   # angular_separation is recent astropy functionality, do not use, instead use the older SkyCoord.seperation
+   #angsep = 3600.*180.*astropy.coordinates.angular_separation(phasedir[0], phasedir[1], beamdir['m0']['value'], beamdir['m1']['value'])/np.pi
+   
+   print('Angular separation between phase center and applied beam direction is', angsep.value, '[arcsec]')
+   logger.info('Distance to pointing center:' + str(angsep.value) + ' [arcsec]')
    
    # of less than 10 arcsec than do beam correction
-   if angsep < 10.0: 
+   if angsep.value < 10.0: 
       logger.info('Run DP3 applybeam: no')
       return False
    else:
       logger.info('Run DP3 applybeam: yes')
       return True
 
+def add_dummyms(msfiles):
+    '''
+    Add dummy ms to create a regular freuqency grid when doing a concat with DPPP
+    '''
+    if len(msfiles) == 1:
+      return msfiles
+    keyname = 'REF_FREQUENCY'
+    freqaxis = []
+    newmslist  = []
+
+    # Check for wrong REF_FREQUENCY which happens after a DPPP split in frequency
+    for ms in msfiles:        
+        t = pt.table(ms + '/SPECTRAL_WINDOW', readonly=True)
+        freq = t.getcol('REF_FREQUENCY')[0]
+        t.close()
+        freqaxis.append(freq)
+    freqaxis = np.sort( np.array(freqaxis))
+    minfreqspacing = np.min(np.diff(freqaxis))
+    if minfreqspacing == 0.0:
+       keyname = 'CHAN_FREQ' 
+    
+    
+    freqaxis = [] 
+    for ms in msfiles:        
+        t = pt.table(ms + '/SPECTRAL_WINDOW', readonly=True)
+        if keyname == 'CHAN_FREQ':
+          freq = t.getcol(keyname)[0][0]
+        else:
+          freq = t.getcol(keyname)[0]  
+        t.close()
+        freqaxis.append(freq)
+    
+    # put everything in order of increasing frequency
+    freqaxis = np.array(freqaxis)
+    idx = np.argsort(freqaxis)
+    
+    freqaxis = freqaxis[np.array(tuple(idx))]
+    sortedmslist = list( msfiles[i] for i in idx )
+    freqspacing = np.diff(freqaxis)
+    minfreqspacing = np.min(np.diff(freqaxis))
+ 
+    # insert dummies in the ms list if needed
+    count = 0
+    newmslist.append(sortedmslist[0]) # always start with the first ms the list
+    for msnumber, ms in enumerate(sortedmslist[1::]): 
+      if int(round(freqspacing[msnumber]/minfreqspacing)) > 1:
+        ndummy = int(round(freqspacing[msnumber]/minfreqspacing)) - 1
+ 
+        for dummy in range(ndummy):
+          newmslist.append('dummy' + str(count) + '.ms')
+          print('Added dummy:', 'dummy' + str(count) + '.ms') 
+          count = count + 1
+      newmslist.append(ms)
+       
+    print('Updated ms list with dummies inserted to create a regular frequency grid')
+    print(newmslist) 
+    return newmslist
+
+def number_of_unique_obsids(msfiles):
+    '''
+    Basic function to get numbers of observations based on first part of ms name
+    (assumes one uses "_" here)
+
+     Args:
+         command (list): the list of ms
+     Returns:
+         reval (int): number of observations
+  
+    '''
+    obsids = []
+    for ms in msfiles:
+       obsids.append(os.path.basename(ms).split('_')[0])
+       print('Using these observations ', np.unique(obsids))
+    return len(np.unique(obsids))
+
+def getobsmslist(msfiles, observationnumber):
+    '''
+    make a list of ms beloning to the same observation
+    '''
+    obsids = []    
+    for ms in msfiles:
+      obsids.append(os.path.basename(ms).split('_')[0])
+    obsidsextract = np.unique(obsids)[observationnumber]
+    mslist = []
+    for ms in msfiles:
+      if (os.path.basename(ms).split('_')[0]) == obsidsextract:
+        mslist.append(ms)
+    return mslist 
+
+def mscolexist(ms, colname):
+    """ Check if a colname exists in the measurement set ms, returns either True or False """
+    if os.path.isdir(ms):
+      t = pt.table(ms,readonly=True, ack=False)
+      colnames =t.colnames()
+      if colname in colnames: # check if the column is in the list
+         exist = True
+      else:
+        exist = False  
+      t.close()
+    else:
+      exist = False # ms does not exist  
+    return exist
+
+ 
+def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True):
+   for observation in range(number_of_unique_obsids(mslist)):
+      # insert dummies for completely missing blocks to create a regular freuqency grid for DPPP
+      obs_mslist = getobsmslist(mslist, observation)
+      obs_mslist    = add_dummyms(obs_mslist)   
+
+      msoutconcat = outnamebase + '_' + str(observation) + '.ms'
+      msfilesconcat = []
+
+      #remove ms from the list where column DATA_SUB does not exist (to prevent NDPPP crash)
+      for msnumber, ms in enumerate(obs_mslist):
+         if os.path.isdir(ms):
+            if mscolexist(ms,colname):
+                msfilesconcat.append(ms)
+            else:
+                msfilesconcat.append('missing' + str(msnumber))
+         else:  
+            msfilesconcat.append('missing' + str(msnumber))    
+     
+         #  CONCAT
+         cmd =  'DP3 msin="' + str(msfilesconcat) + '" msin.orderms=False '
+         cmd += 'steps=[] '
+         cmd += 'msin.datacolumn=%s msin.missingdata=True '%colname
+         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM ' 
+         if dysco:
+            cmd += 'msout.storagemanager=dysco '
+         cmd += 'msout=' + msoutconcat + ' '
+         if os.path.isdir(msoutconcat):
+            os.system('rm -rf ' + msoutconcat)
+      run(cmd, log=False)
+   return   
 
  
  
@@ -3926,7 +4069,7 @@ def circular(ms, linear=False, dysco=True):
 
 
 def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
-                         circ2lin=False, losotobeamlib='stationresponse', update_poltable=True):
+                         circ2lin=False, losotobeamlib='stationresponse', update_poltable=True, idg=False):
     """
     correct a ms for the beam in the phase center (array_factor only)
     """
@@ -3986,7 +4129,10 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
           cmddppp += 'msout.datacolumn=CORRECTED_DATA '
         if (lin2circ or circ2lin) and beam:
           cmddppp += 'steps=[beam,pystep] '
-          cmddppp += 'beam.type=applybeam beam.updateweights=True ' # weights
+          if idg:
+            cmddppp += 'beam.type=applybeam beam.updateweights=False ' # weights
+          else:
+            cmddppp += 'beam.type=applybeam beam.updateweights=True ' # weights
           cmddppp += 'beam.direction=[] ' # correction for the current phase center
           # cmddppp += 'beam.beammode= ' default is full, will undo element as well(!)
           
@@ -4000,7 +4146,10 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
 
         if beam and not (lin2circ or circ2lin):
           cmddppp += 'steps=[beam] '
-          cmddppp += 'beam.type=applybeam beam.updateweights=True ' # weights
+          if idg:
+            cmddppp += 'beam.type=applybeam beam.updateweights=False ' # weights
+          else:
+            cmddppp += 'beam.type=applybeam beam.updateweights=True ' # weights                    
           cmddppp += 'beam.direction=[] ' # correction for the current phase center
           # cmddppp += 'beam.beammode= ' default is full, will undo element as well(!)
           
@@ -4041,12 +4190,20 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
 
           cmd += 'ac1.parmdb='+H5name + ' ac2.parmdb='+H5name + ' '
           cmd += 'ac1.type=applycal ac2.type=applycal '
-          cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=True '
+          cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 '
+          if idg:
+            cmd += 'ac2.updateweights=False '  
+          else:
+            cmd += 'ac2.updateweights=True '
         if beam and not (lin2circ or circ2lin):
           cmd += 'steps=[ac1,ac2] '
           cmd += 'ac1.parmdb='+H5name + ' ac2.parmdb='+H5name + ' '
           cmd += 'ac1.type=applycal ac2.type=applycal '
-          cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=True '
+          cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 '
+          if idg:
+            cmd += 'ac2.updateweights=False '  
+          else:
+            cmd += 'ac2.updateweights=True '
         if (lin2circ or circ2lin) and not beam:
           cmd += 'steps=[pystep] '
           cmd += 'pystep.python.module=polconv '
@@ -4688,17 +4845,18 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
          cmd += '-taper-gaussian ' + uvtaper + ' '
       if taperinnertukey !=None:
          cmd += '-taper-inner-tukey ' + str(taperinnertukey) + ' '
+
+      if (fitspectralpol) and (channelsout > 1) and not (fullpol):
+        if fitspectrallogpol:
+          cmd += '-fit-spectral-log-pol ' + str(fitspectralpolorder) + ' '
+        else:
+          cmd += '-fit-spectral-pol ' + str(fitspectralpolorder) + ' '
       if idg:
         cmd += '-gridder idg -grid-with-beam -use-differential-lofar-beam -idg-mode cpu '
         cmd += '-beam-aterm-update 800 '
         #cmd += '-pol iquv -link-polarizations i '
         cmd += '-pol i '
       else:
-        if fitspectralpol and channelsout > 1:
-           if fitspectrallogpol:
-             cmd += '-fit-spectral-log-pol ' + str(fitspectralpolorder) + ' '
-           else:
-             cmd += '-fit-spectral-pol ' + str(fitspectralpolorder) + ' '
         if fullpol:
           cmd += '-pol iquv -join-polarizations '
         else:
@@ -5907,7 +6065,7 @@ def main():
 
    args = vars(options)
 
-   version = '6.2.0'
+   version = '6.3.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -6097,7 +6255,7 @@ def main():
                               beam=set_beamcor(ms, args['beamcor']), \
                               lin2circ=args['docircular'], \
                               circ2lin=args['dolinear'], \
-                              losotobeamlib=args['losotobeamcor_beamlib'])
+                              losotobeamlib=args['losotobeamcor_beamlib'], idg=args['idg'])
 
 
      # PRE-APPLY SOLUTIONS (from a nearby direction for example)
