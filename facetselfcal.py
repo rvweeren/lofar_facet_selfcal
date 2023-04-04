@@ -1,18 +1,6 @@
 #!/usr/bin/env python
 
 # normamps full jones, deal with solnorm on crosshands only? currently normaps not used for fulljones
-
-# restart with updated soltype_list?, do not rely on pickle files?
-# ('selfcalcycle, soltypenumber', 10, 2)
-# Traceback (most recent call last):
-#   File "/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/facetselfcal.py", line 4955, in <module>
-#     main()
-#   File "/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/facetselfcal.py", line 4895, in main
-#     docircular=args['docircular'])
-#   File "/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/facetselfcal.py", line 3648, in calibrateandapplycal
-#     print(selfcalcycle,soltypecycles_list[soltypenumber+1][msnumber])
-# IndexError: list index out of range
-
 # turn of baseline based avg for MeerKAT?
 # DP3 modeldata syntaxt
 # implement idea of phase detrending.
@@ -2960,183 +2948,183 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    these list can then be updated later with values from auto_determinesolints for example
    """
 
-   if os.path.isfile('nchan.p') and os.path.isfile('solint.p'):
+   #if os.path.isfile('nchan.p') and os.path.isfile('solint.p'):
 
-      f = open('nchan.p', 'rb')
-      nchan_list = pickle.load(f)
-      f.close()
+      #f = open('nchan.p', 'rb')
+      #nchan_list = pickle.load(f)
+      #f.close()
 
-      f = open('solint.p', 'rb')
-      solint_list = pickle.load(f)
-      f.close()
+      #f = open('solint.p', 'rb')
+      #solint_list = pickle.load(f)
+      #f.close()
 
-      f = open('antennaconstraint.p', 'rb')
-      antennaconstraint_list = pickle.load(f)
-      f.close()
+      #f = open('antennaconstraint.p', 'rb')
+      #antennaconstraint_list = pickle.load(f)
+      #f.close()
 
-      f = open('resetsols.p', 'rb')
-      resetsols_list = pickle.load(f)
-      f.close()
+      #f = open('resetsols.p', 'rb')
+      #resetsols_list = pickle.load(f)
+      #f.close()
 
-      f = open('smoothnessconstraint.p', 'rb')
-      smoothnessconstraint_list = pickle.load(f)
-      f.close()
+      #f = open('smoothnessconstraint.p', 'rb')
+      #smoothnessconstraint_list = pickle.load(f)
+      #f.close()
 
-      f = open('smoothnessreffrequency.p', 'rb')
-      smoothnessreffrequency_list = pickle.load(f)
-      f.close()
+      #f = open('smoothnessreffrequency.p', 'rb')
+      #smoothnessreffrequency_list = pickle.load(f)
+      #f.close()
 
-      f = open('smoothnessspectralexponent.p', 'rb')
-      smoothnessspectralexponent_list = pickle.load(f)
-      f.close()
+      #f = open('smoothnessspectralexponent.p', 'rb')
+      #smoothnessspectralexponent_list = pickle.load(f)
+      #f.close()
 
-      f = open('smoothnessrefdistance.p', 'rb')
-      smoothnessrefdistance_list = pickle.load(f)
-      f.close()
+      #f = open('smoothnessrefdistance.p', 'rb')
+      #smoothnessrefdistance_list = pickle.load(f)
+      #f.close()
 
-      f = open('soltypecycles.p', 'rb')
-      soltypecycles_list = pickle.load(f)
-      f.close()
+      #f = open('soltypecycles.p', 'rb')
+      #soltypecycles_list = pickle.load(f)
+      #f.close()
 
 
-   else:
-      nchan_list  = [] # list with len(options.soltype_list)
-      solint_list = [] # list with len(options.soltype_list)
-      smoothnessconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
-      smoothnessreffrequency_list = [] # nested list with len(options.soltype_list), inner list is for ms
-      smoothnessspectralexponent_list = [] # nest list with len(options.soltype_list), inner list is for ms
-      smoothnessrefdistance_list = [] #  # nest list with len(options.soltype_list), inner list is for ms
-      antennaconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
-      resetsols_list = [] # nested list with len(options.soltype_list), inner list is for ms
-      soltypecycles_list = []  # nested list with len(options.soltype_list), inner list is for ms
+   #else:
+   nchan_list  = [] # list with len(options.soltype_list)
+   solint_list = [] # list with len(options.soltype_list)
+   smoothnessconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
+   smoothnessreffrequency_list = [] # nested list with len(options.soltype_list), inner list is for ms
+   smoothnessspectralexponent_list = [] # nest list with len(options.soltype_list), inner list is for ms
+   smoothnessrefdistance_list = [] #  # nest list with len(options.soltype_list), inner list is for ms
+   antennaconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
+   resetsols_list = [] # nested list with len(options.soltype_list), inner list is for ms
+   soltypecycles_list = []  # nested list with len(options.soltype_list), inner list is for ms
 
-      for soltype_id, soltype in enumerate(options.soltype_list):
-        nchan_ms   = [] # list with len(mslist)
-        solint_ms  = [] # list with len(mslist)
-        antennaconstraint_list_ms   = [] # list with len(mslist)
-        resetsols_list_ms = [] # list with len(mslist)
-        smoothnessconstraint_list_ms  = [] # list with len(mslist)
-        smoothnessreffrequency_list_ms  = [] # list with len(mslist)
-        smoothnessspectralexponent_list_ms = [] # list with len(mslist)
-        smoothnessrefdistance_list_ms = [] # list with len(mslist)
-        soltypecycles_list_ms = [] # list with len(mslist)
+   for soltype_id, soltype in enumerate(options.soltype_list):
+     nchan_ms   = [] # list with len(mslist)
+     solint_ms  = [] # list with len(mslist)
+     antennaconstraint_list_ms   = [] # list with len(mslist)
+     resetsols_list_ms = [] # list with len(mslist)
+     smoothnessconstraint_list_ms  = [] # list with len(mslist)
+     smoothnessreffrequency_list_ms  = [] # list with len(mslist)
+     smoothnessspectralexponent_list_ms = [] # list with len(mslist)
+     smoothnessrefdistance_list_ms = [] # list with len(mslist)
+     soltypecycles_list_ms = [] # list with len(mslist)
 
-        for ms in mslist:
-          # use try statement in case the user did not provide all the info for certain soltypes
+     for ms in mslist:
+       # use try statement in case the user did not provide all the info for certain soltypes
           
-          # solint 
-          try:
-            solint = options.solint_list[soltype_id]
-          except:
-            solint = 1
+       # solint 
+       try:
+         solint = options.solint_list[soltype_id]
+       except:
+         solint = 1
 
-          # nchan
-          try:
-            nchan = options.nchan_list[soltype_id]
-          except:
-            nchan = 10
+       # nchan
+       try:
+         nchan = options.nchan_list[soltype_id]
+       except:
+         nchan = 10
 
-          # smoothnessconstraint
-          try:
-            smoothnessconstraint = options.smoothnessconstraint_list[soltype_id]
-          except:
-            smoothnessconstraint = 0.0
+       # smoothnessconstraint
+       try:
+         smoothnessconstraint = options.smoothnessconstraint_list[soltype_id]
+       except:
+         smoothnessconstraint = 0.0
 
-          # smoothnessreffrequency
-          try:
-            smoothnessreffrequency = options.smoothnessreffrequency_list[soltype_id]
-          except:
-            smoothnessreffrequency = 0.0
+       # smoothnessreffrequency
+       try:
+         smoothnessreffrequency = options.smoothnessreffrequency_list[soltype_id]
+       except:
+         smoothnessreffrequency = 0.0
 
-          # smoothnessspectralexponent
-          try:
-            smoothnessspectralexponent = options.smoothnessspectralexponent_list[soltype_id]
-          except:
-            smoothnessspectralexponent = -1.0
+       # smoothnessspectralexponent
+       try:
+         smoothnessspectralexponent = options.smoothnessspectralexponent_list[soltype_id]
+       except:
+         smoothnessspectralexponent = -1.0
 
-          # smoothnessrefdistance
-          try:
-            smoothnessrefdistance = options.smoothnessrefdistance_list[soltype_id]
-          except:
-            smoothnessrefdistance = 0.0
+       # smoothnessrefdistance
+       try:
+         smoothnessrefdistance = options.smoothnessrefdistance_list[soltype_id]
+       except:
+         smoothnessrefdistance = 0.0
 
-          # antennaconstraint
-          try:
-            antennaconstraint = options.antennaconstraint_list[soltype_id]
-          except:
-            antennaconstraint = None
+       # antennaconstraint
+       try:
+         antennaconstraint = options.antennaconstraint_list[soltype_id]
+       except:
+         antennaconstraint = None
 
-          # resetsols
-          try:
-            resetsols = options.resetsols_list[soltype_id]
-          except:
-            resetsols = None
+       # resetsols
+       try:
+         resetsols = options.resetsols_list[soltype_id]
+       except:
+         resetsols = None
 
-          # soltypecycles
-          soltypecycles = options.soltypecycles_list[soltype_id]
+       # soltypecycles
+       soltypecycles = options.soltypecycles_list[soltype_id]
 
-          # force nchan 1 for tec(andphase) solve and in case smoothnessconstraint is invoked
-          if soltype == 'tec' or  soltype == 'tecandphase' or smoothnessconstraint > 0.0:
-            nchan  = 1
-
-
-          nchan_ms.append(nchan)
-          solint_ms.append(solint)
-          smoothnessconstraint_list_ms.append(smoothnessconstraint)
-          smoothnessreffrequency_list_ms.append(smoothnessreffrequency)
-          smoothnessspectralexponent_list_ms.append(smoothnessspectralexponent)
-          smoothnessrefdistance_list_ms.append(smoothnessrefdistance)
-          antennaconstraint_list_ms.append(antennaconstraint)
-          resetsols_list_ms.append(resetsols)
-          soltypecycles_list_ms.append(soltypecycles)
+       # force nchan 1 for tec(andphase) solve and in case smoothnessconstraint is invoked
+       if soltype == 'tec' or  soltype == 'tecandphase' or smoothnessconstraint > 0.0:
+         nchan  = 1
 
 
-        nchan_list.append(nchan_ms)   # list of lists
-        solint_list.append(solint_ms) # list of lists
-        antennaconstraint_list.append(antennaconstraint_list_ms)   # list of lists
-        resetsols_list.append(resetsols_list_ms) # list of lists
-        smoothnessconstraint_list.append(smoothnessconstraint_list_ms) # list of lists
-        smoothnessreffrequency_list.append(smoothnessreffrequency_list_ms) # list of lists
-        smoothnessspectralexponent_list.append(smoothnessspectralexponent_list_ms) # list of lists
-        smoothnessrefdistance_list.append(smoothnessrefdistance_list_ms)
+       nchan_ms.append(nchan)
+       solint_ms.append(solint)
+       smoothnessconstraint_list_ms.append(smoothnessconstraint)
+       smoothnessreffrequency_list_ms.append(smoothnessreffrequency)
+       smoothnessspectralexponent_list_ms.append(smoothnessspectralexponent)
+       smoothnessrefdistance_list_ms.append(smoothnessrefdistance)
+       antennaconstraint_list_ms.append(antennaconstraint)
+       resetsols_list_ms.append(resetsols)
+       soltypecycles_list_ms.append(soltypecycles)
 
-        soltypecycles_list.append(soltypecycles_list_ms)
 
-      f = open('nchan.p', 'wb')
-      pickle.dump(nchan_list,f)
-      f.close()
+     nchan_list.append(nchan_ms)   # list of lists
+     solint_list.append(solint_ms) # list of lists
+     antennaconstraint_list.append(antennaconstraint_list_ms)   # list of lists
+     resetsols_list.append(resetsols_list_ms) # list of lists
+     smoothnessconstraint_list.append(smoothnessconstraint_list_ms) # list of lists
+     smoothnessreffrequency_list.append(smoothnessreffrequency_list_ms) # list of lists
+     smoothnessspectralexponent_list.append(smoothnessspectralexponent_list_ms) # list of lists
+     smoothnessrefdistance_list.append(smoothnessrefdistance_list_ms)
 
-      f = open('solint.p', 'wb')
-      pickle.dump(solint_list,f)
-      f.close()
+     soltypecycles_list.append(soltypecycles_list_ms)
 
-      f = open('smoothnessconstraint.p', 'wb')
-      pickle.dump(smoothnessconstraint_list,f)
-      f.close()
+      #f = open('nchan.p', 'wb')
+      #pickle.dump(nchan_list,f)
+      #f.close()
 
-      f = open('smoothnessreffrequency.p', 'wb')
-      pickle.dump(smoothnessreffrequency_list,f)
-      f.close()
+      #f = open('solint.p', 'wb')
+      #pickle.dump(solint_list,f)
+      #f.close()
 
-      f = open('smoothnessspectralexponent.p', 'wb')
-      pickle.dump(smoothnessspectralexponent_list,f)
-      f.close()
+      #f = open('smoothnessconstraint.p', 'wb')
+      #pickle.dump(smoothnessconstraint_list,f)
+      #f.close()
 
-      f = open('smoothnessrefdistance.p', 'wb')
-      pickle.dump(smoothnessrefdistance_list,f)
-      f.close()
+      #f = open('smoothnessreffrequency.p', 'wb')
+      #pickle.dump(smoothnessreffrequency_list,f)
+      #f.close()
 
-      f = open('antennaconstraint.p', 'wb')
-      pickle.dump(antennaconstraint_list,f)
-      f.close()
+      #f = open('smoothnessspectralexponent.p', 'wb')
+      #pickle.dump(smoothnessspectralexponent_list,f)
+      #f.close()
 
-      f = open('resetsols.p', 'wb')
-      pickle.dump(resetsols_list,f)
-      f.close()
+      #f = open('smoothnessrefdistance.p', 'wb')
+      #pickle.dump(smoothnessrefdistance_list,f)
+      #f.close()
 
-      f = open('soltypecycles.p', 'wb')
-      pickle.dump(soltypecycles_list,f)
-      f.close()
+      #f = open('antennaconstraint.p', 'wb')
+      #pickle.dump(antennaconstraint_list,f)
+      #f.close()
+
+      #f = open('resetsols.p', 'wb')
+      #pickle.dump(resetsols_list,f)
+      #f.close()
+
+      #f = open('soltypecycles.p', 'wb')
+      #pickle.dump(soltypecycles_list,f)
+      #f.close()
 
 
    print('soltype:',options.soltype_list, mslist)
@@ -3552,41 +3540,41 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
                 innchan_list[soltype_id][ms_id] = np.int(nchan)
 
 
-   f = open('nchan.p', 'wb')
-   pickle.dump(innchan_list,f)
-   f.close()
+   #f = open('nchan.p', 'wb')
+   #pickle.dump(innchan_list,f)
+   #f.close()
 
-   f = open('solint.p', 'wb')
-   pickle.dump(insolint_list,f)
-   f.close()
+   #f = open('solint.p', 'wb')
+   #pickle.dump(insolint_list,f)
+   #f.close()
 
-   f = open('smoothnessconstraint.p', 'wb')
-   pickle.dump(insmoothnessconstraint_list,f)
-   f.close()
+   #f = open('smoothnessconstraint.p', 'wb')
+   #pickle.dump(insmoothnessconstraint_list,f)
+   #f.close()
 
-   f = open('smoothnessreffrequency.p', 'wb')
-   pickle.dump(insmoothnessreffrequency_list,f)
-   f.close()
+   #f = open('smoothnessreffrequency.p', 'wb')
+   #pickle.dump(insmoothnessreffrequency_list,f)
+   #f.close()
 
-   f = open('smoothnessspectralexponent.p', 'wb')
-   pickle.dump(insmoothnessspectralexponent_list,f)
-   f.close()
+   #f = open('smoothnessspectralexponent.p', 'wb')
+   #pickle.dump(insmoothnessspectralexponent_list,f)
+   #f.close()
 
-   f = open('smoothnessrefdistance.p', 'wb')
-   pickle.dump(insmoothnessrefdistance_list,f)
-   f.close()
+   #f = open('smoothnessrefdistance.p', 'wb')
+   #pickle.dump(insmoothnessrefdistance_list,f)
+   #f.close()
 
-   f = open('antennaconstraint.p', 'wb')
-   pickle.dump(inantennaconstraint_list,f)
-   f.close()
+   #f = open('antennaconstraint.p', 'wb')
+   #pickle.dump(inantennaconstraint_list,f)
+   #f.close()
 
-   f = open('resetsols.p', 'wb')
-   pickle.dump(inresetsols_list,f)
-   f.close()
+   #f = open('resetsols.p', 'wb')
+   #pickle.dump(inresetsols_list,f)
+   #f.close()
 
-   f = open('soltypecycles.p', 'wb')
-   pickle.dump(insoltypecycles_list,f)
-   f.close()
+   #f = open('soltypecycles.p', 'wb')
+   #pickle.dump(insoltypecycles_list,f)
+   #f.close()
 
    print('soltype:',soltype_list, mslist)
    print('nchan:',innchan_list)
@@ -5701,7 +5689,7 @@ def removenonms(mslist):
     """
     newmslist = []
     for ms in mslist:
-        if ms.lower().endswith(('.h5', '.png', '.parset', '.fits', '.backup', '.obj', '.log', '.p', '.reg', '.gz', '.tar', '.tmp', '.ddfcache')) or \
+        if ms.lower().endswith(('.h5', '.png', '.parset', '.fits', '.backup', '.obj', '.log', '.reg', '.gz', '.tar', '.tmp', '.ddfcache')) or \
         ms.lower().startswith(('plotlosoto','solintimage')):
             print('WARNING, removing ', ms, 'not a ms-type? Removed it!')
         else:
@@ -5902,8 +5890,8 @@ def basicsetup(mslist, args):
 
    maskthreshold_selfcalcycle = makemaskthresholdlist(args['maskthreshold'], args['stop'])
 
-   if args['start'] == 0:
-     os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p smoothnessrefdistance.p antennaconstraint.p resetsols.p soltypecycles.p')
+   #if args['start'] == 0:
+   #  os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p smoothnessrefdistance.p antennaconstraint.p resetsols.p soltypecycles.p')
 
    return longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, \
           maskthreshold_selfcalcycle, outtarname, args
