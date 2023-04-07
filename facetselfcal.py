@@ -4699,7 +4699,7 @@ def flagbadamps(parmdb, setweightsphases=True):
           weights_p[idx] = 0.0
           H.root.sol000.phase000.val[:] = phase
           H.root.sol000.phase000.weight[:] = weights_p 
-       H5.close()
+       H.close()
 
 
     if fulljones:
