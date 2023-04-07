@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 
+# fix RR-LL referencing for flaged solutions, find core stations with the least amount of flagged data
+# put all fits images in images folder, all solutions in solutions folder? to reduce clutter
 # normamps full jones, deal with solnorm on crosshands only? currently normaps not used for fulljones
 # turn of baseline based avg for MeerKAT?
 # DP3 modeldata syntaxt
 # implement idea of phase detrending.
-# do not predict sky second time in pertubation solve?
 # to do: log command into the FITS header
 # BLsmooth not for gain solves opttion
 # BLsmooth constant smooth for gain solves
 # only trigger HBA upper band selection for sources outside the FWHM?
 # if noise goes up stop selfcal
 # make Ateam plot
-
+# use scalarphasediff sols stats for solints? test amplitude stats as well
 
 
 # example:
@@ -5254,7 +5255,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
 
        # make LINEAR solutions from CIRCULAR
        if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or docircular:
-         h5_merger.merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True)
+         h5_merger.merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True, propagate_flags=True)
          # add CS stations back for superstation
          if mslist_beforephaseup is not None:
            h5_merger.merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcyle",\
