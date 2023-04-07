@@ -295,6 +295,7 @@ def check_equidistant_freqs(mslist):
         diff_freqs = np.diff(chan_freqs)
         t.close()
         if len(np.unique(diff_freqs)) != 1:
+            print(np.unique(diff_freqs))
             print(ms, 'Frequency channels are not equidistant, made a mistake in DP3 concat?')
             raise Exception(ms +': Freqeuency channels are no equidistant, made a mistake in DP3 concat?')
         t.close()
@@ -2155,7 +2156,9 @@ def makephasediffh5(phaseh5, refant):
     phase_pol_tmp = np.copy(phase_pol)
     # antenna   = H5pol.root.sol000.phase000.ant[:]
     print('Shape to make phase diff array', phase_pol.shape)
-
+    print('Using refant:', refant)
+    logger.info('Refant for XX/YY or RR/LL phase-referencing' + refant)
+   
     #Reference phases so that we correct the phase difference with respect to a reference station
     refant_idx = np.where(H5pol.root.sol000.phase000.ant[:].astype(str) == refant)
     phase_pol_tmp_ref = phase_pol_tmp - phase_pol_tmp[:,:,refant_idx[0],:,:]
@@ -3174,11 +3177,43 @@ def getms_amp_stats(ms, datacolumn='DATA',uvcutfraction=0.666, robustsigma=True)
 
    amplogratio = np.log10(amps_rr/amps_ll) # we assume Stokes V = 0, so RR = LL
    if robustsigma:
-      lognoise = astropy.stats.sigma_clipping.sigma_clipped_stats(amplogratio)[2]
+      logampnoise = astropy.stats.sigma_clipping.sigma_clipped_stats(amplogratio)[2]
    else:
-      lognoise = np.std(amplogratio)
-   print(ms, lognoise, np.mean(amplogratio))
-   return lognoise
+      logampnoise = np.std(amplogratio)
+   print(ms, logampnoise, np.mean(amplogratio))
+   return logampnoise
+
+
+def getms_phase_stats(ms, datacolumn='DATA',uvcutfraction=0.666):
+   import scipy.stats
+   uvdismod = get_uvwmax(ms)*uvcutfraction  
+   t = pt.taql('SELECT ' + datacolumn + ',UVW,TIME,FLAG FROM ' + ms + ' WHERE SQRT(SUMSQR(UVW[:2])) > '+ str(uvdismod) )
+   flags = t.getcol('FLAG')
+   data  = t.getcol(datacolumn)
+   data = np.ma.masked_array(data, flags)
+   t.close()
+  
+   phase_rr = np.angle(data[:,:,0])
+   phase_ll = np.angle(data[:,:,3])
+   
+   # remove zeros from LL (flagged data)
+   idx = np.where(phase_ll != 0.0)
+   phase_ll = phase_ll[idx]
+   phase_rr = phase_rr[idx]
+
+   # remove zeros from RR (flagged data)
+   idx = np.where(phase_rr != 0.0)
+   phase_ll = phase_ll[idx]
+   phase_rr = phase_rr[idx]
+
+   phasediff =  np.mod(phase_rr-phase_ll, 2.*np.pi)
+   phasenoise = scipy.stats.circstd(phasediff, nan_policy='omit')
+
+   print(ms, phasenoise, scipy.stats.circmean(phasediff,  nan_policy='omit'))
+   return phasenoise
+
+
+
 
 def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
    t = pt.table(ms + '/SPECTRAL_WINDOW')
@@ -3438,7 +3473,11 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
               ((soltype_id == return_soltype_index(soltype_list, 'complexgain', occurence=1)) or \
               (soltype_id == return_soltype_index(soltype_list, 'scalarcomplexgain', occurence=1))):
 
-             thr_disable_gain = 64. # 32. #  72.
+             if longbaseline:
+                thr_disable_gain = 24. # 32. #  72.
+             else:
+                thr_disable_gain = 64. # 32. #  72.
+             
              thr_SM15Mhz = 1.5
              thr_gain_trigger_allantenna =  32. # 16. # 8.
 
@@ -4591,10 +4630,20 @@ def flaghighamps(parmdb, highampval=10.,flagging=True, setweightsphases=True):
     H5.close()
     return
 
-def flagbadamps(parmdb, setweightsphases=True):
+def flagbadampsold(parmdb, setweightsphases=True):
     '''
     flag bad amplitudes in H5 parmdb, those with amplitude==1.0
     '''
+    # check if full jones
+    H=tables.open_file(parmdb)
+    amplitude = H.root.sol000.amplitude000.val[:]
+    weights   = H.root.sol000.amplitude000.weight[:]
+    if amplitude.shape[-1] == 4:
+      fulljones = True
+    else:
+      fulljones = False
+    H.close()
+
     H5 = h5parm.h5parm(parmdb, readonly=False)
     amps =H5.getSolset('sol000').getSoltab('amplitude000').getValues()[0]
     idx = np.where(amps <= 0.0)
@@ -4617,6 +4666,123 @@ def flagbadamps(parmdb, setweightsphases=True):
         H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
 
     H5.close()
+    return
+
+
+def flagbadamps(parmdb, setweightsphases=True):
+    '''
+    flag bad amplitudes in H5 parmdb, those with amplitude==1.0
+    '''
+    # check if full jones
+    H=tables.open_file(parmdb, mode='a')
+    amplitude = H.root.sol000.amplitude000.val[:]
+    weights   = H.root.sol000.amplitude000.weight[:]
+    if amplitude.shape[-1] == 4:
+      fulljones = True
+    else:
+      fulljones = False
+ 
+    if not fulljones:
+       idx = np.where(amplitude <= 0.0)      
+       amplitude[idx] = 1.0
+       idx = np.where(amplitude == 1.0)
+       weights[idx] = 0.0
+       
+       H.root.sol000.amplitude000.val[:] = amplitude
+       H.root.sol000.amplitude000.weight[:] = weights 
+       # also put phases weights and phases to zero
+       if setweightsphases:
+          phase = H.root.sol000.phase000.val[:]
+          weights_p = H.root.sol000.phase000.val[:]
+          phases[idx] = 0.0
+          weights_p[idx] = 0.0
+          H.root.sol000.phase000.val[:] = phases
+          H.root.sol000.phase000.weight[:] = weights_p 
+       H5.close()
+
+
+    if fulljones:
+       if setweightsphases:
+          phase = H.root.sol000.phase000.val[:]
+          weights_p = H.root.sol000.phase000.val[:]
+
+       # XX
+       amps_xx = amplitude[...,0]
+       weights_xx = weights[...,0]
+       idx = np.where(amps_xx <= 0.0)
+       amps_xx[idx] = 1.0
+       idx = np.where(amps_xx == 1.0)
+       weights_xx[idx] =  0.0
+       if setweightsphases:
+          phase_xx = phase[...,0]
+          weights_p_xx = weights_p[...,0]
+          phase_xx[idx] = 0.0 
+          weights_p_xx[idx] = 0.0
+
+       # XY
+       amps_xy = amplitude[...,1]
+       weights_xy = weights[...,1]
+       idx = np.where(amps_xy == 1.0)
+       amps_xy[idx] = 0.0
+       idx = np.where(amps_xy == 0.0)
+       weights_xy[idx] =  0.0
+       if setweightsphases:
+          phase_xy = phase[...,1]
+          weights_p_xy = weights_p[...,1]
+          phase_xy[idx] = 0.0 
+          weights_p_xy[idx] = 0.0
+
+       # YX
+       amps_yx = amplitude[...,2]
+       weights_yx = weights[...,2]
+       idx = np.where(amps_yx == 1.0)
+       amps_yx[idx] = 0.0
+       idx = np.where(amps_yx == 0.0)
+       weights_yx[idx] =  0.0
+       if setweightsphases:
+          phase_yx = phase[...,2]
+          weights_p_yx = weights_p[...,2]
+          phase_yx[idx] = 0.0 
+          weights_p_yx[idx] = 0.0
+
+       # YY
+       amps_yy = amplitude[...,3]
+       weights_yy = weights[...,3]
+       idx = np.where(amps_yy <= 0.0)
+       amps_yy[idx] = 1.0
+       idx = np.where(amps_yy == 1.0)
+       weights_yy[idx] =  0.0
+       if setweightsphases:
+          phase_yy = phase[...,3]
+          weights_p_yy = weights_p[...,3]
+          phase_yy[idx] = 0.0 
+          weights_p_yy[idx] = 0.0
+       
+       amplitude[...,0] = amps_xx
+       amplitude[...,1] = amps_xy
+       amplitude[...,2] = amps_yx
+       amplitude[...,3] = amps_yy
+  
+       weights[...,0] = weights_yy
+       weights[...,1] = weights_xy
+       weights[...,2] = weights_yx
+       weights[...,3] = weights_yy
+       H.root.sol000.amplitude000.val[:] = amplitude
+       H.root.sol000.amplitude000.weight[:] = weights 
+  
+       if setweightsphases:
+          phase[...,0] = phase_xx
+          phase[...,1] = phase_xy
+          phase[...,2] = phase_yx
+          phase[...,3] = phase_yy
+  
+          weights_p[...,0] = weights_p_yy
+          weights_p[...,1] = weights_p_xy
+          weights_p[...,2] = weights_p_yx
+          weights_p[...,3] = weights_p_yy
+          H.root.sol000.phase000.val[:] = phase
+          H.root.sol000.phase000.weight[:] = weights_p 
+       H.close()
     return
 
 
@@ -5180,7 +5346,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,\
                 blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True, blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, \
-                clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667):
+                clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667, ampresetvalfactor=10.):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
@@ -5396,8 +5562,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
          except:
            pass
          removenans(parmdb, 'phase000')
-      flaglowamps(parmdb, lowampval=medamp*0.1, flagging=flagging, setweightsphases=includesphase)
-      flaghighamps(parmdb, highampval=medamp*10., flagging=flagging, setweightsphases=includesphase)
+      flaglowamps(parmdb, lowampval=medamp/ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
+      flaghighamps(parmdb, highampval=medamp*ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
 
       if soltype == 'fulljones' and clipsolutions:
         print('Fulljones and solution clipping not supported')
@@ -5765,13 +5931,16 @@ def basicsetup(mslist, args):
 
    # set some default values if not provided
    if args['uvmin'] == None:
-     if LBA:
-         if freq >= 40e6:
-           args['uvmin'] = 80.
-         if freq < 40e6:
-           args['uvmin'] = 60.
-     else:
-         args['uvmin'] = 350.
+     if longbaseline:
+        args['uvmin'] = 20000.
+     else:  
+        if LBA:
+            if freq >= 40e6:
+              args['uvmin'] = 80.
+            if freq < 40e6:
+              args['uvmin'] = 60.
+        else:
+            args['uvmin'] = 350.
 
    if args['pixelscale'] == None:
      if LBA:
