@@ -132,7 +132,7 @@ def set_beamcor(ms, beamcor_var):
    #angsep = 3600.*180.*astropy.coordinates.angular_separation(phasedir[0], phasedir[1], beamdir['m0']['value'], beamdir['m1']['value'])/np.pi
    
    print('Angular separation between phase center and applied beam direction is', angsep.value, '[arcsec]')
-   logger.info('Distance to pointing center:' + str(angsep.value) + ' [arcsec]')
+   logger.info('Angular separation between phase center and applied beam direction is:' + str(angsep.value) + ' [arcsec]')
    
    # of less than 10 arcsec than do beam correction
    if angsep.value < 10.0: 
@@ -441,7 +441,7 @@ def check_strlist_or_intlist(argin):
         raise argparse.ArgumentTypeError("solint_list must be a list of positive integers or a list of properly formatted strings")
 
 
-def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA'):
+def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA', warn=False):
     ''' Compute distance to the pointing center. This is mainly useful for international baseline observation to check of the delay calibrator is not too far away.
 
     Args:
@@ -464,7 +464,7 @@ def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA'):
     seperation = c1.separation(c2).to(units.deg)
     print('Distance to pointing center', seperation)
     logger.info('Distance to pointing center:' + str(seperation))
-    if seperation.value > warn_distance:
+    if (seperation.value > warn_distance) and warn:
         print('Warning: you are trying to selfcal a source far from the pointing, this is probably going to produce bad results')
         logger.warning('Warning: you are trying to selfcal a source far from the pointing, this is probably going to produce bad results')
     return
@@ -5188,7 +5188,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
                      selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,\
                      clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],\
-                     clipsollow=args['clipsollow'])
+                     clipsollow=args['clipsollow'], uvmax=args['uvmax'])
 
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
@@ -5347,7 +5347,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,\
                 blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True, blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, \
-                clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667, ampresetvalfactor=10.):
+                clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667, ampresetvalfactor=10., uvmax=None):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
@@ -5472,6 +5472,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     else:
        if uvmin != 0:
          cmd += 'ddecal.uvlambdamin=' + str(uvmin) + ' '
+       if uvmax != None: # no need to see uvlambdamax for scalarphasediff solves since there we always solve against a point source
+         cmd += 'ddecal.uvlambdamax=' + str(uvmax) + ' '
 
     if antennaconstraint is not None:
         cmd += 'ddecal.antennaconstraint=' + antennaconstraintstr(antennaconstraint, antennasms, HBAorLBA) + ' '
@@ -6103,7 +6105,7 @@ def main():
    parser.add_argument('--fitspectralpolorder', help="fit-spectral-pol order for WSClean (see WSClean documentation). The default is 3.", default=3, type=int)
    parser.add_argument("--gapchanneldivision", help='Use the -gap-channel-division option in wsclean imaging and predicts (default is not to use it)', action='store_true')
    parser.add_argument('--taperinnertukey', help="Value for taper-inner-tukey in WSClean (see WSClean documentation), useful to supress negative bowls when using --uvminim. Typically values between 1.5 and 4.0 give good results. The default is None.", default=None, type=float)
-   parser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict). The default is None.', type=str, default=None)
+
 
    # Calibration options
    parser.add_argument('--avgfreqstep', help="Extra DP3 frequency averaging to speed up a solve. This is done before any other correction and could be useful for long baseline infield calibrators. Allowed are integer values or for example '195.3125kHz'; options for units: 'Hz', 'kHz', or 'MHz'. The default is None.", type=str_or_int, default=None)
@@ -6117,6 +6119,7 @@ def main():
    parser.add_argument('--phaseshiftbox', help="DS9 region file to shift the phasecenter to. This is by default None.", default=None, type=str)
    parser.add_argument('--weightspectrum-clipvalue', help="Extra option to clip WEIGHT_SPECTRUM values above the provided number. Use with care and test first manually to see what is a fitting value. The default is None.", type=float, default=None)
    parser.add_argument('-u', '--uvmin', help="Inner uv-cut for calibration in lambda. The default is 80 for LBA and 350 for HBA.", type=float)
+   parser.add_argument('--uvmax', help="Outer uv-cut for calibration in lambda. The default is None", type=float, default=None)   
    parser.add_argument('--uvminscalarphasediff', help='Inner uv-cut for scalarphasediff calibration in lambda. The default is equal to input for --uvmin.', type=float, default=None)
    parser.add_argument("--update-uvmin", help='Update uvmin automatically for the Dutch array.', action='store_true')
    parser.add_argument("--update-multiscale", help='Switch to multiscale automatically if large islands of emission are present.', action='store_true')
@@ -6147,6 +6150,7 @@ def main():
    parser.add_argument('--skymodel', help='Skymodel for first selfcalcycle. The default is None.', type=str)
    parser.add_argument('--skymodelsource', help='Source name in skymodel. The default is None (means the skymodel only contains one source/patch).', type=str)
    parser.add_argument('--skymodelpointsource', help='If set, start from a point source in the phase center with the flux density given by this parameter. The default is None (means do not use this option).', type=float, default=None)
+   parser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict). The default is None.', type=str, default=None)   
    parser.add_argument('--predictskywithbeam', help='Predict the skymodel with the beam array factor.', action='store_true')
    parser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required).', action='store_true')
    parser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data (not yet implemented).', action='store_true')
@@ -6223,7 +6227,7 @@ def main():
 
    args = vars(options)
 
-   version = '6.3.0'
+   version = '6.4.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -6315,8 +6319,9 @@ def main():
                     phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'],\
                     dysco=args['dysco'])
 
-   if longbaseline:
-     compute_distance_to_pointingcenter(mslist[0], HBAorLBA=HBAorLBA)
+
+   for ms in mslist:
+     compute_distance_to_pointingcenter(ms, HBAorLBA=HBAorLBA, warn=longbaseline)
 
    # extra flagging if requested
    if args['start'] == 0 and args['useaoflagger'] and not args['useaoflaggerbeforeavg']:
