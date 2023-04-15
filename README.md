@@ -8,6 +8,13 @@ Usage:
 
 HBA Dutch baselines (e.g., LoTSS)
 
+facetselfcal.py -b yourDS9extractbox.reg --auto -i yourimagename --auto yourextracted.ms
+
+or 
+
+facetselfcal.py --imsize=1600 --auto -i yourimagename --auto yourextracted.ms
+ 
+
 HBA international baselines
 
 - delaycalibrator
