@@ -6200,7 +6200,7 @@ def main():
    parser.add_argument('--stop', help='Stop selfcal cycle at this iteration number. The default is 10.', default=10, type=int)
    parser.add_argument('--stopafterskysolve', help='Stop calibration after solving against external skymodel.', action='store_true')
    parser.add_argument('--noarchive', help='Do not archive the data.', action='store_true')
-   parser.add_argument('--skipbackup', help='Leave the original MS intact and work and always work on a DP3 copied dataset.', action='store_true')
+   parser.add_argument('--skipbackup', help='Leave the original MS intact and always work on a DP3 copied dataset.', action='store_true')
    parser.add_argument('--helperscriptspath', help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
    parser.add_argument('--helperscriptspathh5merge', help='Path to file location pulled from https://github.com/jurjen93/lofar_helpers.', default=None, type=str)
    parser.add_argument('--auto', help='Trigger fully automated processing (HBA only for now).', action='store_true')
