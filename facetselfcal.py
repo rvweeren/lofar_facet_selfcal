@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# fix RR-LL referencing for flaged solutions, find core stations with the least amount of flagged data
+# fix RR-LL referencing for flaged solutions, check for possible superterp reference station
 # put all fits images in images folder, all solutions in solutions folder? to reduce clutter
 # normamps full jones, deal with solnorm on crosshands only? currently normaps not used for fulljones
 # turn of baseline based avg for MeerKAT?
@@ -13,6 +13,8 @@
 # if noise goes up stop selfcal
 # make Ateam plot
 # use scalarphasediff sols stats for solints? test amplitude stats as well
+# parallel solving wirh DP3, given that DP3 often does use all cores?
+# uvmin, uvmax, uvminim, uvmaxim per ms per soltype
 
 
 # example:
@@ -1586,6 +1588,14 @@ def inputchecker(args):
             print('Invalid soltype input')
             raise Exception('Invalid soltype input')
 
+    for soltype_id, soltype in enumerate(args['soltype_list']):
+        if soltype in ['scalarphasediff','scalarphasediff']:  
+            if args['antennaconstraint_list'][soltype_id] not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
+                             'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes',
+                             'alldutchbutnoST001']:
+                print('scalarphasediff/scalarphasediff type solves require a antennaconstraint, for example "core"')
+                raise Exception('scalarphasediff/scalarphasediff type solves require a antennaconstraint')  
+
     if args['boxfile'] is not None:
         if not (os.path.isfile(args['boxfile'])):
             print('Cannot find boxfile, file does not exist')
@@ -2672,6 +2682,7 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
         ms: measurement set
         tecsolsfile: solution file with TEC
         tecsolint:
+        example of taql command: taql ' select from test.ms where TIME in (select distinct TIME from test.ms offset 0 limit 1798) giving test.ms.cut as plain'
     '''
 
     taql = 'taql'
@@ -2714,7 +2725,6 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
     H5.close()
 
     if (goodstartid != 0) or (goodendid != len(goodtimesvec)): # only do if needed to save some time
-
         cmd = taql + " ' select from " + ms + " where TIME in (select distinct TIME from " + ms
         cmd+= " offset " + str(goodstartid*np.int(tecsolint))
         cmd+= " limit " + str((goodendid-goodstartid)*np.int(tecsolint)) +") giving "
@@ -6139,6 +6149,8 @@ def main():
    calibrationparser.add_argument('--dejumpFR', help='Dejump Faraday solutions when using scalarphasediffFR.', action='store_true')
    calibrationparser.add_argument('--usemodeldataforsolints', help='Determine solints from MODEL_DATA.', action='store_true')
    calibrationparser.add_argument("--preapplyH5-list", type=arg_as_list, default=[None], help="List of H5 files to preapply (one for each MS). The default is [None].")
+   calibrationparser.add_argument('--normamps', help='Normalize global amplitudes to 1.0. The default is True (False if fulljones is used).', type=ast.literal_eval, default=True)
+   calibrationparser.add_argument('--normampsskymodel', help='Normalize global amplitudes to 1.0 when solving against an external skymodel. The default is False (turned off if fulljones is used).', type=ast.literal_eval, default=False)   
    # calibrationparser.add_argument("--applydelaycalH5-list", type=arg_as_list, default=[None], help="List of H5 files from the delay calibrator, one per ms")
    # calibrationparser.add_argument("--applydelaytype", type=str, default='circular', help="Options: circular or linear. If --docircular was used for finding the delay solutions use circular (the default)")
 
@@ -6183,8 +6195,6 @@ def main():
    parser.add_argument('--forwidefield', help='Keep solutions such that they can be used for widefield imaging/screens.', action='store_true')
    
    parser.add_argument('--dysco', help='Use Dysco compression. The default is True.', type=ast.literal_eval, default=True)
-   parser.add_argument('--normamps', help='Normalize global amplitudes to 1.0. The default is True (False if fulljones is used).', type=ast.literal_eval, default=True)
-   parser.add_argument('--normampsskymodel', help='Normalize global amplitudes to 1.0 when solving against an external skymodel. The default is False (turned off if fulljones is used).', type=ast.literal_eval, default=False)
    parser.add_argument('--resetweights', help='If you want to ignore weight_spectrum_solve.', action='store_true')
    parser.add_argument('--start', help='Start selfcal cycle at this iteration number. The default is 0.', default=0, type=int)
    parser.add_argument('--stop', help='Stop selfcal cycle at this iteration number. The default is 10.', default=10, type=int)
@@ -6207,7 +6217,6 @@ def main():
    parser.add_argument('ms', nargs='+', help='msfile(s)')
 
    options = parser.parse_args()
-
    # if a config file exists, then read the information
 
    if os.path.isfile('facetselfcal_config.txt'):
@@ -6234,7 +6243,7 @@ def main():
 
    args = vars(options)
 
-   version = '6.4.0'
+   version = '6.4.1'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -6268,6 +6277,12 @@ def main():
 
    # remove non-ms that ended up in mslist
    mslist = removenonms(mslist)
+
+   # remove trailing slashes
+   mslist_tmp = []
+   for ms in mslist:
+     mslist_tmp.append(ms.rstrip('/'))
+   mslist = mslist_tmp.copy()
 
    # remove ms which are too short (to catch Elais-N1 case of 600s of data)
    mslist = sorted(select_valid_ms(mslist))
