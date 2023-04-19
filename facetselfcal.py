@@ -6189,7 +6189,7 @@ def main():
    #parser.add_argument('--no-beamcor', help='Do not correct the visilbities for the array factor.', action='store_true')
    parser.add_argument('-b','--boxfile', help='DS9 box file. You need to provide a boxfile to use --startfromtgss. The default is None.', type=str)
    parser.add_argument('--beamcor', help='Correct the visibilities for beam in the phase center, options: yes, no, auto (default is auto, auto means beam is taken out in the curent phase center, tolerance for that is 10 arcsec)', type=str, default='auto')
-   parser.add_argument('--losotobeamcor-beamlib', help="Beam library to use when not using DP3 for the beam correction. Possible input: 'stationreponse', 'lofarbeam' (identical and deprecated). The default is 'stationresponse'.", type=str, default='stationresponse')
+   parser.add_argument('--losotobeamcor-beamlib', help="Beam library to use when not using DP3 for the beam correction. Possible input: 'stationresponse', 'lofarbeam' (identical and deprecated). The default is 'stationresponse'.", type=str, default='stationresponse')
    parser.add_argument('--docircular', help='Convert linear to circular correlations.', action='store_true')
    parser.add_argument('--dolinear', help='Convert circular to linear correlations.', action='store_true')
    parser.add_argument('--forwidefield', help='Keep solutions such that they can be used for widefield imaging/screens.', action='store_true')
