@@ -6282,7 +6282,7 @@ def main():
    mslist_tmp = []
    for ms in mslist:
      mslist_tmp.append(ms.rstrip('/'))
-   mslist = mslist_tmp.copy()
+   mslist = mslist_tmp[:]
 
    # remove ms which are too short (to catch Elais-N1 case of 600s of data)
    mslist = sorted(select_valid_ms(mslist))
