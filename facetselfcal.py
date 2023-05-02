@@ -2691,7 +2691,7 @@ def removenans_fulljones(parmdb):
     amplitude = H.root.sol000.amplitude000.val[:]
     weights   = H.root.sol000.amplitude000.weight[:]
     phase = H.root.sol000.phase000.val[:]
-    weights_p = H.root.sol000.phase000.val[:]
+    weights_p = H.root.sol000.phase000.weight[:]
 
     # XX
     amps_xx = amplitude[...,0]
@@ -5026,7 +5026,7 @@ def flagbadamps(parmdb, setweightsphases=True):
        # also put phases weights and phases to zero
        if setweightsphases:
           phase = H.root.sol000.phase000.val[:]
-          weights_p = H.root.sol000.phase000.val[:]
+          weights_p = H.root.sol000.phase000.weight[:]
           phase[idx] = 0.0
           weights_p[idx] = 0.0
           H.root.sol000.phase000.val[:] = phase
@@ -5037,7 +5037,7 @@ def flagbadamps(parmdb, setweightsphases=True):
     if fulljones:
        if setweightsphases:
           phase = H.root.sol000.phase000.val[:]
-          weights_p = H.root.sol000.phase000.val[:]
+          weights_p = H.root.sol000.phase000.weight[:]
 
        # XX
        amps_xx = amplitude[...,0]
