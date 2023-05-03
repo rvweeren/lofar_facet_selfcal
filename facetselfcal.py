@@ -4583,34 +4583,15 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
           #run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
           run("DP3 msin=" + ms + " msout=. msin.datacolumn=CORRECTED_DATA msout.datacolumn=DATA steps=[]", log=True)
 
-        # update ms POLTABLE 
-        if (lin2circ or circ2lin) and update_poltable:
-           tp = pt.table(ms+'/POLARIZATION',readonly=False,ack=True)
-           if lin2circ:
-              tp.putcol('CORR_TYPE',np.array([[5,6,7,8]],dtype=np.int32)) # FROM LIN-->CIRC
-           if circ2lin:  
-              tp.putcol('CORR_TYPE',np.array([[9,10,11,12]],dtype=np.int32)) # FROM CIRC-->LIN
-           tp.close()
+    # update ms POLTABLE 
+    if (lin2circ or circ2lin) and update_poltable:
+       tp = pt.table(ms+'/POLARIZATION',readonly=False,ack=True)
+       if lin2circ:
+          tp.putcol('CORR_TYPE',np.array([[5,6,7,8]],dtype=np.int32)) # FROM LIN-->CIRC
+       if circ2lin:  
+          tp.putcol('CORR_TYPE',np.array([[9,10,11,12]],dtype=np.int32)) # FROM CIRC-->LIN
+       tp.close()
 
-        # Add beam correction keyword here.
-        # This code only applies the array factor and assumes the element beam was corrected already.
-        # Valid values are Element, ArrayFactor or Full.
-        if False:
-           try:
-              t = pt.table(ms, readonly=False)
-              t.putcolkeywords('DATA', {'LOFAR_APPLIED_BEAM_MODE': 'Full'})
-              t2 = pt.table(ms + '::FIELD')
-              phasedir = t2.getcol('PHASE_DIR').squeeze()
-              t2.close()
-              beamdir = t.getcolkeyword('DATA', 'LOFAR_APPLIED_BEAM_DIR')
-              # Right ascension in radians is set in m0
-              # Declination in radians is set in m1
-              beamdir['m0']['value'] = phasedir[0]
-              beamdir['m1']['value'] = phasedir[1]
-              t.putcolkeywords('DATA', {'LOFAR_APPLIED_BEAM_DIR': beamdir})
-              t.close()
-           except:
-              print('Warning could not update LOFAR BEAM keywords in ms, it seems this data was preprocessed with a very old DP3 version')
     return
 
 
