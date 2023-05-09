@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
+# if solints longs than integration time of the MS reset solint to max length of the ms
 # fix RR-LL referencing for flaged solutions, check for possible superterp reference station
 # put all fits images in images folder, all solutions in solutions folder? to reduce clutter
-# normamps full jones, deal with solnorm on crosshands only? currently normaps not used for fulljones
 # turn of baseline based avg for MeerKAT?
 # DP3 modeldata syntaxt
 # implement idea of phase detrending.
@@ -16,6 +16,8 @@
 # parallel solving wirh DP3, given that DP3 often does use all cores?
 # uvmin, uvmax, uvminim, uvmaxim per ms per soltype
 
+#antidx = 0
+#pt.taql("select ANTENNA1,ANTENNA2,gntrue(FLAG)/(gntrue(FLAG)+gnfalse(FLAG)) as NFLAG from L656064_129_164MHz_uv_pre-cal.concat.ms WHERE (ANTENNA1=={:d} OR ANTENNA2=={:d}) AND ANTENNA1!=ANTENNA2".format(antidx, antidx)).getcol('NFLAG')
 
 # example:
 # python facetselfal.py -b box_18.reg --forwidefield --usewgridder --avgfreqstep=2 --avgtimestep=2 --smoothnessconstraint-list="[0.0,0.0,5.0]" --antennaconstraint-list="['core']" --solint-list=[1,20,120] --soltypecycles-list="[0,1,3]" --soltypelist="['tecandphase','tecandphase','scalarcomplexgain']" test.ms
@@ -50,6 +52,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyregion
 import tables
+import scipy.special
 
 from astropy.io import fits
 from astropy.wcs import WCS
@@ -144,6 +147,53 @@ def set_beamcor(ms, beamcor_var):
       logger.info('Run DP3 applybeam: yes')
       return True
 
+def isfloat(num):
+    """
+    Check if value is a float
+    """
+    try:
+        float(num)
+        return True
+    except ValueError:
+        return False
+
+def parse_history(ms, hist_item):
+    """
+    Grep specific history item from MS
+    :param ms: measurement set
+    :param hist_item: history item
+    :return: parsed string
+    """
+    hist = os.popen('taql "SELECT * FROM '+ms+'::HISTORY" | grep '+hist_item).read().split(' ')
+    for item in hist:
+        if hist_item in item and len(hist_item)<=len(item):
+            return item
+    print('WARNING:' + hist_item + ' not found')
+    return None
+
+
+def get_time_preavg_factor_LTAdata(ms):
+    """
+    Get time pre-averaging factor (given by demixer.timestep)
+    :param ms: measurement set
+    :return: averaging integer
+    """
+    parse_str = "demixer.timestep="
+    parsed_history = parse_history(ms, parse_str)
+    avg_num = re.findall(r'\d+', parsed_history.replace(parse_str, ''))[0]
+    if avg_num.isdigit():
+        factor = int(float(avg_num))
+        if factor!=1:
+            print("WARNING: " + ms + " time has been pre-averaged with factor "+str(factor)+". This might cause time smearing effects.")
+        return factor
+    elif isfloat(avg_num):
+        factor = float(avg_num)
+        print("WARNING: parsed factor in " + ms + " is not a digit but a float")
+        return factor
+    else:
+        print("WARNING: parsed factor in " + ms + " is not a float or digit")
+        return None
+      
 def add_dummyms(msfiles):
     '''
     Add dummy ms to create a regular freuqency grid when doing a concat with DPPP
@@ -369,6 +419,45 @@ def format_solint(solint, ms):
         return str(solintout)
 
 
+def format_nchan(nchan, ms):
+    ''' Format the solution interval for DP3 calls.
+
+    Args:
+        nchan (int or str): input solution interval along the frequency axis.
+        ms (str): measurement set to extract the frequnecy resolution from.
+    Returns:
+        solintout (str): processed frequency solution interval.
+    '''
+    if str(nchan).isdigit():
+        return str(nchan)
+    else:
+        t = pt.table(ms + '/SPECTRAL_WINDOW', ack=False)
+        chanw = np.median(t.getcol('CHAN_WIDTH'))
+        t.close()
+        if 'Hz' in nchan:
+            nchanout = int(np.rint(float(re.findall(r'[+-]?\d+(?:\.\d+)?', nchan)[0]) / chanw))
+        if 'kHz' in nchan:
+            nchanout = int(np.rint(1e3 * float(re.findall(r'[+-]?\d+(?:\.\d+)?', nchan)[0]) / chanw))
+        if 'MHz' in nchan:
+            nchanout = int(np.rint(1e6 * float(re.findall(r'[+-]?\d+(?:\.\d+)?', nchan)[0]) / chanw))
+        if nchanout < 1:
+            nchanout = 1
+        return str(nchanout)
+
+def make_utf8(inp):
+    """
+    Convert input to utf8 instead of bytes
+    :param inp: string input
+    :return: input in utf-8 format
+    """
+
+    try:
+        inp = inp.decode('utf8')
+        return inp
+    except (UnicodeDecodeError, AttributeError):
+        return inp
+
+
 def FFTdelayfinder(h5, refant):
     from scipy.fftpack import fft, fftfreq
     H = tables.open_file(h5)
@@ -443,7 +532,7 @@ def check_strlist_or_intlist(argin):
         raise argparse.ArgumentTypeError("solint_list must be a list of positive integers or a list of properly formatted strings")
 
 
-def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA', warn=False):
+def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA', warn=False, returnval=False, dologging=True):
     ''' Compute distance to the pointing center. This is mainly useful for international baseline observation to check of the delay calibrator is not too far away.
 
     Args:
@@ -457,7 +546,7 @@ def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA', warn=False):
     if HBAorLBA == 'LBA':
         warn_distance = 3.0
 
-    field_table = pt.table(msname + '::FIELD')
+    field_table = pt.table(msname + '::FIELD', ack=False)
     direction = field_table.getcol('PHASE_DIR').squeeze()
     ref_direction = field_table.getcol('REFERENCE_DIR').squeeze()
     field_table.close()
@@ -465,10 +554,13 @@ def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA', warn=False):
     c2 = SkyCoord(ref_direction[0] * units.radian, ref_direction[1] * units.radian, frame='icrs')
     seperation = c1.separation(c2).to(units.deg)
     print('Distance to pointing center', seperation)
-    logger.info('Distance to pointing center:' + str(seperation))
+    if dologging:
+       logger.info('Distance to pointing center:' + str(seperation))
     if (seperation.value > warn_distance) and warn:
         print('Warning: you are trying to selfcal a source far from the pointing, this is probably going to produce bad results')
         logger.warning('Warning: you are trying to selfcal a source far from the pointing, this is probably going to produce bad results')
+    if returnval:
+       return seperation.value  
     return
 
 
@@ -1215,6 +1307,22 @@ def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
     return
 
 
+def check_phaseup_station(ms):
+    ''' Check if the Measurement Set contains a superstation.
+
+    Args:
+        ms (str): path to the Measurement Set.
+    Returns:
+        None
+    '''
+    t = pt.table(ms + '/ANTENNA', ack=False)
+    antennasms = list(t.getcol('NAME'))
+    t.close()
+    substr = 'ST'  # to check if a a superstation is present, assume this 'ST' string, usually ST001
+    hassuperstation = any(substr in mystring for mystring in antennasms)
+    print('Contains superstation?', hassuperstation)
+    return hassuperstation
+
 def checklongbaseline(ms):
     ''' Check if the Measurement Set contains international stations.
 
@@ -1233,7 +1341,7 @@ def checklongbaseline(ms):
 
 
 def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshiftbox=None, msinntimes=None,
-            makecopy=False, delaycal=False, freqresolution='195.3125kHz', dysco=True):
+            makecopy=False, delaycal=False, freqresolution='195.3125kHz', dysco=True, cmakephasediffstat=False):
     ''' Average and/or phase-shift a list of Measurement Sets.
 
     Args:
@@ -1263,6 +1371,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
                 msout = ms + '.copy'
             else:
                 msout = ms + '.avg'
+            if cmakephasediffstat:
+                msout =  ms + '.avgphasediffstat'
             msout = os.path.basename(msout)
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
             cmd += 'msout=' + msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
@@ -1379,6 +1489,11 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, phaseshift
 
     return outmslist
 
+def uvmaxflag(msin, uvmax):
+  cmd = 'DP3 msin=' + msin  + ' msout=. steps=[f] f.type=uvwflag f.uvlambdamax=' + str(uvmax)
+  print(cmd)
+  run(cmd)
+  return
 
 
 def tecandphaseplotter(h5, ms, outplotname='plot.png'):
@@ -1501,15 +1616,29 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', msout='
     return
 
 
-def inputchecker(args):
+def inputchecker(args, mslist):
     ''' Check input validity.
     Args:
         args (dict): argparse inputs.
     '''
-    #for ms_id, ms in enumerate(args['ms']):
-    #    if ms.find('/') != -1:
-    #        print('All ms need to be local, no "/" are allowed in ms name')
-    #        raise Exception('All ms need to be local, no "/" are allowed in ms name')
+    
+    if args['uvmin']!=None and type(args['uvmin']) is not list:
+        if args['uvmin'] < 0.0:
+            print('--uvmin needs to be positive')
+            raise Exception('--uvmin needs to be positive')    
+    if args['uvminim'] !=None and type(args['uvminim']) is not list:
+       if args['uvminim'] < 0.0:
+            print('--uvminim needs to be positive')
+            raise Exception('--uvminim needs to be positive')
+    if args['uvmaxim'] !=None and args['uvminim'] !=None and type(args['uvmaxim']) is not list and type(args['uvminim']) is not list:
+        if args['uvmaxim'] <= args['uvminim']:
+            print('--uvmaxim needs to be larger than --uvminim')
+            raise Exception('--uvmaxim needs to be larger than --uvminim')
+    if args['uvmax'] !=None and args['uvmin'] !=None and type(args['uvmax']) is not list  and type(args['uvmin']) is not list:
+        if args['uvmax'] <= args['uvmin']:
+            print('--uvmax needs to be larger than --uvmin')
+            raise Exception('--uvmaxim needs to be larger than --uvmin')          
+    #print(args['uvmax'], args['uvmin'], args['uvminim'],args['uvmaxim'])
 
     if args['iontimefactor'] <= 0.0:
         print('BLsmooth iontimefactor needs to be positive')
@@ -1588,13 +1717,15 @@ def inputchecker(args):
             print('Invalid soltype input')
             raise Exception('Invalid soltype input')
 
-    for soltype_id, soltype in enumerate(args['soltype_list']):
-        if soltype in ['scalarphasediff','scalarphasediff']:  
-            if args['antennaconstraint_list'][soltype_id] not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
+    for ms in mslist:
+        if not check_phaseup_station(ms):  
+            for soltype_id, soltype in enumerate(args['soltype_list']):
+                if soltype in ['scalarphasediff','scalarphasediff']:  
+                    if args['antennaconstraint_list'][soltype_id] not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
                              'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes',
-                             'alldutchbutnoST001']:
-                print('scalarphasediff/scalarphasediff type solves require a antennaconstraint, for example "core"')
-                raise Exception('scalarphasediff/scalarphasediff type solves require a antennaconstraint')  
+                             'alldutchbutnoST001'] and args['phaseupstations'] == None:
+                        print('scalarphasediff/scalarphasediff type solves require a antennaconstraint, for example "core", or phased-up data')
+                        raise Exception('scalarphasediff/scalarphasediff type solves require a antennaconstraint, or phased-up data')  
 
     if args['boxfile'] is not None:
         if not (os.path.isfile(args['boxfile'])):
@@ -1618,6 +1749,18 @@ def inputchecker(args):
     if which('DP3') == None:
         print('Cannot find DP3, forgot to source lofarinit.[c]sh?')
         raise Exception('Cannot find DP3, forgot to source lofarinit.[c]sh?')
+
+    if which('wsclean') == None:
+        print('Cannot find WSclean, forgot to source lofarinit.[c]sh?')
+        raise Exception('Cannot find WSClean, forgot to source lofarinit.[c]sh?')
+
+    if which('MakeMask.py') == None:
+        print('Cannot find MakeMask.py, forgot to install it?')
+        raise Exception('Cannot find MakeMask.py, forgot to install it?')
+
+    if which('taql') == None:
+        print('Cannot find taql, forgot to install it?')
+        raise Exception('Cannot find taql, forgot to install it?')
 
     # Check boxfile and imsize settings
     if args['boxfile'] == None and args['imsize'] == None:
@@ -1717,6 +1860,16 @@ def inputchecker(args):
             raise Exception('wscleanskymodel contains .., not allowed, needs to be in pwd')
     return
 
+
+
+def get_resolution(ms):
+   uvmax = get_uvwmax(ms)
+   t = pt.table(ms + '/SPECTRAL_WINDOW', ack=False)
+   freq = np.median(t.getcol('CHAN_FREQ'))
+   print('Central freq [MHz]', freq/1e6, 'Longest baselines [km]', uvmax/1e3)
+   t.close()
+   res = 1.22*3600.*180.*((299792458./freq )/uvmax)/np.pi
+   return res
 
   
 def get_uvwmax(ms):
@@ -2477,6 +2630,25 @@ def str_or_int(arg):
         return arg
     raise argparse.ArgumentTypeError("Input must be an int or string")
 
+def floatlist_or_float(argin):
+    if argin == None:
+      return argin
+    try:
+        return np.float(argin)  # try convert to float
+    except ValueError:
+        pass
+    
+    arg = ast.literal_eval(argin)
+
+    if type(arg) is not list:
+        raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (argin))
+
+    # check for float list
+    if all([(isinstance(item, float) or isinstance(item, int)) for item in arg]):
+        return arg  
+    else:
+      raise argparse.ArgumentTypeError("This needs to be a float or list of floats")
+
 
 def removenans(parmdb, soltab):
     ''' Remove nan values in h5parm
@@ -2508,6 +2680,89 @@ def removenans(parmdb, soltab):
     H5.getSolset('sol000').getSoltab(soltab).setValues(vals)
     H5.close()
     return
+
+def removenans_fulljones(parmdb):
+    ''' Remove nan values in full jones h5parm
+
+    Args:
+      parmdb: h5parm file
+    '''
+    H=tables.open_file(parmdb, mode='a')
+    amplitude = H.root.sol000.amplitude000.val[:]
+    weights   = H.root.sol000.amplitude000.weight[:]
+    phase = H.root.sol000.phase000.val[:]
+    weights_p = H.root.sol000.phase000.weight[:]
+
+    # XX
+    amps_xx = amplitude[...,0]
+    weights_xx = weights[...,0]
+    idx = np.where((~np.isfinite(amps_xx)))
+    amps_xx[idx] = 1.0
+    weights_xx[idx] =  0.0
+    phase_xx = phase[...,0]
+    weights_p_xx = weights_p[...,0]
+    phase_xx[idx] = 0.0 
+    weights_p_xx[idx] = 0.0
+
+    # XY
+    amps_xy = amplitude[...,1]
+    weights_xy = weights[...,1]
+    idx = np.where((~np.isfinite(amps_xy)))
+    amps_xy[idx] = 0.0
+    weights_xy[idx] =  0.0
+    phase_xy = phase[...,1]
+    weights_p_xy = weights_p[...,1]
+    phase_xy[idx] = 0.0 
+    weights_p_xy[idx] = 0.0
+
+    # XY
+    amps_yx = amplitude[...,2]
+    weights_yx = weights[...,2]
+    idx = np.where((~np.isfinite(amps_yx)))
+    amps_yx[idx] = 0.0
+    weights_yx[idx] =  0.0
+    phase_yx = phase[...,2]
+    weights_p_yx = weights_p[...,2]
+    phase_yx[idx] = 0.0 
+    weights_p_yx[idx] = 0.0
+
+    # YY
+    amps_yy = amplitude[...,3]
+    weights_yy = weights[...,3]
+    idx = np.where((~np.isfinite(amps_yy)))
+    amps_yy[idx] = 1.0
+    weights_yy[idx] =  0.0
+    phase_yy = phase[...,3]
+    weights_p_yy = weights_p[...,3]
+    phase_yy[idx] = 0.0 
+    weights_p_yy[idx] = 0.0
+       
+    amplitude[...,0] = amps_xx
+    amplitude[...,1] = amps_xy
+    amplitude[...,2] = amps_yx
+    amplitude[...,3] = amps_yy
+  
+    weights[...,0] = weights_yy
+    weights[...,1] = weights_xy
+    weights[...,2] = weights_yx
+    weights[...,3] = weights_yy
+    H.root.sol000.amplitude000.val[:] = amplitude
+    H.root.sol000.amplitude000.weight[:] = weights 
+  
+    phase[...,0] = phase_xx
+    phase[...,1] = phase_xy
+    phase[...,2] = phase_yx
+    phase[...,3] = phase_yy
+  
+    weights_p[...,0] = weights_p_yy
+    weights_p[...,1] = weights_p_xy
+    weights_p[...,2] = weights_p_yx
+    weights_p[...,3] = weights_p_yy
+    H.root.sol000.phase000.val[:] = phase
+    H.root.sol000.phase000.weight[:] = weights_p 
+    H.close()
+    return
+
 
 def radec_to_xyz(ra, dec, time):
     ''' Convert ra and dec coordinates to ITRS coordinates for LOFAR observations.
@@ -3011,6 +3266,28 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    antennaconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
    resetsols_list = [] # nested list with len(options.soltype_list), inner list is for ms
    soltypecycles_list = []  # nested list with len(options.soltype_list), inner list is for ms
+   uvmin_list = []  # nested list with len(options.soltype_list), inner list is for ms
+   uvmax_list = []  # nested list with len(options.soltype_list), inner list is for ms
+   uvminim_list = []  # nested list with len(options.soltype_list), inner list is for ms
+   uvmaxim_list = []  # nested list with len(options.soltype_list), inner list is for ms
+
+   
+   # make here uvminim_list and uvmaxim_list, because the have just the length of mslist
+   for ms_id, ms in enumerate(mslist):
+      try:
+         uvminim = options.uvminim[ms_id]
+      except:
+         uvminim = options.uvminim # apparently we just have a float and not a list
+      uvminim_list.append(uvminim)
+   for ms_id, ms in enumerate(mslist):
+      try:
+         uvmaxim = options.uvmaxim[ms_id]
+      except:
+         uvmaxim = options.uvmaxim # apparently we just have a float and not a list
+      uvmaxim_list.append(uvmaxim)
+
+
+
 
    for soltype_id, soltype in enumerate(options.soltype_list):
      nchan_ms   = [] # list with len(mslist)
@@ -3022,7 +3299,11 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
      smoothnessspectralexponent_list_ms = [] # list with len(mslist)
      smoothnessrefdistance_list_ms = [] # list with len(mslist)
      soltypecycles_list_ms = [] # list with len(mslist)
-
+     uvmin_list_ms = []  # list with len(mslist)
+     uvmax_list_ms = []  # list with len(mslist)
+     #uvminim_list_ms = []  # list with len(mslist)
+     #uvmaxim_list_ms = []  # list with len(mslist)
+   
      for ms in mslist:
        # use try statement in case the user did not provide all the info for certain soltypes
           
@@ -3074,6 +3355,30 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
        except:
          resetsols = None
 
+       # uvmin
+       try:
+         uvmin = options.uvmin[soltype_id]
+       except:
+         uvmin = None
+
+       # uvmax
+       try:
+         uvmax = options.uvmax[soltype_id]
+       except:
+         uvmax = None
+
+       # uvminim
+       #try:
+       #  uvminim = options.uvminim[soltype_id]
+       #except:
+       #  uvminim = 80.
+
+       # uvmaxim
+       #try:
+       #  uvmaxim = options.uvmaxim[soltype_id]
+       #except:
+       #  uvmaxim = None
+
        # soltypecycles
        soltypecycles = options.soltypecycles_list[soltype_id]
 
@@ -3091,6 +3396,10 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
        antennaconstraint_list_ms.append(antennaconstraint)
        resetsols_list_ms.append(resetsols)
        soltypecycles_list_ms.append(soltypecycles)
+       uvmin_list_ms.append(uvmin)
+       uvmax_list_ms.append(uvmax)
+       #uvminim_list_ms.append(uvminim)
+       #uvmaxim_list_ms.append(uvmaxim)
 
 
      nchan_list.append(nchan_ms)   # list of lists
@@ -3101,6 +3410,10 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
      smoothnessreffrequency_list.append(smoothnessreffrequency_list_ms) # list of lists
      smoothnessspectralexponent_list.append(smoothnessspectralexponent_list_ms) # list of lists
      smoothnessrefdistance_list.append(smoothnessrefdistance_list_ms)
+     uvmin_list.append(uvmin_list_ms) # list of lists
+     uvmax_list.append(uvmax_list_ms) # list of lists
+     #uvminim_list.append(uvminim_list_ms) # list of lists
+     #uvmaxim_list.append(uvmaxim_list_ms)      # list of lists
 
      soltypecycles_list.append(soltypecycles_list_ms)
 
@@ -3151,6 +3464,10 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    print('antennaconstraint:',antennaconstraint_list)
    print('resetsols:',resetsols_list)
    print('soltypecycles:',soltypecycles_list)
+   print('uvmin:',uvmin_list)
+   print('uvmax:',uvmax_list)
+   print('uvminim:',uvminim_list)
+   print('uvmaxim:',uvmaxim_list)
 
    logger.info('soltype: '+ str(options.soltype_list) + ' ' + str(mslist))
    logger.info('nchan: ' + str(options.nchan_list))
@@ -3162,8 +3479,13 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    logger.info('antennaconstraint: ' + str(options.antennaconstraint_list))
    logger.info('resetsols: ' + str(options.resetsols_list))
    logger.info('soltypecycles: ' + str(options.soltypecycles_list))
+   logger.info('uvmin: ' + str(options.uvmin))
+   logger.info('uvmax: ' + str(options.uvmax))
+   logger.info('uvminim: ' + str(options.uvminim))
+   logger.info('uvmaxim: ' + str(options.uvmaxim))
 
-   return nchan_list, solint_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, soltypecycles_list
+
+   return nchan_list, solint_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list
 
 def getms_amp_stats(ms, datacolumn='DATA',uvcutfraction=0.666, robustsigma=True):
    uvdismod = get_uvwmax(ms)*uvcutfraction  
@@ -3196,7 +3518,7 @@ def getms_amp_stats(ms, datacolumn='DATA',uvcutfraction=0.666, robustsigma=True)
 
 
 def getms_phase_stats(ms, datacolumn='DATA',uvcutfraction=0.666):
-   import scipy.stats
+   import scipy.stats 
    uvdismod = get_uvwmax(ms)*uvcutfraction  
    t = pt.taql('SELECT ' + datacolumn + ',UVW,TIME,FLAG FROM ' + ms + ' WHERE SQRT(SUMSQR(UVW[:2])) > '+ str(uvdismod) )
    flags = t.getcol('FLAG')
@@ -3659,12 +3981,13 @@ def create_beamcortemplate(ms):
   """
   H5name = ms + '_templatejones.h5'
 
-  cmd = 'DP3 numthreads='+str(np.min([multiprocessing.cpu_count(),24]))+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
-  cmd += 'msin.modelcolumn=DATA '
-  cmd += 'steps=[ddecal] ddecal.type=ddecal '
-  cmd += 'ddecal.maxiter=1 ddecal.usemodelcolumn=True ddecal.nchan=1 '
-  cmd += 'ddecal.mode=complexgain ddecal.h5parm=' + H5name  + ' '
-  cmd += 'ddecal.solint=10'
+  cmd = "DP3 numthreads="+str(np.min([multiprocessing.cpu_count(),24]))+ " msin=" + ms + " msin.datacolumn=DATA msout=. "
+  #cmd += 'msin.modelcolumn=DATA '
+  cmd += "steps=[ddecal] ddecal.type=ddecal "
+  cmd += "ddecal.maxiter=1 ddecal.nchan=1 "
+  cmd += "ddecal.modeldatacolumns='[DATA]' "
+  cmd += "ddecal.mode=complexgain ddecal.h5parm=" + H5name  + " "
+  cmd += "ddecal.solint=10"
 
   print(cmd)
   run(cmd)
@@ -4261,34 +4584,15 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
           #run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
           run("DP3 msin=" + ms + " msout=. msin.datacolumn=CORRECTED_DATA msout.datacolumn=DATA steps=[]", log=True)
 
-        # update ms POLTABLE 
-        if (lin2circ or circ2lin) and update_poltable:
-           tp = pt.table(ms+'/POLARIZATION',readonly=False,ack=True)
-           if lin2circ:
-              tp.putcol('CORR_TYPE',np.array([[5,6,7,8]],dtype=np.int32)) # FROM LIN-->CIRC
-           if circ2lin:  
-              tp.putcol('CORR_TYPE',np.array([[9,10,11,12]],dtype=np.int32)) # FROM CIRC-->LIN
-           tp.close()
+    # update ms POLTABLE 
+    if (lin2circ or circ2lin) and update_poltable:
+       tp = pt.table(ms+'/POLARIZATION',readonly=False,ack=True)
+       if lin2circ:
+          tp.putcol('CORR_TYPE',np.array([[5,6,7,8]],dtype=np.int32)) # FROM LIN-->CIRC
+       if circ2lin:  
+          tp.putcol('CORR_TYPE',np.array([[9,10,11,12]],dtype=np.int32)) # FROM CIRC-->LIN
+       tp.close()
 
-        # Add beam correction keyword here.
-        # This code only applies the array factor and assumes the element beam was corrected already.
-        # Valid values are Element, ArrayFactor or Full.
-        if False:
-           try:
-              t = pt.table(ms, readonly=False)
-              t.putcolkeywords('DATA', {'LOFAR_APPLIED_BEAM_MODE': 'Full'})
-              t2 = pt.table(ms + '::FIELD')
-              phasedir = t2.getcol('PHASE_DIR').squeeze()
-              t2.close()
-              beamdir = t.getcolkeyword('DATA', 'LOFAR_APPLIED_BEAM_DIR')
-              # Right ascension in radians is set in m0
-              # Declination in radians is set in m1
-              beamdir['m0']['value'] = phasedir[0]
-              beamdir['m1']['value'] = phasedir[1]
-              t.putcolkeywords('DATA', {'LOFAR_APPLIED_BEAM_DIR': beamdir})
-              t.close()
-           except:
-              print('Warning could not update LOFAR BEAM keywords in ms, it seems this data was preprocessed with a very old DP3 version')
     return
 
 
@@ -4704,7 +5008,7 @@ def flagbadamps(parmdb, setweightsphases=True):
        # also put phases weights and phases to zero
        if setweightsphases:
           phase = H.root.sol000.phase000.val[:]
-          weights_p = H.root.sol000.phase000.val[:]
+          weights_p = H.root.sol000.phase000.weight[:]
           phase[idx] = 0.0
           weights_p[idx] = 0.0
           H.root.sol000.phase000.val[:] = phase
@@ -4715,7 +5019,7 @@ def flagbadamps(parmdb, setweightsphases=True):
     if fulljones:
        if setweightsphases:
           phase = H.root.sol000.phase000.val[:]
-          weights_p = H.root.sol000.phase000.val[:]
+          weights_p = H.root.sol000.phase000.weight[:]
 
        # XX
        amps_xx = amplitude[...,0]
@@ -4935,7 +5239,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
               fitspectralpolorder=3, imager='WSCLEAN', restoringbeam=15, automask=2.5, \
               removenegativecc=True, usewgridder=False, paralleldeconvolution=0, \
               deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8, \
-              fullpol=False, taperinnertukey=None, gapchanneldivision=False):
+              fullpol=False, taperinnertukey=None, gapchanneldivision=False, uvmaxim=None):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
 
@@ -4975,7 +5279,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
 
     if imager == 'WSCLEAN':
       cmd = 'wsclean '
-      cmd += '-no-update-model-required -minuv-l ' + str(uvminim) + ' '
+      cmd += '-no-update-model-required ' 
+      cmd += '-minuv-l ' + str(uvminim) + ' '
+      if uvmaxim != None:
+         cmd += '-maxuv-l ' + str(uvmaxim) + ' '  
       cmd += '-size ' + str(np.int(imsize)) + ' ' + str(np.int(imsize)) + ' -reorder '
       cmd += '-weight briggs ' + str(robust) + ' -clean-border 1 -parallel-reordering 4 '
       # -weighting-rank-filter 3 -fit-beam
@@ -5137,6 +5444,65 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter, robust, \
         run(cmd)
 
 
+def smearing_bandwidth(r, th, nu, dnu):
+    ''' Returns the left over intensity I/I0 after bandwidth smearing.
+    Args:
+        r (float or Astropy Quantity): distance from the phase center in arcsec.
+        th (float or Astropy Quantity): angular resolution in arcsec.
+        nu (float): observing frequency.
+        dnu (float): averaging frequency.
+    '''
+    r = r + 1e-9 # Add a tiny offset to prevent division by zero.
+    I = (np.sqrt(np.pi) / (2 * np.sqrt(np.log(2)))) * ((th * nu) / (r * dnu)) * scipy.special.erf(np.sqrt(np.log(2)) * ((r * dnu) / (th * nu)))
+    return I
+
+def smearing_time(r, th, t):
+    ''' Returns the left over intensity I/I0 after time smearing.
+    Args:
+        r (float or Astropy Quantity): distance from the phase center in arcsec.
+        th (float or Astropy Quantity): angular resolution in arcsec.
+        t (float): averaging time in seconds.
+    '''
+    r = r + 1e-9 # Add a tiny offset to prevent division by zero.
+    
+    I = 1 - 1.22e-9 * (r / th) ** 2 * t ** 2
+    return I
+
+def smearing_time_ms(msin, t):
+    res = get_resolution(msin)
+    r_dis = 3600.*compute_distance_to_pointingcenter(msin, returnval=True, dologging=False)
+    return smearing_time(r_dis, res, t)
+    
+def flag_smeared_data(msin):
+   Ismear = smearing_time_ms(msin, get_time_preavg_factor_LTAdata(msin))  
+   if Ismear < 0.5:
+     print('Smeared', Ismear)
+     #uvmaxflag(msin, uvmax)
+   
+   #uvmax = get_uvwmax(ms)
+   t = pt.table(msin + '/SPECTRAL_WINDOW', ack=False)
+   freq = np.median(t.getcol('CHAN_FREQ'))
+   #print('Central freq [MHz]', freq/1e6, 'Longest baselines [km]', uvmax/1e3)
+   t.close()
+   
+   
+   t = get_time_preavg_factor_LTAdata(msin)
+   r_dis = 3600.*compute_distance_to_pointingcenter(msin, returnval=True, dologging=False)
+   
+   flagval = None
+   for uvrange in list(np.arange(100e3,5000e3, 10e3)):
+      res = 1.22*3600.*180.*((299792458./freq )/uvrange)/np.pi
+      Ismear = smearing_time(r_dis, res, t)
+      if Ismear > 0.968:
+        flagval = uvrange  
+      #print(uvrange,Ismear)
+   print('Data above', flagval/1e3,  'klambda is affected by time smearing')
+   if flagval/1e3 < 650:
+      print('Flagging data above uvmin value of [klambda]', flagval/1e3)
+      uvmaxflag(msin, flagval)  
+   return
+
+
 def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               soltype_list, soltypecycles_list, smoothnessconstraint_list, \
               smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, \
@@ -5177,13 +5543,24 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          else:
            pertubation[msnumber] = False
 
-         if skymodel is not None and selfcalcycle == 0:
+         if ((skymodel is not None) or (skymodelpointsource is not None) or (wscleanskymodel is not None)) and selfcalcycle == 0:
            parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
          else:
            parmdb = soltype + str(soltypenumber) + '_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
-          
+
+         # set create_modeldata to False it was already prediceted before
+         create_modeldata = True 
+         if soltypenumber >= 1:
+            for tmpsoltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', \
+                               'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase', \
+                               'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', \
+                               'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
+               if tmpsoltype in soltype_list[0:soltypenumber]:
+                  print('Previous solve already predicted MODEL_DATA, will skip that step', soltype, soltypenumber)
+                  create_modeldata = False  
+
          runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
-                     longbaseline=longbaseline, uvmin=uvmin, \
+                     uvmin=uvmin, \
                      SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
                      SMconstraintreffreq=smoothnessreffrequency_list[soltypenumber][msnumber],\
                      SMconstraintspectralexponent=smoothnessspectralexponent_list[soltypenumber][msnumber],\
@@ -5195,7 +5572,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      flagslowphaserms=flagslowphaserms, incol=incol[msnumber], \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
                      skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
-                     iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
+                     iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff, create_modeldata=create_modeldata, \
                      selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,\
                      clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],\
                      clipsollow=args['clipsollow'], uvmax=args['uvmax'])
@@ -5234,7 +5611,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
    if True:
      # import h5_merger
      for msnumber, ms in enumerate(mslist):
-       if skymodel is not None and selfcalcycle == 0:
+       if ((skymodel is not None) or (skymodelpointsource is not None) or (wscleanskymodel is not None)) and selfcalcycle == 0:
          parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
          parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
        else:
@@ -5348,7 +5725,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
    run(cmd)
    return
 
-def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0, \
+def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 SMconstraint=0.0, SMconstraintreffreq=0.0, \
                 SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None, \
                 resetsols=None, restoreflags=False, solveralgorithm='directionsolve', \
@@ -5356,7 +5733,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,\
-                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True, blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, \
+                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True, blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, create_modeldata=True, \
                 clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667, ampresetvalfactor=10., uvmax=None):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
@@ -5378,15 +5755,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       create_MODEL_DATA_PDIFF(ms)
       modeldata = 'MODEL_DATA_PDIFF'
 
-    if skymodel !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
+    if skymodel !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
         predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
 
-    if wscleanskymodel !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
+    if wscleanskymodel !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
         makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')), 0, 0.0, \
                onlypredict=True, idg=False, usewgridder=True, gapchanneldivision=gapchanneldivision)
 
 
-    if skymodelpointsource !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
+    if skymodelpointsource !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
         # create MODEL_DATA (no dysco!)
         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
         # do the predict with taql
@@ -5466,10 +5843,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
       cmd += 'msout.storagemanager=dysco '
     cmd += 'ddecal.solveralgorithm=' + solveralgorithm + ' '
     cmd += 'ddecal.maxiter='+str(np.int(maxiter)) + ' ddecal.propagatesolutions=True '
-    cmd += 'ddecal.usemodelcolumn=True '
-    cmd += 'msin.modelcolumn=' + modeldata + ' '
+    #cmd += 'ddecal.usemodelcolumn=True '
+    #cmd += 'msin.modelcolumn=' + modeldata + ' '
+    cmd += "ddecal.modeldatacolumns='[" + modeldata + "]' " 
     cmd += 'ddecal.solint=' + format_solint(solint, ms) + ' '
-    cmd += 'ddecal.nchan=' + str(nchan) + ' '
+    cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
 
     # SET UVMIN
@@ -5566,7 +5944,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, longbaseline=False, uvmin=0,
     # Check for bad values
     if soltype in ['scalarcomplexgain','complexgain','amplitudeonly','scalaramplitude','fulljones','rotation+diagonal']:
       flagbadamps(parmdb, setweightsphases=includesphase)
-      removenans(parmdb, 'amplitude000')
+      if soltype == 'fulljones':
+         removenans_fulljones(parmdb)
+      else:  
+         removenans(parmdb, 'amplitude000')
       medamp = medianamp(parmdb)
 
       if soltype != 'amplitudeonly' and soltype != 'scalaramplitude':
@@ -5878,9 +6259,8 @@ def removenonms(mslist):
 # check is there are enough timesteps in the ms
 # for example this will remove an observations of length 600s
 # in that case a lot of assumptions break, for example amplitude flagging in losoto
-def select_valid_ms(mslist):
-  newmslist = []
-
+# also if a "ms" does not open iwht pt.table it means wrong input was provided 
+def check_valid_ms(mslist):
   for ms in mslist:
     if not os.path.isdir(ms):
       print(ms, ' does not exist')
@@ -5890,16 +6270,13 @@ def select_valid_ms(mslist):
     t = pt.table(ms, ack=False)
     times = np.unique(t.getcol('TIME'))
 
-    if len(times) > 30:
-      newmslist.append(ms)
-    else:
+    if len(times) <= 20:
       print('---------------------------------------------------------------------------')
-      print('WARNING, removing ', ms, 'not enough timesteps in ms/too short observation')
+      print('ERROR, ', ms, 'not enough timesteps in ms/too short observation')
       print('---------------------------------------------------------------------------')
+      raise Exception('You are providing a MS with less than 20 timeslots, that is not enough to self-calibrate on')
     t.close()
-
-
-  return newmslist
+  return 
 
 def arg_as_list(s):
     v = ast.literal_eval(s)
@@ -6078,6 +6455,112 @@ def basicsetup(mslist, args):
    return longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, \
           maskthreshold_selfcalcycle, outtarname, args
 
+
+def get_phasediff_score(h5):
+    """
+    Calculate score for phasediff
+    :param h5: input h5 file
+    :return: circular standard deviation score
+    """
+    from scipy.stats import circstd
+    H = tables.open_file(h5)
+
+    stations = [make_utf8(s) for s in list(H.root.sol000.antenna[:]['name'])]
+    distant_stations_idx = [stations.index(station) for station in stations if
+                            ('RS' not in station) &
+                            ('ST' not in station) &
+                            ('CS' not in station) &
+                            ('DE' not in station)]
+
+    axes = str(H.root.sol000.phase000.val.attrs["AXES"]).replace("b'", '').replace("'", '').split(',')
+    axes_idx = sorted({ax: axes.index(ax) for ax in axes}.items(), key=lambda x: x[1], reverse=True)
+
+    phase = H.root.sol000.phase000.val[:]
+    H.close()
+
+    phasemod = phase % (2 * np.pi)
+
+    for ax in axes_idx:
+        if ax[0] == 'pol':  # YX should be zero
+            phasemod = phasemod.take(indices=0, axis=ax[1])
+        elif ax[0] == 'dir':  # there should just be one direction
+            if phasemod.shape[ax[1]] == 1:
+                phasemod = phasemod.take(indices=0, axis=ax[1])
+            else:
+                sys.exit('ERROR: This solution file should only contain one direction, but it has ' +
+                         str(phasemod.shape[ax[1]]) + ' directions')
+        elif ax[0] == 'freq':  # faraday corrected
+            phasemod = np.diff(phasemod, axis=ax[1])
+        elif ax[0] == 'ant':  # take only international stations
+            phasemod = phasemod.take(indices=distant_stations_idx, axis=ax[1])
+
+    return circstd(phasemod, nan_policy='omit')
+
+
+def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
+   
+   mslist_input = mslist[:] # make a copy
+   # AVERAGE       
+   #mslist = average(mslist, freqstep=[freqstep]*len(mslist), timestep=timestep, \
+   #                 cmakephasediffstat=True,dysco=args['dysco'])
+
+   # CHECK WE ARE IN CIRCULAR AND DO BEAM CORRECTION
+   for ms in mslist:
+      beamcor_and_lin2circ(ms, dysco=args['dysco'], \
+                           beam=set_beamcor(ms, args['beamcor']), \
+                           lin2circ=True,
+                           losotobeamlib=args['losotobeamcor_beamlib'])
+ 
+   # PHASEUP IF NEEDEED
+   if args['phaseupstations']:
+      mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], \
+                       dysco=args['dysco'])
+   
+   # SOLVE
+   for ms_id, ms in enumerate(mslist):
+     scorelist = []
+     for solint in range(1,30): # temporary for loop
+       parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
+       runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,\
+                   dysco=args['dysco'])
+
+       # GET THE STATISTIC
+       score = get_phasediff_score(parmdb)
+       scorelist.append(score)
+       print('phasediff score', score, ms)
+       logger.info('phasediff score: ' +str(score) + '   ' +  ms)
+
+       #reference solution interval
+       ref_solint = solint
+
+       # write to STAT SCORE to original MS DATA-col header mslist_input
+       t = pt.table(mslist_input[ms_id],  readonly=False)
+       t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', score)
+       t.close()
+     print(scorelist)
+   
+     from find_solint import GetSolint
+
+     #set optimal std score
+     optimal_score = 2.0
+
+     #ref_solint =  solint  # last solint from for loop 
+
+
+     #h5parm
+     h5 = parmdb
+     #print(h5, optimal_score, ref_solint)
+
+     S = GetSolint(h5, optimal_score=optimal_score, ref_solint=ref_solint)
+     solint = S.best_solint  # --> THIS IS YOUR BEST SOLUTION INTERVAL
+     #print(solint, S.best_solint, S.ref_solint, S.optimal_score)
+     #OPTIONAL
+
+     S.plot_C("T=" + str(round(solint, 2)) + " min",  ms + '_phasediffscore.png')
+   
+   return
+
+
 ###############################
 ############## MAIN ###########
 ###############################
@@ -6102,7 +6585,8 @@ def main():
    imagingparser.add_argument('--robust', help='Briggs robust parameter. The default is -0.5.', default=-0.5, type=float)
    imagingparser.add_argument('--multiscale-start', help='Start multiscale deconvolution at this selfcal cycle. This is by default 1.', default=1, type=int)
    imagingparser.add_argument('--deepmultiscale', help='Do extra multiscale deconvolution on the residual.', action='store_true')
-   imagingparser.add_argument('--uvminim', help='Inner uv-cut for imaging in lambda. The default is 80.', default=80., type=float)
+   imagingparser.add_argument('--uvminim', help='Inner uv-cut for imaging in lambda. The default is 80.', default=80., type=floatlist_or_float)
+   imagingparser.add_argument('--uvmaxim', help='Outer uv-cut for imaging in lambda. The default is None', default=None, type=floatlist_or_float)
    imagingparser.add_argument('--pixelscale','--pixelsize', help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA (these are also the default values).', type=float)
    imagingparser.add_argument('--channelsout', help='Number of channels out during imaging (see WSClean documentation). This is by default 6.', default=6, type=int)
    imagingparser.add_argument('--multiscale', help='Use multiscale deconvolution (see WSClean documentation).', action='store_true')
@@ -6116,7 +6600,8 @@ def main():
    imagingparser.add_argument('--fitspectralpolorder', help="fit-spectral-pol order for WSClean (see WSClean documentation). The default is 3.", default=3, type=int)
    imagingparser.add_argument("--gapchanneldivision", help='Use the -gap-channel-division option in wsclean imaging and predicts (default is not to use it)', action='store_true')
    imagingparser.add_argument('--taperinnertukey', help="Value for taper-inner-tukey in WSClean (see WSClean documentation), useful to supress negative bowls when using --uvminim. Typically values between 1.5 and 4.0 give good results. The default is None.", default=None, type=float)
-
+   imagingparser.add_argument('--makeimage-ILTlowres-HBA', help='Make 1.2 arcsec tapered image as quality check of ILT 1 arcsec imaging.', action='store_true')
+   imagingparser.add_argument('--makeimage-fullpol', help='Make Stokes IQUV version for quality checking.', action='store_true')
 
    calibrationparser = parser.add_argument_group("-------------------------Calibration Settings-------------------------")
    # Calibration options
@@ -6130,8 +6615,8 @@ def main():
    calibrationparser.add_argument('--phaseupstations', help="Phase up to a superstation. Possible input: 'core' or 'superterp'. The default is None.", default=None, type=str)
    calibrationparser.add_argument('--phaseshiftbox', help="DS9 region file to shift the phasecenter to. This is by default None.", default=None, type=str)
    calibrationparser.add_argument('--weightspectrum-clipvalue', help="Extra option to clip WEIGHT_SPECTRUM values above the provided number. Use with care and test first manually to see what is a fitting value. The default is None.", type=float, default=None)
-   calibrationparser.add_argument('-u', '--uvmin', help="Inner uv-cut for calibration in lambda. The default is 80 for LBA and 350 for HBA.", type=float)
-   calibrationparser.add_argument('--uvmax', help="Outer uv-cut for calibration in lambda. The default is None", type=float, default=None)   
+   calibrationparser.add_argument('-u', '--uvmin', help="Inner uv-cut for calibration in lambda. The default is 80 for LBA and 350 for HBA.", type=floatlist_or_float, default=None)
+   calibrationparser.add_argument('--uvmax', help="Outer uv-cut for calibration in lambda. The default is None", type=floatlist_or_float, default=None)   
    calibrationparser.add_argument('--uvminscalarphasediff', help='Inner uv-cut for scalarphasediff calibration in lambda. The default is equal to input for --uvmin.', type=float, default=None)
    calibrationparser.add_argument("--update-uvmin", help='Update uvmin automatically for the Dutch array.', action='store_true')
    calibrationparser.add_argument("--update-multiscale", help='Switch to multiscale automatically if large islands of emission are present.', action='store_true')
@@ -6153,6 +6638,11 @@ def main():
    calibrationparser.add_argument('--normampsskymodel', help='Normalize global amplitudes to 1.0 when solving against an external skymodel. The default is False (turned off if fulljones is used).', type=ast.literal_eval, default=False)   
    # calibrationparser.add_argument("--applydelaycalH5-list", type=arg_as_list, default=[None], help="List of H5 files from the delay calibrator, one per ms")
    # calibrationparser.add_argument("--applydelaytype", type=str, default='circular', help="Options: circular or linear. If --docircular was used for finding the delay solutions use circular (the default)")
+   # Expert settings
+   calibrationparser.add_argument('--tecfactorsolint', help='Experts only.', type=float, default=1.0)
+   calibrationparser.add_argument('--gainfactorsolint', help='Experts only.', type=float, default=1.0)
+   calibrationparser.add_argument('--phasefactorsolint', help='Experts only.', type=float, default=1.0)
+   calibrationparser.add_argument('--compute-phasediffstat', help='Experts only.',  action='store_true')
 
    blsmoothparser = parser.add_argument_group("-------------------------BLSmooth Settings-------------------------")
    # BLsmooth settings
@@ -6174,7 +6664,8 @@ def main():
    flaggingparser.add_argument('--doflagslowphases', help='If solution flagging is done also flag outliers phases in the slow phase solutions. The default is True.', type=ast.literal_eval, default=True)
    flaggingparser.add_argument('--useaoflagger', help='Run AOflagger on input data.', action='store_true')
    flaggingparser.add_argument('--useaoflaggerbeforeavg', help='Flag with AOflagger before (True) or after averaging (False). The default is True.', type=ast.literal_eval, default=True)
-   
+   flaggingparser.add_argument('--flagtimesmeared', help='Flag data that is severely time smeared. Warning: expert only', action='store_true')
+      
    startmodelparser = parser.add_argument_group("-------------------------Starting model Settings-------------------------")
    # Startmodel
    startmodelparser.add_argument('--skymodel', help='Skymodel for first selfcalcycle. The default is None.', type=str)
@@ -6200,19 +6691,15 @@ def main():
    parser.add_argument('--stop', help='Stop selfcal cycle at this iteration number. The default is 10.', default=10, type=int)
    parser.add_argument('--stopafterskysolve', help='Stop calibration after solving against external skymodel.', action='store_true')
    parser.add_argument('--noarchive', help='Do not archive the data.', action='store_true')
-   parser.add_argument('--skipbackup', help='Leave the original MS intact and always work on a DP3 copied dataset.', action='store_true')
+   parser.add_argument('--skipbackup', help='Leave the original MS intact and work always work on a DP3 copied dataset.', action='store_true')
    parser.add_argument('--helperscriptspath', help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
    parser.add_argument('--helperscriptspathh5merge', help='Path to file location pulled from https://github.com/jurjen93/lofar_helpers.', default=None, type=str)
    parser.add_argument('--auto', help='Trigger fully automated processing (HBA only for now).', action='store_true')
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction.', action='store_true')
    parser.add_argument('--targetcalILT', help="Type of automated target calibration for HBA international baseline data when --auto is used. Options are: 'tec', 'tecandphase', 'scalarphase'. The default is 'tec'.", default='tec', type=str)
-   parser.add_argument('--makeimage-ILTlowres-HBA', help='Make 1.2 arcsec tapered image as quality check of ILT 1 arcsec imaging.', action='store_true')
-   parser.add_argument('--makeimage-fullpol', help='Under development, make Stokes IQUV version for quality checking.', action='store_true')
 
-   # Expert settings
-   parser.add_argument('--tecfactorsolint', help='Experts only.', type=float, default=1.0)
-   parser.add_argument('--gainfactorsolint', help='Experts only.', type=float, default=1.0)
-   parser.add_argument('--phasefactorsolint', help='Experts only.', type=float, default=1.0)
+
+
 
    parser.add_argument('ms', nargs='+', help='msfile(s)')
 
@@ -6243,7 +6730,7 @@ def main():
 
    args = vars(options)
 
-   version = '6.4.1'
+   version = '6.6.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -6261,13 +6748,12 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/polconv.py .')
    os.system('cp ' + args['helperscriptspath'] + '/vlass_search.py .')
    os.system('cp ' + args['helperscriptspath'] + '/VLASS_dyn_summary.php .')
+   os.system('cp ' + args['helperscriptspath'] + '/find_solint.py .')
 
-
-   inputchecker(args)
    if args['helperscriptspathh5merge'] is None:  
       check_code_is_uptodate()
 
-
+   # copy h5s locally
    for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
      if h5parmdb is not None:
        os.system('cp ' + h5parmdb +  ' .') # make them local because source direction will ne updated for merging
@@ -6276,19 +6762,22 @@ def main():
    mslist = sorted(args['ms'])
 
    # remove non-ms that ended up in mslist
-   mslist = removenonms(mslist)
+   # mslist = removenonms(mslist)
 
    # remove trailing slashes
    mslist_tmp = []
    for ms in mslist:
      mslist_tmp.append(ms.rstrip('/'))
-   mslist = mslist_tmp[:]
+   mslist = mslist_tmp[:] #.copy()
 
    # remove ms which are too short (to catch Elais-N1 case of 600s of data)
-   mslist = sorted(select_valid_ms(mslist))
+   check_valid_ms(mslist)
 
    # check if ms channels are equidistant in freuqency (to confirm DP3 concat was used properly)
    check_equidistant_freqs(mslist)
+
+   # do some input checking 
+   inputchecker(args, mslist)
 
    # cut ms if there are flagged times at the start or end of the ms
    if args['remove_flagged_from_startend']:
@@ -6319,7 +6808,7 @@ def main():
 
    # PRE-APPLY SOLUTIONS (from a nearby direction for example)
    # if (args['applydelaycalH5_list'][0]) is not None and  args['start'] == 0:
-   #      preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'], dyso=args['dysco'])
+   #      preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'], dysco=args['dysco'])
 
    # check if we could average more
    avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
@@ -6334,6 +6823,10 @@ def main():
            avgfreqstep.append(0) # put to zero, zero means no average
 
 
+   # COMPUTE PHASE-DIFF statistic
+   if args['compute_phasediffstat']:
+      compute_phasediffstat(mslist, args)
+      sys.exit()
 
    # AVERAGE if requested/possible
    mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'], \
@@ -6343,7 +6836,7 @@ def main():
 
 
    for ms in mslist:
-     compute_distance_to_pointingcenter(ms, HBAorLBA=HBAorLBA, warn=longbaseline)
+     compute_distance_to_pointingcenter(ms, HBAorLBA=HBAorLBA, warn=longbaseline, returnval=False)
 
    # extra flagging if requested
    if args['start'] == 0 and args['useaoflagger'] and not args['useaoflaggerbeforeavg']:
@@ -6386,7 +6879,8 @@ def main():
 
    nchan_list,solint_list,smoothnessconstraint_list, smoothnessreffrequency_list, \
    smoothnessspectralexponent_list, smoothnessrefdistance_list, \
-   antennaconstraint_list, resetsols_list, soltypecycles_list = \
+   antennaconstraint_list, resetsols_list, soltypecycles_list, \
+   uvmin_list, uvmax_list, uvminim_list, uvmaxim_list  = \
                                               setinitial_solint(mslist, longbaseline, LBA, options)
 
 
@@ -6399,6 +6893,12 @@ def main():
       mslist_beforephaseup = mslist[:]  # note copy by slicing otherwise list refers to original
    else:
       mslist_beforephaseup = None
+
+   # extra smearing flagging
+   if args['flagtimesmeared']:
+      for ms in mslist:  
+         flag_smeared_data(ms)
+         
 
    # ----- START SELFCAL LOOP -----
    for i in range(args['start'],args['stop']):
@@ -6501,7 +7001,7 @@ def main():
                args['channelsout'], args['niter'], args['robust'], \
                multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
                deepmultiscale=args['deepmultiscale'], uvminim=args['uvminim'], \
-               fitspectralpol=args['fitspectralpol'], \
+               fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
                imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
                removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], \
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
@@ -6517,7 +7017,7 @@ def main():
                args['pixelscale'], args['imsize'], \
                args['channelsout'], args['niter'],briggslowres, uvtaper='1.2arcsec', \
                multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
-               uvminim=args['uvminim'], fitspectralpol=args['fitspectralpol'], \
+               uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=args['fitspectralpol'], \
                automask=automask, removenegativecc=False, \
                fitspectralpolorder=args['fitspectralpolorder'], predict=False, \
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
@@ -6529,7 +7029,7 @@ def main():
                args['pixelscale'], args['imsize'], \
                args['channelsout'], args['niter'], args['robust'], \
                multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
-               uvminim=args['uvminim'], fitspectralpol=False, \
+               uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=False, \
                automask=automask, removenegativecc=False, predict=False, \
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
