@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
+# if solints longs than integration time of the MS reset solint to max length of the ms
 # fix RR-LL referencing for flaged solutions, check for possible superterp reference station
 # put all fits images in images folder, all solutions in solutions folder? to reduce clutter
-# normamps full jones, deal with solnorm on crosshands only? currently normaps not used for fulljones
 # turn of baseline based avg for MeerKAT?
 # DP3 modeldata syntaxt
 # implement idea of phase detrending.
@@ -3981,12 +3981,13 @@ def create_beamcortemplate(ms):
   """
   H5name = ms + '_templatejones.h5'
 
-  cmd = 'DP3 numthreads='+str(np.min([multiprocessing.cpu_count(),24]))+ ' msin=' + ms + ' msin.datacolumn=DATA msout=. '
-  cmd += 'msin.modelcolumn=DATA '
-  cmd += 'steps=[ddecal] ddecal.type=ddecal '
-  cmd += 'ddecal.maxiter=1 ddecal.usemodelcolumn=True ddecal.nchan=1 '
-  cmd += 'ddecal.mode=complexgain ddecal.h5parm=' + H5name  + ' '
-  cmd += 'ddecal.solint=10'
+  cmd = "DP3 numthreads="+str(np.min([multiprocessing.cpu_count(),24]))+ " msin=" + ms + " msin.datacolumn=DATA msout=. "
+  #cmd += 'msin.modelcolumn=DATA '
+  cmd += "steps=[ddecal] ddecal.type=ddecal "
+  cmd += "ddecal.maxiter=1 ddecal.nchan=1 "
+  cmd += "ddecal.modeldatacolumns='[DATA]' "
+  cmd += "ddecal.mode=complexgain ddecal.h5parm=" + H5name  + " "
+  cmd += "ddecal.solint=10"
 
   print(cmd)
   run(cmd)
@@ -5542,11 +5543,22 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          else:
            pertubation[msnumber] = False
 
-         if skymodel is not None and selfcalcycle == 0:
+         if ((skymodel is not None) or (skymodelpointsource is not None) or (wscleanskymodel is not None)) and selfcalcycle == 0:
            parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
          else:
            parmdb = soltype + str(soltypenumber) + '_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
-          
+
+         # set create_modeldata to False it was already prediceted before
+         create_modeldata = True 
+         if soltypenumber >= 1:
+            for tmpsoltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', \
+                               'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase', \
+                               'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', \
+                               'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
+               if tmpsoltype in soltype_list[0:soltypenumber]:
+                  print('Previous solve already predicted MODEL_DATA, will skip that step', soltype, soltypenumber)
+                  create_modeldata = False  
+
          runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
                      uvmin=uvmin, \
                      SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
@@ -5560,7 +5572,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      flagslowphaserms=flagslowphaserms, incol=incol[msnumber], \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
                      skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
-                     iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,\
+                     iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff, create_modeldata=create_modeldata, \
                      selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,\
                      clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],\
                      clipsollow=args['clipsollow'], uvmax=args['uvmax'])
@@ -5599,7 +5611,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
    if True:
      # import h5_merger
      for msnumber, ms in enumerate(mslist):
-       if skymodel is not None and selfcalcycle == 0:
+       if ((skymodel is not None) or (skymodelpointsource is not None) or (wscleanskymodel is not None)) and selfcalcycle == 0:
          parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
          parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
        else:
@@ -5721,7 +5733,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,\
-                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True, blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, \
+                blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,selfcalcycle=0, dysco=True, blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, create_modeldata=True, \
                 clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667, ampresetvalfactor=10., uvmax=None):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
@@ -5743,15 +5755,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       create_MODEL_DATA_PDIFF(ms)
       modeldata = 'MODEL_DATA_PDIFF'
 
-    if skymodel !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
+    if skymodel !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
         predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
 
-    if wscleanskymodel !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
+    if wscleanskymodel !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
         makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')), 0, 0.0, \
                onlypredict=True, idg=False, usewgridder=True, gapchanneldivision=gapchanneldivision)
 
 
-    if skymodelpointsource !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR':
+    if skymodelpointsource !=None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
         # create MODEL_DATA (no dysco!)
         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
         # do the predict with taql
@@ -5831,8 +5843,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       cmd += 'msout.storagemanager=dysco '
     cmd += 'ddecal.solveralgorithm=' + solveralgorithm + ' '
     cmd += 'ddecal.maxiter='+str(np.int(maxiter)) + ' ddecal.propagatesolutions=True '
-    cmd += 'ddecal.usemodelcolumn=True '
-    cmd += 'msin.modelcolumn=' + modeldata + ' '
+    #cmd += 'ddecal.usemodelcolumn=True '
+    #cmd += 'msin.modelcolumn=' + modeldata + ' '
+    cmd += "ddecal.modeldatacolumns='[" + modeldata + "]' " 
     cmd += 'ddecal.solint=' + format_solint(solint, ms) + ' '
     cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
@@ -6505,22 +6518,46 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
    
    # SOLVE
    for ms_id, ms in enumerate(mslist):
-    scorelist = []
-    for solint in range(1,30): # temporary for loop
-      parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
-      runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,\
-                  dysco=args['dysco'])
+     scorelist = []
+     for solint in range(1,30): # temporary for loop
+       parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
+       runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,\
+                   dysco=args['dysco'])
 
-      # GET THE STATISTIC
-      score = get_phasediff_score(parmdb)
-      scorelist.append(score)
-      print('phasediff score', score, ms)
-      logger.info('phasediff score: ' +str(score) + '   ' +  ms)
-      # write to STAT SCORE to original MS DATA-col header mslist_input
-      t = pt.table(mslist_input[ms_id],  readonly=False)
-      t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', score)
-      t.close()
-    print(scorelist)
+       # GET THE STATISTIC
+       score = get_phasediff_score(parmdb)
+       scorelist.append(score)
+       print('phasediff score', score, ms)
+       logger.info('phasediff score: ' +str(score) + '   ' +  ms)
+
+       #reference solution interval
+       ref_solint = solint
+
+       # write to STAT SCORE to original MS DATA-col header mslist_input
+       t = pt.table(mslist_input[ms_id],  readonly=False)
+       t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', score)
+       t.close()
+     print(scorelist)
+   
+     from find_solint import GetSolint
+
+     #set optimal std score
+     optimal_score = 2.0
+
+     #ref_solint =  solint  # last solint from for loop 
+
+
+     #h5parm
+     h5 = parmdb
+     #print(h5, optimal_score, ref_solint)
+
+     S = GetSolint(h5, optimal_score=optimal_score, ref_solint=ref_solint)
+     solint = S.best_solint  # --> THIS IS YOUR BEST SOLUTION INTERVAL
+     #print(solint, S.best_solint, S.ref_solint, S.optimal_score)
+     #OPTIONAL
+
+     S.plot_C("T=" + str(round(solint, 2)) + " min",  ms + '_phasediffscore.png')
+   
    return
 
 
@@ -6711,6 +6748,7 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/polconv.py .')
    os.system('cp ' + args['helperscriptspath'] + '/vlass_search.py .')
    os.system('cp ' + args['helperscriptspath'] + '/VLASS_dyn_summary.php .')
+   os.system('cp ' + args['helperscriptspath'] + '/find_solint.py .')
 
    if args['helperscriptspathh5merge'] is None:  
       check_code_is_uptodate()
