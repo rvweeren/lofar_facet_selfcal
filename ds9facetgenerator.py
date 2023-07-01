@@ -13,7 +13,7 @@ from shapely.geometry import Point
 import shapely.geometry
 import shapely.ops
 import tables
-
+import pickle
 
 def read_dir_fromh5(h5):
     """
@@ -30,6 +30,16 @@ def read_dir_fromh5(h5):
     sourcedir: numpy array
     contains directions (ra, dec in units of radians)    
     """
+    
+    # try if this is a pickle file
+    try:
+      f = open(h5, 'rb')
+      sourcedir = pickle.load(f)
+      f.close()
+      print(sourcedir)
+      return sourcedir
+    except:
+      pass
 
     H5 = tables.open_file(h5, mode='r') 
     sourcedir = H5.root.sol000.source[:]['dir'] 
@@ -294,6 +304,9 @@ def main(args):
     # make ra and dec arrays and coordinates c
     ralist = sourcedir[:,0]
     declist = sourcedir[:,1]
+    #print(ralist*u.rad)
+    #print(declist*u.rad)
+
     c = SkyCoord(ra=ralist*u.rad, dec=declist*u.rad)
     #print(c.ra.degree)
     #print(c.dec.degree)
@@ -326,7 +339,7 @@ def main(args):
 if __name__ == "__main__":
    parser = argparse.ArgumentParser(description='Make DS9 Voroni region tesselation region file for WSClean')
    parser.add_argument('--ms', help='boxfile', type=str, required=True)
-   parser.add_argument('--h5', help='image size, required if boxfile is not used', type=str, required=True)
+   parser.add_argument('--h5', help='Multi-dir solution file with directions', type=str, required=True)
    parser.add_argument('--DS9regionout', help='Output DS9 region file name (default=facets.reg)', type=str, default='facets.reg')
    parser.add_argument('--imsize', help='image size, required if boxfile is not used', type=int, default=8192)
    parser.add_argument('--pixelscale', help='pixels size in arcsec, default=1.5', type=float, default=1.5)
