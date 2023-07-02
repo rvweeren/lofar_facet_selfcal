@@ -5370,7 +5370,8 @@ def removenegativefrommodel(imagenames):
     return
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
-                channelsout, numClusters=10, facetdirections=None, DDE_predict='DP3'):
+                channelsout, numClusters=10, facetdirections=None, \
+                DDE_predict='DP3', restart=False):
    if selfcalcycle == 0:
       create_facet_directions(imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits',\
                               targetFlux=2.0, ms=mslist[0], imsize=imsize, \
@@ -5394,17 +5395,29 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
          hdu[0].data[0][0][np.where(manualmask == True)] = facet_id
       hdu.writeto('facets.fits',overwrite=True)
 
-   
-   modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
+   if restart: 
+      # restart with DDE_predict=DP3 because then just modeldatacolumns is made
+      # The wsclean predict step is skipped in makeimage
+      modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
+                                pixelscale, imsize, channelsout, predict=True, \
+                                onlypredict=True, facetregionfile='facets.reg', \
+                                DDE_predict='DP3')
+      # selfcalcycle-1 because makeimage has not yet run at this point
+      dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle-1).zfill(3) + \
+                                   '-sources.txt', 'facets.fits')  
+   else: 
+      modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
                                 pixelscale, imsize, channelsout, predict=True, \
                                 onlypredict=True, facetregionfile='facets.reg', \
                                 DDE_predict=DDE_predict)
+      dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3)  + \
+                                   '-sources.txt', 'facets.fits')  
    # check if -b version of source list exists
    # needed because image000 does not have a pb version as no facet imaging is used
    #if os.path.isfile(imagebasename + str(selfcalcycle).zfill(3)  + '-sources-pb.txt'):
    #   dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3)  + '-sources-pb.txt', 'facets.fits')
    #else:
-   dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3)  + '-sources.txt', 'facets.fits')     
+       
    
    return modeldatacolumns, dde_skymodel
    
@@ -6138,6 +6151,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        run('losoto ' + parmdbmergename + ' ' + losotoparset)
        force_close(parmdbmergename)
    if len(modeldatacolumns) > 0:
+      np.save('wsclean_h5list.npy', wsclean_h5list)
       return wsclean_h5list
    else:
       return []
@@ -7515,7 +7529,7 @@ def main():
 
    args = vars(options)
 
-   version = '7.0.0'
+   version = '7.1.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -7790,6 +7804,14 @@ def main():
      else:
        multiscale = False
 
+     if args['DDE'] and args['start'] != 0 : # set modeldatacolumns and dde_skymodel for a restart
+        modeldatacolumns, dde_skymodel = prepare_DDE(args['imagename'], i, \
+                   mslist, args['imsize'], args['pixelscale'], \
+                   args['channelsout'],numClusters=8, \
+                   facetdirections=args['facetdirections'], \
+                   DDE_predict=args['DDE_predict'], restart=True)
+        wsclean_h5list = list(np.load('wsclean_h5list.npy'))
+     
      # MAKE IMAGE
      if len(modeldatacolumns) > 1:
        facetregionfile = 'facets.reg'
