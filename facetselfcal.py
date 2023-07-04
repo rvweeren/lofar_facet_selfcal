@@ -1816,6 +1816,20 @@ def inputchecker(args, mslist):
             print('Invalid soltype input')
             raise Exception('Invalid soltype input')
 
+    # check that there is only on scalarphasediff solve and it the first entry
+    if 'scalarphasediff' in args['soltype_list'] or 'scalarphasediffFR' in args['soltype_list']:
+       if (args['soltype_list'][0] != 'scalarphasediff') and \
+          (args['soltype_list'][0] != 'scalarphasediffFR'):
+          print('scalarphasediff/scalarphasediffFR need to be to first solves in the list')
+          raise Exception('scalarphasediff/scalarphasediffFR need to be to first solves in the list') 
+       sccount = 0
+       for soltype in args['soltype_list']:
+          if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
+             sccount = sccount + 1
+       if sccount > 1:
+          print('only one scalarphasediff/scalarphasediffFR solve allowed')
+          raise Exception('only one scalarphasediff/scalarphasediffFR solve allowed') 
+       
     if args['facetdirections'] is not None:
        if not os.path.isfile(args['facetdirections']):
           print('--facetdirections file does not exist')
@@ -5968,6 +5982,8 @@ def flag_smeared_data(msin):
    return
 
 
+  
+
 # this version corrupts the MODEL_DATA column
 def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               soltype_list, soltypecycles_list, smoothnessconstraint_list, \
@@ -5981,7 +5997,8 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, \
               ionfreqfactor=1.0, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, \
               docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8, \
-              gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None, DDE_predict='WSCLEAN'):
+              gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None, \
+              DDE_predict='WSCLEAN', QualityBasedWeights=False):
 
    if len(modeldatacolumns) > 1:
      merge_all_in_one = False
@@ -6024,14 +6041,16 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          # set create_modeldata to False it was already prediceted before
          create_modeldata = True 
          if soltypenumber >= 1:
-            for tmpsoltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude',\
-                               'amplitudeonly', 'phaseonly', \
-                               'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase', \
-                               'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', \
-                               'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
-               if tmpsoltype in soltype_list[0:soltypenumber]:
-                  print('Previous solve already predicted MODEL_DATA, will skip that step', soltype, soltypenumber)
-                  create_modeldata = False  
+            create_modeldata = False  
+            
+            #for tmpsoltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude',\
+            #                   'amplitudeonly', 'phaseonly', \
+            #                   'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase', \
+            #                   'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', \
+            #                   'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
+            #   if tmpsoltype in soltype_list[0:soltypenumber]:
+            #      print('Previous solve already predicted MODEL_DATA, will skip that step', soltype, soltypenumber)
+            #      create_modeldata = False  
 
          runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
                      uvmin=uvmin, \
@@ -6150,6 +6169,12 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                             refant=findrefant_core(parmdbmergename))
        run('losoto ' + parmdbmergename + ' ' + losotoparset)
        force_close(parmdbmergename)
+   
+   if QualityBasedWeights:
+     for ms in mslist:
+       run('python3 QualityWeights.py --filename=' + ms + ' ' +\
+           '--ntsol=4 --nfreqsol=4')
+   
    if len(modeldatacolumns) > 0:
       np.save('wsclean_h5list.npy', wsclean_h5list)
       return wsclean_h5list
@@ -6451,23 +6476,26 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 ' -s ' + str(blscalefactor) + ' -u ' + str(ionfreqfactor) + ' ' + ms)
       incol = 'SMOOTHED_DATA'
 
-    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
+    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR' and selfcalcycle == 0:
       create_phasediff_column(ms, incol=incol, dysco=dysco)
       soltype = 'phaseonly' # do this type of solve, maybe scalarphase is fine? 'scalarphase' #
       incol='DATA_CIRCULAR_PHASEDIFF'
-      skymodel = None # solve out of MODEL_DATA complex(1,0)
+      #skymodel = None # solve out of MODEL_DATA complex(1,0)
       create_MODEL_DATA_PDIFF(ms)
       modeldata = 'MODEL_DATA_PDIFF'
 
-    if skymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
+    #if skymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
+    if skymodel is not None and create_modeldata and selfcalcycle == 0:
         predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
 
-    if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
+    #if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
+    if wscleanskymodel is not None and create_modeldata:
         makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')), 0, 0.0, \
                onlypredict=True, idg=False, usewgridder=True, gapchanneldivision=gapchanneldivision)
 
 
-    if skymodelpointsource is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
+    #if skymodelpointsource is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
+    if skymodelpointsource is not None and create_modeldata:
         # create MODEL_DATA (no dysco!)
         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
         # do the predict with taql
@@ -7433,6 +7461,8 @@ def main():
    calibrationparser.add_argument('--gainfactorsolint', help='Experts only.', type=float, default=1.0)
    calibrationparser.add_argument('--phasefactorsolint', help='Experts only.', type=float, default=1.0)
    calibrationparser.add_argument('--compute-phasediffstat', help='Experts only.',  action='store_true')
+   calibrationparser.add_argument('--QualityBasedWeights', help='Experts only.',  action='store_true')
+
 
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
@@ -7927,9 +7957,7 @@ def main():
                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
                            docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
                            blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                           gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'])
-
-
+                           gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'])
 
      # MAKE MASK AND UPDATE UVMIN IF REQUESTED
      if args['fitsmask'] is None:
