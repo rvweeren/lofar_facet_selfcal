@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# ensure only one scalarphasediff and always first
+# lofar predict with beam in facetting, use IDG?
 # bug related to sources-pb.txt and possibly not pickung up model-pb ?
 # directions in h5 file might be changed up by DP3, relevant dor DP3 predict-solves
 # if solints are longer than integration time of the MS reset solint to max length of the ms
@@ -94,6 +94,28 @@ def copy_over_sourcedirection_h5(h5ref, h5):
     H.close()
     return
 '''
+
+def find_closest_ddsol(h5, ms): # 
+   """
+   find closest direction in multidir h5 files to the phasecenter of the ms
+   """
+   t2 = pt.table(ms + '::FIELD', ack=False)
+   phasedir = t2.getcol('PHASE_DIR').squeeze()
+   t2.close()
+   c1 = SkyCoord(phasedir[0] * units.radian,  phasedir[1] * units.radian, frame='icrs')
+   H5 = tables.open_file(h5)
+   distance = 1e9 # just a big number
+   for direction_id, direction in enumerate (H5.root.sol000.source[:]):
+      ra, dec = direction[1]
+      c2 = SkyCoord(ra * units.radian,  dec * units.radian, frame='icrs')
+      angsep = c1.separation(c2).to(units.degree)
+      print(direction[0], angsep.value, '[degree]')
+      if angsep.value < distance:
+        distance = angsep.value
+        dirname = direction[0]
+   H5.close()
+   return dirname
+
 
 def set_beamcor(ms, beamcor_var):
    """
@@ -1594,7 +1616,7 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns):
     return    
 
 def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
-             msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None):
+             msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None, find_closestdir=False):
     ''' Apply an H5parm to a Measurement Set.
 
     Args:
@@ -1608,6 +1630,12 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
     Returns:
         None
     '''
+    if find_closestdir and direction is not None:
+       print('Wrong input, you cannot use find_closestdir and set a direction')
+       raise Exception('Wrong input, you cannot use find_closestdir and set a direction')
+    
+    
+    
     if len(modeldatacolumns) > 1:      
         return  
     # to allow both a list or a single file (string)
@@ -1623,6 +1651,9 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
         cmd += 'msout.storagemanager=dysco '
     count = 0
     for parmdb in inparmdblist:
+        if find_closestdir:
+           direction = make_utf8(find_closest_ddsol(parmdb,ms))
+           print('Applying direction:', direction)
         if fulljonesparmdb(parmdb):
             cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
             cmd += 'ac' + str(count) + '.type=applycal '
@@ -1631,7 +1662,10 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
             if not invert:
                 cmd += 'ac' + str(count) + '.invert=False '  
             if direction is not None:
-                cmd += 'ac' + str(count) + '.direction=[' + direction + '] '   
+                if direction.startswith('MODEL_DATA'): # because then the direction name in the h5 contains bracket strings
+                   cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
+                else:
+                   cmd += 'ac' + str(count) + '.direction=' + direction + ' ' 
             count = count + 1
         else:  
             H=tables.open_file(parmdb) 
@@ -1643,7 +1677,10 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '                 
                 if direction is not None:
-                    cmd += 'ac' + str(count) + '.direction=[' + direction + '] ' 
+                    if direction.startswith('MODEL_DATA'): # because then the direction name in the h5 contains bracket strings
+                       cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
+                    else:
+                       cmd += 'ac' + str(count) + '.direction=' + direction + ' '
                 count = count + 1    
             except:
                 pass
@@ -1656,7 +1693,10 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '                 
                 if direction is not None:
-                    cmd += 'ac' + str(count) + '.direction=[' + direction + '] '                                       
+                    if direction.startswith('MODEL_DATA'): # because then the direction name in the h5 contains bracket strings
+                       cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
+                    else:
+                       cmd += 'ac' + str(count) + '.direction=' + direction + ' '                                     
                 count = count + 1
             except:
                 pass
@@ -1669,7 +1709,10 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '                 
                 if direction is not None:
-                    cmd += 'ac' + str(count) + '.direction=[' + direction + '] '      
+                    if direction.startswith('MODEL_DATA'): # because then the direction name in the h5 contains bracket strings
+                       cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
+                    else:
+                       cmd += 'ac' + str(count) + '.direction=' + direction + ' '
                 count = count + 1        
             except:
                 pass
@@ -1682,7 +1725,10 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '                 
                 if direction is not None:
-                    cmd += 'ac' + str(count) + '.direction=[' + direction + '] '      
+                    if direction.startswith('MODEL_DATA'): # because then the direction name in the h5 contains bracket strings
+                       cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
+                    else:
+                       cmd += 'ac' + str(count) + '.direction=' + direction + ' '
                 count = count + 1        
             except:
                 pass
@@ -1785,22 +1831,22 @@ def inputchecker(args, mslist):
         if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
                                      'all', 'international', 'alldutch', 'core-remote',
                                      'coreandallbutmostdistantremotes', 'alldutchbutnoST001',\
-                                      'distantremote'] \
+                                      'distantremote','alldutchandclosegerman'] \
                 and antennaconstraint is not None:
             print(
-                'Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
+                'Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, alldutchandclosegerman, or all')
             raise Exception(
-                'Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, or all')
+                'Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, alldutchandclosegerman, or all')
 
     for resetsols in args['resetsols_list']:
         if resetsols not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
                              'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes',
-                             'alldutchbutnoST001','distantremote'] \
+                             'alldutchbutnoST001','distantremote','alldutchandclosegerman'] \
                 and resetsols is not None:
             print(
-                'Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, distantremote, or all')
+                'Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, distantremote, alldutchandclosegerman, or all')
             raise Exception(
-                'Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, distantremote, or all')
+                'Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, distantremote, alldutchandclosegerman, or all')
 
     #if args['DDE']:
     #   for soltype in args['soltype_list']:
@@ -1853,7 +1899,7 @@ def inputchecker(args, mslist):
                 if soltype in ['scalarphasediff','scalarphasediff']:  
                     if args['antennaconstraint_list'][soltype_id] not in ['superterp', 'coreandfirstremotes', 'core', 'remote', 'distantremote', \
                              'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes',
-                             'alldutchbutnoST001'] and args['phaseupstations'] is None:
+                             'alldutchbutnoST001','alldutchandclosegerman'] and args['phaseupstations'] is None:
                         print('scalarphasediff/scalarphasediff type solves require a antennaconstraint, for example "core", or phased-up data')
                         raise Exception('scalarphasediff/scalarphasediff type solves require a antennaconstraint, or phased-up data')  
 
@@ -2250,7 +2296,7 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False):
     ''' Formats an anntena constraint string in a DP3-suitable format.
 
     Args:
-        ctype (str): constraint type. Can be superterp, core, coreandfirstremotes, remote, alldutch, all, international, core-remote, coreandallbutmostdistantremotes or alldutchbutnoST001.
+        ctype (str): constraint type. Can be superterp, core, coreandfirstremotes, remote, alldutch, all, international, core-remote, coreandallbutmostdistantremotes, alldutchandclosegerman or alldutchbutnoST001.
         antennasms (list): antennas present in the Measurement Set.
         HBAorLBA (str): indicate HBA or LBA data. Can be HBA or LBA.
         useforresetsols (bool): whether it will be used with reset solution. Removes antennas that are not in antennasms.
@@ -2261,7 +2307,7 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False):
     # print(antennasms)
     if ctype != 'superterp' and ctype != 'core' and ctype != 'coreandfirstremotes' and \
        ctype != 'remote' and ctype != 'alldutch' and ctype != 'all' and \
-       ctype != 'international' and ctype != 'core-remote' and ctype != 'coreandallbutmostdistantremotes' and \
+       ctype != 'international' and ctype != 'core-remote' and ctype != 'coreandallbutmostdistantremotes' and ctype != 'alldutchandclosegerman' and \
        ctype != 'alldutchbutnoST001' and ctype != 'distantremote':
         print('Invalid input, ctype can only be "superterp" or "core"')
         raise Exception('Invalid input, ctype can only be "superterp" or "core"')
@@ -2324,7 +2370,13 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False):
                     'CS302LBA', 'CS401LBA', 'CS501LBA', 'ST001']
             antstr2=['RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA',  'RS310LBA', 'RS406LBA', 'RS407LBA', \
                     'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA',  'RS409LBA', 'RS508LBA', 'RS509LBA']
-          
+        if ctype == 'alldutchandclosegerman':  
+            antstr=['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',  \
+                    'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',  \
+                    'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',  \
+                    'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA',  \
+                    'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA',  \
+                    'RS409LBA', 'RS508LBA', 'RS509LBA',  'ST001', 'DE601LBA', 'DE605LBA']
 
     if HBAorLBA == 'HBA':    
         if ctype == 'superterp': 
@@ -2375,6 +2427,18 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False):
                     'CS302HBA1', 'CS401HBA1', 'CS501HBA1',  \
                     'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA',  'RS310HBA', 'RS406HBA', 'RS407HBA',  \
                     'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA',  'RS409HBA', 'RS508HBA', 'RS509HBA', 'ST001']
+        if ctype == 'alldutchandclosegerman':
+            antstr=['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',  \
+                    'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',  \
+                    'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0',  \
+                    'CS302HBA0', 'CS401HBA0', 'CS501HBA0', \
+                    'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1',  \
+                    'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',  \
+                    'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',  \
+                    'CS302HBA1', 'CS401HBA1', 'CS501HBA1',  \
+                    'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA',  'RS310HBA', 'RS406HBA', 'RS407HBA',  \
+                    'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA',  'RS409HBA', 'RS508HBA', 'RS509HBA', 'ST001','DE601HBA','DE605HBA']          
+          
         if ctype == 'alldutchbutnoST001':
             antstr=['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',  \
                     'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',  \
@@ -4778,6 +4842,22 @@ def findrms(mIn,maskSup=1e-7):
         rmsold=rms
     return rms
 
+def write_RMsynthesis_weights(fitslist, outfile):
+   rmslist = np.zeros(len(fitslist))
+   
+   for fits_id, fitsfile in enumerate(fitslist):
+      hdu = flatten(fits.open(fitsfile,  ignore_missing_end=True))
+      rmslist[fits_id] = findrms(hdu.data)
+      
+   print(rmslist*1e6)
+   rmslist = 1/rmslist**2 # 1/variance
+   rmslist = rmslist/np.max(rmslist) # normalize to max 1
+   
+   f=open(outfile, 'w')
+   for rms in rmslist:
+     f.write(str(rms) + '\n')
+   f.close()
+   return
 
 def findamplitudenoise(parmdb):
       """
@@ -5998,7 +6078,8 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               ionfreqfactor=1.0, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, \
               docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8, \
               gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None, \
-              DDE_predict='WSCLEAN', QualityBasedWeights=False):
+              DDE_predict='WSCLEAN', QualityBasedWeights=False, QualityBasedWeights_start=5, \
+              QualityBasedWeights_dtime=10.,QualityBasedWeights_dfreq=5.):
 
    if len(modeldatacolumns) > 1:
      merge_all_in_one = False
@@ -6170,10 +6251,11 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        run('losoto ' + parmdbmergename + ' ' + losotoparset)
        force_close(parmdbmergename)
    
-   if QualityBasedWeights:
-     for ms in mslist:
-       run('python3 QualityWeights.py --filename=' + ms + ' ' +\
-           '--ntsol=4 --nfreqsol=4')
+   if QualityBasedWeights and selfcalcycle >= QualityBasedWeights_start:
+     for ms in mslist:       
+       run('python3 NeReVar.py --filename=' + ms +\
+           ' --dt=' + str(QualityBasedWeights_dtime) + ' --dnu=' + str(QualityBasedWeights_dfreq) +\
+            ' --DiagDir=plotlosoto' + ms + '/NeReVar/ --basename=_selfcalcycle' + str(selfcalcycle).zfill(3) + ' --modelcol=MODEL_DATA')
    
    if len(modeldatacolumns) > 0:
       np.save('wsclean_h5list.npy', wsclean_h5list)
@@ -7443,7 +7525,7 @@ def main():
    calibrationparser.add_argument("--smoothnessreffrequency-list", type=arg_as_list, default=[0.,0.,0.], help="List with optional reference frequencies (in MHz) for the smoothness constraint (in same order as soltype-list input). When unequal to 0, the size of the smoothing kernel will vary over frequency by a factor of smoothnessreffrequency*(frequency^smoothnessspectralexponent). The default is [0.,0.,0.].")
    calibrationparser.add_argument("--smoothnessspectralexponent-list", type=arg_as_list, default=[-1.,-1.,-1.], help="If smoothnessreffrequency is not equal to zero then this parameter determines the frequency scaling law. It is typically useful to take -2 for scalarphasediff, otherwise -1 (1/nu). The default is [-1.,-1.,-1.].")
    calibrationparser.add_argument("--smoothnessrefdistance-list", type=arg_as_list, default=[0.,0.,0.], help="If smoothnessrefdistance is not equal to zero then this parameter determines the freqeuency smoothness reference distance in units of km, with the smoothness scaling with distance. See DP3 documentation. The default is [0.,0.,0.].")
-   calibrationparser.add_argument("--antennaconstraint-list", type=arg_as_list, default=[None,None,None], help="List with constraints on the antennas used (in same order as soltype-list input). Possible input: 'superterp', 'coreandfirstremotes', 'core', 'remote', 'distantremote', 'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes', 'alldutchbutnoST001'. The default is [None,None,None].")
+   calibrationparser.add_argument("--antennaconstraint-list", type=arg_as_list, default=[None,None,None], help="List with constraints on the antennas used (in same order as soltype-list input). Possible input: 'superterp', 'coreandfirstremotes', 'core', 'remote', 'distantremote', 'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes, alldutchandclosegerman', 'alldutchbutnoST001'. The default is [None,None,None].")
    calibrationparser.add_argument("--resetsols-list", type=arg_as_list, default=[None,None,None], help="Values of these stations will be rest to 0.0 (phases), or 1.0 (amplitudes), default None, possible settings are the same as for antennaconstraint-list (alldutch, core, etc)). The default is [None,None,None].")
    calibrationparser.add_argument("--soltypecycles-list", type=arg_as_list, default=[0,999,3], help="Selfcalcycle where step from soltype-list starts. The default is [0,999,3].")
    calibrationparser.add_argument("--BLsmooth", help='Employ BLsmooth for low S/N data.', action='store_true')
@@ -7462,7 +7544,9 @@ def main():
    calibrationparser.add_argument('--phasefactorsolint', help='Experts only.', type=float, default=1.0)
    calibrationparser.add_argument('--compute-phasediffstat', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--QualityBasedWeights', help='Experts only.',  action='store_true')
-
+   calibrationparser.add_argument('--QualityBasedWeights-start', help='Experts only.',  type=int, default=5)
+   calibrationparser.add_argument('--QualityBasedWeights-dtime', help='QualityBasedWeights timestep in units of minutes (default 5)',  type=float, default=5.0)
+   calibrationparser.add_argument('--QualityBasedWeights-dfreq', help='QualityBasedWeights frequency in units of MHz (default 5)',  type=float, default=5.0)
 
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
@@ -7519,6 +7603,7 @@ def main():
    parser.add_argument('--start', help='Start selfcal cycle at this iteration number. The default is 0.', default=0, type=int)
    parser.add_argument('--stop', help='Stop selfcal cycle at this iteration number. The default is 10.', default=10, type=int)
    parser.add_argument('--stopafterskysolve', help='Stop calibration after solving against external skymodel.', action='store_true')
+   parser.add_argument('--stopafterpreapply', help='Stop after preapply of solutions', action='store_true')
    parser.add_argument('--noarchive', help='Do not archive the data.', action='store_true')
    parser.add_argument('--skipbackup', help='Leave the original MS intact and work always work on a DP3 copied dataset.', action='store_true')
    parser.add_argument('--helperscriptspath', help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
@@ -7559,7 +7644,7 @@ def main():
 
    args = vars(options)
 
-   version = '7.1.0'
+   version = '7.5.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -7804,6 +7889,9 @@ def main():
      if (args['preapplyH5_list'][0]) is not None and i == 0:
          preapply(args['preapplyH5_list'], mslist, dysco=args['dysco'])
 
+     if args['stopafterpreapply']:
+       print('Stopping as requested via --stopafterpreapply')
+       return
      
      # CALIBRATE AGAINST SKYMODEL
      if (args['skymodel'] is not None or args['skymodelpointsource'] is not None \
@@ -7957,7 +8045,7 @@ def main():
                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
                            docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
                            blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                           gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'])
+                           gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'])
 
      # MAKE MASK AND UPDATE UVMIN IF REQUESTED
      if args['fitsmask'] is None:
