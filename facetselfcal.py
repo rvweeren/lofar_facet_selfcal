@@ -923,6 +923,8 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
         outcol (str): name of the output column that will be created.
         dysco (bool): dysco compress the output column.
     '''
+    stepsize = 1000000
+
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
@@ -939,15 +941,17 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
             t.addcols(newdesc, newdmi)
 
 
-        data = t.getcol(incol)
-        phasediff =  np.copy(np.angle(data[:, :, 0]) - np.angle(data[:, :, 3]))  #RR - LL
-        data[:, :, 0] = 0.5 * np.exp(1j * phasediff)  # because I = RR+LL/2 (this is tricky because we work with phase diff)
-        data[:, :, 3] = data[:, :, 0]
-        t.putcol(outcol, data)
+        for row in range(0,t.nrows(),stepsize):
+            print(f"Doing {row} out of {t.nrows()}, (step: {stepsize})")
+            data = t.getcol(incol,startrow=row,nrow=stepsize,rowincr=1)
+            phasediff =  np.copy(np.angle(data[:, :, 0]) - np.angle(data[:, :, 3]))  #RR - LL
+            data[:, :, 0] = 0.5 * np.exp(1j * phasediff)  # because I = RR+LL/2 (this is tricky because we work with phase diff)
+            data[:, :, 3] = data[:, :, 0]
+            t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
+            del data
+            del phasediff
         t.close()
-        del data
-        del phasediff
-
+        
 
     if False:
         # data = t.getcol(incol)
