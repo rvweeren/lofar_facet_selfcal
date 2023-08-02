@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# flux YX en XY to zero in full jones can be wrong, if fulljones is not the last solve type
 # lofar predict with beam in facetting, use IDG?
 # bug related to sources-pb.txt and possibly not pickung up model-pb ?
 # directions in h5 file might be changed up by DP3, relevant dor DP3 predict-solves
@@ -1773,6 +1774,10 @@ def inputchecker(args, mslist):
             print('--uvmax needs to be larger than --uvmin')
             raise Exception('--uvmaxim needs to be larger than --uvmin')          
     #print(args['uvmax'], args['uvmin'], args['uvminim'],args['uvmaxim'])
+
+    if 'fulljones' in args['soltype_list'] and args['doflagging'] and not args['forwidefield']:
+        print('--doflagging is True, cannot be combined with fulljones solve, set it to False or use --forwidefield')
+        raise Exception('--doflagging is True, cannot be combined with fulljones solve')
 
     if args['iontimefactor'] <= 0.0:
         print('BLsmooth iontimefactor needs to be positive')
@@ -6057,7 +6062,7 @@ def flag_smeared_data(msin):
       #print(uvrange,Ismear)
    print('Data above', flagval/1e3,  'klambda is affected by time smearing')
    if flagval/1e3 < 650:
-      print('Flagging data above uvmin value of [klambda]', flagval/1e3)
+      print('Flagging data above uvmin value of [klambda]', msin, flagval/1e3)
       uvmaxflag(msin, flagval)  
    return
 
@@ -7811,7 +7816,7 @@ def main():
       mslist_beforephaseup = None
 
    # extra smearing flagging
-   if args['flagtimesmeared']:
+   if args['flagtimesmeared'] and args['start'] == 0:
       for ms in mslist:  
          flag_smeared_data(ms)
          
@@ -7936,7 +7941,7 @@ def main():
      makeimage(mslist, args['imagename'] + str(i).zfill(3), args['pixelscale'], args['imsize'], \
                args['channelsout'], args['niter'], args['robust'], \
                multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
-               uvminim=args['uvminim'], \
+               uvminim=args['uvminim'], predict=not args['stopafterskysolve'],\
                fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
                imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
                removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], \
