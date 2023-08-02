@@ -7613,6 +7613,7 @@ def main():
    parser.add_argument('--skipbackup', help='Leave the original MS intact and work always work on a DP3 copied dataset.', action='store_true')
    parser.add_argument('--helperscriptspath', help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
    parser.add_argument('--helperscriptspathh5merge', help='Path to file location pulled from https://github.com/jurjen93/lofar_helpers.', default=None, type=str)
+   parser.add_argument('--configpath', help = 'Path to user config file which will overwrite command line arguments', default = None, type = str)
    parser.add_argument('--auto', help='Trigger fully automated processing (HBA only for now).', action='store_true')
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction.', action='store_true')
    parser.add_argument('--targetcalILT', help="Type of automated target calibration for HBA international baseline data when --auto is used. Options are: 'tec', 'tecandphase', 'scalarphase'. The default is 'tec'.", default='tec', type=str)
@@ -7623,11 +7624,15 @@ def main():
    parser.add_argument('ms', nargs='+', help='msfile(s)')
 
    options = parser.parse_args()
-   # if a config file exists, then read the information
+   # if a config file exists, then read the information. Priotise specified config over default
+   if os.path.isfile(options.configpath):
+      config = options.configpath
+   else:
+      config = 'facetselfcal_config.txt'
 
-   if os.path.isfile('facetselfcal_config.txt'):
-      print('A config file exists, using it. This contains:')
-      with open('facetselfcal_config.txt', 'r') as f:
+   if os.path.isfile(config):
+      print('A config file (%s) exists, using it. This contains:'%config)
+      with open(config, 'r') as f:
          lines = f.readlines()
       for line in lines:
          print( line )
