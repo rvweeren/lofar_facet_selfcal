@@ -7629,8 +7629,11 @@ def main():
 
    options = parser.parse_args()
    # if a config file exists, then read the information. Priotise specified config over default
-   if os.path.isfile(options.configpath):
-      config = options.configpath
+   if options.configpath is not None:
+      if os.path.isfile(options.configpath):
+         config = options.configpath
+      else:
+         config = 'facetselfcal_config.txt'
    else:
       config = 'facetselfcal_config.txt'
 
