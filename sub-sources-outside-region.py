@@ -554,11 +554,12 @@ def ddfbootstrapcorrection(mslist, incol, outcol, dysco=True):
          print('Error: cannot find', filenamecross)
          sys.exit()   
       scale=np.load(filenamecross)[:,0]
-      filenamefreqs = os.path.basename(ms).split('_')[0] + 'freqs.npy'
+      filenamefreqs = os.path.basename(ms).split('_')[0] + 'frequencies.txt'
       if not os.path.isfile(filenamefreqs):
          print('Error: cannot find', filenamefreqs)
          sys.exit()         
-      freqs = sorted(np.load(filenamefreqs))
+      freqs, _, _, mask = np.genfromtxt('L701771frequencies.txt', converters={0:float, 1:str, 2:str, 3:eval}, unpack=True)
+      freqs = freqs[mask]
       print(freqs)
       
       # InterpolatedUS gives us linear interpolation between points and extrapolation outside it
@@ -617,7 +618,7 @@ parser.add_argument('--nopredict', help='Do not do predict step (for use if repe
 parser.add_argument('--onlyuseweightspectrum', help='Only use WEIGHT_SPECTRUM, ignore IMAGING_WEIGHT (if internation station are present this is automatically set to True', action='store_true')
 parser.add_argument('--HMPmodelfits', help='if provided, use this HMP model fits  for predict')
 parser.add_argument('--nosubtract', help='Do not do subtract step (for use if repeating last step in case of failure)', action='store_true')
-#parser.add_argument('--ddfbootstrapcorrection', help='Apply the bootstrap factor corrections from the ddf-pipeline, important for ILT data. Two files are needed for this: "obsid"_crossmatch-results-2.npy and "obsid"_freqs.npy.  This corection should not be used for LoTSS-type data at 6 arcsec resolution as it is already applied to the data products.', action='store_true')
+parser.add_argument('--ddfbootstrapcorrection', help='Apply the bootstrap factor corrections from the ddf-pipeline. Used for ILT data depending on ddf-pipeline version used. Two files are needed for this: "obsid"_crossmatch-results-2.npy and "obsid"frequencies.txt.  This corection should not be used for LoTSS-type data at 6 arcsec resolution as it is already applied to the data products.', action='store_true')
 parser.add_argument('--overwriteoutput', help='Overwrite concat ms if it exists', action='store_true')
 parser.add_argument('--useHMP', help='Use HMP', action='store_true')
 
@@ -709,8 +710,8 @@ if checklongbaseline(msfiles[0]):
   args['onlyuseweightspectrum'] = True
   
 # bootstrap correction
-#if args['ddfbootstrapcorrection']:
-#    args['column'] = ddfbootstrapcorrection(msfiles, args['column'], args['column']+'_SCALED', dysco=dysco) # update the colname here because we need to proceed from that
+if args['ddfbootstrapcorrection']:
+    args['column'] = ddfbootstrapcorrection(msfiles, args['column'], args['column']+'_SCALED', dysco=dysco) # update the colname here because we need to proceed from that
 
 
 t = pt.table(msfiles[0] + '/OBSERVATION')
