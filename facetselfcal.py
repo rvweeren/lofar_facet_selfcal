@@ -5428,15 +5428,36 @@ def checkforzerocleancomponents(imagenames):
     '''
     check if something was cleaned, if not stop de script to avoid more obscure errors later
     '''
+    n_images = len(imagenames)
+    n_zeros  = 0
     for image_id, image in enumerate(imagenames):
         print('Check if there are non-zero pixels: ', image)
         hdul = fits.open(image)
         data = hdul[0].data
         if not np.any(data): # this checks if all elements are 0.0
-          print('Model image:', image, 'contains only zeros. Stopping the selfcal')
-          hdul.close()
-          logger.error('Model image: ' + image + ' contains only zeros. Stopping the selfcal')
-          raise Exception('One of the model images contains only zeros')
+          print('Model image:', image, 'contains only zeros.')
+          #hdul.close()
+          #logger.error('Model image: ' + image + ' contains only zeros. Stopping the selfcal')
+          #raise Exception('One of the model images contains only zeros')
+          n_zeros = n_zeros + 1
+        hdul.close()
+    if n_zeros == n_images:
+      logger.error('All channel maps models were zero: Stopping the selfcal')
+      raise Exception('All model images contain zeros')  
+    return
+
+
+def removeneNaNfrommodel(imagenames):
+    '''
+    replace NaN/inf pixels values in WSCLEAN model images with zeros
+    '''
+    for image_id, image in enumerate(imagenames):
+        print('remove NaN/Inf values from model: ', image)
+        hdul = fits.open(image)
+        data = hdul[0].data
+        data[np.where(~np.isfinite(data))] = 0.0
+        hdul[0].data = data
+        hdul.writeto(image, overwrite=True)
         hdul.close()
     return
 
@@ -5949,6 +5970,12 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             removenegativefrommodel(sorted(glob.glob(imageout +'-????-model*.fits')))  # only Stokes I
         else:
             removenegativefrommodel(sorted(glob.glob(imageout + '-????-model.fits')))
+
+      # Remove NaNs from array (can happen if certain channels from channels-out are flagged)
+      if idg:
+        removeneNaNfrommodel(glob.glob(imageout +'-????-model*.fits'))  # only Stokes I
+      else:
+        removeneNaNfrommodel(glob.glob(imageout + '-????-model.fits'))
 
       # Check is anything was cleaned. If not, stop the selfcal to avoid obscure errors later
       if idg:
@@ -7559,7 +7586,7 @@ def main():
 
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
-   calibrationparser.add_argument('--DDE-predict', help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=DP3', type=str, default='DP3')
+   calibrationparser.add_argument('--DDE-predict', help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=DP3', type=str, default='WSCLEAN')
    
 
 
