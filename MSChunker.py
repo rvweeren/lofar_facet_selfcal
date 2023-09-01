@@ -266,7 +266,7 @@ class MSChunker:
         """
         self.time_fraction = fraction
         if type(msin) is str:
-            mslist = [mslist]
+            mslist = [msin]
         else:
             mslist = msin
         self.full_observations = []
