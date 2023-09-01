@@ -390,7 +390,7 @@ steps=[]
         )
         cmd = concat_time_command(list(self.chunks.keys()), msout)
         subprocess.run(cmd)
-        self.log.info("Concatenated MS written to {:s}", msout)
+        self.log.info("Concatenated MS written to {:s}".format(msout))
         return msout
 
 
