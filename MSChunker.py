@@ -270,9 +270,11 @@ class MSChunker:
         else:
             mslist = msin
         self.full_observations = []
+        self.mschunks = {}
         for ms in mslist:
-            self.full_observations.append(Observation(ms))
-        self.chunks = {}
+            obs = Observation(ms)
+            self.full_observations.append(obs)
+            self.mschunks[obs.name] = {"chunks": [], "parsets": []}
         self.log = logging.getLogger("MSChunker")
         self.log.setLevel(logging.INFO)
 
@@ -307,13 +309,12 @@ class MSChunker:
                     midpoint = obs.starttime + tottime / 2
                     chunktime = min(tottime, max(mintime, data_fraction * tottime))
                     if chunktime < tottime:
-                        self.observations.append(
-                            Observation(
-                                obs.ms_filename,
-                                starttime=midpoint - chunktime / 2,
-                                endtime=midpoint + chunktime / 2,
-                            )
+                        sub_obs = Observation(
+                            obs.ms_filename,
+                            starttime=midpoint - chunktime / 2,
+                            endtime=midpoint + chunktime / 2,
                         )
+                        self.observations.append(sub_obs)
                     else:
                         self.observations.append(obs)
                 else:
@@ -331,11 +332,14 @@ class MSChunker:
                         if endtime > obs.endtime:
                             starttime = obs.endtime - mintime
                             endtime = obs.endtime
-                        self.observations.append(
-                            Observation(
-                                obs.ms_filename, starttime=starttime, endtime=endtime
-                            )
+                        sub_obs = Observation(
+                            obs.ms_filename, starttime=starttime, endtime=endtime
                         )
+                        sub_obs.name = sub_obs.name + "_mjd{:f}".format(
+                            sub_obs.starttime
+                        )
+                        self.observations.append(sub_obs)
+                        self.mschunks[obs.name]["chunks"].append(sub_obs)
         else:
             self.observations = self.full_observations[:]
 
@@ -355,25 +359,30 @@ msout.storagemanager = dysco
 steps=[]
 """
         self.log.info("Writing chunk parsets")
-        for i, obs in enumerate(self.observations):
-            pname = "split_" + obs.name + "_chunk{:02d}.parset".format(i)
-            with open(pname, "w") as f:
-                parset = PARSET.format(
-                    name=obs.name,
-                    stime=convert_mjd(obs.starttime),
-                    etime=convert_mjd(obs.endtime),
-                    name_out=obs.name + "_{:f}".format(obs.starttime),
-                )
-                self.chunks[obs.name + "_{:f}".format(obs.starttime)] = pname
-                f.write(parset)
+        for i, fobs in enumerate(self.full_observations):
+            for obs in self.mschunks[fobs.name]["chunks"]:
+                pname = "split_" + obs.name + "_chunk{:02d}.parset".format(i)
+                with open(pname, "w") as f:
+                    parset = PARSET.format(
+                        name=fobs.name,
+                        stime=convert_mjd(obs.starttime),
+                        etime=convert_mjd(obs.endtime),
+                        name_out=obs.name,
+                    )
+                    # self.mschunks[obs.name]['parsets'][obs.name + "_{:f}".format(obs.starttime)] = pname
+                    self.mschunks[fobs.name]["parsets"].append(pname)
+                    f.write(parset)
 
     def run_parsets(self):
         """
         Run all the parsets, generating chunks.
         """
-        for chunk, parset in self.chunks.items():
-            self.log.info("Running {:s}".format(parset))
-            subprocess.run(["DP3", parset])
+        self.log.info("Writing parsets")
+        for mschunk in self.mschunks.keys():
+            print(mschunk)
+            for parset in self.mschunks[mschunk]["parsets"]:
+                self.log.info("Running {:s}".format(parset))
+                subprocess.run(["DP3", parset])
 
     def concat_chunks(self):
         """
@@ -385,13 +394,15 @@ steps=[]
             Name of the concatenated MeasurementSet as <input name>.<int(data_fraction*100)>pc.ms'
         """
         self.log.info("Concatenating chunks")
-        msout = self.observations[0].name + ".{:d}pc.ms".format(
-            int(self.time_fraction * 100)
-        )
-        cmd = concat_time_command(list(self.chunks.keys()), msout)
-        subprocess.run(cmd)
-        self.log.info("Concatenated MS written to {:s}".format(msout))
-        return msout
+        msouts = []
+        for mschunk in self.mschunks.keys():
+            chunknames = [obs.name for obs in self.mschunks[mschunk]["chunks"]]
+            msout = mschunk + ".{:d}pc.ms".format(int(self.time_fraction * 100))
+            cmd = concat_time_command(chunknames, msout)
+            subprocess.run(cmd)
+            self.log.info("Concatenated MS written to {:s}".format(msout))
+            msouts.append(msout)
+        return msouts
 
 
 def chunk_and_concat(mslist, fraction, mintime):
