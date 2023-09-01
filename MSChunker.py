@@ -71,9 +71,9 @@ def normalize_dec(num):
     res = num
     total_length = abs(lower) + abs(upper)
     if num < -total_length:
-        num += ceil(num / (-2 * total_length)) * 2 * total_length
+        num += np.ceil(num / (-2 * total_length)) * 2 * total_length
     if num > total_length:
-        num -= floor(num / (2 * total_length)) * 2 * total_length
+        num -= np.floor(num / (2 * total_length)) * 2 * total_length
     if num > upper:
         num = total_length - num
     if num < lower:
@@ -390,6 +390,7 @@ steps=[]
         )
         cmd = concat_time_command(list(self.chunks.keys()), msout)
         subprocess.run(cmd)
+        self.log.info("Concatenated MS written to {:s}", msout)
         return msout
 
 
