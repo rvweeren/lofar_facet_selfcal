@@ -359,9 +359,9 @@ msout.storagemanager = dysco
 steps=[]
 """
         self.log.info("Writing chunk parsets")
-        for i, fobs in enumerate(self.full_observations):
-            for obs in self.mschunks[fobs.name]["chunks"]:
-                pname = "split_" + obs.name + "_chunk{:02d}.parset".format(i)
+        for fobs in self.full_observations:
+            for i, obs in enumerate(self.mschunks[fobs.name]["chunks"]):
+                pname = "split_" + fobs.name + "_chunk{:02d}.parset".format(i)
                 with open(pname, "w") as f:
                     parset = PARSET.format(
                         name=fobs.name,
