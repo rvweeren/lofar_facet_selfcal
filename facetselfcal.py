@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # flux YX en XY to zero in full jones can be wrong, if fulljones is not the last solve type
 # lofar predict with beam in facetting, use IDG?
 # bug related to sources-pb.txt and possibly not pickung up model-pb ?
@@ -5747,7 +5748,7 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
          t.close()
       average(mslist, freqstep=[1]*len(mslist), timestep=1, \
               phaseshiftbox=phaseshiftbox, dysco=dysco,makesubtract=True,\
-              dataincolumn='SUBTRACTED_DATA')
+              dataincolumn=outcol)
    else: # so have have "keepall", no subtract, just a copy
       average(mslist, freqstep=[1]*len(mslist), timestep=1, \
               phaseshiftbox=phaseshiftbox, dysco=dysco,makesubtract=True,\
@@ -5780,7 +5781,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               fitspectralpolorder=3, imager='WSCLEAN', restoringbeam=15, automask=2.5, \
               removenegativecc=True, usewgridder=True, paralleldeconvolution=0, \
               deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8, \
-              fullpol=False, taperinnertukey=None, gapchanneldivision=False, uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None, DDE_predict='WSCLEAN'):
+              fullpol=False, taperinnertukey=None, gapchanneldivision=False, \
+              uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None, \
+              DDE_predict='WSCLEAN', localrmswindow=0):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
 
@@ -5907,7 +5910,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         cmd += '-deconvolution-channels ' +  str(deconvolutionchannels) + ' '
       if automask > 0.5:
         cmd += '-auto-mask '+ str(automask)  + ' -auto-threshold 0.5 ' # to avoid automask 0
-
+      if localrmswindow > 0:
+        cmd += '-local-rms-window ' + str(localrmswindow) + ' '
 
       if multiscale:
          # cmd += '-multiscale '+' -multiscale-scales 0,4,8,16,32,64 -multiscale-scale-bias 0.6 '
@@ -7513,6 +7517,7 @@ def main():
    imagingparser.add_argument('--imsize', help='Image size, required if boxfile is not used. The default is None.', type=int)
    imagingparser.add_argument('-n', '--niter', help='Number of iterations. This is computed automatically if None.', default=None, type=int)
    imagingparser.add_argument('--maskthreshold', help="Mask noise thresholds used from image 1 to 10 made by MakeMask.py. This is by default [5.0,4.5,4.5,4.5,4.0].", default=[5.0,4.5,4.5,4.5,4.0], type=arg_as_list)
+   imagingparser.add_argument('--localrmswindow', help="local-rms-window parameter for automasking in WSClean (in units of psfs), default=0 (0 means it is not used; suggested value 50)", default=0, type=int)
    imagingparser.add_argument('--removenegativefrommodel', help="Remove negative clean components in model predict. This is by default turned off at selfcalcycle 2. See also option autoupdate-removenegativefrommodel.", type=ast.literal_eval, default=True)
    imagingparser.add_argument('--autoupdate-removenegativefrommodel', help="Turn off removing negative clean components at selfcalcycle 2 (for high dynamic range imaging it is better to keep all clean components). The default is True.", type=ast.literal_eval, default=True)
    imagingparser.add_argument('--fitsmask', help='Fits mask for deconvolution (needs to match image size). If this is not provided automasking is used.', type=str)
@@ -7585,8 +7590,9 @@ def main():
    calibrationparser.add_argument('--QualityBasedWeights-dfreq', help='QualityBasedWeights frequency in units of MHz (default 5)',  type=float, default=5.0)
 
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
+   calibrationparser.add_argument('--Nfacets', help='Experts only.', type=int, default=8)
    calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
-   calibrationparser.add_argument('--DDE-predict', help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=DP3', type=str, default='WSCLEAN')
+   calibrationparser.add_argument('--DDE-predict', help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=WSCLEAN', type=str, default='WSCLEAN')
    
 
 
@@ -7966,7 +7972,7 @@ def main():
      if args['DDE'] and args['start'] != 0 : # set modeldatacolumns and dde_skymodel for a restart
         modeldatacolumns, dde_skymodel = prepare_DDE(args['imagename'], i, \
                    mslist, args['imsize'], args['pixelscale'], \
-                   args['channelsout'],numClusters=8, \
+                   args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], \
                    DDE_predict=args['DDE_predict'], restart=True)
         wsclean_h5list = list(np.load('wsclean_h5list.npy'))
@@ -7984,7 +7990,7 @@ def main():
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
-               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list,\
+               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, localrmswindow=args['localrmswindow'], \
                facetregionfile=facetregionfile)
      if args['makeimage_ILTlowres_HBA']:
        if args['phaseupstations'] is None:
@@ -8013,7 +8019,7 @@ def main():
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'],\
                multiscalescalebias=args['multiscalescalebias'], fullpol=True,\
-               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], facetregionfile=facetregionfile)
+               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'])
 
 
 
@@ -8038,7 +8044,7 @@ def main():
      if args['DDE']:
         modeldatacolumns, dde_skymodel = prepare_DDE(args['imagename'], i, \
                    mslist, args['imsize'], args['pixelscale'], \
-                   args['channelsout'],numClusters=8, \
+                   args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], DDE_predict=args['DDE_predict'])
      else:
         dde_skymodel = None  
@@ -8152,7 +8158,9 @@ def main():
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
-               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], predict=False)
+               taperinnertukey=args['taperinnertukey'], \
+               gapchanneldivision=args['gapchanneldivision'], predict=False, \
+               localrmswindow=args['localrmswindow'])
       
       remove_outside_box(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], \
                          args['imsize'],args['channelsout'], dysco=args['dysco'], userbox=args['remove_outside_center_box'])
