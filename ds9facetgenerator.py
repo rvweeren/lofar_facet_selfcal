@@ -227,10 +227,11 @@ def reorder_facets(facets, ra, dec):
     facets_out = []
     for direction_id, direction in enumerate((ra)):
        # find closest facet
+       distances = []
        for f_id, facet in enumerate(facets):          
-          if (facet.distance(Point(ra[direction_id],dec[direction_id]))) == 0.0:
-            print('Facet ID, H5 Direction ID:', f_id, direction_id)
-            facets_out.append(facet)
+          distances.append(facet.distance(Point(ra[direction_id],dec[direction_id])))
+       mindist = np.argmin(distances)
+       facets_out.append(facets[mindist])
 
     return facets_out
 
