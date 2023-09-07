@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# DDE even if DP3 predict selected it seems to do an IDG predict (without facets, so disable predict when DDE and image000, same for WSClean, as predicts will run per facet not for the full image000)
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # flux YX en XY to zero in full jones can be wrong, if fulljones is not the last solve type
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
@@ -5494,7 +5495,7 @@ def removenegativefrommodel(imagenames):
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist, solint_list, imsize, pixelscale, \
                 channelsout, numClusters=10, facetdirections=None, \
-                DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=False, telescope='LOFAR'):
+                DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=False, telescope='LOFAR', dde_skymodel=None, targetFlux=2.0):
 
    if telescope == 'LOFAR' and not disable_IDG_DDE_predict:
       idg = True # predict WSCLEAN with beam using IDG (wsclean facet mode with h5 is not efficient here)
@@ -5503,7 +5504,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, solint_list, imsize, pixels
 
    if selfcalcycle == 0:
       create_facet_directions(imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits',\
-                              targetFlux=2.0, ms=mslist[0], imsize=imsize, \
+                              targetFlux=targetFlux, ms=mslist[0], imsize=imsize, \
                               pixelscale=pixelscale, groupalgorithm='tessellate',numClusters=numClusters,\
                               facetdirections=facetdirections)  
       
@@ -6556,7 +6557,7 @@ def predictsky_wscleanfits(ms, imagebasename, usewgridder=True):
     return
 
 
-def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None,beamproximitylimit=120.0):
+def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None,beamproximitylimit=180.0):
 
    try:
       run('showsourcedb in=' + skymodel + ' > /dev/null') 
@@ -6594,7 +6595,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667, \
                 ampresetvalfactor=10., uvmax=None, \
                 modeldatacolumns=[], solveralgorithm='directionsolve', solveralgorithm_dde='directioniterative', preapplyH5_dde=[], \
-                dde_skymodel=None, DDE_predict='WSCLEAN',telescope='LOFAR', beamproximitylimit=120.):
+                dde_skymodel=None, DDE_predict='WSCLEAN',telescope='LOFAR', beamproximitylimit=180.):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
@@ -7603,10 +7604,12 @@ def main():
    calibrationparser.add_argument('--QualityBasedWeights-dfreq', help='QualityBasedWeights frequency in units of MHz (default 5)',  type=float, default=5.0)
 
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
-   calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into. Directions are found automatically. Only used if --facetdirections is not set.', type=int, default=8)
+   calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into when --DDE is used. Directions are found automatically. Only used if --facetdirections is not set.', type=int, default=8)
+   calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Only used if --facetdirections is not set. Note that --targetFlux takes presidence over --Nfacets', type=float, default=2.0)
+   
    calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
    calibrationparser.add_argument('--DDE-predict', help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=WSCLEAN (note: option WSCLEAN will use a lot of disk space as there is one MODEL column per direction written to the MS)', type=str, default='WSCLEAN')
-   calibrationparser.add_argument('--disable-IDG-DDE-predict', help='Normally, if LOFAR data is detected the WSCLean predict of the facets will use IDG, setting this option turns it off and predicts the apparent model with wridding (facet mode is never used here in these predicts). For non-LOFAR data the predicts uses the apparent model with wridding. Note: if the primary beam is not time varying and scalar then using the apparent model is fully accurate.', action='store_true')
+   calibrationparser.add_argument('--disable-IDG-DDE-predict', help='Normally, if LOFAR data is detected the WSCLean predict of the facets will use IDG, setting this option turns it off and predisscts the apparent model with wridding (facet mode is never used here in these predicts). For non-LOFAR data the predicts uses the apparent model with wridding. Note: if the primary beam is not time varying and scalar then using the apparent model is fully accurate.', action='store_true')
    
 
    blsmoothparser = parser.add_argument_group("-------------------------BLSmooth Settings-------------------------")
@@ -7994,7 +7997,8 @@ def main():
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], \
                    DDE_predict=args['DDE_predict'], restart=True, \
-                   disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope)
+                   disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope, \
+                   targetFlux=args['targetFlux'])
         wsclean_h5list = list(np.load('wsclean_h5list.npy'))
      
      # MAKE IMAGE
@@ -8071,7 +8075,8 @@ def main():
                    mslist, solint_list, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], DDE_predict=args['DDE_predict'], \
-                   disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope)
+                   disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope, \
+                   targetFlux=args['targetFlux'])
      else:
         dde_skymodel = None  
      #print(modeldatacolumns)
