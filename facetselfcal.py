@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
-# DDE even if DP3 predict selected it seems to do an IDG predict (without facets, so disable predict when DDE and image000, same for WSClean, as predicts will run per facet not for the full image000)
+# DP3 DDE solves write bad/wrong coordinates to H5 file, should be fixed now
+# DDE even if DP3 predict selected it seems to do an IDG predict (without facets, so disable predict when DDE and image000, same for WSClean, as predicts will run per facet not for the full image000), should be fixed now
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # flux YX en XY to zero in full jones can be wrong, if fulljones is not the last solve type
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
@@ -5790,7 +5791,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8, \
               fullpol=False, taperinnertukey=None, gapchanneldivision=False, \
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None, \
-              DDE_predict='WSCLEAN', localrmswindow=0):
+              DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     if idg:
@@ -5995,7 +5996,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
       else:
         checkforzerocleancomponents(glob.glob(imageout + '-????-model.fits'))
 
-      if predict and len(h5list) == 0:
+      if predict and len(h5list) == 0 and not DDEimaging: 
+        # we check for DDEimaging to avoid a predict for image000 in a --DDE run
+        # because at that moment there is no h5list yet and this avoids an unnecessary DI-type predict 
         cmd = 'wsclean -size '
         cmd += str(np.int(imsize)) + ' ' + str(np.int(imsize)) +  ' -padding 1.8 -predict '
         if channelsout > 1:
@@ -6127,7 +6130,8 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8, \
               gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None, \
               DDE_predict='WSCLEAN', QualityBasedWeights=False, QualityBasedWeights_start=5, \
-              QualityBasedWeights_dtime=10.,QualityBasedWeights_dfreq=5., telescope='LOFAR'):
+              QualityBasedWeights_dtime=10.,QualityBasedWeights_dfreq=5., telescope='LOFAR',\
+              ncpu_max=24):
 
    if len(modeldatacolumns) > 1:
      merge_all_in_one = False
@@ -6197,7 +6201,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff, create_modeldata=create_modeldata, \
                      selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,\
                      clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],\
-                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns, preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict, telescope=telescope)
+                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns, preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict, telescope=telescope, ncpu_max=ncpu_max)
 
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
@@ -6326,7 +6330,7 @@ def calibrateandapplycal_old(mslist, selfcalcycle, args, solint_list, nchan_list
               skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, \
               ionfreqfactor=1.0, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, \
               docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8, \
-              gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None, DDE_predict='WSCLEAN'):
+              gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None, DDE_predict='WSCLEAN', ncpu_max=24):
 
    if len(modeldatacolumns) > 1:
      merge_all_in_one = False
@@ -6395,7 +6399,7 @@ def calibrateandapplycal_old(mslist, selfcalcycle, args, solint_list, nchan_list
                      iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff, create_modeldata=create_modeldata, \
                      selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,\
                      clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],\
-                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns, preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict)
+                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns, preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict, ncpu_max=ncpu_max)
 
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
@@ -6557,7 +6561,7 @@ def predictsky_wscleanfits(ms, imagebasename, usewgridder=True):
     return
 
 
-def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None,beamproximitylimit=180.0):
+def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None,beamproximitylimit=240.0):
 
    try:
       run('showsourcedb in=' + skymodel + ' > /dev/null') 
@@ -6595,7 +6599,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667, \
                 ampresetvalfactor=10., uvmax=None, \
                 modeldatacolumns=[], solveralgorithm='directionsolve', solveralgorithm_dde='directioniterative', preapplyH5_dde=[], \
-                dde_skymodel=None, DDE_predict='WSCLEAN',telescope='LOFAR', beamproximitylimit=180.):
+                dde_skymodel=None, DDE_predict='WSCLEAN',telescope='LOFAR', beamproximitylimit=240.,\
+                ncpu_max=24):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
@@ -6622,8 +6627,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
 
     #if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if wscleanskymodel is not None and create_modeldata:
-        makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')), 0, 0.0, \
-               onlypredict=True, idg=False, usewgridder=True, gapchanneldivision=gapchanneldivision)
+        makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')),\
+        0, 0.0, onlypredict=True, idg=False, usewgridder=True, \
+        gapchanneldivision=gapchanneldivision)
 
 
     #if skymodelpointsource is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
@@ -6705,7 +6711,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       print('H5 file exists  ', parmdb)
       os.system('rm -f ' + parmdb)
 
-    cmd = 'DP3 numthreads='+str(np.min([multiprocessing.cpu_count(),24])) + ' msin=' + ms + ' '
+    cmd = 'DP3 numthreads='+str(np.min([multiprocessing.cpu_count(),ncpu_max])) + ' msin=' + ms + ' '
     cmd += 'msout=. ddecal.mode=' + soltype + ' '
     cmd += 'msin.weightcolumn='+weight_spectrum + ' '
     cmd += 'steps=[ddecal] ddecal.type=ddecal '
@@ -6788,7 +6794,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     if selfcalcycle==0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
         os.system("cp -r " + parmdb + " " + parmdb + ".scbackup")
 
-    if len(modeldatacolumns) > 1 and DDE_predict == 'WSCLEAN':
+    if len(modeldatacolumns) > 1: # and DDE_predict == 'WSCLEAN':
        update_sourcedir_h5_dde(parmdb, 'facetdirections.p')
 
     if has0coordinates(parmdb):
@@ -7602,7 +7608,7 @@ def main():
    calibrationparser.add_argument('--QualityBasedWeights-start', help='Experts only.',  type=int, default=5)
    calibrationparser.add_argument('--QualityBasedWeights-dtime', help='QualityBasedWeights timestep in units of minutes (default 5)',  type=float, default=5.0)
    calibrationparser.add_argument('--QualityBasedWeights-dfreq', help='QualityBasedWeights frequency in units of MHz (default 5)',  type=float, default=5.0)
-
+   calibrationparser.add_argument('--ncpu-max-DP3solve', help='Maximum number of threads for DP3 solves, default=24 (too high value can result in BLAS errors)', type=int, default=24)
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into when --DDE is used. Directions are found automatically. Only used if --facetdirections is not set.', type=int, default=8)
    calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Only used if --facetdirections is not set. Note that --targetFlux takes presidence over --Nfacets', type=float, default=2.0)
@@ -7707,7 +7713,7 @@ def main():
 
    args = vars(options)
 
-   version = '7.8.0'
+   version = '7.9.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -7983,7 +7989,7 @@ def main():
                              uvminscalarphasediff=args['uvminscalarphasediff'], \
                              docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'], telescope=telescope, \
                              blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                             gapchanneldivision=args['gapchanneldivision'])
+                             gapchanneldivision=args['gapchanneldivision'], ncpu_max=args['ncpu_max_DP3solve'])
 
      # TRIGGER MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
@@ -8019,7 +8025,7 @@ def main():
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
                taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, localrmswindow=args['localrmswindow'], \
-               facetregionfile=facetregionfile)
+               facetregionfile=facetregionfile, DDEimaging=args['DDE'])
      args['idg'] = idgin # set back
      if args['makeimage_ILTlowres_HBA']:
        if args['phaseupstations'] is None:
@@ -8123,7 +8129,7 @@ def main():
                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
                            docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
                            blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                           gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope)
+                           gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'])
 
      # MAKE MASK AND UPDATE UVMIN IF REQUESTED
      if args['fitsmask'] is None:
