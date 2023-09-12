@@ -8016,6 +8016,10 @@ def main():
                    facetdirections=args['facetdirections'], \
                    DDE_predict='DP3', restart=False,skyview=tgssfitsfile)
            
+           if candidate_solints != None:
+             candidate_solints = np.swapaxes(np.array([candidate_solints]),1,0).T.tolist()
+             solint_list = candidate_solints
+
         wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
                              soltypecycles_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
                              smoothnessspectralexponent_list, smoothnessrefdistance_list, \
