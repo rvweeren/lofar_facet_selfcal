@@ -8174,11 +8174,12 @@ def main():
                    facetdirections=args['facetdirections'], DDE_predict=args['DDE_predict'], \
                    disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope, \
                    targetFlux=args['targetFlux'])
+        if candidate_solints != None:
+          candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
+          solint_list = candidate_solints
      else:
         dde_skymodel = None  
-     if candidate_solints != None:
-      candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
-      solint_list = candidate_solints
+
 
 
      if args['stopafterskysolve']:
