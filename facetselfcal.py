@@ -6239,8 +6239,6 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
             #   if tmpsoltype in soltype_list[0:soltypenumber]:
             #      print('Previous solve already predicted MODEL_DATA, will skip that step', soltype, soltypenumber)
             #      create_modeldata = False  
-         print("BEFORE CRASH???")
-         print(solint_list,soltypenumber,msnumber) 
          runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
                      uvmin=uvmin, \
                      SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
@@ -8051,7 +8049,7 @@ def main():
                    DDE_predict='DP3', restart=False,skyview=tgssfitsfile)
            
            if candidate_solints != None:
-             candidate_solints = np.swapaxes(np.array([candidate_solints]),1,0).T.tolist()
+             candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
              solint_list = candidate_solints
 
         wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
@@ -8173,7 +8171,7 @@ def main():
      else:
         dde_skymodel = None  
      if candidate_solints != None:
-      candidate_solints = np.swapaxes(np.array([candidate_solints]),1,0).T.tolist()
+      candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
       solint_list = candidate_solints
 
 
