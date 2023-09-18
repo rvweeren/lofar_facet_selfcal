@@ -5504,7 +5504,10 @@ def parse_facetdirections(facetdirections,niter):
     from astropy.io import ascii
     data = ascii.read(facetdirections)
     ra,dec = data['RA'],data['DEC']
-    start = data['start']
+    try:
+      start = data['start']
+    except KeyError:
+      start = np.zeros(len(ra))
     try:
       solints = data['solints']
     except KeyError:
