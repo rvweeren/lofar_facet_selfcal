@@ -5505,7 +5505,10 @@ def parse_facetdirections(facetdirections,niter):
     data = ascii.read(facetdirections)
     ra,dec = data['RA'],data['DEC']
     start = data['start']
-    solints = data['solints']
+    try:
+      solints = data['solints']
+    except KeyError:
+      solints = None
 
     # Only select ra/dec which are within niter range
     a = np.where((start <= niter))[0]
