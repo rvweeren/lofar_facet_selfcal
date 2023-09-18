@@ -5863,7 +5863,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     if onlypredict and facetregionfile is None:
       if predict:
         if squarebox is not None:
-           for model in sorted(glob.glob(imageout + '-????-model*.fits')):
+           for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
               print (model, 'box_' + model)
               mask_region(model,squarebox,'box_' + model)  
         
@@ -5901,7 +5901,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         r[facet_id:facet_id+1].write('facet' + str(facet_id) + '.reg') # split facet from region file
      
         # step 2 mask outside of region file
-        for model in sorted(glob.glob(imageout + '-????-model*.fits')):
+        for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
           modelout = 'facet_' + model
           if DDE_predict == 'WSCLEAN':
             print (model, modelout)
@@ -6039,21 +6039,21 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
       # REMOVE nagetive model components, these are artifacts (only for Stokes I)
       if removenegativecc:
         if idg:
-            removenegativefrommodel(sorted(glob.glob(imageout +'-????-model*.fits')))  # only Stokes I
+            removenegativefrommodel(sorted(glob.glob(imageout +'-????-*model*.fits')))  # only Stokes I
         else:
-            removenegativefrommodel(sorted(glob.glob(imageout + '-????-model.fits')))
+            removenegativefrommodel(sorted(glob.glob(imageout + '-????-*model.fits')))
 
       # Remove NaNs from array (can happen if certain channels from channels-out are flagged)
       if idg:
-        removeneNaNfrommodel(glob.glob(imageout +'-????-model*.fits'))  # only Stokes I
+        removeneNaNfrommodel(glob.glob(imageout +'-????-*model*.fits'))  # only Stokes I
       else:
-        removeneNaNfrommodel(glob.glob(imageout + '-????-model.fits'))
+        removeneNaNfrommodel(glob.glob(imageout + '-????-*model.fits'))
 
       # Check is anything was cleaned. If not, stop the selfcal to avoid obscure errors later
       if idg:
-        checkforzerocleancomponents(glob.glob(imageout +'-????-model*.fits'))  # only Stokes I
+        checkforzerocleancomponents(glob.glob(imageout +'-????-*model*.fits'))  # only Stokes I
       else:
-        checkforzerocleancomponents(glob.glob(imageout + '-????-model.fits'))
+        checkforzerocleancomponents(glob.glob(imageout + '-????-*model.fits'))
 
       if predict and len(h5list) == 0 and not DDEimaging: 
         # we check for DDEimaging to avoid a predict for image000 in a --DDE run
