@@ -2141,7 +2141,8 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     img.write_catalog(format='bbs', bbs_patches='single', outfile='tgss.skymodel', clobber=True)
     # bbsmodel = 'bla.skymodel'
     del img
-    return 'tgss.skymodel'
+    print(filename)
+    return 'tgss.skymodel',filename
 
 def getregionboxcenter(regionfile, standardbox=True):
     ''' Extract box center of a DS9 box region.
@@ -5494,37 +5495,73 @@ def removenegativefrommodel(imagenames):
 
     return
 
-def prepare_DDE(imagebasename, selfcalcycle, mslist, solint_list, imsize, pixelscale, \
+def parse_facetdirections(facetdirections,niter):
+    '''
+       parse the facetdirections.txt file and return a list of facet directions
+       for the given niter. In the future, this function should also return a 
+       list of solints, nchans and other things 
+    '''
+    from astropy.io import ascii
+    data = ascii.read(facetdirections)
+    ra,dec = data['RA'],data['DEC']
+    try:
+      start = data['start']
+    except KeyError:
+      start = np.zeros(len(ra))
+    try:
+      solints = data['solints']
+    except KeyError:
+      solints = None
+
+    # Only select ra/dec which are within niter range
+    a = np.where((start <= niter))[0]
+    rasel = ra[a]
+    decsel = dec[a]
+    solintsel = solints[a]
+
+    PatchPositions_array = np.zeros((len(rasel),2))
+    PatchPositions_array[:,0] = (rasel*units.deg).to(units.rad).value
+    PatchPositions_array[:,1] = (decsel*units.deg).to(units.rad).value
+    return PatchPositions_array,[ast.literal_eval(solint) for solint in solintsel]
+
+def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                 channelsout, numClusters=10, facetdirections=None, \
-                DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=False, telescope='LOFAR', dde_skymodel=None, targetFlux=2.0):
+                DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=False, telescope='LOFAR', dde_skymodel=None, targetFlux=2.0,skyview=None):
 
    if telescope == 'LOFAR' and not disable_IDG_DDE_predict:
       idg = True # predict WSCLEAN with beam using IDG (wsclean facet mode with h5 is not efficient here)
    else:
       idg = False
 
-   if selfcalcycle == 0:
-      create_facet_directions(imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits',\
-                              targetFlux=targetFlux, ms=mslist[0], imsize=imsize, \
-                              pixelscale=pixelscale, groupalgorithm='tessellate',numClusters=numClusters,\
-                              facetdirections=facetdirections)  
-      
-      # remove previous facets.fits if needed and create template fits file for facets
-      if os.path.isfile('facets.fits'):
-         os.system ('rm -f facets.fits')  
-      os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
-      #skymodel = imagebasename  + '-sources.txt'
- 
-      # fill in facets.fits with values, every facets get a constant value, for lsmtool
-      hdu=fits.open('facets.fits')
-      hduflat = flatten(hdu)
-      region = pyregion.open('facets.reg')
-      for facet_id, facet in enumerate(region):
-         region[facet_id:facet_id+1].write('facet' + str(facet_id) + '.reg') # split facet from region file
-         r = pyregion.open('facet' + str(facet_id) + '.reg')
-         manualmask = r.get_mask(hdu=hduflat)
-         hdu[0].data[0][0][np.where(manualmask == True)] = facet_id
-      hdu.writeto('facets.fits',overwrite=True)
+   solints = create_facet_directions(imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits',selfcalcycle,\
+   	              targetFlux=targetFlux, ms=mslist[0], imsize=imsize, \
+	              pixelscale=pixelscale, groupalgorithm='tessellate',numClusters=numClusters,\
+	              facetdirections=facetdirections)  
+
+   # remove previous facets.fits if needed and create template fits file for facets
+   if os.path.isfile('facets.fits'):
+     os.system ('rm -f facets.fits')  
+   if skyview==None:
+     os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
+   else:
+     os.system('cp ' + skyview + ' facets.fits')   
+   #skymodel = imagebasename  + '-sources.txt'
+   os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
+   #skymodel = imagebasename  + '-sources.txt'
+
+   # fill in facets.fits with values, every facets get a constant value, for lsmtool
+   hdu=fits.open('facets.fits')
+   hduflat = flatten(hdu)
+   region = pyregion.open('facets.reg')
+   for facet_id, facet in enumerate(region):
+       region[facet_id:facet_id+1].write('facet' + str(facet_id) + '.reg') # split facet from region file
+       r = pyregion.open('facet' + str(facet_id) + '.reg')
+       manualmask = r.get_mask(hdu=hduflat)
+       if len(hdu[0].data.shape) == 4:
+          hdu[0].data[0][0][np.where(manualmask == True)] = facet_id
+       else:
+          hdu[0].data[np.where(manualmask == True)] = facet_id
+   hdu.writeto('facets.fits',overwrite=True)
 
    if restart: 
       # restart with DDE_predict=DP3 because then just modeldatacolumns is made
@@ -5536,6 +5573,13 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, solint_list, imsize, pixels
       # selfcalcycle-1 because makeimage has not yet produced an image at this point
       dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle-1).zfill(3) + \
                                    '-sources.txt', 'facets.fits')  
+   elif skyview != None:
+    modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
+                              pixelscale, imsize, channelsout, predict=True, \
+                              onlypredict=True, facetregionfile='facets.reg', \
+                              DDE_predict=DDE_predict)
+    dde_skymodel = groupskymodel(imagebasename, 'facets.fits')
+   
    else: 
       modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
                                 pixelscale, imsize, channelsout, predict=True, \
@@ -5552,7 +5596,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, solint_list, imsize, pixels
                                       '-sources-pb.txt', 'facets.fits')
        
    
-   return modeldatacolumns, dde_skymodel, solint_list
+   return modeldatacolumns, dde_skymodel, solints
    
 def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):   
    import lsmtool
@@ -5566,22 +5610,20 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
       return 'grouped_' + skymodelin
 
 
-def create_facet_directions(imagename, targetFlux=1.0, ms=None, imsize=None, \
+def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, imsize=None, \
                             pixelscale=None, groupalgorithm='tessellate',numClusters=10, weightBySize=False, facetdirections=None):
    '''
    create a facet region file based on an input image or file provided by the user
    if there is an image use lsmtool tessellation algorithm 
+
+   This function also returns the solints obtained out of the file (if avail). It is up to 
+   the function that calls this to do something with it or not.
    ''' 
   
-   
+   solints = []
    if facetdirections is not None:
      try:
-       from astropy.io import ascii
-       data = ascii.read(facetdirections)
-     
-       PatchPositions_array = np.zeros( (len(data),2) )
-       PatchPositions_array[:,0] = (data['col1']*units.deg).to(units.rad).value
-       PatchPositions_array[:,1] = (data['col2']*units.deg).to(units.rad).value
+       PatchPositions_array,solints = parse_facetdirections(facetdirections,selfcalcycle)
      except:
        try:
          f = open(facetdirections, 'rb')
@@ -5590,7 +5632,21 @@ def create_facet_directions(imagename, targetFlux=1.0, ms=None, imsize=None, \
        except: 
          raise Exception('Trouble read file format:' + facetdirections) 
      print(PatchPositions_array)
-   else:
+
+     if os.path.isfile('facetdirections.p'):
+         os.system('rm -f facetdirections.p')  
+     f = open('facetdirections.p', 'wb')
+     pickle.dump(PatchPositions_array,f)
+     f.close()
+     if ms is not None and imsize is not None and pixelscale is not None:
+         cmd = 'python ds9facetgenerator.py '
+         cmd += '--ms=' + ms + ' '
+         cmd += '--h5=facetdirections.p --imsize=' + str(imsize) +' --pixelscale=' + str(pixelscale)
+         run(cmd)
+     return solints
+   elif selfcalcycle==0:
+     # Only run this if selfcalcycle==0 [elif]
+     # Try to load previous facetdirections.skymodel
      import lsmtool  
      img = bdsf.process_image(imagename,mean_map='zero', rms_map=True, rms_box = (160,40))  
      img.write_catalog(format='bbs', bbs_patches=None, outfile='facetdirections.skymodel', clobber=True)
@@ -5604,19 +5660,22 @@ def create_facet_directions(imagename, targetFlux=1.0, ms=None, imsize=None, \
      for patch_id, patch in enumerate(PatchPositions.keys()):
        PatchPositions_array[patch_id,0] = PatchPositions[patch][0].to(units.rad).value # RA
        PatchPositions_array[patch_id,1] = PatchPositions[patch][1].to(units.rad).value # Dec
-     
-   if os.path.isfile('facetdirections.p'):
-      os.system('rm -f facetdirections.p')  
-   f = open('facetdirections.p', 'wb')
-   pickle.dump(PatchPositions_array,f)
-   f.close()
-   
-   if ms is not None and imsize is not None and pixelscale is not None:
-      cmd = 'python ds9facetgenerator.py '
-      cmd += '--ms=' + ms + ' '
-      cmd += '--h5=facetdirections.p --imsize=' + str(imsize) +' --pixelscale=' + str(pixelscale)
-      run(cmd)
-   return  
+     # else: PatchPostioins=LSM.load('facetdirections.skymodel').getPatchPositions)  
+     # Run code below for if and elif
+     if os.path.isfile('facetdirections.p'):
+         os.system('rm -f facetdirections.p')  
+     f = open('facetdirections.p', 'wb')
+     pickle.dump(PatchPositions_array,f)
+     f.close()
+      
+     if ms is not None and imsize is not None and pixelscale is not None:
+         cmd = 'python ds9facetgenerator.py '
+         cmd += '--ms=' + ms + ' '
+         cmd += '--h5=facetdirections.p --imsize=' + str(imsize) +' --pixelscale=' + str(pixelscale)
+         run(cmd)
+     return solints
+   else:
+    return solints
 
 def split_facetdirections(facetregionfile):
    '''
@@ -6157,6 +6216,8 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          if (soltypenumber < len(soltype_list)-1):
 
            print(selfcalcycle,soltypecycles_list[soltypenumber+1][msnumber])
+           print('_______________________')
+           print(soltypecycles_list_array,soltypenumber,len(soltypecycles_list_array))
            print('Array soltypecycles_list ahead',soltypecycles_list_array[soltypenumber+1:len(soltypecycles_list_array[:,0]),msnumber])
            # if (selfcalcycle >= soltypecycles_list[soltypenumber+1][msnumber]): # this looks one soltpype ahead...hmmm, not good 
            if selfcalcycle >= np.min(soltypecycles_list_array[soltypenumber+1:len(soltypecycles_list_array[:,0]),msnumber]): # this looks all soltype ahead   
@@ -6184,7 +6245,6 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
             #   if tmpsoltype in soltype_list[0:soltypenumber]:
             #      print('Previous solve already predicted MODEL_DATA, will skip that step', soltype, soltypenumber)
             #      create_modeldata = False  
-
          runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
                      uvmin=uvmin, \
                      SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
@@ -6360,6 +6420,8 @@ def calibrateandapplycal_old(mslist, selfcalcycle, args, solint_list, nchan_list
            print(selfcalcycle,soltypecycles_list[soltypenumber+1][msnumber])
            print('Array soltypecycles_list ahead',soltypecycles_list_array[soltypenumber+1:len(soltypecycles_list_array[:,0]),msnumber])
            # if (selfcalcycle >= soltypecycles_list[soltypenumber+1][msnumber]): # this looks one soltpype ahead...hmmm, not good 
+           print("---------------------------------------")
+           print(soltypecycles_list_array,soltypenumber,msnumber)
            if selfcalcycle >= np.min(soltypecycles_list_array[soltypenumber+1:len(soltypecycles_list_array[:,0]),msnumber]): # this looks all soltype ahead   
              pertubation[msnumber] = True
            else:
@@ -6622,7 +6684,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       modeldata = 'MODEL_DATA_PDIFF'
 
     #if skymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
-    if skymodel is not None and create_modeldata and selfcalcycle == 0:
+    # ASK IF NOT NECESSARY! THINK NOT!!
+    if skymodel is not None and create_modeldata and selfcalcycle == 0 and len(modeldatacolumns) == 0:
         predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
 
     #if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
@@ -6719,7 +6782,16 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       cmd += 'msout.storagemanager=dysco '
     
     cmd += 'ddecal.maxiter='+str(np.int(maxiter)) + ' ddecal.propagatesolutions=True '    
-    cmd += 'ddecal.solint=' + format_solint(solint, ms) + ' '
+    # Do list comprehension if solint is a list
+    if type(solint) == list:
+       solints = [int(format_solint(x, ms)) for x in solint]
+       import math
+       lcm = math.lcm(*solints)
+       divisors = [int(lcm/i) for i in solints]
+       cmd += 'ddecal.solint=' + str(lcm) + ' '
+       cmd += 'ddecal.solutions_per_direction=' + "'"+str(divisors).replace(' ','') + "' "
+    else:
+       cmd += 'ddecal.solint=' + format_solint(solint, ms) + ' '
     cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
 
@@ -7851,7 +7923,7 @@ def main():
    # Make starting skymodel from TGSS or VLASS survey if requested
    if args['startfromtgss'] and args['start'] == 0:
      if args['skymodel'] is None:
-       args['skymodel'] = makeBBSmodelforTGSS(args['boxfile'],fitsimage = args['tgssfitsimage'], \
+       args['skymodel'],tgssfitsfile = makeBBSmodelforTGSS(args['boxfile'],fitsimage = args['tgssfitsimage'], \
                                               pixelscale=args['pixelscale'], imsize=args['imsize'], ms=mslist[0])
      else:
        print('You cannot provide a skymodel/skymodelpointsource file manually while using --startfromtgss')
@@ -7971,6 +8043,21 @@ def main():
      # CALIBRATE AGAINST SKYMODEL
      if (args['skymodel'] is not None or args['skymodelpointsource'] is not None \
          or args['wscleanskymodel'] is not None) and (i ==0):
+         # Function that 
+         # add patches for DDE predict
+         # also do prepare_DDE
+        if args['DDE']:
+           print(tgssfitsfile)
+           modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['skymodel'], i, \
+                   mslist, args['imsize'], args['pixelscale'], \
+                   args['channelsout'],numClusters=args['Nfacets'], \
+                   facetdirections=args['facetdirections'], \
+                   DDE_predict='DP3', restart=False,skyview=tgssfitsfile)
+           
+           if candidate_solints != None:
+             candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
+             solint_list = candidate_solints
+
         wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
                              soltypecycles_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
                              smoothnessspectralexponent_list, smoothnessrefdistance_list, \
@@ -7989,7 +8076,9 @@ def main():
                              uvminscalarphasediff=args['uvminscalarphasediff'], \
                              docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'], telescope=telescope, \
                              blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                             gapchanneldivision=args['gapchanneldivision'], ncpu_max=args['ncpu_max_DP3solve'])
+                             gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict='DP3', \
+                             QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], \
+                             QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],ncpu_max=args['ncpu_max_DP3solve'])
 
      # TRIGGER MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
@@ -7997,9 +8086,9 @@ def main():
      else:
        multiscale = False
 
-     if args['DDE'] and args['start'] != 0 : # set modeldatacolumns and dde_skymodel for a restart
-        modeldatacolumns, dde_skymodel, solint_list = prepare_DDE(args['imagename'], i, \
-                   mslist, solint_list, args['imsize'], args['pixelscale'], \
+     if args['DDE'] and args['start'] != 0: # set modeldatacolumns and dde_skymodel for a restart
+        modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['imagename'], i, \
+                   mslist, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], \
                    DDE_predict=args['DDE_predict'], restart=True, \
@@ -8007,6 +8096,8 @@ def main():
                    targetFlux=args['targetFlux'])
         wsclean_h5list = list(np.load('wsclean_h5list.npy'))
      
+     
+
      # MAKE IMAGE
      if len(modeldatacolumns) > 1:
        facetregionfile = 'facets.reg'
@@ -8077,16 +8168,18 @@ def main():
 
      modeldatacolumns = [] 
      if args['DDE']:
-        modeldatacolumns, dde_skymodel, solint_list = prepare_DDE(args['imagename'], i, \
-                   mslist, solint_list, args['imsize'], args['pixelscale'], \
+        modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['imagename'], i, \
+                   mslist, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], DDE_predict=args['DDE_predict'], \
                    disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope, \
                    targetFlux=args['targetFlux'])
      else:
         dde_skymodel = None  
-     #print(modeldatacolumns)
-        
+     if candidate_solints != None:
+      candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
+      solint_list = candidate_solints
+
 
      if args['stopafterskysolve']:
        print('Stopping as requested via --stopafterskysolve')
