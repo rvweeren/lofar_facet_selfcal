@@ -5620,7 +5620,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
    the function that calls this to do something with it or not.
    ''' 
   
-   solints = []
+   solints = None
    if facetdirections is not None:
      try:
        PatchPositions_array,solints = parse_facetdirections(facetdirections,selfcalcycle)
@@ -8055,7 +8055,7 @@ def main():
                    mslist, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], \
-                   DDE_predict='DP3', restart=False,skyview=tgssfitsfile)
+                   DDE_predict='DP3', restart=False,skyview=tgssfitsfile,targetFlux=args['targetFlux'])
            
            if candidate_solints != None:
              candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
