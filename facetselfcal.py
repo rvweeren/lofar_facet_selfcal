@@ -5517,12 +5517,16 @@ def parse_facetdirections(facetdirections,niter):
     a = np.where((start <= niter))[0]
     rasel = ra[a]
     decsel = dec[a]
-    solintsel = solints[a]
 
     PatchPositions_array = np.zeros((len(rasel),2))
     PatchPositions_array[:,0] = (rasel*units.deg).to(units.rad).value
     PatchPositions_array[:,1] = (decsel*units.deg).to(units.rad).value
-    return PatchPositions_array,[ast.literal_eval(solint) for solint in solintsel]
+
+    if solints is not None:
+      solintsel = solints[a]
+      return PatchPositions_array,[ast.literal_eval(solint) for solint in solintsel]
+    else:
+      return PatchPositions_array, None
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                 channelsout, numClusters=10, facetdirections=None, \
@@ -5620,7 +5624,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
    the function that calls this to do something with it or not.
    ''' 
   
-   solints = None
+   solints = None # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
    if facetdirections is not None:
      try:
        PatchPositions_array,solints = parse_facetdirections(facetdirections,selfcalcycle)
@@ -6248,6 +6252,10 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
             #   if tmpsoltype in soltype_list[0:soltypenumber]:
             #      print('Previous solve already predicted MODEL_DATA, will skip that step', soltype, soltypenumber)
             #      create_modeldata = False  
+         print(ms)
+         print(solint_list)
+         print(soltypenumber)
+         print(msnumber)
          runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
                      uvmin=uvmin, \
                      SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
@@ -8057,10 +8065,11 @@ def main():
                    facetdirections=args['facetdirections'], \
                    DDE_predict='DP3', restart=False,skyview=tgssfitsfile,targetFlux=args['targetFlux'])
            
-           if candidate_solints != None:
+           if candidate_solints is not None:
              candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
              solint_list = candidate_solints
-
+        else:
+           dde_skymodel = None  
         wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
                              soltypecycles_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
                              smoothnessspectralexponent_list, smoothnessrefdistance_list, \
@@ -8177,7 +8186,7 @@ def main():
                    facetdirections=args['facetdirections'], DDE_predict=args['DDE_predict'], \
                    disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope, \
                    targetFlux=args['targetFlux'])
-        if candidate_solints != None:
+        if candidate_solints is not None:
           candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
           solint_list = candidate_solints
      else:
