@@ -8065,7 +8065,8 @@ def main():
            if candidate_solints is not None:
              candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
              solint_list = candidate_solints
-
+        else:
+           dde_skymodel = None  
         wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
                              soltypecycles_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
                              smoothnessspectralexponent_list, smoothnessrefdistance_list, \
