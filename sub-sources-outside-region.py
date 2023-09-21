@@ -558,7 +558,7 @@ def ddfbootstrapcorrection(mslist, incol, outcol, dysco=True):
       if not os.path.isfile(filenamefreqs):
          print('Error: cannot find', filenamefreqs)
          sys.exit()         
-      freqs, _, _, mask = np.genfromtxt('L701771frequencies.txt', converters={0:float, 1:str, 2:str, 3:eval}, unpack=True)
+      freqs, _, _, mask = np.genfromtxt(filenamefreqs, converters={0:float, 1:str, 2:str, 3:eval}, unpack=True)
       freqs = freqs[mask]
       print(freqs)
       
