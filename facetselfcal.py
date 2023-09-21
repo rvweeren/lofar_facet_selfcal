@@ -5549,8 +5549,8 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
      os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
    else:
      os.system('cp ' + skyview + ' facets.fits')   
-   #skymodel = imagebasename  + '-sources.txt'
-   os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
+  #  #skymodel = imagebasename  + '-sources.txt'
+  #  os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
    #skymodel = imagebasename  + '-sources.txt'
 
    # fill in facets.fits with values, every facets get a constant value, for lsmtool
@@ -6197,7 +6197,27 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None, \
               DDE_predict='WSCLEAN', QualityBasedWeights=False, QualityBasedWeights_start=5, \
               QualityBasedWeights_dtime=10.,QualityBasedWeights_dfreq=5., telescope='LOFAR',\
-              ncpu_max=24):
+              ncpu_max=24,skyview=None):
+   
+   if args['DDE']: # Should consider adding check if more directions are actually added
+       if skyview == None:
+          ddepredict = args['DDE_predict']
+          imgname = args['imagename']
+       else:
+          # When starting from tgss skymodel
+          ddepredict = 'DP3'
+          imgname = args['skymodel']
+       modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(imgname, selfcalcycle, \
+                   mslist, args['imsize'], args['pixelscale'], \
+                   args['channelsout'],numClusters=args['Nfacets'], \
+                   facetdirections=args['facetdirections'], DDE_predict=ddepredict, \
+                   disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope, \
+                   targetFlux=args['targetFlux'],skyview=skyview)
+       if candidate_solints is not None:
+           candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
+           solint_list = candidate_solints
+   else:
+       dde_skymodel = None 
 
    if len(modeldatacolumns) > 1:
      merge_all_in_one = False
@@ -8058,8 +8078,8 @@ def main():
          # add patches for DDE predict
          # also do prepare_DDE
         if args['DDE']:
-           print(tgssfitsfile)
-           modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['skymodel'], i, \
+           print(tgssfitsfile) # Need to fix this in cal and applycal. Not sure how 
+           '''modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['skymodel'], i, \
                    mslist, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], \
@@ -8067,7 +8087,7 @@ def main():
            
            if candidate_solints is not None:
              candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
-             solint_list = candidate_solints
+             solint_list = candidate_solints'''
         else:
            dde_skymodel = None  
         wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
@@ -8088,7 +8108,7 @@ def main():
                              uvminscalarphasediff=args['uvminscalarphasediff'], \
                              docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'], telescope=telescope, \
                              blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                             gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict='DP3', \
+                             gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, DDE_predict='DP3', skyview=tgssfitsfile,\
                              QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], \
                              QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],ncpu_max=args['ncpu_max_DP3solve'])
 
@@ -8098,6 +8118,7 @@ def main():
      else:
        multiscale = False
 
+     # Need to ask what should happen with this... Think it is still necessary?
      if args['DDE'] and args['start'] != 0: # set modeldatacolumns and dde_skymodel for a restart
         modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['imagename'], i, \
                    mslist, args['imsize'], args['pixelscale'], \
@@ -8111,7 +8132,7 @@ def main():
      
 
      # MAKE IMAGE
-     if len(modeldatacolumns) > 1:
+     if args['DDE']:
        facetregionfile = 'facets.reg'
      else:
        if args['DDE'] and i == 0: # we are making image000 without having DDE solutions yet
@@ -8179,7 +8200,7 @@ def main():
      plotimage(plotfitsimage, plotpngimage, mask=fitsmask, rmsnoiseimage=plotfitsimage)
 
      modeldatacolumns = [] 
-     if args['DDE']:
+     '''if args['DDE']:
         modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['imagename'], i, \
                    mslist, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
@@ -8190,7 +8211,7 @@ def main():
           candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
           solint_list = candidate_solints
      else:
-        dde_skymodel = None  
+        dde_skymodel = None '''
 
 
 
@@ -8235,7 +8256,7 @@ def main():
                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
                            docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
                            blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                           gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'])
+                           gapchanneldivision=args['gapchanneldivision'],DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'])
 
      # MAKE MASK AND UPDATE UVMIN IF REQUESTED
      if args['fitsmask'] is None:
