@@ -5537,7 +5537,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
    else:
       idg = False
 
-   solints = create_facet_directions(imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits',selfcalcycle,\
+   solints = create_facet_directions(imagebasename,selfcalcycle,\
    	              targetFlux=targetFlux, ms=mslist[0], imsize=imsize, \
 	              pixelscale=pixelscale, groupalgorithm='tessellate',numClusters=numClusters,\
 	              facetdirections=facetdirections)  
@@ -5652,8 +5652,11 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
      # Only run this if selfcalcycle==0 [elif]
      # Try to load previous facetdirections.skymodel
      import lsmtool  
-     img = bdsf.process_image(imagename,mean_map='zero', rms_map=True, rms_box = (160,40))  
-     img.write_catalog(format='bbs', bbs_patches=None, outfile='facetdirections.skymodel', clobber=True)
+     if 'skymodel' not in imagename:
+      img = bdsf.process_image(imagename + str(selfcalcycle).zfill(3) +'-MFS-image.fits',mean_map='zero', rms_map=True, rms_box = (160,40))  
+      img.write_catalog(format='bbs', bbs_patches=None, outfile='facetdirections.skymodel', clobber=True)
+     else:
+      os.system(f'cp -r {imagename} facetdirections.skymodel')
      LSM = lsmtool.load('facetdirections.skymodel')
      LSM.group(algorithm=groupalgorithm, targetFlux=str(targetFlux) +' Jy', numClusters=numClusters, weightBySize=weightBySize)
      print('Number of directions', len(LSM.getPatchPositions()))
@@ -8060,7 +8063,7 @@ def main():
                    mslist, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], \
-                   DDE_predict='DP3', restart=False,skyview=tgssfitsfile)
+                   DDE_predict='DP3', restart=False,skyview=tgssfitsfile,targetFlux=args['targetFlux'])
            
            if candidate_solints is not None:
              candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
