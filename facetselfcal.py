@@ -217,7 +217,93 @@ def get_time_preavg_factor_LTAdata(ms):
     else:
         print("WARNING: parsed factor in " + ms + " is not a float or digit")
         return None
-      
+
+
+def broadcast_h5_to_more_dirs(h5, ralist, declist):
+   '''
+    Broadcast h5parm to more directions, matching to the nearest element in the
+    ralist/declist. This is useful for example for the DDE solver, where we
+    want to solve for a few directions and then broadcast the solutions to
+    more directions.
+   '''
+   assert len(ralist) == len(declist), "length of RAlist and DEClist should be the same"
+
+   rt = h5parm.h5parm(h5, readonly=False)
+   solset = rt.getSolset('sol000')
+   sourcedirs = solset.obj.source
+   h5_coords = []
+   for dirry in sourcedirs:
+      h5_coords.append(SkyCoord(dirry[1][0],dirry[1][1], frame='icrs',unit='rad'))
+   h5_coords = SkyCoord(h5_coords)
+
+   crds = SkyCoord(ralist,declist, frame='icrs',unit='deg')
+
+   preapply_directs = []
+   for dirry in crds: # Find the nearest direction in the h5parm, should be replaced with direct parent one time
+      preapply_directs.append(np.argmin(h5_coords.separation(dirry))) 
+
+   new_dirlist = []
+   for i in range(len(crds)):
+      dirname = f"Dir{i:02d}"
+      crd_radians = [crds[i].ra.rad, crds[i].dec.rad]
+      tuppy = (dirname, crd_radians)
+      new_dirlist.append(tuppy)
+
+   new_dirlist = np.array(new_dirlist, dtype = solset.obj.source.dtype)
+   new_dirlist_names = np.array([x[0] for x in new_dirlist], dtype=solset.obj.phase000.dir.dtype)
+
+   for soltab in solset.getSoltabNames():
+      vals = solset.getSoltab(soltab).getValues()[0]
+      weights = solset.getSoltab(soltab).getValues(weight=True)[0]
+
+      axes_text = solset.getSoltab(soltab).obj.val.get_attr('AXES')
+      val_axes = np.array(axes_text.decode().split(','))
+      where_dir_axes = np.where(val_axes == 'dir')[0][0]
+
+      valshape_old = vals.shape
+      valshape_new = list(valshape_old)
+      valshape_new[where_dir_axes] = len(crds)
+      valshape_new = tuple(valshape_new)
+
+      newvals = np.zeros(valshape_new, dtype=np.float64)
+      newweights = np.zeros(valshape_new, dtype=np.float64)
+
+      for i in range(len(crds)):
+        slix = [slice(None)] * len(valshape_new)
+        slix[where_dir_axes] = i
+        slix = tuple(slix) # For future deprecation
+        slix_original = [slice(None)] * len(valshape_old)
+        slix_original[where_dir_axes] = preapply_directs[i]
+        slix_original = tuple(slix_original)
+        newvals[slix] = vals[slix_original]
+        newweights[slix] = weights[slix_original]
+
+      # now, write out the values in the soltab
+      rt.H.create_array(f'/sol000/{soltab}','dir1',new_dirlist_names)
+      rt.H.remove_node(f'/sol000/{soltab}/dir')
+      rt.H.rename_node(f'/sol000/{soltab}/dir1','dir')
+
+      rt.H.create_array(f'/sol000/{soltab}','val1',newvals)
+      rt.H.remove_node(f'/sol000/{soltab}/val')
+      rt.H.rename_node(f'/sol000/{soltab}/val1','val')
+
+      rt.H.create_array(f'/sol000/{soltab}','weight1',newweights)
+      rt.H.remove_node(f'/sol000/{soltab}/weight')
+      rt.H.rename_node(f'/sol000/{soltab}/weight1','weight')
+
+      rt.H.get_node(f'/sol000/{soltab}').val.set_attr('AXES',axes_text)
+
+      del newvals,newweights,vals,weights
+
+   rt.H.create_table('/sol000','source1',new_dirlist)
+   rt.H.remove_node('/sol000/source')
+   rt.H.rename_node('/sol000/source1','source')
+
+   rt.H.flush()
+   rt.close()
+
+     
+
 def add_dummyms(msfiles):
     '''
     Add dummy ms to create a regular freuqency grid when doing a concat with DPPP
