@@ -155,8 +155,13 @@ def fixsymlinks(ddsols):
         solname = dds3[i]
 
         start_time,t1 = get_solutions_timerange(solname)
+        print(start_time)
         # Rounding different on different computers which is a pain.
-        start_time = glob.glob('%s_%s*_smoothed.npz'%(ddsols,int(start_time)))[0].split('_')[2]
+        # divide by 10000 to to get rid of last number because rounding can go wrong
+        print('%s_%s*_smoothed.npz'%(ddsols,int(start_time)//10000))
+        if len(glob.glob('%s_%s*_smoothed.npz'%(ddsols,int(start_time)//10000))) != 1:
+           raise Exception('Non-unique matching of solution files')  
+        start_time = glob.glob('%s_%s*_smoothed.npz'%(ddsols,int(start_time)//10000))[0].split('_')[2]
 
         if os.path.islink(symsolname):
             print('Symlink ' + symsolname + ' already exists, recreating')
