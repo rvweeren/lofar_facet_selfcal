@@ -5643,8 +5643,10 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
    else:
      os.system('cp ' + skyview + ' facets.fits')   
    #skymodel = imagebasename  + '-sources.txt'
-   os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
-   #skymodel = imagebasename  + '-sources.txt'
+   if restart:
+      os.system('cp ' + imagebasename + str(selfcalcycle-1).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
+   else:
+      os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
 
    # fill in facets.fits with values, every facets get a constant value, for lsmtool
    hdu=fits.open('facets.fits')
@@ -7859,7 +7861,7 @@ def main():
    parser.add_argument('--configpath', help = 'Path to user config file which will overwrite command line arguments', default = 'facetselfcal_config.txt', type = str)
    parser.add_argument('--auto', help='Trigger fully automated processing (HBA only for now).', action='store_true')
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction.', action='store_true')
-   parser.add_argument('--targetcalILT', help="Type of automated target calibration for HBA international baseline data when --auto is used. Options are: 'tec', 'tecandphase', 'scalarphase'. The default is 'tec'.", default='tec', type=str)
+   parser.add_argument('--targetcalILT', help="Type of automated target calibration for HBA international baseline data when --auto is used. Options are: 'tec', 'tecandphase', 'scalarphase'. The default is 'tec'.", default='scalarphase', type=str)
 
 
 
@@ -8372,8 +8374,8 @@ def main():
                args['uvmin'] = 250
          # update to multiscale cleaning if large island is present
          if args['update_multiscale']:
-           print('Size is largest island [pixels]:', getlargestislandsize(fitsmask))
-           logger.info('Size is largest island [pixels]:' + str(getlargestislandsize(fitsmask)))
+           print('Size largest island [pixels]:', getlargestislandsize(fitsmask))
+           logger.info('Size largest island [pixels]:' + str(getlargestislandsize(fitsmask)))
            if getlargestislandsize(fitsmask) > 1000:
              logger.info('Triggering multiscale clean')
              args['multiscale'] = True
