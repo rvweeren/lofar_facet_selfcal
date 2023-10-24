@@ -5662,6 +5662,7 @@ def parse_facetdirections(facetdirections,niter,selfcalcycle_list,default_solint
       solintlist = ast.literal_eval(solints[dirnum])
       solintlist_relevant = np.array(solintlist)[perturbations_to_run] # Not including perturbations that are not triggered in this sc cycle
       directions_to_return[dirnum] = (not np.all(solintlist_relevant==None))
+      print(directions_to_return[dirnum])
 
     directions_to_return = np.array(directions_to_return)
     PatchPositions_array = np.zeros((len(ra),2))
@@ -6458,6 +6459,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        declist_facetdirections = crdlist_facetdirections.dec.to('deg').value
    else:
        dde_skymodel = None 
+       original_modeldata = modeldatacolumns
 
    if len(modeldatacolumns) > 1:
      merge_all_in_one = False
@@ -6481,13 +6483,13 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]:
          directonlist = None
          # In this loop, also prepare the model_data_columns for DDE solve
+         directionlist = None # Might need to reconsider using directionlist as a variable
          if args['DDE']:
           # nodes_to_solve = np.where((np.array(perturbation_start) <= soltypenumber)&(np.array(perturbation_stop) > soltypenumber))[0]
           nodes_to_solve = np.where(candidate_solints[:,soltypenumber])[0]
           solint_list = np.swapaxes(np.array([candidate_solints]*len(mslist))[:,nodes_to_solve],1,0).T.tolist()
           if DDE_predict == 'WSCLEAN':
             modeldatacolumns = ModelColumnList(ms,find_nearest_facets(nodes_to_solve,DDE_predict='WSCLEAN'))
-            directionlist = None # Might need to reconsider using directionlist as a variable
           else:
             directionlist = find_nearest_facets(nodes_to_solve,DDE_predict = 'DP3')
             directionstring = '['
@@ -6555,7 +6557,8 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict,\
                      telescope=telescope, ncpu_max=ncpu_max, directionlist = directionlist)
 
-         broadcast_h5_to_more_dirs(parmdb,ralist_facetdirections,declist_facetdirections)
+         if args['DDE']:
+          broadcast_h5_to_more_dirs(parmdb,ralist_facetdirections,declist_facetdirections)
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
 
