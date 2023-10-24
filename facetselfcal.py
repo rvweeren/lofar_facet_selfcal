@@ -218,15 +218,62 @@ def get_time_preavg_factor_LTAdata(ms):
         print("WARNING: parsed factor in " + ms + " is not a float or digit")
         return None
 
+class ModelColumnList():
+  def __init__(self, ms, modelnames):
+    self.ms = ms
+    self.modelnames = modelnames
+    self.outmodelnames = []
+    self.coordination_list = np.zeros(len(sum(modelnames,[])),dtype=int)
+    i = 0
+    for model in modelnames:
+      if len(model) == 1:
+        self.outmodelnames.append(model[0])
+      else:
+        outname = f"MODEL_TMP{i}"
+        run(f"DP3 msin={ms} msout=. steps=[] msin.datacolumn=MODEL_DATA_DD0 msout.datacolumn={outname}")
+        run(f"taql update {ms} set {outname}={'+'.join(model)}")
+        self.outmodelnames.append(outname)
+        i += 1
+        for mod in model:
+          modnum = int(mod.split('MODEL_DATA_DD')[1])
+          self.coordination_list[modnum] = i
 
-def broadcast_h5_to_more_dirs(h5, ralist, declist):
+  def delete(self):
+    t = pt.table(self.ms,readonly=False)
+    colnames_to_delete = []
+    for coln in t.colnames():
+      if 'MODEL_TMP' in coln:
+        colnames_to_delete.append(coln)
+    t.removecols(colnames_to_delete)
+    t.close()
+
+  def __str__(self):
+    return f'[{",".join(self.outmodelnames)}]'
+
+  def __len__(self):
+    return 9001
+
+  def __iter__(self):
+    return iter(self.outmodelnames)
+
+
+
+def broadcast_h5_to_more_dirs(h5, ralist=None, declist=None, modcol_obj = None):
    '''
     Broadcast h5parm to more directions, matching to the nearest element in the
     ralist/declist. This is useful for example for the DDE solver, where we
     want to solve for a few directions and then broadcast the solutions to
     more directions.
    '''
-   assert len(ralist) == len(declist), "length of RAlist and DEClist should be the same"
+   if modcol_obj == None:
+    assert len(ralist) == len(declist), "length of RAlist and DEClist should be the same"
+   else:
+    assert modcol_obj != None
+    with open('facetdirections.p','rb') as handle:
+      data = pickle.load(handle)
+    ralist = data[:,0]
+    declist = data[:,1]
+
 
    rt = h5parm.h5parm(h5, readonly=False)
    solset = rt.getSolset('sol000')
@@ -235,16 +282,23 @@ def broadcast_h5_to_more_dirs(h5, ralist, declist):
    for dirry in sourcedirs:
       h5_coords.append(SkyCoord(dirry[1][0],dirry[1][1], frame='icrs',unit='rad'))
    h5_coords = SkyCoord(h5_coords)
+   if 'MODEL' in rt.H.root.sol000.source[:][0][0].decode():
+    dirprefix = 'MODEL_DATA_DD'
+   elif 'Patch' in rt.H.root.sol000.source[:][0][0].decode():
+    dirprefix = 'Patch_'
 
    crds = SkyCoord(ralist,declist, frame='icrs',unit='deg')
 
    preapply_directs = []
-   for dirry in crds: # Find the nearest direction in the h5parm, should be replaced with direct parent one time
-      preapply_directs.append(np.argmin(h5_coords.separation(dirry))) 
+   if modcol_obj == None:
+    for dirry in crds: # Find the nearest direction in the h5parm, should be replaced with direct parent one time
+        preapply_directs.append(np.argmin(h5_coords.separation(dirry))) 
+   else:
+      preapply_directs = list(modcol_obj.coordination_list)
 
    new_dirlist = []
    for i in range(len(crds)):
-      dirname = f"Dir{i:02d}"
+      dirname = f"[{dirprefix}{i}]"
       crd_radians = [crds[i].ra.rad, crds[i].dec.rad]
       tuppy = (dirname, crd_radians)
       new_dirlist.append(tuppy)
@@ -292,6 +346,7 @@ def broadcast_h5_to_more_dirs(h5, ralist, declist):
       rt.H.rename_node(f'/sol000/{soltab}/weight1','weight')
 
       rt.H.get_node(f'/sol000/{soltab}').val.set_attr('AXES',axes_text)
+      rt.H.get_node(f'/sol000/{soltab}').weight.set_attr('AXES',axes_text)
 
       del newvals,newweights,vals,weights
 
@@ -524,6 +579,8 @@ def format_solint(solint, ms):
             solintout = int(np.rint(60. * float(re.findall(r'[+-]?\d+(?:\.\d+)?', solint)[0]) / tint))
         if 'h' in solint:
             solintout = int(np.rint(3600. * float(re.findall(r'[+-]?\d+(?:\.\d+)?', solint)[0]) / tint))
+        if solint==None:
+            return None
         if solintout < 1:
             solintout = 1
         return str(solintout)
@@ -5581,7 +5638,46 @@ def removenegativefrommodel(imagenames):
 
     return
 
-def parse_facetdirections(facetdirections,niter):
+
+def parse_facetdirections(facetdirections,niter,selfcalcycle_list,default_solints):
+    '''
+       parse the facetdirections.txt file and return a list of facet directions
+       for the given niter. In the future, this function should also return a 
+       list of solints, nchans and other things \
+
+       None in solintlist means that this direction is not included in said perturbation
+       0 in solintlist means that the default solint is used
+    '''
+    from astropy.io import ascii
+    data = ascii.read(facetdirections)
+    ra,dec = data['RA'],data['DEC']
+    try:
+       solints = data['solints']
+    except KeyError:
+       solints = None
+      
+    perturbations_to_run = np.where(niter >= np.array(selfcalcycle_list))[0] # These perturbations are activated in this sc cycle
+    directions_to_return = [True] * len(ra)
+    for dirnum in range(len(ra)):
+      solintlist = ast.literal_eval(solints[dirnum])
+      solintlist_relevant = np.array(solintlist)[perturbations_to_run] # Not including perturbations that are not triggered in this sc cycle
+      directions_to_return[dirnum] = (not np.all(solintlist_relevant==None))
+
+    directions_to_return = np.array(directions_to_return)
+    PatchPositions_array = np.zeros((len(ra),2))
+    PatchPositions_array[:,0] = (ra*units.deg).to(units.rad).value
+    PatchPositions_array[:,1] = (dec*units.deg).to(units.rad).value
+    toreturn_solintlist = np.array([ast.literal_eval(solint) for solint in solints])
+    # Overwrite all zeros with default solint
+    for i in range(len(toreturn_solintlist)):
+      to_overwrite = np.where(toreturn_solintlist[i]==0)[0]
+      for j in to_overwrite:
+        toreturn_solintlist[i][j] = default_solints[j]
+
+
+    return PatchPositions_array[directions_to_return,:], toreturn_solintlist[directions_to_return]
+
+def old_parse_facetdirections(facetdirections,niter,selfcalcycle_list):
     '''
        parse the facetdirections.txt file and return a list of facet directions
        for the given niter. In the future, this function should also return a 
@@ -5599,8 +5695,19 @@ def parse_facetdirections(facetdirections,niter):
     except KeyError:
       solints = None
 
+    try:
+      stop = data['stop']
+    except KeyError:
+      stop = np.ones(len(ra)) * 9001 # Stop is not used in this case - so stop at ridiculously high number
+
+    # Find the perturbation start value that is applicable in this iteration
+    eligible_perturbations = np.where(niter >= np.array(selfcalcycle_list))[0] # These perturbations are activated in this sc cycle
     # Only select ra/dec which are within niter range
-    a = np.where((start <= niter))[0]
+    a = [] 
+    for i,el in enumerate(start):
+      if el in eligible_perturbations:
+        a.append(i)
+    print(a)
     rasel = ra[a]
     decsel = dec[a]
 
@@ -5608,25 +5715,30 @@ def parse_facetdirections(facetdirections,niter):
     PatchPositions_array[:,0] = (rasel*units.deg).to(units.rad).value
     PatchPositions_array[:,1] = (decsel*units.deg).to(units.rad).value
 
+    startreturn = start[a]
     if solints is not None:
       solintsel = solints[a]
-      return PatchPositions_array,[ast.literal_eval(solint) for solint in solintsel]
+      return PatchPositions_array,[ast.literal_eval(solint) for solint in solintsel], start,stop
     else:
-      return PatchPositions_array, None
+      return PatchPositions_array, None, startreturn,stop
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                 channelsout, numClusters=10, facetdirections=None, \
-                DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=False, telescope='LOFAR', dde_skymodel=None, targetFlux=2.0,skyview=None):
+                DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=False, \
+                telescope='LOFAR', dde_skymodel=None, targetFlux=2.0,skyview=None,\
+                selfcalcycle_list=None, default_solints = None):
 
    if telescope == 'LOFAR' and not disable_IDG_DDE_predict:
       idg = True # predict WSCLEAN with beam using IDG (wsclean facet mode with h5 is not efficient here)
    else:
       idg = False
 
+   # Perturbation_start represents the perturbation where this direction is added.
+   # Before that point, this facet is combined with another facet.
    solints = create_facet_directions(imagebasename,selfcalcycle,\
    	              targetFlux=targetFlux, ms=mslist[0], imsize=imsize, \
 	              pixelscale=pixelscale, groupalgorithm='tessellate',numClusters=numClusters,\
-	              facetdirections=facetdirections)  
+	              selfcalcycle_list=selfcalcycle_list, facetdirections=facetdirections, default_solints=default_solints)  
 
    # remove previous facets.fits if needed and create template fits file for facets
    if os.path.isfile('facets.fits'):
@@ -5669,6 +5781,9 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                               onlypredict=True, facetregionfile='facets.reg', \
                               DDE_predict=DDE_predict)
     dde_skymodel = groupskymodel(imagebasename, 'facets.fits')
+    for ms in mslist:
+      for patchnum, modcol in enumerate(modeldatacolumns):
+        predictsky(ms, dde_skymodel, modcol, sources=f'Patch_{patchnum}')
    
    else: 
       modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
@@ -5688,6 +5803,39 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
    
    return modeldatacolumns, dde_skymodel, solints
    
+def find_nearest_facets(startlist,DDE_predict):
+   '''
+      Assumes existence of facetdirections.p .
+      This will generate a nested list of model data columns, such that each facet
+      is now part of one of the facets identified by the startlist.
+      Startlist is a list of idxs that correspond to facets in facetdirectons.p
+   '''
+   try:
+    f = open('facetdirections.p', 'rb')
+    patchpositions_array = pickle.load(f)
+    f.close()
+   except:
+    raise Exception(f"Unable to read file: facetdirections.p")
+   
+   crdlist = SkyCoord(patchpositions_array[:,0],patchpositions_array[:,1],unit='rad')
+   returnlist = []
+   idxlist = []
+
+   nodes = crdlist[startlist]
+   print(startlist)
+   for crd in crdlist:
+    nearest = np.argmin(crd.separation(nodes))
+    idxlist.append(nearest) # Which node is the nearest to this crd?
+
+   idxlist = np.array(idxlist)
+   for i,node in enumerate(nodes):
+    if DDE_predict == 'WSCLEAN':
+      returnlist.append([f"MODEL_DATA_DD{I}" for I in np.where(idxlist == i)[0]])
+    else:
+      returnlist.append([f"Patch_{I}" for I in np.where(idxlist == i)[0]])
+
+   return returnlist
+
 def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):   
    import lsmtool
    LSM = lsmtool.load(skymodelin)
@@ -5701,7 +5849,8 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
 
 
 def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, imsize=None, \
-                            pixelscale=None, groupalgorithm='tessellate',numClusters=10, weightBySize=False, facetdirections=None):
+                            pixelscale=None, groupalgorithm='tessellate',numClusters=10, weightBySize=False, facetdirections=None, \
+                            selfcalcycle_list=None, default_solints=None):
    '''
    create a facet region file based on an input image or file provided by the user
    if there is an image use lsmtool tessellation algorithm 
@@ -5713,7 +5862,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
    solints = None # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
    if facetdirections is not None:
      try:
-       PatchPositions_array,solints = parse_facetdirections(facetdirections,selfcalcycle)
+       PatchPositions_array,solints = parse_facetdirections(facetdirections,selfcalcycle,selfcalcycle_list,default_solints)
      except:
        try:
          f = open(facetdirections, 'rb')
@@ -6298,10 +6447,15 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], DDE_predict=ddepredict, \
                    disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope, \
-                   targetFlux=args['targetFlux'],skyview=skyview)
-       if candidate_solints is not None:
-           candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
-           solint_list = candidate_solints
+                   targetFlux=args['targetFlux'],skyview=skyview,selfcalcycle_list = soltypecycles_list, \
+                   default_solints = [x[0] for x in solint_list]) # candidate solints consist of Nones for directin that is not in model
+       
+       original_modeldata = modeldatacolumns # This is the original, highest resolution facetting of the model
+       with open('facetdirections.p','rb') as handle:
+            facetdirections = pickle.load(handle)
+       crdlist_facetdirections = SkyCoord(facetdirections, frame='icrs', unit='rad')
+       ralist_facetdirections = crdlist_facetdirections.ra.to('deg').value
+       declist_facetdirections = crdlist_facetdirections.dec.to('deg').value
    else:
        dde_skymodel = None 
 
@@ -6325,6 +6479,25 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
      for msnumber, ms in enumerate(mslist):
        # check we are above far enough in the selfcal to solve for the extra pertubation
        if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]:
+         directonlist = None
+         # In this loop, also prepare the model_data_columns for DDE solve
+         if args['DDE']:
+          # nodes_to_solve = np.where((np.array(perturbation_start) <= soltypenumber)&(np.array(perturbation_stop) > soltypenumber))[0]
+          nodes_to_solve = np.where(candidate_solints[:,soltypenumber])[0]
+          solint_list = np.swapaxes(np.array([candidate_solints]*len(mslist))[:,nodes_to_solve],1,0).T.tolist()
+          if DDE_predict == 'WSCLEAN':
+            modeldatacolumns = ModelColumnList(ms,find_nearest_facets(nodes_to_solve,DDE_predict='WSCLEAN'))
+            directionlist = None # Might need to reconsider using directionlist as a variable
+          else:
+            directionlist = find_nearest_facets(nodes_to_solve,DDE_predict = 'DP3')
+            directionstring = '['
+            for el in directionlist:
+               directionstring +='['
+               directionstring += ','.join(el)
+               directionstring += '],'
+            directionstring = directionstring[:-1]
+            directionstring += ']'
+            directionlist = directionstring
          print('selfcalcycle, soltypenumber',selfcalcycle, soltypenumber)
          if (soltypenumber < len(soltype_list)-1):
 
@@ -6378,8 +6551,11 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff, create_modeldata=create_modeldata, \
                      selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,\
                      clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],\
-                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns, preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict, telescope=telescope, ncpu_max=ncpu_max)
+                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns,\
+                     preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict,\
+                     telescope=telescope, ncpu_max=ncpu_max, directionlist = directionlist)
 
+         broadcast_h5_to_more_dirs(parmdb,ralist_facetdirections,declist_facetdirections)
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
 
@@ -6398,18 +6574,18 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
            if soltypenumber == 0:
              if len(modeldatacolumns) > 1:
                if DDE_predict == 'WSCLEAN':
-                 corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns) # for DDE
+                 corrupt_modelcolumns(ms, parmdbmslist[count], original_modeldata) # for DDE
              else:  
                corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA']) # saves disk space
            else:
              if len(modeldatacolumns) > 1:
                if DDE_predict == 'WSCLEAN':
-                 corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns) # for DDE
+                 corrupt_modelcolumns(ms, parmdbmslist[count], original_modeldata) # for DDE
              else:
                corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA']) # saves disk space
          else: # so this is the last solve, no other pertubation
            applycal(ms, parmdbmergelist[msnumber], msincol='DATA', msoutcol='CORRECTED_DATA',\
-                    dysco=dysco, modeldatacolumns=modeldatacolumns) # saves disks space
+                    dysco=dysco, modeldatacolumns=original_modeldata) # saves disks space
          count = count + 1 # extra counter because parmdbmslist can have less length than mslist as soltypecycles_list goes per ms
 
    wsclean_h5list = []
@@ -6779,7 +6955,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 ampresetvalfactor=10., uvmax=None, \
                 modeldatacolumns=[], solveralgorithm='directionsolve', solveralgorithm_dde='directioniterative', preapplyH5_dde=[], \
                 dde_skymodel=None, DDE_predict='WSCLEAN',telescope='LOFAR', beamproximitylimit=240.,\
-                ncpu_max=24):
+                ncpu_max=24, directionlist=None):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
@@ -6915,12 +7091,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     if len(modeldatacolumns) > 0:
       if DDE_predict == 'DP3':
          cmd += 'ddecal.sourcedb=' + dde_skymodel + ' '
+         if directionlist != None:
+          cmd += 'ddecal.directions=' + str(directionlist)+' '
          if telescope == 'LOFAR': # predict with array factor for LOFAR data
            cmd += 'ddecal.usebeammodel=True '
            cmd += 'ddecal.usechannelfreq=True ddecal.beammode=array_factor '
            cmd += 'ddecal.beamproximitylimit=' + str(beamproximitylimit) + ' '
       else:  
-         cmd += "ddecal.modeldatacolumns='[" + ','.join(map(str, modeldatacolumns)) + "]' " 
+        cmd += "ddecal.modeldatacolumns='[" + ','.join(map(str, modeldatacolumns)) + "]' " 
+         # Not sure why we don't just do this...
       if len(modeldatacolumns) > 1: # so we are doing a dde solve
         cmd += 'ddecal.solveralgorithm=' + solveralgorithm_dde + ' '
       else: # in case the list still has length 1
@@ -6933,6 +7112,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     if (len(modeldatacolumns) > 1) and (len(preapplyH5_dde) > 0):
       if DDE_predict == 'DP3':
         cmd += build_applycal_dde_cmd(preapplyH5_dde) + ' '
+        if directionlist != None:
+           flatstring = '['+ ','.join([f'Patch_{i}' for i in range(len(modeldatacolumns))])+']'
+           cmd += 'ddecal.applycal.directions=' + flatstring + ' '
+
       else:
         cmd += 'msin.datacolumn=DATA ' # to prevent solving out of CORRECTED_PREAPPLY$N
     else:
@@ -8038,6 +8221,7 @@ def main():
 
 
    # Make starting skymodel from TGSS or VLASS survey if requested
+   tgssfitsfile = None
    if args['startfromtgss'] and args['start'] == 0:
      if args['skymodel'] is None:
        args['skymodel'],tgssfitsfile = makeBBSmodelforTGSS(args['boxfile'],fitsimage = args['tgssfitsimage'], \
@@ -8194,7 +8378,7 @@ def main():
                              uvminscalarphasediff=args['uvminscalarphasediff'], \
                              docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'], telescope=telescope, \
                              blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                             gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, DDE_predict='DP3', skyview=tgssfitsfile,\
+                             gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, DDE_predict=args['DDE_predict'], skyview=tgssfitsfile,\
                              QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], \
                              QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],ncpu_max=args['ncpu_max_DP3solve'])
 
@@ -8212,7 +8396,7 @@ def main():
                    facetdirections=args['facetdirections'], \
                    DDE_predict=args['DDE_predict'], restart=True, \
                    disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope, \
-                   targetFlux=args['targetFlux'])
+                   targetFlux=args['targetFlux'],default_solints=solint_list)
         wsclean_h5list = list(np.load('wsclean_h5list.npy'))
      
      
@@ -8220,10 +8404,9 @@ def main():
      # MAKE IMAGE
      if args['DDE']:
        facetregionfile = 'facets.reg'
-     else:
-       if args['DDE'] and i == 0: # we are making image000 without having DDE solutions yet
-         if telescope == 'LOFAR' and not args['disable_IDG_DDE_predict']: # temporarilly ensure idg=True so image000 has model-pb
-            args['idg'] = True
+     if args['DDE'] and i == 0 and tgssfitsfile==None: # we are making image000 without having DDE solutions yet
+       if telescope == 'LOFAR' and not args['disable_IDG_DDE_predict']: # temporarilly ensure idg=True so image000 has model-pb
+          args['idg'] = True
      makeimage(mslist, args['imagename'] + str(i).zfill(3), args['pixelscale'], args['imsize'], \
                args['channelsout'], args['niter'], args['robust'], \
                multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
@@ -8330,19 +8513,19 @@ def main():
 
      # CALIBRATE AND APPLYCAL
      wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], soltypecycles_list,\
-                           smoothnessconstraint_list, smoothnessreffrequency_list,\
-                           smoothnessspectralexponent_list, smoothnessrefdistance_list,\
-                           antennaconstraint_list, resetsols_list, uvmin=args['uvmin'], \
-                           normamps=args['normamps'], normamps_per_ms=args['normamps_per_ms'],\
-                           restoreflags=args['restoreflags'], \
-                           flagging=args['doflagging'], longbaseline=longbaseline, \
-                           BLsmooth=args['BLsmooth'], flagslowphases=args['doflagslowphases'], \
-                           flagslowamprms=args['flagslowamprms'], flagslowphaserms=args['flagslowphaserms'],\
-                           iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'],\
-                           dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
-                           docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
-                           blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                           gapchanneldivision=args['gapchanneldivision'],DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'])
+                          smoothnessconstraint_list, smoothnessreffrequency_list,\
+                          smoothnessspectralexponent_list, smoothnessrefdistance_list,\
+                          antennaconstraint_list, resetsols_list, uvmin=args['uvmin'], \
+                          normamps=args['normamps'], normamps_per_ms=args['normamps_per_ms'],\
+                          restoreflags=args['restoreflags'], \
+                          flagging=args['doflagging'], longbaseline=longbaseline, \
+                          BLsmooth=args['BLsmooth'], flagslowphases=args['doflagslowphases'], \
+                          flagslowamprms=args['flagslowamprms'], flagslowphaserms=args['flagslowphaserms'],\
+                          iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'],\
+                          dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
+                          docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
+                          blsmooth_chunking_size=args['blsmooth_chunking_size'], \
+                          gapchanneldivision=args['gapchanneldivision'],DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'])
 
      # MAKE MASK AND UPDATE UVMIN IF REQUESTED
      if args['fitsmask'] is None:
