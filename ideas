@@ -1,0 +1,5 @@
+idea for scalarphasediff:
+ - Do data - corrupted models (the models are corrupted in the applycal steps, so already done)
+ - For each facet, subtract all other facets (model columns) from it
+ - model pdiff can stay constant? Maybe phase ramp? 
+ - Solve may need phase diff?
