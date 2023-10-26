@@ -8201,7 +8201,7 @@ def main():
      else:
        multiscale = False
 
-     if args['DDE'] and args['start'] != 0: # set modeldatacolumns and dde_skymodel for a restart
+     if args['DDE'] and args['start'] != 0 and i == args['start']: # set modeldatacolumns and dde_skymodel for a restart
         modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['imagename'], i, \
                    mslist, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
