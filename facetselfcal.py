@@ -6132,7 +6132,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
          if telescope == 'LOFAR':
              cmd += '-apply-facet-beam -facet-beam-update 600 -use-differential-lofar-beam '
       else:
-         if telescope == 'LOFAR' and not check_phaseup_station(mslist[0]):
+         if telescope == 'LOFAR' and not check_phaseup_station(mslist[0]) and not idg:
             cmd += '-apply-primary-beam -use-differential-lofar-beam '
 
       cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' 
