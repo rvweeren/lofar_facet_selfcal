@@ -5898,6 +5898,7 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
 
    # write new data column (if keepall was not set) where rest of the field outside the box is removed
    if phaseshiftbox is not None:
+      stepsize = 100000
       for ms in mslist:
          # check if outcol exists, if not create it with DP3 
          t = pt.table(ms)
@@ -5911,9 +5912,11 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
             print(cmd)
             run(cmd)
          t = pt.table(ms, readonly=False)
-         data = t.getcol(datacolumn)
-         model = t.getcol('MODEL_DATA')
-         t.putcol(outcol, data-model)
+         for row in range(0,t.nrows(),stepsize):
+            print(f"Doing {row} out of {t.nrows()}, (step: {stepsize})")
+            data = t.getcol(datacolumn,startrow=row,nrow=stepsize,rowincr=1)
+            model = t.getcol('MODEL_DATA', startrow=row,nrow=stepsize,rowincr=1)
+            t.putcol(outcol, data-model, startrow=row,nrow=stepsize,rowincr=1)
          t.close()
       average(mslist, freqstep=[1]*len(mslist), timestep=1, \
               phaseshiftbox=phaseshiftbox, dysco=dysco,makesubtract=True,\
