@@ -1752,7 +1752,7 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
     cmd += ']'
 
     print('DP3 applycal:', cmd)
-    run(cmd)
+    run(cmd,log=True)
     return
 
 
@@ -2838,6 +2838,17 @@ def str_or_int(arg):
     if isinstance(arg, str):
         return arg
     raise argparse.ArgumentTypeError("Input must be an int or string")
+
+def str_or_float(arg):
+    try:
+        return float(arg)  # try convert to int
+    except ValueError:
+        pass
+    if isinstance(arg, str):
+        return arg
+    raise argparse.ArgumentTypeError("Input must be an int or string")
+
+
 
 def floatlist_or_float(argin):
     if argin is None:
@@ -4788,7 +4799,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
         if dysco:
           cmd += 'msout.storagemanager=dysco '
         print('DP3 applycal/polconv:', cmd)
-        run(cmd)
+        run(cmd, log=True)
         if msout == '.':
           #run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
           run("DP3 msin=" + ms + " msout=. msin.datacolumn=CORRECTED_DATA msout.datacolumn=DATA steps=[]", log=True)
@@ -4832,7 +4843,7 @@ def beamcormodel(ms, dysco=True):
     cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=False '
     cmd += 'ac1.invert=False ac2.invert=False ' # Here we corrupt with the beam !
     print('DP3 applycal:', cmd)
-    run(cmd)
+    run(cmd, log=True)
 
     return
 
@@ -5542,6 +5553,18 @@ def checkforzerocleancomponents(imagenames):
     return
 
 
+def get_image_dynamicrange(image):
+    '''
+    get dynamic range of an image (peak over rms)
+    '''
+    print('Compute image dynamic range (peak over rms): ', image)
+    hdul = fits.open(image)
+    image_rms = findrms(np.ndarray.flatten(hdul[0].data))
+    DR = np.nanmax(np.ndarray.flatten(hdul[0].data))/image_rms
+    hdul.close()
+    return DR
+
+
 def removeneNaNfrommodel(imagenames):
     '''
     replace NaN/inf pixels values in WSCLEAN model images with zeros
@@ -5955,7 +5978,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8, \
               fullpol=False, taperinnertukey=None, gapchanneldivision=False, \
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None, \
-              DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False):
+              DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False, \
+              wgridderaccuracy=1e-4, nosmallinversion=False):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     if idg:
@@ -5963,6 +5987,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
     telescope = t.getcol('TELESCOPE_NAME')[0] 
     t.close()
+
+    if telescope != 'LOFAR' and not onlypredict and facetregionfile is not None:
+      nosmallinversion = True
 
     #  --- predict only without facets ---
     if onlypredict and facetregionfile is None:
@@ -5972,7 +5999,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               print (model, 'box_' + model)
               mask_region(model,squarebox,'box_' + model)  
         
-        cmd = 'wsclean -padding 1.8 -predict '
+        cmd = 'wsclean -predict '
+        if not usewgridder and not idg:
+          cmd += '-padding 1.8 '
         if channelsout > 1:
           cmd += '-channels-out ' + str(channelsout) + ' '
           if gapchanneldivision:
@@ -5982,9 +6011,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
           cmd += '-beam-aterm-update 800 '
           #cmd += '-pol iquv '
           cmd += '-pol i '
+          cmd += '-padding 1.8 '
         else:
           if usewgridder:
-            cmd +='-gridder wgridder '
+            cmd += '-gridder wgridder '
+            cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+            if nosmallinversion:
+              cmd += '-no-small-inversion '  
           if parallelgridding > 1:
             cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
         
@@ -6013,7 +6046,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             mask_region_inv(model,'facet' + str(facet_id) + '.reg',modelout)
         
         # step 3 predict with wsclean
-        cmd = 'wsclean -padding 1.8 -predict '
+        cmd = 'wsclean -predict '
+        if not usewgridder and not idg:
+          cmd += '-padding 1.8 '
         if channelsout > 1:
           cmd += '-channels-out ' + str(channelsout) + ' '
           if gapchanneldivision:
@@ -6023,9 +6058,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
           cmd += '-beam-aterm-update 800 '
           #cmd += '-pol iquv '
           cmd += '-pol i '
+          cmd += '-padding 1.8 '
         else:
           if usewgridder:
-            cmd +='-gridder wgridder '
+            cmd += '-gridder wgridder '
+            cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+            if nosmallinversion:
+              cmd += '-no-small-inversion ' 
           if parallelgridding > 1:
             cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
       
@@ -6068,9 +6107,15 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
       if uvmaxim is not None:
          cmd += '-maxuv-l ' + str(uvmaxim) + ' '  
       cmd += '-size ' + str(np.int(imsize)) + ' ' + str(np.int(imsize)) + ' -reorder '
-      cmd += '-weight briggs ' + str(robust) + ' -clean-border 1 -parallel-reordering 4 '
+      if type(robust) is not str:
+         cmd += '-weight briggs ' + str(robust) 
+      else:
+         cmd += '-weight ' + str(robust)
+      cmd += ' -clean-border 1 -parallel-reordering 4 '
       # -weighting-rank-filter 3 -fit-beam
-      cmd += '-mgain 0.8 -data-column ' + imcol + ' -padding 1.4 '
+      cmd += '-mgain 0.8 -data-column ' + imcol + ' '
+      if not usewgridder and not idg:
+        cmd += '-padding 1.4 '
       if channelsout > 1:
         cmd += ' -join-channels -channels-out ' + str(channelsout) + ' '
         if gapchanneldivision:
@@ -6116,6 +6161,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         cmd += '-beam-aterm-update 800 '
         #cmd += '-pol iquv -link-polarizations i '
         cmd += '-pol i '
+        cmd += '-padding 1.4 '
       else:
         if fullpol:
           cmd += '-pol iquv -join-polarizations '
@@ -6124,8 +6170,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if len(h5list) == 0: # only use baseline-averaging if we are not using facets
           cmd += '-baseline-averaging ' + baselineav + ' '
         if usewgridder:
-          cmd +='-gridder wgridder '
-          # cmd +='-wgridder-accuracy 1e-4 '
+          cmd += '-gridder wgridder '
+          cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+          if nosmallinversion:
+            cmd += '-no-small-inversion ' 
 
       if len(h5list) > 0:
          cmd += '-facet-regions ' + facetregionfile  + ' '
@@ -6167,7 +6215,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         # we check for DDEimaging to avoid a predict for image000 in a --DDE run
         # because at that moment there is no h5list yet and this avoids an unnecessary DI-type predict 
         cmd = 'wsclean -size '
-        cmd += str(np.int(imsize)) + ' ' + str(np.int(imsize)) +  ' -padding 1.8 -predict '
+        cmd += str(np.int(imsize)) + ' ' + str(np.int(imsize)) +  ' -predict '
+        if not usewgridder and not idg:
+           cmd += '-padding 1.8 ' 
         if channelsout > 1:
           cmd += ' -channels-out ' + str(channelsout) + ' '
           if gapchanneldivision:
@@ -6177,10 +6227,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
           cmd += '-beam-aterm-update 800 '
           #cmd += '-pol iquv '
           cmd += '-pol i '
+          cmd += '-padding 1.8 ' 
         else:
           if usewgridder:
-            cmd +='-gridder wgridder '  
-            # cmd +='-wgridder-accuracy 1e-4 '
+            cmd += '-gridder wgridder '  
+            cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+            if nosmallinversion:
+              cmd += '-no-small-inversion ' 
           if parallelgridding > 1:
             cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
 
@@ -6720,14 +6773,20 @@ def is_binary(file_name):
         return True
 
 
-def predictsky_wscleanfits(ms, imagebasename, usewgridder=True):
+def predictsky_wscleanfits(ms, imagebasename, usewgridder=True, \
+                           wgridderaccuracy=1e-4, nosmallinversion=False):
     '''
     Predict the sky from model channels fits images (from a previous run, so frequencies need to overlap)
     '''
     channelsout = len(glob.glob(imagebasename + '-????-model.fits'))
-    cmd = 'wsclean -channels-out '+ str(channelsout)+ ' -padding 1.8 -pol i '
+    cmd = 'wsclean -channels-out '+ str(channelsout)+ ' -pol i '
     if usewgridder:
-       cmd +='-gridder wgridder '
+       cmd += '-gridder wgridder '
+       cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+       if nosmallinversion:
+          cmd += '-no-small-inversion ' 
+    else:
+       cmd += '-padding 1.8 ' 
     cmd+= '-name ' + imagebasename + ' -predict ' + ms
     print(cmd)
     run(cmd)
@@ -7730,7 +7789,7 @@ def main():
    imagingparser.add_argument('--removenegativefrommodel', help="Remove negative clean components in model predict. This is by default turned off at selfcalcycle 2. See also option autoupdate-removenegativefrommodel.", type=ast.literal_eval, default=True)
    imagingparser.add_argument('--autoupdate-removenegativefrommodel', help="Turn off removing negative clean components at selfcalcycle 2 (for high dynamic range imaging it is better to keep all clean components). The default is True.", type=ast.literal_eval, default=True)
    imagingparser.add_argument('--fitsmask', help='Fits mask for deconvolution (needs to match image size). If this is not provided automasking is used.', type=str)
-   imagingparser.add_argument('--robust', help='Briggs robust parameter. The default is -0.5.', default=-0.5, type=float)
+   imagingparser.add_argument('--robust', help='Briggs robust parameter for imagaging. The default is -0.5. Also allowed are the strings uniform or naturual which will override Briggs weighting.', default=-0.5, type=str_or_float)
    imagingparser.add_argument('--multiscale-start', help='Start multiscale deconvolution at this selfcal cycle. This is by default 1.', default=1, type=int)
    #imagingparser.add_argument('--deepmultiscale', help='Do extra multiscale deconvolution on the residual.', action='store_true')
    imagingparser.add_argument('--uvminim', help='Inner uv-cut for imaging in lambda. The default is 80.', default=80., type=floatlist_or_float)
@@ -7738,7 +7797,7 @@ def main():
    imagingparser.add_argument('--pixelscale','--pixelsize', help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA (these are also the default values).', type=float)
    imagingparser.add_argument('--channelsout', help='Number of channels out during imaging (see WSClean documentation). This is by default 6.', default=6, type=int)
    imagingparser.add_argument('--multiscale', help='Use multiscale deconvolution (see WSClean documentation).', action='store_true')
-   imagingparser.add_argument('--multiscalescalebias', help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.7.', default=0.7, type=float)
+   imagingparser.add_argument('--multiscalescalebias', help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.7.', default=0.75, type=float)
    imagingparser.add_argument('--usewgridder', help='Use wgridder from WSClean, mainly useful for very large images. This is by default True.', type=ast.literal_eval, default=True)
    imagingparser.add_argument('--paralleldeconvolution', help="Parallel-deconvolution size for WSCLean (see WSClean documentation). This is by default 0 (no parallel deconvolution). Suggested value for very large images is about 2000.", default=0, type=int)
    imagingparser.add_argument('--parallelgridding', help="Parallel-gridding for WSClean (see WSClean documentation). This is by default 1.", default=1, type=int)
