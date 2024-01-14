@@ -595,9 +595,9 @@ parser.add_argument('-f','--freqavg', help='channel averaging, default=4', defau
 parser.add_argument('-t','--timeavg', help='timesample averaging, default=2', default=2, type=int)
 
 #if getcpuworks:
-parser.add_argument('-n','--ncpu', help='number of cpu to use, default=%i' % getcpus(), default=getcpus(), type=int)
+#parser.add_argument('-n','--ncpu', help='number of cpu to use, default=%i' % getcpus(), default=getcpus(), type=int)
 #else:
-#parser.add_argument('-n','--ncpu', help='number of cpu to use, default=%i' % os.cpu_count(), default= os.cpu_count(), type=int)
+parser.add_argument('-n','--ncpu', help='number of cpu to use, default=%i' % os.cpu_count(), default= os.cpu_count(), type=int)
   
 parser.add_argument('-p','--prefixname', help='prefixname for output ms, default=object', default='object', type=str)
 parser.add_argument('--adjustboxrotation', help='Adjust box rotation for the local north to ensure consistency between different pointings (True/False, default=True)', type=ast.literal_eval, default=True)
