@@ -11,10 +11,9 @@ import logging
 import os
 import subprocess
 
-from astropy.time import Time
-
 import casacore.tables as pt
 import numpy as np
+from astropy.time import Time
 
 logging.basicConfig(
     format="%(levelname)s:%(asctime)s %(name)s ---- %(message)s",
@@ -357,9 +356,18 @@ class MSChunker:
                         sub_obs = Observation(
                             obs.ms_filename, starttime=starttime, endtime=endtime
                         )
-                        sub_obs.name = sub_obs.name + "_mjd{:f}".format(
-                            sub_obs.starttime
-                        )
+                        if sub_obs.name.endswith(".ms"):
+                            sub_obs.name = sub_obs.name.replace(
+                                ".ms", "_mjd{:f}.ms".format(sub_obs.starttime)
+                            )
+                        if sub_obs.name.endswith(".MS"):
+                            sub_obs.name = sub_obs.name.replace(
+                                ".MS", "_mjd{:f}.MS".format(sub_obs.starttime)
+                            )
+                        else:
+                            sub_obs.name = sub_obs.name + "_mjd{:f}".format(
+                                sub_obs.starttime
+                            )
                         self.observations.append(sub_obs)
                         self.mschunks[obs.name]["chunks"].append(sub_obs)
         else:
@@ -401,9 +409,24 @@ class MSChunker:
                         sub_obs = Observation(
                             obs.ms_filename, startfreq=startfreq, endfreq=endfreq
                         )
-                        sub_obs.name = sub_obs.name + "_{:f}MHz".format(
-                            (sub_obs.startfreq + sub_obs.endfreq) / 2e6
-                        )
+                        if sub_obs.name.endswith(".ms"):
+                            sub_obs.name = sub_obs.name.replace(
+                                ".ms",
+                                "_{:f}MHz.ms".format(
+                                    (sub_obs.startfreq + sub_obs.endfreq) / 2e6
+                                ),
+                            )
+                        elif sub_obs.name.endswith(".MS"):
+                            sub_obs.name = sub_obs.name.replace(
+                                ".MS",
+                                "_{:f}MHz.MS".format(
+                                    (sub_obs.startfreq + sub_obs.endfreq) / 2e6
+                                ),
+                            )
+                        else:
+                            sub_obs.name = sub_obs.name + "_{:f}MHz".format(
+                                (sub_obs.startfreq + sub_obs.endfreq) / 2e6
+                            )
                         self.observations.append(sub_obs)
                         self.mschunks[obs.name]["chunks"].append(sub_obs)
         else:
