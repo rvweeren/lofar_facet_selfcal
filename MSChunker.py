@@ -11,10 +11,9 @@ import logging
 import os
 import subprocess
 
-from astropy.time import Time
-
 import casacore.tables as pt
 import numpy as np
+from astropy.time import Time
 
 logging.basicConfig(
     format="%(levelname)s:%(asctime)s %(name)s ---- %(message)s",
@@ -22,7 +21,7 @@ logging.basicConfig(
 )
 
 
-def normalize_ra(num):
+def normalize_ra(num: float) -> float:
     """
     Normalize RA to be in the range [0, 360).
 
@@ -50,7 +49,7 @@ def normalize_ra(num):
     return res
 
 
-def normalize_dec(num):
+def normalize_dec(num: float) -> float:
     """
     Normalize Dec to be in the range [-90, 90].
 
@@ -83,7 +82,7 @@ def normalize_dec(num):
     return res
 
 
-def concat_time_command(msfiles, output_file):
+def concat_time_command(msfiles: list, output_file: str) -> list:
     """
     Construct command to concatenate files in time using TAQL
 
@@ -112,7 +111,7 @@ def concat_time_command(msfiles, output_file):
     return cmd
 
 
-def convert_mjd(mjd_sec):
+def convert_mjd(mjd_sec: float) -> str:
     """
     Converts MJD to casacore MVTime
 
@@ -149,15 +148,30 @@ class Observation(object):
     endtime : float, optional
         The end time of the observation (in MJD seconds). If None, the end time
         is the end of the MS file
+    startfreq : float, optional
+        The start freq of the observation (in Hz). If None, the start freq
+        is the start of the MS file
+    endfreq : float, optional
+        The end freq of the observation (in Hz). If None, the end freq
+        is the end of the MS file
     """
 
-    def __init__(self, ms_filename, starttime=None, endtime=None):
+    def __init__(
+        self,
+        ms_filename: str,
+        starttime: float = None,
+        endtime: float = None,
+        startfreq: float = None,
+        endfreq: float = None,
+    ):
         self.ms_filename = ms_filename
         self.name = os.path.basename(self.ms_filename.rstrip("/"))
         self.log = logging.getLogger("Observation:{}".format(self.name))
         self.log.setLevel(logging.INFO)
         self.starttime = starttime
         self.endtime = endtime
+        self.startfreq = startfreq
+        self.endfreq = endfreq
         self.parameters = {}
         self.scan_ms()
 
@@ -217,8 +231,15 @@ class Observation(object):
         # Get frequency info
         sw = pt.table(self.ms_filename + "::SPECTRAL_WINDOW", ack=False)
         self.referencefreq = sw.col("REF_FREQUENCY")[0]
-        self.startfreq = np.min(sw.col("CHAN_FREQ")[0])
-        self.endfreq = np.max(sw.col("CHAN_FREQ")[0])
+        channels = sw.col("CHAN_FREQ")[0]
+        if self.startfreq is None:
+            self.startfreq = np.min(channels)
+        if (self.endfreq is None) or (self.endfreq > channels.max()):
+            self.endfreq = np.max(channels)
+        self.startchan = int(np.argwhere(channels == self.startfreq))
+        self.endchan = int(np.argwhere(channels == self.endfreq))
+        if self.endfreq >= channels.max():
+            self.endchan += 1
         self.numchannels = sw.col("NUM_CHAN")[0]
         self.channelwidth = sw.col("CHAN_WIDTH")[0][0]
         sw.close()
@@ -254,7 +275,7 @@ class Observation(object):
 class MSChunker:
     """Handles chunking a MeasurementSet in time."""
 
-    def __init__(self, msin, fraction):
+    def __init__(self, msin: list, fraction: float = 1.0):
         """Handles chunking a MeasurementSet
 
         Parameters
@@ -278,7 +299,7 @@ class MSChunker:
         self.log = logging.getLogger("MSChunker")
         self.log.setLevel(logging.INFO)
 
-    def chunk_observations(self, mintime, data_fraction=1.0):
+    def chunk_observations_in_time(self, mintime: float, data_fraction: float = 1.0):
         """
         Break observations into smaller time chunks.
 
@@ -298,8 +319,8 @@ class MSChunker:
                     obs.log.warning(
                         "The specified value of data_fraction ({0:0.3f}) results in a "
                         "total time for this observation that is less than the "
-                        "slow-gain timestep. The data fraction will be increased "
-                        "to {1:0.3f} to ensure the slow-gain timestep requirement is "
+                        "minimum timestep. The data fraction will be increased "
+                        "to {1:0.3f} to ensure the minimum timestep requirement is "
                         "met.".format(data_fraction, min(1.0, mintime / tottime))
                     )
                 nchunks = int(np.ceil(data_fraction / (mintime / tottime)))
@@ -335,15 +356,83 @@ class MSChunker:
                         sub_obs = Observation(
                             obs.ms_filename, starttime=starttime, endtime=endtime
                         )
-                        sub_obs.name = sub_obs.name + "_mjd{:f}".format(
-                            sub_obs.starttime
-                        )
+                        if sub_obs.name.endswith(".ms"):
+                            sub_obs.name = sub_obs.name.replace(
+                                ".ms", "_mjd{:f}.ms".format(sub_obs.starttime)
+                            )
+                        if sub_obs.name.endswith(".MS"):
+                            sub_obs.name = sub_obs.name.replace(
+                                ".MS", "_mjd{:f}.MS".format(sub_obs.starttime)
+                            )
+                        else:
+                            sub_obs.name = sub_obs.name + "_mjd{:f}".format(
+                                sub_obs.starttime
+                            )
                         self.observations.append(sub_obs)
                         self.mschunks[obs.name]["chunks"].append(sub_obs)
         else:
             self.observations = self.full_observations[:]
 
-    def make_parsets(self):
+    def chunk_observations_in_freq(self, nchan: int = 0):
+        """
+        Break observations into smaller frequency chunks.
+
+        Chunking is done if the specified number of channels > 0.
+
+        Parameters
+        ----------
+        nchan : int, optional
+            Fraction of data to use during processing
+        """
+        if nchan > 0:
+            self.log.info("Calculating frequency chunks")
+            self.observations = []
+            for obs in self.full_observations:
+                if nchan > obs.numchannels:
+                    obs.log.warning(
+                        "The specified number of channels exceeds the number of channels in the MeasurementSet."
+                    )
+                nchunks = int(obs.numchannels / nchan) if nchan > 0 else 1
+                obs.log.info("Splitting MS in {:d} chunks.".format(nchunks))
+                if nchunks == 1:
+                    self.observations.append(obs)
+                else:
+                    startfreqs = np.arange(
+                        obs.startfreq, obs.endfreq, obs.channelwidth * nchan
+                    )
+                    endfreqs = np.arange(
+                        obs.startfreq + obs.channelwidth * nchan,
+                        obs.endfreq + obs.channelwidth * nchan,
+                        obs.channelwidth * nchan,
+                    )
+                    for startfreq, endfreq in zip(startfreqs, endfreqs):
+                        sub_obs = Observation(
+                            obs.ms_filename, startfreq=startfreq, endfreq=endfreq
+                        )
+                        if sub_obs.name.endswith(".ms"):
+                            sub_obs.name = sub_obs.name.replace(
+                                ".ms",
+                                "_{:f}MHz.ms".format(
+                                    (sub_obs.startfreq + sub_obs.endfreq) / 2e6
+                                ),
+                            )
+                        elif sub_obs.name.endswith(".MS"):
+                            sub_obs.name = sub_obs.name.replace(
+                                ".MS",
+                                "_{:f}MHz.MS".format(
+                                    (sub_obs.startfreq + sub_obs.endfreq) / 2e6
+                                ),
+                            )
+                        else:
+                            sub_obs.name = sub_obs.name + "_{:f}MHz".format(
+                                (sub_obs.startfreq + sub_obs.endfreq) / 2e6
+                            )
+                        self.observations.append(sub_obs)
+                        self.mschunks[obs.name]["chunks"].append(sub_obs)
+        else:
+            self.observations = self.full_observations[:]
+
+    def make_parsets_time(self):
         """
         Generate parsets to create the time chunks.
         """
@@ -373,6 +462,36 @@ steps=[]
                     self.mschunks[fobs.name]["parsets"].append(pname)
                     f.write(parset)
 
+    def make_parsets_freq(self):
+        """
+        Generate parsets to create the time chunks.
+        """
+        PARSET = """numthreads=12
+
+msin = {name}
+msin.startchan = {sfreq}
+msin.nchan = {nchan}
+
+msout = {name_out}
+msout.storagemanager = dysco
+
+steps=[]
+"""
+        self.log.info("Writing chunk parsets")
+        for fobs in self.full_observations:
+            for i, obs in enumerate(self.mschunks[fobs.name]["chunks"]):
+                pname = "split_" + fobs.name + "_chunk{:02d}.parset".format(i)
+                with open(pname, "w") as f:
+                    parset = PARSET.format(
+                        name=fobs.name,
+                        sfreq=obs.startchan,
+                        nchan=(obs.endchan - obs.startchan),
+                        name_out=obs.name,
+                    )
+                    # self.mschunks[obs.name]['parsets'][obs.name + "_{:f}".format(obs.starttime)] = pname
+                    self.mschunks[fobs.name]["parsets"].append(pname)
+                    f.write(parset)
+
     def run_parsets(self):
         """
         Run all the parsets, generating chunks.
@@ -384,13 +503,13 @@ steps=[]
                 self.log.info("Running {:s}".format(parset))
                 subprocess.run(["DP3", parset])
 
-    def concat_chunks(self):
+    def concat_chunks(self) -> list:
         """
         Concatenate all generated chunks.
 
         Returns
         -------
-        msout : str
+        msout : list
             Name of the concatenated MeasurementSet as <input name>.<int(data_fraction*100)>pc.ms'
         """
         self.log.info("Concatenating chunks")
@@ -405,7 +524,9 @@ steps=[]
         return msouts
 
 
-def chunk_and_concat(mslist, fraction, mintime):
+def chunk_and_concat(
+    mslist, mode: str, fraction: float = 1.0, mintime: int = 1, nchan: int = 0
+) -> list:
     """
     Main entry point. Splits a MeasurementSet in time chunks and concatenate all generated chunks.
     Parameters
@@ -416,32 +537,79 @@ def chunk_and_concat(mslist, fraction, mintime):
         Fraction of time to take.
     mintime : int
         Minimum time span per chunk in seconds.
+    mode : str
+        Mode of chunking: time or frequency.
 
     Returns
     -------
-    msout : str
-        Name of the concatenated MeasurementSet as <input name>.<int(data_fraction*100)>pc.ms'
+    msout : list
+        List of MS chunks.
     """
-    data = MSChunker(mslist, fraction)
-    data.chunk_observations(data_fraction=data.time_fraction, mintime=mintime)
-    data.make_parsets()
-    data.run_parsets()
-    msout = data.concat_chunks()
-    return msout
+    if mode == "time":
+        data = MSChunker(mslist, fraction)
+        data.chunk_observations_in_time(
+            data_fraction=data.time_fraction, mintime=mintime
+        )
+        data.make_parsets_time()
+        epochs = []
+        for epoch in data.mschunks:
+            epochs.append([obs.name for obs in data.mschunks[epoch]["chunks"]])
+        data.run_parsets()
+        data.concat_chunks()
+        return epochs
+    elif mode == "frequency":
+        data = MSChunker(mslist)
+        data.chunk_observations_in_freq(nchan)
+        data.make_parsets_freq()
+        epochs = []
+        for epoch in data.mschunks:
+            epochs.append([obs.name for obs in data.mschunks[epoch]["chunks"]])
+        data.run_parsets()
+        return epochs
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Chunk a MeasurementSet in time.")
+    parser = argparse.ArgumentParser(
+        description="Chunk a MeasurementSet in time or frequency."
+    )
     parser.add_argument("ms", nargs="+", help="Input MeasurementSet(s).")
     parser.add_argument(
         "--timefraction",
         type=float,
-        default=0.2,
-        help="Fraction of data to split off. Default: 0.2",
+        default=1.0,
+        help="Fraction of data to split off. Default: 1.0",
     )
     parser.add_argument(
-        "--mintime", required=True, type=int, help="Minimum time in seconds."
+        "--mintime",
+        required=False,
+        type=int,
+        default=-1,
+        help="Minimum time in seconds. Default: -1 (all)",
+    )
+    parser.add_argument(
+        "--chan_per_chunk",
+        required=False,
+        type=int,
+        default=0,
+        help="Number of channels per output frequency chunk. Default: 0 (all)",
+    )
+    parser.add_argument(
+        "--mode",
+        required=True,
+        type=str,
+        choices=["time", "frequency"],
+        help="Chunk in time or frequency.",
     )
 
     options = parser.parse_args()
-    chunk_and_concat(options.ms, options.timefraction, options.mintime)
+    if (options.timefraction < 1) and (options.chan_per_chunk > 0):
+        print("Splitting time and frequency simultaneously is not supported.")
+    elif options.timefraction < 1:
+        chunk_and_concat(
+            options.ms,
+            fraction=options.timefraction,
+            mintime=options.mintime,
+            mode=options.mode,
+        )
+    elif options.chan_per_chunk > 0:
+        chunk_and_concat(options.ms, mode=options.mode, nchan=options.chan_per_chunk)
