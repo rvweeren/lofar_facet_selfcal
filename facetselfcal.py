@@ -7918,6 +7918,7 @@ def main():
    parser.add_argument('--stopafterpreapply', help='Stop after preapply of solutions', action='store_true')
    parser.add_argument('--noarchive', help='Do not archive the data.', action='store_true')
    parser.add_argument('--skipbackup', help='Leave the original MS intact and work always work on a DP3 copied dataset.', action='store_true')
+   parser.add_argument('--phasediff_only', help='For finding only the phase difference, we want to stop after calibrating and before imaging', action='store_true')
    parser.add_argument('--helperscriptspath', help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
    parser.add_argument('--helperscriptspathh5merge', help='Path to file location pulled from https://github.com/jurjen93/lofar_helpers.', default=None, type=str)
    parser.add_argument('--configpath', help = 'Path to user config file which will overwrite command line arguments', default = 'facetselfcal_config.txt', type = str)
@@ -8256,6 +8257,9 @@ def main():
                              gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict='DP3', \
                              QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], \
                              QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],ncpu_max=args['ncpu_max_DP3solve'])
+
+     if args['phasediff_only']:
+       return
 
      # TRIGGER MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
