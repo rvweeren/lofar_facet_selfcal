@@ -7732,7 +7732,8 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
                        dysco=args['dysco'])
    
    # SOLVE AND GET BEST SOLUTION INTERVAL
-   from find_solint import GetSolint
+   os.system('cp ' + args['helperscriptspathh5merge'] + '/source_selection/phasediff_output.py .')
+   from phasediff_output import GetSolint
    for ms_id, ms in enumerate(mslist):
      scorelist = []
      for solint in range(10,11): # temporary for loop
@@ -7980,7 +7981,6 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/polconv.py .')
    os.system('cp ' + args['helperscriptspath'] + '/vlass_search.py .')
    os.system('cp ' + args['helperscriptspath'] + '/VLASS_dyn_summary.php .')
-   os.system('cp ' + args['helperscriptspath'] + '/find_solint.py .')
    os.system('cp ' + args['helperscriptspath'] + '/ds9facetgenerator.py .')
    os.system('cp ' + args['helperscriptspath'] + '/default_StokesV.lua .')
 
