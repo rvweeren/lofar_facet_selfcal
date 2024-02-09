@@ -58,7 +58,7 @@ print('Plotting at a frequency of:', freq/1e6, 'MHz')
 times = (times-np.min(times))/3600. # in hrs since obs start
 
 #print(tec.shape, phase.shape)
-ysizefig = np.float(len(antennas))
+ysizefig = float(len(antennas))
 refant = 0
 antennas=[x.decode('utf-8') for x in antennas] # convert to proper string list
 
@@ -72,7 +72,7 @@ figcount = 0
 
 if containsphase:
   if notec: 
-    freqidx =   np.int(len(freq)/2)
+    freqidx =   int(len(freq)/2)
     refphase = phase[:,freqidx,refant,0,0] 
   else:
     refphase = phase[:,refant,0,0] + TEC2phase(tec[:,refant,0,0], freq)

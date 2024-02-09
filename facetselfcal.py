@@ -5006,7 +5006,7 @@ def getimsize(boxfile, cellsize=1.5, increasefactor=1.2, DDE=None):
    if(imsize % 2 == 1):
        imsize = imsize + 1
    
-   # if np.int(imsize) < 512:
+   # if int(imsize) < 512:
    #    imsize = 512
    return int(imsize)
 
@@ -6185,7 +6185,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     if 'CORRECTED_DATA' not in colnames: # for first imaging run
       imcol = 'DATA'
     t.close()
-    # baselineav = str (1.5e3*60000.*2.*np.pi *np.float(pixsize)/(24.*60.*60*np.float(imsize)) )
+    # baselineav = str (1.5e3*60000.*2.*np.pi *float(pixsize)/(24.*60.*60*float(imsize)) )
     baselineav = str (1.5e3*60000.*2.*np.pi *1.5/(24.*60.*60*float(imsize)) )
 
     if imager == 'WSCLEAN':
@@ -8566,7 +8566,7 @@ def main():
      #  if (i == 0) or (i == args['phasecycles']) or (i == args['phasecycles'] + 1) or (i == args['phasecycles'] + 2) \
      #    or (i == args['phasecycles'] + 3) or (i == args['phasecycles'] + 4):
      #     for msnumber, ms in enumerate(mslist):
-     #         flagms_startend(ms, 'phaseonly' + ms + parmdb + str(i) + '.h5', np.int(solint_phase[msnumber]))
+     #         flagms_startend(ms, 'phaseonly' + ms + parmdb + str(i) + '.h5', int(solint_phase[msnumber]))
 
    # remove sources outside central region after selfcal (to prepare for DDE solves)
    if args['remove_outside_center']:
