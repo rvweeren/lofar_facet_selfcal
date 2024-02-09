@@ -482,37 +482,114 @@ def make_utf8(inp):
         return inp
 
 
-def FFTdelayfinder(h5, refant):
+def wrap_phase(phase):
+    """ Map phases to the range -pi, pi.
+
+    The formula (phase + np.pi) % (2 * np.pi) - np.pi is used to map phases into a plottable range.
+
+    Args:
+        phase (ndarray): narray of phases to remap.
+    Returns:
+        wphase (ndarray): narray of remapped phases.
+    """
+    wphase = (phase + np.pi) % (2 * np.pi) - np.pi
+    return wphase
+
+def FFTdelayfinder(h5, refant, upsample_factor=1):
     from scipy.fftpack import fft, fftfreq
     H = tables.open_file(h5)
-    upsample_factor = 10
 
     # reference to refant
     refant_idx = np.where(H.root.sol000.phase000.ant[:] == refant)
     phase = H.root.sol000.phase000.val[:]
     phasen = phase - phase[:, :, refant_idx[0], :]
+    delay_template = np.zeros_like(phasen)
 
     phasecomplex = np.exp(phasen * 1j)
     freq = H.root.sol000.phase000.freq[:]
     timeaxis = H.root.sol000.phase000.time[:]
     timeaxis = timeaxis - np.min(timeaxis)
 
-    delayaxis = fftfreq(upsample_factor * freq.size,
-                        d=np.abs(freq[1] - freq[0]) / float(upsample_factor))
+    # Upsample the delay values if desired, for more precise sampling.
+    # Do not scale spacing (d=...) by the upsampling factor 
+    # as the signal spacing itself hasn't changed.
+    delayaxis = fftfreq(upsample_factor * freq.size, d=np.abs(freq[1] - freq[0]))
 
+    fig_main = plt.figure(figsize=(16,9), dpi=300)
+    ax_main = fig_main.add_subplot(111)
     for ant_id, ant in enumerate(H.root.sol000.phase000.ant[:]):
         delay = 0.0 * H.root.sol000.phase000.time[:]
-        print('FFT delay finding for:', ant)
+        print('FFT delay finding for:', ant.decode('utf-8'))
         for time_id, time in enumerate(H.root.sol000.phase000.time[:]):
-            delay[time_id] = delayaxis[np.argmax(np.abs(fft(phasecomplex[time_id, :, ant_id, 0], n=upsample_factor * len(freq))))]
-        plt.plot(timeaxis/3600., delay*1e9)
-    plt.ylim(-2e-6 * 1e9, 2e-6 * 1e9)
-    plt.ylabel('Delay [ns]')
-    plt.xlabel('Time [hr]')
-    # plt.title(ant)
-    plt.show()
+            mask = ~np.isfinite(phasecomplex[time_id, :, ant_id, 0])
+            x = phasecomplex[time_id, :, ant_id, 0]
+
+            # FFT doesn't handle NaNs, so interpolate over any gaps
+            if sum(mask) > 0:
+                if sum(mask) == len(mask):
+                    # Completely non-finite, skip
+                    continue
+                x[mask] = np.interp(freq[mask], freq[~mask], x[~mask])
+
+            fft_amp = np.abs(fft(x, n=upsample_factor * len(freq)))
+            delay[time_id] = delayaxis[np.argmax(fft_amp)]
+        ax_main.plot(timeaxis/3600., delay*1e9)
+        ff, dd = np.meshgrid(freq, delay)
+        delayphases = 2 * np.pi * ff * dd
+        delay_template[:, :, ant_id, 0] = delayphases
+
+        phase_dedelayed = phasen[:, :, ant_id, 0] - delayphases
+        N = -1
+
+        fig, ax = plt.subplots(3, 1, figsize=(16,9))
+        fig.suptitle(ant.decode('utf-8'))
+        ax[0].set_title('raw phase')
+        ax[0].imshow(wrap_phase(phasen[:N, :, ant_id, 0].T), aspect='auto', cmap='jet', vmin=-3.14, vmax=3.14, interpolation='none', extent=[timeaxis[0], timeaxis[-1], freq[0]/1e6, freq[-1]/1e6])
+        ax[1].set_title('FFT delay phase')
+        ax[1].imshow(wrap_phase(delayphases[:N, :].T), aspect='auto', cmap='jet', vmin=-3.14, vmax=3.14, interpolation='none', extent=[timeaxis[0], timeaxis[-1], freq[0]/1e6, freq[-1]/1e6])
+        ax[2].set_title('delay-corrected phase')
+        ax[2].imshow(wrap_phase(phase_dedelayed[:N]).T, aspect='auto', cmap='jet', vmin=-3.14, vmax=3.14, interpolation='none', extent=[timeaxis[0], timeaxis[-1], freq[0]/1e6, freq[-1]/1e6])
+        plt.savefig('plot_delay_ant_{:s}_upsample_{:d}x.png'.format(ant.decode('utf-8'), upsample_factor), dpi=300, bbox_inches='tight')
+        plt.close()
+    ax_main.set_ylim(-2e-6 * 1e9, 2e-6 * 1e9)
+    ax_main.set_ylabel('Delay [ns]')
+    ax_main.set_xlabel('Time [hr]')
+    fig_main.tight_layout()
+    fig_main.savefig('plot_delays_upsample_{:d}x.png'.format(upsample_factor), bbox_inches='tight', dpi=300)
     H.close()
-    return
+    return delay_template
+
+#def FFTdelayfinder(h5, refant):
+#    from scipy.fftpack import fft, fftfreq
+#    H = tables.open_file(h5)
+#    upsample_factor = 10
+#
+#    # reference to refant
+#    refant_idx = np.where(H.root.sol000.phase000.ant[:] == refant)
+#    phase = H.root.sol000.phase000.val[:]
+#    phasen = phase - phase[:, :, refant_idx[0], :]
+#
+#    phasecomplex = np.exp(phasen * 1j)
+#    freq = H.root.sol000.phase000.freq[:]
+#    timeaxis = H.root.sol000.phase000.time[:]
+#    timeaxis = timeaxis - np.min(timeaxis)
+#
+#    delayaxis = fftfreq(upsample_factor * freq.size,
+#                        d=np.abs(freq[1] - freq[0]) / float(upsample_factor))
+#
+#    for ant_id, ant in enumerate(H.root.sol000.phase000.ant[:]):
+#        delay = 0.0 * H.root.sol000.phase000.time[:]
+#        print('FFT delay finding for:', ant)
+#        for time_id, time in enumerate(H.root.sol000.phase000.time[:]):
+#            delay[time_id] = delayaxis[np.argmax(np.abs(fft(phasecomplex[time_id, :, ant_id, 0], n=upsample_factor * len(freq))))]
+#        plt.plot(timeaxis/3600., delay*1e9)
+#    plt.ylim(-2e-6 * 1e9, 2e-6 * 1e9)
+#    plt.ylabel('Delay [ns]')
+#    plt.xlabel('Time [hr]')
+#    # plt.title(ant)
+#    plt.show()
+#    H.close()
+#    return
 
 
 def check_strlist_or_intlist(argin):
@@ -919,22 +996,34 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
                 newdmi['NAME'] = outcol
             t.addcols(newdesc, newdmi)
         data = t.getcol(incol)
+        data_model = t.getcol('MODEL_DATA')
         dataslope = np.copy(data)
         for ff in range(data.shape[1] - 1):
             if ampnorm:
                 dataslope[:, ff, 0] = np.copy(np.exp(1j * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
                 dataslope[:, ff, 3] = np.copy(np.exp(1j * (np.angle(data[:, ff, 3]) -np.angle(data[:, ff + 1, 3]))))
             else:
-                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0]) * np.exp(1j * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
-                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3]) * np.exp(1j * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
+                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0] / data_model[:, ff, 0]) * np.exp(1j * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
+                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3] / data_model[:, ff, 0]) * np.exp(1j * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
 
         # last freq set to second to last freq because difference reduces length of freq axis with one
         dataslope[:, -1, :] = np.copy(dataslope[:, -2, :])
         t.putcol(outcol, dataslope)
+
+        # Now we need to update the weights following Radcliffe+2015
+        # w_i = (1 Jy / A_i Jy) ** 2
+        print('Adding WEIGHT_SPECTRUM_PHASE_SLOPE')
+        t = pt.table(inmslist, readonly=False, ack=True)
+        desc = t.getcoldesc('WEIGHT_SPECTRUM')
+        desc['name'] = 'WEIGHT_SPECTRUM_PHASE_SLOPE'
+        weights = t.getcol('WEIGHT_SPECTRUM')
+        t.addcols(desc)
+        t.putcol('WEIGHT_SPECTRUM_PHASE_SLOPE', weights / (np.abs(data_model)**2))
         t.close()
         # print( np.nanmedian(np.abs(data)))
         # print( np.nanmedian(np.abs(dataslope)))
         del data, dataslope
+    
     return
 
 
@@ -1394,7 +1483,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
 
     outmslist = []
     for ms_id, ms in enumerate(mslist):
-        if (np.int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep is not None) or (
+        if (int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep is not None) or (
                 msinnchan is not None) or \
                 (phaseshiftbox is not None) or (msinntimes is not None):  # if this is True then average
             
@@ -1435,7 +1524,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
                     # timeavg
             if timestep is not None:
                 if str(timestep).isdigit():
-                    cmd += 'av.timestep=' + str(np.int(timestep)) + ' '
+                    cmd += 'av.timestep=' + str(int(timestep)) + ' '
                 else:
                     timestepstr = ''.join([i for i in timestep if not i.isalpha()])
                     timestepstrnot = ''.join([i for i in timestep if i.isalpha()])
@@ -1476,7 +1565,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
                     # timeavg
             if timestep is not None:
                 if str(timestep).isdigit():
-                    cmd += 'av.timestep=' + str(np.int(timestep)) + ' '
+                    cmd += 'av.timestep=' + str(int(timestep)) + ' '
                 else:
                     timestepstr = ''.join([i for i in timestep if not i.isalpha()])
                     timestepstrnot = ''.join([i for i in timestep if i.isalpha()])
@@ -1868,7 +1957,7 @@ def inputchecker(args, mslist):
         if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', \
                            'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase', \
                            'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', \
-                           'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
+                           'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope', 'delay']:
             print('Invalid soltype input')
             raise Exception('Invalid soltype input')
 
@@ -2125,7 +2214,7 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     # sys.exit()
  
     if fitsimage is None:
-        filename = SkyView.get_image_list(position=phasecenterc, survey='TGSS ADR1', pixels=np.int(xs), cache=False)
+        filename = SkyView.get_image_list(position=phasecenterc, survey='TGSS ADR1', pixels=int(xs), cache=False)
         print(filename)
         if os.path.isfile(filename[0].split('/')[-1]):
             os.system('rm -f ' + filename[0].split('/')[-1])
@@ -3022,7 +3111,6 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
     H5 = h5parm.h5parm(parmdb, readonly=False)
     soltab = H5.getSolset('sol000').getSoltab(soltabname)
     times = soltab.getAxisValues('time')
-
     numants = pt.taql('select gcount(*) as numants from '+ms+'::ANTENNA').getcol('numants')[0]
     H5ants = len(soltab.getAxisValues('ant'))
     if numants != H5ants:
@@ -3201,8 +3289,8 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
 
     if (goodstartid != 0) or (goodendid != len(goodtimesvec)): # only do if needed to save some time
         cmd = taql + " ' select from " + ms + " where TIME in (select distinct TIME from " + ms
-        cmd+= " offset " + str(goodstartid*np.int(tecsolint))
-        cmd+= " limit " + str((goodendid-goodstartid)*np.int(tecsolint)) +") giving "
+        cmd+= " offset " + str(goodstartid*int(tecsolint))
+        cmd+= " limit " + str((goodendid-goodstartid)*int(tecsolint)) +") giving "
         cmd+= msout + " as plain'"
 
         print(cmd)
@@ -3789,22 +3877,22 @@ def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
    logger.info('Compute visibility noise of the dataset with robust sigma clipping: ' + ms)
    if fastrms:    # take only every fifth element of the array to speed up the computation
      if freq > freqct: # HBA
-        noise = astropy.stats.sigma_clipping.sigma_clipped_stats(data[0:data.shape[0]:5,np.int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,1:3],\
-        mask=flags[0:data.shape[0]:5,np.int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,1:3])[2] # use XY and YX
+        noise = astropy.stats.sigma_clipping.sigma_clipped_stats(data[0:data.shape[0]:5,int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,1:3],\
+        mask=flags[0:data.shape[0]:5,int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,1:3])[2] # use XY and YX
      else:
         noise = astropy.stats.sigma_clipping.sigma_clipped_stats(data[0:data.shape[0]:5,:,1:3],\
         mask=flags[0:data.shape[0]:5,:,1:3])[2] # use XY and YX
    else:
      if freq > freqct: # HBA
-        noise = astropy.stats.sigma_clipping.sigma_clipped_stats(data[:,np.int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,1:3],\
-        mask=flags[:,np.int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,1:3])[2] # use XY and YX
+        noise = astropy.stats.sigma_clipping.sigma_clipped_stats(data[:,int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,1:3],\
+        mask=flags[:,int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,1:3])[2] # use XY and YX
      else:
         noise = astropy.stats.sigma_clipping.sigma_clipped_stats(data[:,:,1:3],\
         mask=flags[:,:,1:3])[2] # use XY and YX
 
    model = np.ma.masked_array(model, flags)
    if freq > freqct: # HBA:
-      flux  = np.ma.mean((model[:,np.int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,0] + model[:,np.int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,3])*0.5) # average XX and YY (ignore XY and YX, they are zero, or nan, in other words this is Stokes I)
+      flux  = np.ma.mean((model[:,int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,0] + model[:,int(np.floor(np.float(nfreq)*HBA_upfreqsel)):-1,3])*0.5) # average XX and YY (ignore XY and YX, they are zero, or nan, in other words this is Stokes I)
    else:
       flux  = np.ma.mean((model[:,:,0] + model[:,:,3])*0.5) # average XX and YY (ignore XY and YX, they are zero, or nan)
    time  = np.unique(t.getcol('TIME'))
@@ -3910,7 +3998,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
                if (tint*solint_sf* ((noise/flux)**2) * (chanw/390.625e3) < 720.0): # less than 12 min now, also doing
                  inantennaconstraint_list[soltype_id+1][ms_id] = 'remote' # or copy over input ??
                  insoltypecycles_list[soltype_id+1][ms_id] = insoltypecycles_list[soltype_id][ms_id] # do + 1 here??
-                 insolint_list[soltype_id+1][ms_id] = np.int(np.rint(10.*solint_sf* ((noise/flux)**2) * (chanw/390.625e3) ))
+                 insolint_list[soltype_id+1][ms_id] = int(np.rint(10.*solint_sf* ((noise/flux)**2) * (chanw/390.625e3) ))
                  if insolint_list[soltype_id+1][ms_id] < 1:
                    insolint_list[soltype_id+1][ms_id] = 1
                else:
@@ -3942,7 +4030,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
              print('Using tec(andphase) solint [s]:', np.float(solint)*tint)
              logger.info('Using tec(andphase) solint [s]: ' + str(np.float(solint)*tint))
 
-             insolint_list[soltype_id][ms_id] = np.int(solint)
+             insolint_list[soltype_id][ms_id] = int(solint)
              innchan_list[soltype_id][ms_id] = 1
 
           ######## SCALARPHASE or PHASEONLY ######
@@ -3981,7 +4069,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
                if (tint*solint_sf* ((noise/flux)**2) * (chanw/390.625e3) < 720.0): # less than 12 min now, also doing
                  inantennaconstraint_list[soltype_id+1][ms_id] = 'remote' # or copy over input ??
                  insoltypecycles_list[soltype_id+1][ms_id] = insoltypecycles_list[soltype_id][ms_id] # do + 1 here??
-                 insolint_list[soltype_id+1][ms_id] = np.int(np.rint(10.*solint_sf* ((noise/flux)**2) * (chanw/390.625e3) ))
+                 insolint_list[soltype_id+1][ms_id] = int(np.rint(10.*solint_sf* ((noise/flux)**2) * (chanw/390.625e3) ))
                  if insolint_list[soltype_id+1][ms_id] < 1:
                    insolint_list[soltype_id+1][ms_id] = 1
                else:
@@ -4013,7 +4101,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
              print('Using (scalar)phase solint [s]:', np.float(solint)*tint)
              logger.info('Using (scalar)phase solint [s]: ' + str(np.float(solint)*tint))
 
-             insolint_list[soltype_id][ms_id] = np.int(solint)
+             insolint_list[soltype_id][ms_id] = int(solint)
              innchan_list[soltype_id][ms_id] = 1 # because we use smoothnessconstraint
 
 
@@ -4096,7 +4184,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
              else:
                insoltypecycles_list[soltype_id][ms_id] = 3 # set to user input value? problem because not retained now
 
-             insolint_list[soltype_id][ms_id] = np.int(solint)
+             insolint_list[soltype_id][ms_id] = int(solint)
 
              # --------------- NCHAN ------------- NOT BEING USED, keep code in case we need it later
 
@@ -4129,7 +4217,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
                 print(nchan_sf*(noise/flux)**2, 'Using gain nchan:', nchan)
                 print('Using gain nchan [MHz]:', np.float(nchan)*chanw/1e6)
 
-                innchan_list[soltype_id][ms_id] = np.int(nchan)
+                innchan_list[soltype_id][ms_id] = int(nchan)
 
 
    #f = open('nchan.p', 'wb')
@@ -4261,7 +4349,7 @@ def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttec
     f.write('minmax = [-3.14,3.14]\n')
     f.write('soltabToAdd = tec000\n')
     f.write('figSize=[120,20]\n')
-    f.write('markerSize=%s\n' % np.int(markersize))
+    f.write('markerSize=%s\n' % int(markersize))
     f.write('prefix = plotlosoto%s/fasttecandphase\n' % os.path.basename(ms))
     f.write('refAnt = %s\n' % refant)
 
@@ -4283,7 +4371,7 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', marke
     f.write('axisInTable = ant\n')
     f.write('minmax = [-0.2,0.2]\n')
     f.write('figSize=[120,20]\n')
-    f.write('markerSize=%s\n' % np.int(markersize))
+    f.write('markerSize=%s\n' % int(markersize))
     f.write('prefix = plotlosoto%s/%s\n' % (ms,outplotname))
     f.write('refAnt = %s\n' % refant)
 
@@ -4305,7 +4393,7 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, \
     f.write('[plotrotation]\n')
     f.write('operation = PLOT\n')
     f.write('soltab = [sol000/rotation000]\n')
-    f.write('markerSize=%s\n' % np.int(markersize))
+    f.write('markerSize=%s\n' % int(markersize))
     if onechannel:
       f.write('axesInPlot = [time]\n')
     else:
@@ -4920,7 +5008,7 @@ def getimsize(boxfile, cellsize=1.5, increasefactor=1.2, DDE=None):
    
    # if np.int(imsize) < 512:
    #    imsize = 512
-   return np.int(imsize)
+   return int(imsize)
 
 
 def smoothsols(parmdb, ms, longbaseline, includesphase=True):
@@ -5043,7 +5131,7 @@ def calculate_solintnchan(compactflux):
         nchan= 15.
         solint_ap = 180.
 
-    return np.int(nchan), np.int(solint_phase), np.int(solint_ap)
+    return int(nchan), int(solint_phase), int(solint_ap)
 
 
 
@@ -5055,8 +5143,8 @@ def determine_compactsource_flux(fitsimage):
     bmin = hdul[0].header['BMIN']
     avgbeam = 3600.*0.5*(bmaj + bmin)
     pixsize = 3600.*(hdul[0].header['CDELT2'])
-    rmsbox1 = np.int(7.*avgbeam/pixsize)
-    rmsbox2 = np.int((rmsbox1/10.) + 1.)
+    rmsbox1 = int(7.*avgbeam/pixsize)
+    rmsbox2 = int((rmsbox1/10.) + 1.)
 
     img = bdsf.process_image(fitsimage,mean_map='zero', rms_map=True, rms_box = (rmsbox1,rmsbox2))
     total_flux_gaus = np.copy(img.total_flux_gaus)
@@ -5979,7 +6067,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               fullpol=False, taperinnertukey=None, gapchanneldivision=False, \
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None, \
               DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False, \
-              wgridderaccuracy=1e-4, nosmallinversion=False):
+              wgridderaccuracy=1e-4, nosmallinversion=False, spectral_corr_list = []):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     if idg:
@@ -6106,7 +6194,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
       cmd += '-minuv-l ' + str(uvminim) + ' '
       if uvmaxim is not None:
          cmd += '-maxuv-l ' + str(uvmaxim) + ' '  
-      cmd += '-size ' + str(np.int(imsize)) + ' ' + str(np.int(imsize)) + ' -reorder '
+      cmd += '-size ' + str(int(imsize)) + ' ' + str(int(imsize)) + ' -reorder '
       if type(robust) is not str:
          cmd += '-weight briggs ' + str(robust) 
       else:
@@ -6136,7 +6224,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
          # cmd += '-multiscale '+' -multiscale-scales 0,6,12,16,24,32,42,64,72,128,180,256,380,512,650 '
          cmd += '-multiscale '
          cmd += '-multiscale-scale-bias ' + str(multiscalescalebias) + ' '
-         cmd += '-multiscale-max-scales ' + str(np.int(np.rint(np.log2(np.float(imsize)) -3))) + ' '
+         cmd += '-multiscale-max-scales ' + str(int(np.rint(np.log2(np.float(imsize)) -3))) + ' '
       if fitsmask is not None:
         if os.path.isfile(fitsmask):
           cmd += '-fits-mask '+ fitsmask + ' '
@@ -6147,6 +6235,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
          cmd += '-taper-gaussian ' + uvtaper + ' '
       if taperinnertukey is not None:
          cmd += '-taper-inner-tukey ' + str(taperinnertukey) + ' '
+
+      if spectral_corr_list:
+         cmd += '-spectral-correction {:f} '.format(spectral_corr_list[0]) + ','.join(map(str, spectral_corr_list[1:])) + ' '
 
       if (fitspectralpol) and not (fullpol):
          cmd += '-save-source-list '
@@ -6215,7 +6306,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         # we check for DDEimaging to avoid a predict for image000 in a --DDE run
         # because at that moment there is no h5list yet and this avoids an unnecessary DI-type predict 
         cmd = 'wsclean -size '
-        cmd += str(np.int(imsize)) + ' ' + str(np.int(imsize)) +  ' -predict '
+        cmd += str(int(imsize)) + ' ' + str(int(imsize)) +  ' -predict '
         if not usewgridder and not idg:
            cmd += '-padding 1.8 ' 
         if channelsout > 1:
@@ -6256,7 +6347,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         cmd = 'DDF.py --Data-MS=mslist.txt --Deconv-PeakFactor=0.001 --Data-ColName=' + imcol + ' ' + \
               '--Parallel-NCPU=32 --Output-Mode=Clean --Deconv-CycleFactor=0 ' + \
               '--Deconv-MaxMinorIter=' + str(niter) + ' --Deconv-MaxMajorIter=5 ' + \
-              '--Deconv-Mode=SSD --Weight-Robust=' + str(robust) + ' --Image-NPix=' + str(np.int(imsize)) + ' ' + \
+              '--Deconv-Mode=SSD --Weight-Robust=' + str(robust) + ' --Image-NPix=' + str(int(imsize)) + ' ' + \
               '--CF-wmax=50000 --CF-Nw=100 --Beam-Model=None --Beam-LOFARBeamMode=A --Beam-NBand=1 ' + \
               '--Output-Also=onNeds --Image-Cell=' + str(pixsize) + ' --Facets-NFacets=1 --Freq-NDegridBand=1 ' + \
               '--Deconv-RMSFactor=3.0 --Deconv-FluxThreshold=0.0 --Data-Sort=1 --Cache-Dir=. --Freq-NBand=2 ' + \
@@ -6846,6 +6937,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 ' -s ' + str(blscalefactor) + ' -u ' + str(ionfreqfactor) + ' ' + ms)
       incol = 'SMOOTHED_DATA'
 
+
+    if soltype == 'delay':
+        soltype = 'scalarphase'
+
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR' and selfcalcycle == 0:
       create_phasediff_column(ms, incol=incol, dysco=dysco)
       soltype = 'phaseonly' # do this type of solve, maybe scalarphase is fine? 'scalarphase' #
@@ -6890,6 +6985,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       soltype = soltype.split('_slope')[0]
       incol = 'DATA_PHASE_SLOPE'
       modeldata = 'MODEL_DATA_PHASE_SLOPE'
+      weight_spectrum = 'WEIGHT_SPECTRUM_PHASE_SLOPE'
 
     if soltype in ['fulljones']:
       print('Setting XY and YX to 0+0i')
@@ -6934,10 +7030,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
 
     # figure out which weight_spectrum column to use
     t = pt.table(ms)
-    if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-       weight_spectrum =  'WEIGHT_SPECTRUM_SOLVE'
-    else:
-       weight_spectrum =  'WEIGHT_SPECTRUM'
+    if 'slope' not in soltype:
+        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+           weight_spectrum =  'WEIGHT_SPECTRUM_SOLVE'
+        else:
+           weight_spectrum =  'WEIGHT_SPECTRUM'
     t.close()
 
     # check for previous old parmdb and remove them
@@ -6952,7 +7049,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     if dysco:
       cmd += 'msout.storagemanager=dysco '
     
-    cmd += 'ddecal.maxiter='+str(np.int(maxiter)) + ' ddecal.propagatesolutions=True '    
+    cmd += 'ddecal.maxiter='+str(int(maxiter)) + ' ddecal.propagatesolutions=True '    
     # Do list comprehension if solint is a list
     if type(solint) == list:
        solints = [int(format_solint(x, ms)) for x in solint]
@@ -7027,15 +7124,33 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
 
     print('DP3 solve:', cmd)
     logger.info('DP3 solve: ' + cmd)
-    if selfcalcycle > 0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
+    if selfcalcycle > 0 and (soltypein=="delay"):
+        h5_tocopy = soltypein + str(soltypenumber)+"_selfcalcyle000_" + os.path.basename(ms)+".h5.delayreference"
+        print("COPYING PREVIOUS DELAY SOLUTION")
+        print('cp -r ' + h5_tocopy + ' ' + parmdb)
+        os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
+    if selfcalcycle > 0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff" or soltypein=="delay"):
         h5_tocopy = soltypein + str(soltypenumber)+"_selfcalcyle000_" + os.path.basename(ms)+".h5.scbackup"
         print("COPYING PREVIOUS SCALARPHASEDIFF SOLUTION")
         print('cp -r ' + h5_tocopy + ' ' + parmdb)
         os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
     else:
         run(cmd)
-    if selfcalcycle==0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
+    if selfcalcycle==0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff" or soltypein == "delay"):
         os.system("cp -r " + parmdb + " " + parmdb + ".scbackup")
+    if selfcalcycle==0 and (soltypein == "delay"):
+        # Copy for backup.
+        os.system("cp -r " + parmdb + " " + parmdb + ".delaybackup")
+        # Derive delays only in the first cycle
+        delayphases = FFTdelayfinder(parmdb, b'CS002HBA0')
+        print(f'Writing delay phases to {parmdb}')
+        h5 = h5parm.h5parm(parmdb, readonly=False)
+        ss = h5.getSolset('sol000')
+        st = ss.getSoltab('phase000')
+        st.setValues(delayphases)
+        h5.close()
+        # Copy for subsequent iterations.
+        os.system("cp -r " + parmdb + " " + parmdb + ".delayreference")
 
     if len(modeldatacolumns) > 1: # and DDE_predict == 'WSCLEAN':
        update_sourcedir_h5_dde(parmdb, 'facetdirections.p')
@@ -7043,7 +7158,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     if has0coordinates(parmdb):
        logger.warning('Direction coordinates are zero in: ' + parmdb)
 
-    if np.int(maxiter) == 1: # this is a template solve only
+    if int(maxiter) == 1: # this is a template solve only
       print('Template solve, not going to make plots or do solution flagging')
       return
 
@@ -7464,7 +7579,7 @@ def niter_from_imsize(imsize):
    if imsize < 1024:
      niter = 15000 # minimum  value
    else:
-     niter = 15000*np.int((np.float(imsize)/1024.))
+     niter = 15000*int((np.float(imsize)/1024.))
 
    return niter
 
@@ -7552,7 +7667,7 @@ def basicsetup(mslist, args):
      args['uvmin'] =  20000
      
      if args['imsize'] > 1600:
-        args['paralleldeconvolution'] = np.min([2600,np.int(args['imsize']/2)])
+        args['paralleldeconvolution'] = np.min([2600,int(args['imsize']/2)])
      
      if LBA:
        args['BLsmooth'] = True
@@ -7809,6 +7924,7 @@ def main():
    imagingparser.add_argument('--taperinnertukey', help="Value for taper-inner-tukey in WSClean (see WSClean documentation), useful to supress negative bowls when using --uvminim. Typically values between 1.5 and 4.0 give good results. The default is None.", default=None, type=float)
    imagingparser.add_argument('--makeimage-ILTlowres-HBA', help='Make 1.2 arcsec tapered image as quality check of ILT 1 arcsec imaging.', action='store_true')
    imagingparser.add_argument('--makeimage-fullpol', help='Make Stokes IQUV version for quality checking.', action='store_true')
+   imagingparser.add_argument('--spectral-correction', help="Apply a spectral correction during deconvolution with WSClean. Affects peak finding, but not overall spectral behaviour. Should be a list containing [v_ref, S, a1, a2, ..., aN] where v_ref and S are the reference frequency and flux density at that frequency, and aN indicates the Nth spectral term.", type=list, default=None)
 
    calibrationparser = parser.add_argument_group("-------------------------Calibration Settings-------------------------")
    # Calibration options
