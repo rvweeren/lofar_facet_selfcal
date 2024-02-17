@@ -919,7 +919,6 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
                 newdmi['NAME'] = outcol
             t.addcols(newdesc, newdmi)
         data = t.getcol(incol)
-        data_model = t.getcol('MODEL_DATA')
         dataslope = np.copy(data)
         for ff in range(data.shape[1] - 1):
             if ampnorm:
@@ -932,16 +931,6 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
         # last freq set to second to last freq because difference reduces length of freq axis with one
         dataslope[:, -1, :] = np.copy(dataslope[:, -2, :])
         t.putcol(outcol, dataslope)
-
-        # Now we need to update the weights following Radcliffe+2015
-        # w_i = (1 Jy / A_i Jy) ** 2
-        print('Adding WEIGHT_SPECTRUM_PHASE_SLOPE')
-        t = pt.table(inmslist, readonly=False, ack=True)
-        desc = t.getcoldesc('WEIGHT_SPECTRUM')
-        desc['name'] = 'WEIGHT_SPECTRUM_PHASE_SLOPE'
-        weights = t.getcol('WEIGHT_SPECTRUM')
-        t.addcols(desc)
-        t.putcol('WEIGHT_SPECTRUM_PHASE_SLOPE', weights / (np.abs(data_model)**2))
         t.close()
         # print( np.nanmedian(np.abs(data)))
         # print( np.nanmedian(np.abs(dataslope)))
