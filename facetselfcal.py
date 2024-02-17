@@ -482,114 +482,37 @@ def make_utf8(inp):
         return inp
 
 
-def wrap_phase(phase):
-    """ Map phases to the range -pi, pi.
-
-    The formula (phase + np.pi) % (2 * np.pi) - np.pi is used to map phases into a plottable range.
-
-    Args:
-        phase (ndarray): narray of phases to remap.
-    Returns:
-        wphase (ndarray): narray of remapped phases.
-    """
-    wphase = (phase + np.pi) % (2 * np.pi) - np.pi
-    return wphase
-
-def FFTdelayfinder(h5, refant, upsample_factor=1):
+def FFTdelayfinder(h5, refant):
     from scipy.fftpack import fft, fftfreq
     H = tables.open_file(h5)
+    upsample_factor = 10
 
     # reference to refant
     refant_idx = np.where(H.root.sol000.phase000.ant[:] == refant)
     phase = H.root.sol000.phase000.val[:]
     phasen = phase - phase[:, :, refant_idx[0], :]
-    delay_template = np.zeros_like(phasen)
 
     phasecomplex = np.exp(phasen * 1j)
     freq = H.root.sol000.phase000.freq[:]
     timeaxis = H.root.sol000.phase000.time[:]
     timeaxis = timeaxis - np.min(timeaxis)
 
-    # Upsample the delay values if desired, for more precise sampling.
-    # Do not scale spacing (d=...) by the upsampling factor 
-    # as the signal spacing itself hasn't changed.
-    delayaxis = fftfreq(upsample_factor * freq.size, d=np.abs(freq[1] - freq[0]))
+    delayaxis = fftfreq(upsample_factor * freq.size,
+                        d=np.abs(freq[1] - freq[0]) / float(upsample_factor))
 
-    fig_main = plt.figure(figsize=(16,9), dpi=300)
-    ax_main = fig_main.add_subplot(111)
     for ant_id, ant in enumerate(H.root.sol000.phase000.ant[:]):
         delay = 0.0 * H.root.sol000.phase000.time[:]
-        print('FFT delay finding for:', ant.decode('utf-8'))
+        print('FFT delay finding for:', ant)
         for time_id, time in enumerate(H.root.sol000.phase000.time[:]):
-            mask = ~np.isfinite(phasecomplex[time_id, :, ant_id, 0])
-            x = phasecomplex[time_id, :, ant_id, 0]
-
-            # FFT doesn't handle NaNs, so interpolate over any gaps
-            if sum(mask) > 0:
-                if sum(mask) == len(mask):
-                    # Completely non-finite, skip
-                    continue
-                x[mask] = np.interp(freq[mask], freq[~mask], x[~mask])
-
-            fft_amp = np.abs(fft(x, n=upsample_factor * len(freq)))
-            delay[time_id] = delayaxis[np.argmax(fft_amp)]
-        ax_main.plot(timeaxis/3600., delay*1e9)
-        ff, dd = np.meshgrid(freq, delay)
-        delayphases = 2 * np.pi * ff * dd
-        delay_template[:, :, ant_id, 0] = delayphases
-
-        phase_dedelayed = phasen[:, :, ant_id, 0] - delayphases
-        N = -1
-
-        fig, ax = plt.subplots(3, 1, figsize=(16,9))
-        fig.suptitle(ant.decode('utf-8'))
-        ax[0].set_title('raw phase')
-        ax[0].imshow(wrap_phase(phasen[:N, :, ant_id, 0].T), aspect='auto', cmap='jet', vmin=-3.14, vmax=3.14, interpolation='none', extent=[timeaxis[0], timeaxis[-1], freq[0]/1e6, freq[-1]/1e6])
-        ax[1].set_title('FFT delay phase')
-        ax[1].imshow(wrap_phase(delayphases[:N, :].T), aspect='auto', cmap='jet', vmin=-3.14, vmax=3.14, interpolation='none', extent=[timeaxis[0], timeaxis[-1], freq[0]/1e6, freq[-1]/1e6])
-        ax[2].set_title('delay-corrected phase')
-        ax[2].imshow(wrap_phase(phase_dedelayed[:N]).T, aspect='auto', cmap='jet', vmin=-3.14, vmax=3.14, interpolation='none', extent=[timeaxis[0], timeaxis[-1], freq[0]/1e6, freq[-1]/1e6])
-        plt.savefig('plot_delay_ant_{:s}_upsample_{:d}x.png'.format(ant.decode('utf-8'), upsample_factor), dpi=300, bbox_inches='tight')
-        plt.close()
-    ax_main.set_ylim(-2e-6 * 1e9, 2e-6 * 1e9)
-    ax_main.set_ylabel('Delay [ns]')
-    ax_main.set_xlabel('Time [hr]')
-    fig_main.tight_layout()
-    fig_main.savefig('plot_delays_upsample_{:d}x.png'.format(upsample_factor), bbox_inches='tight', dpi=300)
+            delay[time_id] = delayaxis[np.argmax(np.abs(fft(phasecomplex[time_id, :, ant_id, 0], n=upsample_factor * len(freq))))]
+        plt.plot(timeaxis/3600., delay*1e9)
+    plt.ylim(-2e-6 * 1e9, 2e-6 * 1e9)
+    plt.ylabel('Delay [ns]')
+    plt.xlabel('Time [hr]')
+    # plt.title(ant)
+    plt.show()
     H.close()
-    return delay_template
-
-#def FFTdelayfinder(h5, refant):
-#    from scipy.fftpack import fft, fftfreq
-#    H = tables.open_file(h5)
-#    upsample_factor = 10
-#
-#    # reference to refant
-#    refant_idx = np.where(H.root.sol000.phase000.ant[:] == refant)
-#    phase = H.root.sol000.phase000.val[:]
-#    phasen = phase - phase[:, :, refant_idx[0], :]
-#
-#    phasecomplex = np.exp(phasen * 1j)
-#    freq = H.root.sol000.phase000.freq[:]
-#    timeaxis = H.root.sol000.phase000.time[:]
-#    timeaxis = timeaxis - np.min(timeaxis)
-#
-#    delayaxis = fftfreq(upsample_factor * freq.size,
-#                        d=np.abs(freq[1] - freq[0]) / float(upsample_factor))
-#
-#    for ant_id, ant in enumerate(H.root.sol000.phase000.ant[:]):
-#        delay = 0.0 * H.root.sol000.phase000.time[:]
-#        print('FFT delay finding for:', ant)
-#        for time_id, time in enumerate(H.root.sol000.phase000.time[:]):
-#            delay[time_id] = delayaxis[np.argmax(np.abs(fft(phasecomplex[time_id, :, ant_id, 0], n=upsample_factor * len(freq))))]
-#        plt.plot(timeaxis/3600., delay*1e9)
-#    plt.ylim(-2e-6 * 1e9, 2e-6 * 1e9)
-#    plt.ylabel('Delay [ns]')
-#    plt.xlabel('Time [hr]')
-#    # plt.title(ant)
-#    plt.show()
-#    H.close()
-#    return
+    return
 
 
 def check_strlist_or_intlist(argin):
