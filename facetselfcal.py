@@ -1026,6 +1026,37 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
     
     return
 
+def create_weight_spectrum(inmslist, outweightcol, updateweights=False,\
+                            updateweights_from_thiscolumn='MODEL_DATA'):
+   if not isinstance(inmslist, list):
+        inmslist = [inmslist]
+   stepsize = 1000000
+   for ms in inmslist:
+      t = pt.table(ms, readonly=False, ack=True)
+      weightref = 'WEIGHT_SPECTRUM'
+      if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+         weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
+      if outweightcol not in t.colnames():
+         print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+         desc = t.getcoldesc(weightref)
+         desc['name'] = outweightcol
+         t.addcols(desc)
+      for row in range(0,t.nrows(),stepsize):   
+         print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+         weight = t.getcol(weightref,startrow=row,nrow=stepsize,rowincr=1)
+         if updateweights:
+            model = t.getcol(updateweights_from_thiscolumn,startrow=row,nrow=stepsize,rowincr=1)
+            model[:,:,1] = model[:,:,0] # make everything XX/RR
+            model[:,:,2] = model[:,:,0] # make everything XX/RR
+            model[:,:,3] = model[:,:,0] # make everything XX/RR
+         else: 
+            model = 1.
+         print('Mean weights input',np.nanmean(weight))
+         print('Mean weights change factor',np.nanmean((np.abs(model))**2))
+         t.putcol(outweightcol, weight*(np.abs(model))**2, startrow=row, nrow=stepsize, rowincr=1)
+         #print(weight.shape, model.shape)
+      t.close()
+      del weight, model
 
 def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True):
     ''' Creates a new column for the phase difference solve.
@@ -1055,7 +1086,7 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
 
 
         for row in range(0,t.nrows(),stepsize):
-            print(f"Doing {row} out of {t.nrows()}, (step: {stepsize})")
+            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
             data = t.getcol(incol,startrow=row,nrow=stepsize,rowincr=1)
             phasediff =  np.copy(np.angle(data[:, :, 0]) - np.angle(data[:, :, 3]))  #RR - LL
             data[:, :, 0] = 0.5 * np.exp(1j * phasediff)  # because I = RR+LL/2 (this is tricky because we work with phase diff)
@@ -1460,7 +1491,7 @@ def checklongbaseline(ms):
 def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
             phaseshiftbox=None, msinntimes=None, makecopy=False, \
             makesubtract=False, delaycal=False, freqresolution='195.3125kHz',\
-            dysco=True, cmakephasediffstat=False, dataincolumn='DATA'):
+            dysco=True, cmakephasediffstat=False, dataincolumn='DATA', removeinternational=False):
     ''' Average and/or phase-shift a list of Measurement Sets.
 
     Args:
@@ -1485,7 +1516,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
     for ms_id, ms in enumerate(mslist):
         if (int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep is not None) or (
                 msinnchan is not None) or \
-                (phaseshiftbox is not None) or (msinntimes is not None):  # if this is True then average
+                (phaseshiftbox is not None) or (msinntimes is not None) or removeinternational:  # if this is True then average
             
             # set this first, change name if needed below
             msout = ms + '.avg'
@@ -1503,11 +1534,19 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
             if dysco:
                 cmd += 'msout.storagemanager=dysco '
             if phaseshiftbox is not None:
-                cmd += ' steps=[shift,av] '
+                if removeinternational:
+                    cmd += ' steps=[f,shift,av] '
+                    cmd += ' f.type=filter f.baseline="[CR]S*&" f.remove=True '
+                else:
+                    cmd += ' steps=[shift,av] '
                 cmd += ' shift.type=phaseshifter '
                 cmd += ' shift.phasecenter=\[' + getregionboxcenter(phaseshiftbox) + '\] '
             else:
-                cmd += ' steps=[av] '
+                if removeinternational:
+                    cmd += ' steps=[f,av] '
+                    cmd += ' f.type=filter f.baseline="[CR]S*&" f.remove=True '
+                else:
+                    cmd += ' steps=[av] '
 
                 # freqavg
             if freqstep[ms_id] is not None:
@@ -1545,7 +1584,12 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
 
             msouttmp = ms + '.avgtmp'
             msouttmp = os.path.basename(msouttmp)
-            cmd = 'DP3 msin=' + ms + ' steps=[av] av.type=averager '
+            cmd = 'DP3 msin=' + ms + ' av.type=averager '
+            if removeinternational:
+                cmd += ' steps=[f,av] '
+                cmd += ' f.type=filter f.baseline="[CR]S*&" f.remove=True '
+            else:
+                cmd += ' steps=[av] ' 
             if dysco:
                 cmd += ' msout.storagemanager=dysco '
             cmd += 'msout=' + msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
@@ -5862,7 +5906,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
       img = bdsf.process_image(imagename + str(selfcalcycle).zfill(3) +'-MFS-image.fits',mean_map='zero', rms_map=True, rms_box = (160,40))  
       img.write_catalog(format='bbs', bbs_patches=None, outfile='facetdirections.skymodel', clobber=True)
      else:
-      os.system(f'cp -r {imagename} facetdirections.skymodel')
+      os.system('cp -r {} facetdirections.skymodel'.format(imagename))
      LSM = lsmtool.load('facetdirections.skymodel')
      LSM.group(algorithm=groupalgorithm, targetFlux=str(targetFlux) +' Jy', numClusters=numClusters, weightBySize=weightBySize)
      print('Number of directions', len(LSM.getPatchPositions()))
@@ -6024,7 +6068,7 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
             run(cmd)
          t = pt.table(ms, readonly=False)
          for row in range(0,t.nrows(),stepsize):
-            print(f"Doing {row} out of {t.nrows()}, (step: {stepsize})")
+            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
             data = t.getcol(datacolumn,startrow=row,nrow=stepsize,rowincr=1)
             model = t.getcol('MODEL_DATA', startrow=row,nrow=stepsize,rowincr=1)
             t.putcol(outcol, data-model, startrow=row,nrow=stepsize,rowincr=1)
@@ -6067,7 +6111,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               fullpol=False, taperinnertukey=None, gapchanneldivision=False, \
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None, \
               DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False, \
-              wgridderaccuracy=1e-4, nosmallinversion=False, spectral_corr_list = []):
+              wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     if idg:
@@ -6180,13 +6224,18 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
     os.system('rm -f ' + imageout + '-*.fits')
     imcol = 'CORRECTED_DATA'
-    t = pt.table(mslist[0],readonly=True) # just test for first ms in mslist
-    colnames =t.colnames()
-    if 'CORRECTED_DATA' not in colnames: # for first imaging run
-      imcol = 'DATA'
-    t.close()
-    # baselineav = str (1.5e3*60000.*2.*np.pi *float(pixsize)/(24.*60.*60*float(imsize)) )
-    baselineav = str (1.5e3*60000.*2.*np.pi *1.5/(24.*60.*60*float(imsize)) )
+    # check for all ms in mslist
+    # situation can be that only some ms have CORRECTED_DATA based on what happens in the beamcor
+    # so some ms can have a beam correction and others not
+    # for example because of different directions where the beam was applied
+    for ms in mslist:
+      t = pt.table(ms,readonly=True) 
+      colnames =t.colnames()
+      if 'CORRECTED_DATA' not in colnames: # for first imaging run
+         imcol = 'DATA'
+      t.close()
+    
+    baselineav = str (1.5e3*60000.*2.*np.pi *1.5/(24.*60.*60*np.float(imsize)) )
 
     if imager == 'WSCLEAN':
       cmd = 'wsclean '
@@ -6224,7 +6273,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
          # cmd += '-multiscale '+' -multiscale-scales 0,6,12,16,24,32,42,64,72,128,180,256,380,512,650 '
          cmd += '-multiscale '
          cmd += '-multiscale-scale-bias ' + str(multiscalescalebias) + ' '
-         cmd += '-multiscale-max-scales ' + str(int(np.rint(np.log2(float(imsize)) -3))) + ' '
+         if multiscalemaxscales == 0:
+           cmd += '-multiscale-max-scales ' + str(np.int(np.rint(np.log2(np.float(imsize)) -3))) + ' '
+         else: # use value set by user
+           cmd += '-multiscale-max-scales ' + str(np.int(multiscalemaxscales)) + ' '
       if fitsmask is not None:
         if os.path.isfile(fitsmask):
           cmd += '-fits-mask '+ fitsmask + ' '
@@ -6442,7 +6494,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None, \
               DDE_predict='WSCLEAN', QualityBasedWeights=False, QualityBasedWeights_start=5, \
               QualityBasedWeights_dtime=10.,QualityBasedWeights_dfreq=5., telescope='LOFAR',\
-              ncpu_max=24):
+              ncpu_max=24, mslist_beforeremoveinternational=None):
 
    if len(modeldatacolumns) > 1:
      merge_all_in_one = False
@@ -6938,19 +6990,6 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       incol = 'SMOOTHED_DATA'
 
 
-    if soltype == 'delay':
-        soltype = 'scalarphase'
-
-    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR' and selfcalcycle == 0:
-      create_phasediff_column(ms, incol=incol, dysco=dysco)
-      soltype = 'phaseonly' # do this type of solve, maybe scalarphase is fine? 'scalarphase' #
-      incol='DATA_CIRCULAR_PHASEDIFF'
-      #skymodel = None # solve out of MODEL_DATA complex(1,0)
-      create_MODEL_DATA_PDIFF(ms)
-      modeldata = 'MODEL_DATA_PDIFF'
-
-    #if skymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
-    # ASK IF NOT NECESSARY! THINK NOT!!
     if skymodel is not None and create_modeldata and selfcalcycle == 0 and len(modeldatacolumns) == 0:
         predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
 
@@ -6971,6 +7010,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
         run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
         run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
 
+    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR': # and selfcalcycle == 0:
+      # PM means point source model adjusted weights
+      create_weight_spectrum(ms, 'WEIGHT_SPECTRUM_PM', updateweights_from_thiscolumn='MODEL_DATA') # always do to re-initialize WEIGHT_SPECTRUM_PM
+      if selfcalcycle == 0: # need to do this only once
+        create_phasediff_column(ms, incol=incol, dysco=dysco)
+        create_MODEL_DATA_PDIFF(ms) # make a point source
+      soltype = 'phaseonly' # do this type of solve, maybe scalarphase is fine? 'scalarphase' #
+      incol='DATA_CIRCULAR_PHASEDIFF'      
+      modeldata = 'MODEL_DATA_PDIFF'
 
     if soltype in ['phaseonly_phmin', 'rotation_phmin', 'tec_phmin', 'tecandphase_phmin','scalarphase_phmin']:
       create_phase_column(ms, incol=incol, outcol='DATA_PHASEONLY', dysco=dysco)
@@ -7036,8 +7084,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
         else:
            weight_spectrum =  'WEIGHT_SPECTRUM'
     t.close()
-
-    # check for previous old parmdb and remove them
+    if soltypein == 'scalarphasediff' or soltypein == 'scalarphasediffFR':
+       weight_spectrum = 'WEIGHT_SPECTRUM_PM'
+   
+   # check for previous old parmdb and remove them
     if os.path.isfile(parmdb):
       print('H5 file exists  ', parmdb)
       os.system('rm -f ' + parmdb)
@@ -7124,33 +7174,20 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
 
     print('DP3 solve:', cmd)
     logger.info('DP3 solve: ' + cmd)
-    if selfcalcycle > 0 and (soltypein=="delay"):
-        h5_tocopy = soltypein + str(soltypenumber)+"_selfcalcyle000_" + os.path.basename(ms)+".h5.delayreference"
-        print("COPYING PREVIOUS DELAY SOLUTION")
-        print('cp -r ' + h5_tocopy + ' ' + parmdb)
-        os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
-    if selfcalcycle > 0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff" or soltypein=="delay"):
-        h5_tocopy = soltypein + str(soltypenumber)+"_selfcalcyle000_" + os.path.basename(ms)+".h5.scbackup"
-        print("COPYING PREVIOUS SCALARPHASEDIFF SOLUTION")
-        print('cp -r ' + h5_tocopy + ' ' + parmdb)
-        os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
-    else:
-        run(cmd)
-    if selfcalcycle==0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff" or soltypein == "delay"):
+    
+    # START prepare to remove this at some point
+    run(cmd)
+    if False: 
+        if selfcalcycle > 0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
+            h5_tocopy = soltypein + str(soltypenumber)+"_selfcalcyle000_" + os.path.basename(ms)+".h5.scbackup"
+            print("COPYING PREVIOUS SCALARPHASEDIFF SOLUTION")
+            print('cp -r ' + h5_tocopy + ' ' + parmdb)
+            os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
+        else:
+            run(cmd)
+    if selfcalcycle==0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
         os.system("cp -r " + parmdb + " " + parmdb + ".scbackup")
-    if selfcalcycle==0 and (soltypein == "delay"):
-        # Copy for backup.
-        os.system("cp -r " + parmdb + " " + parmdb + ".delaybackup")
-        # Derive delays only in the first cycle
-        delayphases = FFTdelayfinder(parmdb, b'CS002HBA0')
-        print(f'Writing delay phases to {parmdb}')
-        h5 = h5parm.h5parm(parmdb, readonly=False)
-        ss = h5.getSolset('sol000')
-        st = ss.getSoltab('phase000')
-        st.setValues(delayphases)
-        h5.close()
-        # Copy for subsequent iterations.
-        os.system("cp -r " + parmdb + " " + parmdb + ".delayreference")
+    # END prepare to remove this at some point
 
     if len(modeldatacolumns) > 1: # and DDE_predict == 'WSCLEAN':
        update_sourcedir_h5_dde(parmdb, 'facetdirections.p')
@@ -7544,7 +7581,10 @@ def check_valid_ms(mslist):
     if not os.path.isdir(ms):
       print(ms, ' does not exist')
       raise Exception('ms does not exist')
-
+    if ms.startswith("."):
+      print(ms, ' This ms starts with a "." character, this is not allowed')
+      raise Exception('Invalid ms name, do not use relative paths')
+      
   for ms in mslist:
     t = pt.table(ms, ack=False)
     times = np.unique(t.getcol('TIME'))
@@ -7585,7 +7625,9 @@ def niter_from_imsize(imsize):
 
 def basicsetup(mslist, args):
    longbaseline =  checklongbaseline(mslist[0])
-
+   if args['removeinternational']:
+      print('Forcing longbaseline to False as --removeinternational has been specified')  
+      longbaseline = False  
    # Determine HBA or LBA
    t    = pt.table(mslist[0] + '/SPECTRAL_WINDOW',ack=False)
    freq = np.median(t.getcol('CHAN_FREQ')[0])
@@ -7912,7 +7954,8 @@ def main():
    imagingparser.add_argument('--pixelscale','--pixelsize', help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA (these are also the default values).', type=float)
    imagingparser.add_argument('--channelsout', help='Number of channels out during imaging (see WSClean documentation). This is by default 6.', default=6, type=int)
    imagingparser.add_argument('--multiscale', help='Use multiscale deconvolution (see WSClean documentation).', action='store_true')
-   imagingparser.add_argument('--multiscalescalebias', help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.75.', default=0.75, type=float)
+   imagingparser.add_argument('--multiscalescalebias', help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.7.', default=0.75, type=float)
+   imagingparser.add_argument('--multiscalemaxscales', help='Multiscalescale max scale parameter for WSClean (see WSClean documentation). Default 0 (means set automatically).', default=0, type=int)
    imagingparser.add_argument('--usewgridder', help='Use wgridder from WSClean, mainly useful for very large images. This is by default True.', type=ast.literal_eval, default=True)
    imagingparser.add_argument('--paralleldeconvolution', help="Parallel-deconvolution size for WSCLean (see WSClean documentation). This is by default 0 (no parallel deconvolution). Suggested value for very large images is about 2000.", default=0, type=int)
    imagingparser.add_argument('--parallelgridding', help="Parallel-gridding for WSClean (see WSClean documentation). This is by default 1.", default=1, type=int)
@@ -8004,6 +8047,7 @@ def main():
    flaggingparser.add_argument('--aoflagger-strategy', help='Use this strategy for AOflagger (options are: "default_StokesV.lua")', default=None, type=str)
    flaggingparser.add_argument('--useaoflaggerbeforeavg', help='Flag with AOflagger before (True) or after averaging (False). The default is True.', type=ast.literal_eval, default=True)
    flaggingparser.add_argument('--flagtimesmeared', help='Flag data that is severely time smeared. Warning: expert only', action='store_true')
+   flaggingparser.add_argument('--removeinternational', help='Remove the international stations if present', action='store_true')
       
    startmodelparser = parser.add_argument_group("-------------------------Starting model Settings-------------------------")
    # Startmodel
@@ -8077,7 +8121,7 @@ def main():
 
    args = vars(options)
 
-   version = '7.9.0'
+   version = '7.9.8'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -8183,11 +8227,18 @@ def main():
       compute_phasediffstat(mslist, args)
       sys.exit()
 
+   # set once here, preserve original mslist in case --removeinternational was set
+   if args['removeinternational'] is not None:
+      # used for h5_merge add_ms_stations option
+      mslist_beforeremoveinternational = mslist[:]  #copy by slicing otherwise list refers to original
+   else:
+      mslist_beforeremoveinternational = None
+
    # AVERAGE if requested/possible
    mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'], \
                     start=args['start'], msinnchan=args['msinnchan'],\
                     phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'],\
-                    dysco=args['dysco'])
+                    dysco=args['dysco'],removeinternational=args['removeinternational'])
 
 
    for ms in mslist:
@@ -8371,7 +8422,10 @@ def main():
                              blsmooth_chunking_size=args['blsmooth_chunking_size'], \
                              gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict='DP3', \
                              QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], \
-                             QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],ncpu_max=args['ncpu_max_DP3solve'])
+                             QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],\
+                             QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],\
+                             ncpu_max=args['ncpu_max_DP3solve'],\
+                             mslist_beforeremoveinternational=mslist_beforeremoveinternational)
 
      # TRIGGER MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
@@ -8409,7 +8463,8 @@ def main():
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
                taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, localrmswindow=args['localrmswindow'], \
-               facetregionfile=facetregionfile, DDEimaging=args['DDE'])
+               facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
+               multiscalemaxscales=args['multiscalemaxscales'])
      args['idg'] = idgin # set back
      if args['makeimage_ILTlowres_HBA']:
        if args['phaseupstations'] is None:
@@ -8426,7 +8481,7 @@ def main():
                usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
-               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list)
+               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'])
      if args['makeimage_fullpol']:
        makeimage(mslist, args['imagename'] +'fullpol' + str(i).zfill(3), \
                args['pixelscale'], args['imsize'], \
@@ -8438,7 +8493,7 @@ def main():
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'],\
                multiscalescalebias=args['multiscalescalebias'], fullpol=True,\
-               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'])
+               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'])
 
 
 
@@ -8516,7 +8571,7 @@ def main():
                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],\
                            docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],\
                            blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                           gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'])
+                           gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'],mslist_beforeremoveinternational=mslist_beforeremoveinternational)
 
      # MAKE MASK AND UPDATE UVMIN IF REQUESTED
      if args['fitsmask'] is None:
@@ -8584,7 +8639,7 @@ def main():
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
                taperinnertukey=args['taperinnertukey'], \
                gapchanneldivision=args['gapchanneldivision'], predict=False, \
-               localrmswindow=args['localrmswindow'])
+               localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'])
       
       remove_outside_box(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], \
                          args['imsize'],args['channelsout'], dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'])
