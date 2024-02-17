@@ -926,8 +926,8 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
                 dataslope[:, ff, 0] = np.copy(np.exp(1j * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
                 dataslope[:, ff, 3] = np.copy(np.exp(1j * (np.angle(data[:, ff, 3]) -np.angle(data[:, ff + 1, 3]))))
             else:
-                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0] / data_model[:, ff, 0]) * np.exp(1j * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
-                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3] / data_model[:, ff, 0]) * np.exp(1j * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
+                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0]) * np.exp(1j * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
+                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3]) * np.exp(1j * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
 
         # last freq set to second to last freq because difference reduces length of freq axis with one
         dataslope[:, -1, :] = np.copy(dataslope[:, -2, :])
