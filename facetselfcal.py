@@ -935,7 +935,6 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
         # print( np.nanmedian(np.abs(data)))
         # print( np.nanmedian(np.abs(dataslope)))
         del data, dataslope
-    
     return
 
 def create_weight_spectrum(inmslist, outweightcol, updateweights=False,\
@@ -1913,7 +1912,7 @@ def inputchecker(args, mslist):
         if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', \
                            'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase', \
                            'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', \
-                           'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope', 'delay']:
+                           'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
             print('Invalid soltype input')
             raise Exception('Invalid soltype input')
 
@@ -6200,9 +6199,6 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
       if taperinnertukey is not None:
          cmd += '-taper-inner-tukey ' + str(taperinnertukey) + ' '
 
-      if spectral_corr_list:
-         cmd += '-spectral-correction {:f} '.format(spectral_corr_list[0]) + ','.join(map(str, spectral_corr_list[1:])) + ' '
-
       if (fitspectralpol) and not (fullpol):
          cmd += '-save-source-list '
 
@@ -6945,7 +6941,6 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       soltype = soltype.split('_slope')[0]
       incol = 'DATA_PHASE_SLOPE'
       modeldata = 'MODEL_DATA_PHASE_SLOPE'
-      weight_spectrum = 'WEIGHT_SPECTRUM_PHASE_SLOPE'
 
     if soltype in ['fulljones']:
       print('Setting XY and YX to 0+0i')
@@ -6990,11 +6985,6 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
 
     # figure out which weight_spectrum column to use
     t = pt.table(ms)
-    if 'slope' not in soltype:
-        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-           weight_spectrum =  'WEIGHT_SPECTRUM_SOLVE'
-        else:
-           weight_spectrum =  'WEIGHT_SPECTRUM'
     t.close()
     if soltypein == 'scalarphasediff' or soltypein == 'scalarphasediffFR':
        weight_spectrum = 'WEIGHT_SPECTRUM_PM'
@@ -7879,7 +7869,6 @@ def main():
    imagingparser.add_argument('--taperinnertukey', help="Value for taper-inner-tukey in WSClean (see WSClean documentation), useful to supress negative bowls when using --uvminim. Typically values between 1.5 and 4.0 give good results. The default is None.", default=None, type=float)
    imagingparser.add_argument('--makeimage-ILTlowres-HBA', help='Make 1.2 arcsec tapered image as quality check of ILT 1 arcsec imaging.', action='store_true')
    imagingparser.add_argument('--makeimage-fullpol', help='Make Stokes IQUV version for quality checking.', action='store_true')
-   imagingparser.add_argument('--spectral-correction', help="Apply a spectral correction during deconvolution with WSClean. Affects peak finding, but not overall spectral behaviour. Should be a list containing [v_ref, S, a1, a2, ..., aN] where v_ref and S are the reference frequency and flux density at that frequency, and aN indicates the Nth spectral term.", type=list, default=None)
 
    calibrationparser = parser.add_argument_group("-------------------------Calibration Settings-------------------------")
    # Calibration options
