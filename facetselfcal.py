@@ -7796,7 +7796,8 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
                        dysco=args['dysco'])
    
    # SOLVE AND GET BEST SOLUTION INTERVAL
-   from find_solint import GetSolint
+   os.system('cp ' + args['helperscriptspathh5merge'] + '/source_selection/phasediff_output.py .')
+   from phasediff_output import GetSolint
    for ms_id, ms in enumerate(mslist):
      scorelist = []
      for solint in range(10,11): # temporary for loop
@@ -7984,6 +7985,7 @@ def main():
    parser.add_argument('--stopafterpreapply', help='Stop after preapply of solutions', action='store_true')
    parser.add_argument('--noarchive', help='Do not archive the data.', action='store_true')
    parser.add_argument('--skipbackup', help='Leave the original MS intact and work always work on a DP3 copied dataset.', action='store_true')
+   parser.add_argument('--phasediff_only', help='For finding only the phase difference, we want to stop after calibrating and before imaging', action='store_true')
    parser.add_argument('--helperscriptspath', help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
    parser.add_argument('--helperscriptspathh5merge', help='Path to file location pulled from https://github.com/jurjen93/lofar_helpers.', default=None, type=str)
    parser.add_argument('--configpath', help = 'Path to user config file which will overwrite command line arguments', default = 'facetselfcal_config.txt', type = str)
@@ -8045,7 +8047,6 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/polconv.py .')
    os.system('cp ' + args['helperscriptspath'] + '/vlass_search.py .')
    os.system('cp ' + args['helperscriptspath'] + '/VLASS_dyn_summary.php .')
-   os.system('cp ' + args['helperscriptspath'] + '/find_solint.py .')
    os.system('cp ' + args['helperscriptspath'] + '/ds9facetgenerator.py .')
    os.system('cp ' + args['helperscriptspath'] + '/default_StokesV.lua .')
 
@@ -8332,6 +8333,9 @@ def main():
                              QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],\
                              ncpu_max=args['ncpu_max_DP3solve'],\
                              mslist_beforeremoveinternational=mslist_beforeremoveinternational)
+
+     if args['phasediff_only']:
+       return
 
      # TRIGGER MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
