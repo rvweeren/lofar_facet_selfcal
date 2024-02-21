@@ -963,37 +963,36 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
 
 def create_weight_spectrum(inmslist, outweightcol, updateweights=False,\
                             updateweights_from_thiscolumn='MODEL_DATA'):
-   if not isinstance(inmslist, list):
+    if not isinstance(inmslist, list):
         inmslist = [inmslist]
-   stepsize = 1000000
-   for ms in inmslist:
-      t = pt.table(ms, readonly=False, ack=True)
-      weightref = 'WEIGHT_SPECTRUM'
-      if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-         weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
-      if outweightcol not in t.colnames():
-         print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-         desc = t.getcoldesc(weightref)
-         desc['name'] = outweightcol
-         t.addcols(desc)
-      #os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolum={outweightcol} steps=[]')
-      for row in range(0,t.nrows(),stepsize):   
-         print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-         weight = t.getcol(weightref,startrow=row,nrow=stepsize,rowincr=1).astype(np.float64)
-         if updateweights and updateweights_from_thiscolumn in t.colnames():
-            model = t.getcol(updateweights_from_thiscolumn,startrow=row,nrow=stepsize,rowincr=1).astype(np.complex256)
-            model[:,:,1] = model[:,:,0] # make everything XX/RR
-            model[:,:,2] = model[:,:,0] # make everything XX/RR
-            model[:,:,3] = model[:,:,0] # make everything XX/RR
-         else: 
-            model = 1.
-         print('Mean weights input',np.nanmean(weight))
-         print('Mean weights change factor',np.nanmean((np.abs(model))**2))
-         t.putcol(outweightcol, (weight*(np.abs(model))**2).astype(np.float64), startrow=row, nrow=stepsize, rowincr=1)
-         #print(weight.shape, model.shape)
-      t.close()
-      print()
-      del weight, model
+    stepsize = 1000000
+    for ms in inmslist:
+        t = pt.table(ms, readonly=False, ack=True)
+        weightref = 'WEIGHT_SPECTRUM'
+        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+            weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
+        if outweightcol not in t.colnames():
+            print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+            desc = t.getcoldesc(weightref)
+            desc['name'] = outweightcol
+            t.addcols(desc)
+            #os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolum={outweightcol} steps=[]')
+        for row in range(0,t.nrows(),stepsize):   
+            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+            weight = t.getcol(weightref,startrow=row,nrow=stepsize,rowincr=1).astype(np.float64)
+            if updateweights and updateweights_from_thiscolumn in t.colnames():
+                model = t.getcol(updateweights_from_thiscolumn,startrow=row,nrow=stepsize,rowincr=1).astype(np.complex256)
+                model[:,:,1] = model[:,:,0] # make everything XX/RR
+                model[:,:,2] = model[:,:,0] # make everything XX/RR
+                model[:,:,3] = model[:,:,0] # make everything XX/RR
+            else: 
+                model = 1.
+            print('Mean weights input',np.nanmean(weight))
+            print('Mean weights change factor',np.nanmean((np.abs(model))**2))
+            t.putcol(outweightcol, (weight*(np.abs(model))**2).astype(np.float64), startrow=row, nrow=stepsize, rowincr=1)
+        #print(weight.shape, model.shape)
+        t.close()
+    print()
 
 def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA'):
     if not isinstance(inmslist, list):
@@ -1022,7 +1021,7 @@ def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, upd
 
 def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', \
                            modelcol='MODEL_DATA', stepsize=1000000):
-   """
+    """
     Normalize visibility data by model data.
 
     Args:
@@ -1035,28 +1034,28 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', \
     Returns:
         None
 
-   """
-   if not isinstance(inmslist, list):
+    """
+    if not isinstance(inmslist, list):
         inmslist = [inmslist]
-   for ms in inmslist:
-      t = pt.table(ms, readonly=False, ack=True)
-      if outcol not in t.colnames():
-         print('Adding', outcol, 'to', ms, 'based on', incol)
-         desc = t.getcoldesc(incol)
-         desc['name'] = outcol
-         t.addcols(desc)
-      for row in range(0,t.nrows(),stepsize):   
-         data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
-         if modelcol in t.colnames():
-            model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
-            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            print(np.max(abs(model)))
-            print(np.min(abs(model)))
-            np.divide(data, model, out=data, where=np.abs(model)>0)
-            t.putcol(outcol,data,startrow=row,nrow=stepsize,rowincr=1)
-         else:
-            t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
-      t.close()
+    for ms in inmslist:
+        t = pt.table(ms, readonly=False, ack=True)
+        if outcol not in t.colnames():
+            print('Adding', outcol, 'to', ms, 'based on', incol)
+            desc = t.getcoldesc(incol)
+            desc['name'] = outcol
+            t.addcols(desc)
+            for row in range(0,t.nrows(),stepsize):   
+                data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
+                if modelcol in t.colnames():
+                    model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
+                    print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                    print(np.max(abs(model)))
+                    print(np.min(abs(model)))
+                    np.divide(data, model, out=data, where=np.abs(model)>0)
+                    t.putcol(outcol,data,startrow=row,nrow=stepsize,rowincr=1)
+                else:
+                    t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
+            t.close()
 
 def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM', outcol_weight='WEIGHT_SPECTRUM', stepsize=1000000):
     """ Stack a list of MSes.
