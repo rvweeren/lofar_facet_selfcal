@@ -995,27 +995,30 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False,\
       print()
       del weight, model
 
-def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False,\
-                            updateweights_from_thiscolumn='MODEL_DATA'):
-   if not isinstance(inmslist, list):
+def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA'):
+    if not isinstance(inmslist, list):
         inmslist = [inmslist]
-   for ms in inmslist:
-      t = pt.table(ms, readonly=False, ack=True)
-      weightref = 'WEIGHT_SPECTRUM'
-      if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-         weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
-      if outweightcol not in t.colnames():
-         print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-         desc = t.getcoldesc(weightref)
-         desc['name'] = outweightcol
-         t.addcols(desc)
-      pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 1] = {updateweights_from_thiscolumn}[:, :, 0]')
-      pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 2] = {updateweights_from_thiscolumn}[:, :, 0]')
-      pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 3] = {updateweights_from_thiscolumn}[:, :, 0]')
-      pt.taql(f'UPDATE {ms} SET {outweightcol} = {weightref} * abs({updateweights_from_thiscolumn})**2')
-      #print('Mean weights input',np.nanmean(weight))
-      #print('Mean weights change factor',np.nanmean((np.abs(model))**2))
-      print()
+    for ms in inmslist:
+        t = pt.table(ms, readonly=False, ack=True)
+        weightref = 'WEIGHT_SPECTRUM'
+        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+            weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
+        if outweightcol not in t.colnames():
+            print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+            desc = t.getcoldesc(weightref)
+            desc['name'] = outweightcol
+            t.addcols(desc)
+
+        pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 1] = {updateweights_from_thiscolumn}[:, :, 0]')
+        pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 2] = {updateweights_from_thiscolumn}[:, :, 0]')
+        pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 3] = {updateweights_from_thiscolumn}[:, :, 0]')
+        pt.taql(f'UPDATE {ms} SET {outweightcol} = {weightref} * abs({updateweights_from_thiscolumn})**2')
+        weightmean = pt.taql('SELECT gmean(WEIGHT_SPECTRUM_PM) AS MEAN FROM ms1_nodysco_pointsource.ms').getcol('MEAN')
+        change_factor = pt.taql('SELECT gmean(abs(MODEL_DATA)**2) AS MEAN FROM ms1_nodysco_pointsource.ms').getcol('MEAN')
+
+        print('Mean weights input', weightmean)
+        print('Mean weights change factor', change_factor)
+        print()
 
 def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', \
                            modelcol='MODEL_DATA', stepsize=1000000):
