@@ -348,6 +348,7 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True):
          cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM ' 
          if dysco:
             cmd += 'msout.storagemanager=dysco '
+            cmd += 'msout.storagemanager.weightbitrate=16 '
          cmd += 'msout=' + msoutconcat + ' '
          if os.path.isdir(msoutconcat):
             os.system('rm -rf ' + msoutconcat)
@@ -937,37 +938,211 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
         del data, dataslope
     return
 
+def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: str = 'DATA') -> None:
+    ''' Wraps the stack
+    Arguments
+    ---------
+    inmslist : list
+        List of input MSes to stack
+    '''
+    if type(inmslist) is not list:
+        raise TypeError('Incorrect input type for inmslist')
+    print('Adding weight spectrum to stack')
+    create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True,\
+                            updateweights_from_thiscolumn='MODEL_DATA')
+    print('Attempting to normalise data to point source')
+    normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol=column_to_normalise, \
+                          modelcol='MODEL_DATA')
+    print('Stacking datasets')
+    import time
+    start = time.time()
+    stackMS_taql(inmslist, outputms=msout, incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
+    #stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
+    now = time.time()
+    print(f'Stacking took {now - start} seconds')
+
 def create_weight_spectrum(inmslist, outweightcol, updateweights=False,\
                             updateweights_from_thiscolumn='MODEL_DATA'):
-   if not isinstance(inmslist, list):
+    if not isinstance(inmslist, list):
         inmslist = [inmslist]
-   stepsize = 1000000
-   for ms in inmslist:
-      t = pt.table(ms, readonly=False, ack=True)
-      weightref = 'WEIGHT_SPECTRUM'
-      if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-         weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
-      if outweightcol not in t.colnames():
-         print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-         desc = t.getcoldesc(weightref)
-         desc['name'] = outweightcol
-         t.addcols(desc)
-      for row in range(0,t.nrows(),stepsize):   
-         print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-         weight = t.getcol(weightref,startrow=row,nrow=stepsize,rowincr=1)
-         if updateweights:
-            model = t.getcol(updateweights_from_thiscolumn,startrow=row,nrow=stepsize,rowincr=1)
-            model[:,:,1] = model[:,:,0] # make everything XX/RR
-            model[:,:,2] = model[:,:,0] # make everything XX/RR
-            model[:,:,3] = model[:,:,0] # make everything XX/RR
-         else: 
-            model = 1.
-         print('Mean weights input',np.nanmean(weight))
-         print('Mean weights change factor',np.nanmean((np.abs(model))**2))
-         t.putcol(outweightcol, weight*(np.abs(model))**2, startrow=row, nrow=stepsize, rowincr=1)
-         #print(weight.shape, model.shape)
-      t.close()
-      del weight, model
+    stepsize = 1000000
+    for ms in inmslist:
+        t = pt.table(ms, readonly=False, ack=True)
+        weightref = 'WEIGHT_SPECTRUM'
+        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+            weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
+        if outweightcol not in t.colnames():
+            print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+            desc = t.getcoldesc(weightref)
+            desc['name'] = outweightcol
+            t.addcols(desc)
+            #os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolum={outweightcol} steps=[]')
+        for row in range(0,t.nrows(),stepsize):   
+            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+            weight = t.getcol(weightref,startrow=row,nrow=stepsize,rowincr=1).astype(np.float64)
+            if updateweights and updateweights_from_thiscolumn in t.colnames():
+                model = t.getcol(updateweights_from_thiscolumn,startrow=row,nrow=stepsize,rowincr=1).astype(np.complex256)
+                model[:,:,1] = model[:,:,0] # make everything XX/RR
+                model[:,:,2] = model[:,:,0] # make everything XX/RR
+                model[:,:,3] = model[:,:,0] # make everything XX/RR
+            else: 
+                model = 1.
+            print('Mean weights input',np.nanmean(weight))
+            print('Mean weights change factor',np.nanmean((np.abs(model))**2))
+            t.putcol(outweightcol, (weight*(np.abs(model))**2).astype(np.float64), startrow=row, nrow=stepsize, rowincr=1)
+        #print(weight.shape, model.shape)
+        t.close()
+    print()
+
+def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA'):
+    if not isinstance(inmslist, list):
+        inmslist = [inmslist]
+    for ms in inmslist:
+        t = pt.table(ms, readonly=False, ack=True)
+        weightref = 'WEIGHT_SPECTRUM'
+        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+            weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
+        if outweightcol not in t.colnames():
+            print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+            desc = t.getcoldesc(weightref)
+            desc['name'] = outweightcol
+            t.addcols(desc)
+
+        pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 1] = {updateweights_from_thiscolumn}[:, :, 0]')
+        pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 2] = {updateweights_from_thiscolumn}[:, :, 0]')
+        pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 3] = {updateweights_from_thiscolumn}[:, :, 0]')
+        pt.taql(f'UPDATE {ms} SET {outweightcol} = {weightref} * abs({updateweights_from_thiscolumn})**2')
+        weightmean = pt.taql('SELECT gmean(WEIGHT_SPECTRUM_PM) AS MEAN FROM ms1_nodysco_pointsource.ms').getcol('MEAN')
+        change_factor = pt.taql('SELECT gmean(abs(MODEL_DATA)**2) AS MEAN FROM ms1_nodysco_pointsource.ms').getcol('MEAN')
+
+        print('Mean weights input', weightmean)
+        print('Mean weights change factor', change_factor)
+        print()
+
+def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', \
+                           modelcol='MODEL_DATA', stepsize=1000000):
+    """
+    Normalize visibility data by model data.
+
+    Args:
+        inmslist (str or list of str): List of input Measurement Set(s).
+        outcol (str, optional): Name of the output column for normalized data. Default is 'DATA_NORM'.
+        incol (str, optional): Name of the input column containing original data. Default is 'DATA'.
+        modelcol (str, optional): Name of the model column. Default is 'MODEL_DATA'.
+        stepsize (int, optional): Step size for processing rows. Default is 1000000.
+
+    Returns:
+        None
+
+    """
+    if not isinstance(inmslist, list):
+        inmslist = [inmslist]
+    for ms in inmslist:
+        t = pt.table(ms, readonly=False, ack=True)
+        if outcol not in t.colnames():
+            print('Adding', outcol, 'to', ms, 'based on', incol)
+            desc = t.getcoldesc(incol)
+            desc['name'] = outcol
+            t.addcols(desc)
+            for row in range(0,t.nrows(),stepsize):   
+                data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
+                if modelcol in t.colnames():
+                    model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
+                    print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                    print(np.max(abs(model)))
+                    print(np.min(abs(model)))
+                    np.divide(data, model, out=data, where=np.abs(model)>0)
+                    t.putcol(outcol,data,startrow=row,nrow=stepsize,rowincr=1)
+                else:
+                    t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
+            t.close()
+
+def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM', outcol_weight='WEIGHT_SPECTRUM', stepsize=1000000):
+    """ Stack a list of MSes.
+    
+    Arguments
+    ---------
+    inmslist : list
+        
+    """
+    print(f'Using input column {incol}')
+    print(f'Writing to {outputms}')
+    if not isinstance(inmslist, list):
+        os.system('cp -r {} {}'.format(inmslist, outputms))
+        print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
+        return True
+    if os.path.isdir(outputms): # delete MS if it exists
+        os.system('rm -rf ' +  outputms)
+    os.system('cp -r {} {}'.format(inmslist[0], outputms))
+    pt.taql('UPDATE stack.MS SET DATA=DATA_NORM*WEIGHT_SPECTRUM_PM')
+    t_main = pt.table(outputms, readonly=False, ack=True)
+    for ms in inmslist[1:]:
+        t = pt.table(ms, readonly=True, ack=True)        
+        for row in range(0, t.nrows(), stepsize):
+            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+            weight_main = t_main.getcol(outcol_weight, startrow=row, nrow=stepsize, rowincr=1)
+            visibi_main = t_main.getcol(outcol, startrow=row, nrow=stepsize, rowincr=1)
+            
+            weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1)
+            visibi = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
+            
+            stacked_vis = visibi_main + (visibi * weight)
+
+            average_wgt = weight + weight_main
+            print(f'Writing stacked data to outputcolumn {outcol}')
+            t_main.putcol(outcol, stacked_vis, startrow=row, nrow=stepsize, rowincr=1)
+            print(f'Writing stacked weights to outputcolumn {outcol_weight}')
+            t_main.putcol(outcol_weight, average_wgt, startrow=row, nrow=stepsize, rowincr=1)
+        t.close()
+    t_main.close()
+    # This is probably wrong / not needed.
+    pt.taql('UPDATE stack.MS SET DATA=DATA/WEIGHT_SPECTRUM')
+
+def stackMS_taql(inmslist: list, outputms: str ='stack.MS', incol: str ='DATA_NORM', outcol: str ='DATA', weightref: str = 'WEIGHT_SPECTRUM_PM', outcol_weight: str = 'WEIGHT_SPECTRUM'):
+    """ Stack a list of MSes.
+    
+    Arguments
+    ---------
+    inmslist : list
+        List of input Measurement Sets to stack.
+    outputms : str
+        Name of the output MS.
+    incol : str
+        Column to stack from the individual MSes.
+    outcol : str
+        Name of the stacked data column in the output MS.
+    weightref : str
+        Name of the weight column to stack from the individual files.
+    outcol_weight : str
+        Name of the stacked weight column in the output MS.
+    """
+    print(f'Using input column {incol}')
+    print(f'Writing to {outputms}')
+    if not isinstance(inmslist, list):
+        os.system('cp -r {} {}'.format(inmslist, outputms))
+        print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
+        return True
+    if os.path.isdir(outputms): # delete MS if it exists
+        os.system('rm -rf ' +  outputms)
+    os.system('cp -r {} {}'.format(inmslist[0], outputms))
+
+    TAQLSTR = f'UPDATE {outputms} SET DATA = ('
+    sum_clause = ' + '.join([f'ms{idx:02d}.DATA_NORM * ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist)+1)])
+    sum_weight_clause = ' + '.join([f'ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist)+1)])
+    from_clause = ', '.join([f'{ms} AS ms{idx:02d}' for idx,ms in enumerate(inmslist, start=1)])
+
+    taql_query = f'{TAQLSTR} {sum_clause}) / ({sum_weight_clause}) FROM {from_clause}'
+
+
+    print('Stacking DATA')
+    print(taql_query)
+    pt.taql(taql_query)
+
+    print('Stacking WEIGHT_SPECTRUM')
+    print(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+    pt.taql(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+
+
 
 def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True):
     ''' Creates a new column for the phase difference solve.
@@ -1254,6 +1429,7 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
         cmd += "filter.type=filter filter.remove=True "
         if dysco:
             cmd += "msout.storagemanager=dysco "
+            cmd += 'msout.storagemanager.weightbitrate=16 '
         cmd += "add.type=stationadder "
         if superstation == 'core':
             cmd += "add.stations={ST001:'CS*'} filter.baseline='!CS*&&*' "
@@ -1444,6 +1620,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
             cmd += 'msin.datacolumn=' + dataincolumn + ' '
             if dysco:
                 cmd += 'msout.storagemanager=dysco '
+                cmd += 'msout.storagemanager.weightbitrate=16 '
             if phaseshiftbox is not None:
                 if removeinternational:
                     cmd += ' steps=[f,shift,av] '
@@ -1503,6 +1680,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
                 cmd += ' steps=[av] ' 
             if dysco:
                 cmd += ' msout.storagemanager=dysco '
+                cmd += 'msout.storagemanager.weightbitrate=16 '
             cmd += 'msout=' + msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
 
             # freqavg
@@ -1699,6 +1877,7 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
         cmd += 'msout.datacolumn=' + msoutcol + ' '
     if dysco:
         cmd += 'msout.storagemanager=dysco '
+        cmd += 'msout.storagemanager.weightbitrate=16 '
     count = 0
     for parmdb in inparmdblist:
         if find_closestdir:
@@ -3270,6 +3449,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cut '
     if dysco:
       cmd+= 'msout.storagemanager=dysco '
+      cmd += 'msout.storagemanager.weightbitrate=16 '
     cmd+=  'msin.weightcolumn=WEIGHT_SPECTRUM steps=[] msout.writefullresflag=False '
     if starttime is not None:
       cmd+= 'msin.starttime=' + starttime + ' '
@@ -3281,6 +3461,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cuttmp '
     if dysco:
       cmd+= 'msout.storagemanager=dysco '
+      cmd += 'msout.storagemanager.weightbitrate=16 '
     cmd+= 'msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE steps=[] msout.writefullresflag=False '
     if starttime is not None:
       cmd+= 'msin.starttime=' + starttime + ' '
@@ -3447,6 +3628,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True):
     cmd +='msin.datacolumn=CORRECTED_DATA msout.writefullresflag=False steps=[] '
     if dysco:
       cmd += 'msout.storagemanager=dysco '
+      cmd += 'msout.storagemanager.weightbitrate=16 '
     run(cmd)
 
 
@@ -4789,6 +4971,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
 
         if dysco:
           cmddppp += 'msout.storagemanager=dysco '
+          cmddppp += 'msout.storagemanager.weightbitrate=16 '
 
         print('DP3 applybeam/polconv:', cmddppp)
         run(cmddppp)
@@ -4841,6 +5024,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
 
         if dysco:
           cmd += 'msout.storagemanager=dysco '
+          cmd += 'msout.storagemanager.weightbitrate=16 '
         print('DP3 applycal/polconv:', cmd)
         run(cmd, log=True)
         if msout == '.':
@@ -4881,6 +5065,7 @@ def beamcormodel(ms, dysco=True):
     cmd += 'msout.datacolumn=MODEL_DATA_BEAMCOR steps=[ac1,ac2] '
     if dysco:
       cmd +=  'msout.storagemanager=dysco '
+      cmd += 'msout.storagemanager.weightbitrate=16 '
     cmd += 'ac1.parmdb='+H5name + ' ac2.parmdb='+H5name + ' '
     cmd += 'ac1.type=applycal ac2.type=applycal '
     cmd += 'ac1.correction=phase000 ac2.correction=amplitude000 ac2.updateweights=False '
@@ -5975,6 +6160,7 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
             cmd += 'msin.datacolumn='+ datacolumn + ' '
             if dysco:
                cmd += 'msout.storagemanager=dysco'
+               cmd += 'msout.storagemanager.weightbitrate=16 '
             print(cmd)
             run(cmd)
          t = pt.table(ms, readonly=False)
@@ -7000,6 +7186,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     cmd += 'steps=[ddecal] ddecal.type=ddecal '
     if dysco:
       cmd += 'msout.storagemanager=dysco '
+      cmd += 'msout.storagemanager.weightbitrate=16 '
     
     cmd += 'ddecal.maxiter='+str(int(maxiter)) + ' ddecal.propagatesolutions=True '    
     # Do list comprehension if solint is a list
@@ -7791,8 +7978,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
                        dysco=args['dysco'])
    
    # SOLVE AND GET BEST SOLUTION INTERVAL
-   os.system('cp ' + args['helperscriptspathh5merge'] + '/source_selection/phasediff_output.py .')
-   from phasediff_output import GetSolint
+   from find_solint import GetSolint
    for ms_id, ms in enumerate(mslist):
      scorelist = []
      for solint in range(10,11): # temporary for loop
@@ -7980,7 +8166,6 @@ def main():
    parser.add_argument('--stopafterpreapply', help='Stop after preapply of solutions', action='store_true')
    parser.add_argument('--noarchive', help='Do not archive the data.', action='store_true')
    parser.add_argument('--skipbackup', help='Leave the original MS intact and work always work on a DP3 copied dataset.', action='store_true')
-   parser.add_argument('--phasediff_only', help='For finding only the phase difference, we want to stop after calibrating and before imaging', action='store_true')
    parser.add_argument('--helperscriptspath', help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
    parser.add_argument('--helperscriptspathh5merge', help='Path to file location pulled from https://github.com/jurjen93/lofar_helpers.', default=None, type=str)
    parser.add_argument('--configpath', help = 'Path to user config file which will overwrite command line arguments', default = 'facetselfcal_config.txt', type = str)
@@ -8015,6 +8200,10 @@ def main():
          except:
             if '[' in lineval:
                 lineval = arg_as_list(lineval)
+            elif (lineval.lower() == 'true') or (lineval.lower() == 'false'):
+                print(type(lineval))
+                print(lineval)
+                lineval = ast.literal_eval(lineval)
          # this updates the vaue if it exists, or creates a new one if it doesn't
          arg = line.split('=')[0].rstrip()
          if arg not in vars(options).keys():
@@ -8042,6 +8231,7 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/polconv.py .')
    os.system('cp ' + args['helperscriptspath'] + '/vlass_search.py .')
    os.system('cp ' + args['helperscriptspath'] + '/VLASS_dyn_summary.php .')
+   os.system('cp ' + args['helperscriptspath'] + '/find_solint.py .')
    os.system('cp ' + args['helperscriptspath'] + '/ds9facetgenerator.py .')
    os.system('cp ' + args['helperscriptspath'] + '/default_StokesV.lua .')
 
@@ -8328,9 +8518,6 @@ def main():
                              QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],\
                              ncpu_max=args['ncpu_max_DP3solve'],\
                              mslist_beforeremoveinternational=mslist_beforeremoveinternational)
-
-     if args['phasediff_only']:
-       return
 
      # TRIGGER MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
