@@ -7170,11 +7170,18 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       includesphase = False
 
     # figure out which weight_spectrum column to use
-    t = pt.table(ms)
-    t.close()
     if soltypein == 'scalarphasediff' or soltypein == 'scalarphasediffFR':
        weight_spectrum = 'WEIGHT_SPECTRUM_PM'
-   
+    else:
+        # check for WEIGHT_SPECTRUM_SOLVE from DR2 products
+      t = pt.table(ms, ack=False)
+      if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+         weight_spectrum =  'WEIGHT_SPECTRUM_SOLVE'
+      else:
+         weight_spectrum =  'WEIGHT_SPECTRUM'
+      t.close()  
+
+			
    # check for previous old parmdb and remove them
     if os.path.isfile(parmdb):
       print('H5 file exists  ', parmdb)
