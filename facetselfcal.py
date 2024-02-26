@@ -7173,7 +7173,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     if soltypein == 'scalarphasediff' or soltypein == 'scalarphasediffFR':
        weight_spectrum = 'WEIGHT_SPECTRUM_PM'
     else:
-        # check for WEIGHT_SPECTRUM_SOLVE from DR2 products
+      # check for WEIGHT_SPECTRUM_SOLVE from DR2 products
       t = pt.table(ms, ack=False)
       if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
          weight_spectrum =  'WEIGHT_SPECTRUM_SOLVE'
