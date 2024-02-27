@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
-# DP3 DDE solves write bad/wrong coordinates to H5 file, should be fixed now
-# DDE even if DP3 predict selected it seems to do an IDG predict (without facets, so disable predict when DDE and image000, same for WSClean, as predicts will run per facet not for the full image000), should be fixed now
+# scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # flux YX en XY to zero in full jones can be wrong, if fulljones is not the last solve type
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
@@ -948,6 +947,7 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
     if type(inmslist) is not list:
         raise TypeError('Incorrect input type for inmslist')
     print('Adding weight spectrum to stack')
+    #create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True,\
     create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True,\
                             updateweights_from_thiscolumn='MODEL_DATA')
     print('Attempting to normalise data to point source')
@@ -962,66 +962,71 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
     print(f'Stacking took {now - start} seconds')
 
 def create_weight_spectrum(inmslist, outweightcol, updateweights=False,\
+                            updateweights_from_thiscolumn='MODEL_DATA', backup=True):
+   if not isinstance(inmslist, list):
+        inmslist = [inmslist]
+   stepsize = 1000000
+   for ms in inmslist:
+      t = pt.table(ms, readonly=False, ack=True)
+      weightref = 'WEIGHT_SPECTRUM'
+      if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+         weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
+      if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
+         desc = t.getcoldesc(weightref)
+         desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
+         t.addcols(desc)
+        
+      if outweightcol not in t.colnames():
+         print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+         desc = t.getcoldesc(weightref)
+         desc['name'] = outweightcol
+         t.addcols(desc)
+      #os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolum={outweightcol} steps=[]')
+      for row in range(0,t.nrows(),stepsize):   
+         print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+         weight = t.getcol(weightref,startrow=row,nrow=stepsize,rowincr=1).astype(np.float64)
+         if updateweights and updateweights_from_thiscolumn in t.colnames():
+            model = t.getcol(updateweights_from_thiscolumn,startrow=row,nrow=stepsize,rowincr=1).astype(np.complex256)
+            model[:,:,1] = model[:,:,0] # make everything XX/RR
+            model[:,:,2] = model[:,:,0] # make everything XX/RR
+            model[:,:,3] = model[:,:,0] # make everything XX/RR
+         else: 
+            model = 1.
+         print('Mean weights input',np.nanmean(weight))
+         print('Mean weights change factor',np.nanmean((np.abs(model))**2))
+         t.putcol(outweightcol, (weight*(np.abs(model))**2).astype(np.float64), startrow=row, nrow=stepsize, rowincr=1)
+         #print(weight.shape, model.shape)
+      t.close()
+      print()
+      del weight, model
+
+def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False,\
                             updateweights_from_thiscolumn='MODEL_DATA'):
-    if not isinstance(inmslist, list):
+   if not isinstance(inmslist, list):
         inmslist = [inmslist]
-    stepsize = 1000000
-    for ms in inmslist:
-        t = pt.table(ms, readonly=False, ack=True)
-        weightref = 'WEIGHT_SPECTRUM'
-        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-            weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
-        if outweightcol not in t.colnames():
-            print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-            desc = t.getcoldesc(weightref)
-            desc['name'] = outweightcol
-            t.addcols(desc)
-            #os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolum={outweightcol} steps=[]')
-        for row in range(0,t.nrows(),stepsize):   
-            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            weight = t.getcol(weightref,startrow=row,nrow=stepsize,rowincr=1).astype(np.float64)
-            if updateweights and updateweights_from_thiscolumn in t.colnames():
-                model = t.getcol(updateweights_from_thiscolumn,startrow=row,nrow=stepsize,rowincr=1).astype(np.complex256)
-                model[:,:,1] = model[:,:,0] # make everything XX/RR
-                model[:,:,2] = model[:,:,0] # make everything XX/RR
-                model[:,:,3] = model[:,:,0] # make everything XX/RR
-            else: 
-                model = 1.
-            print('Mean weights input',np.nanmean(weight))
-            print('Mean weights change factor',np.nanmean((np.abs(model))**2))
-            t.putcol(outweightcol, (weight*(np.abs(model))**2).astype(np.float64), startrow=row, nrow=stepsize, rowincr=1)
-        #print(weight.shape, model.shape)
-        t.close()
-    print()
-
-def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA'):
-    if not isinstance(inmslist, list):
-        inmslist = [inmslist]
-    for ms in inmslist:
-        t = pt.table(ms, readonly=False, ack=True)
-        weightref = 'WEIGHT_SPECTRUM'
-        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-            weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
-        if outweightcol not in t.colnames():
-            print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-            desc = t.getcoldesc(weightref)
-            desc['name'] = outweightcol
-            t.addcols(desc)
-
-        pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 1] = {updateweights_from_thiscolumn}[:, :, 0]')
-        pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 2] = {updateweights_from_thiscolumn}[:, :, 0]')
-        pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[:, :, 3] = {updateweights_from_thiscolumn}[:, :, 0]')
-        pt.taql(f'UPDATE {ms} SET {outweightcol} = {weightref} * abs({updateweights_from_thiscolumn})**2')
-        weightmean = pt.taql('SELECT gmean(WEIGHT_SPECTRUM_PM) AS MEAN FROM ms1_nodysco_pointsource.ms').getcol('MEAN')
-        change_factor = pt.taql('SELECT gmean(abs(MODEL_DATA)**2) AS MEAN FROM ms1_nodysco_pointsource.ms').getcol('MEAN')
-
-        print('Mean weights input', weightmean)
-        print('Mean weights change factor', change_factor)
-        print()
+   for ms in inmslist:
+      t = pt.table(ms, readonly=False, ack=True)
+      weightref = 'WEIGHT_SPECTRUM'
+      if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+         weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
+      if outweightcol not in t.colnames():
+         print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+         desc = t.getcoldesc(weightref)
+         desc['name'] = outweightcol
+         t.addcols(desc)
+      pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[,1] = {updateweights_from_thiscolumn}[,0]')
+      pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[,2] = {updateweights_from_thiscolumn}[,0]')
+      pt.taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[,3] = {updateweights_from_thiscolumn}[,0]')
+      pt.taql(f'UPDATE {ms} SET {outweightcol} = {weightref} * abs({updateweights_from_thiscolumn})**2')
+      weightmean = pt.taql('SELECT gmean(WEIGHT_SPECTRUM_PM) AS MEAN FROM ms1_nodysco_pointsource.ms').getcol('MEAN')
+      change_factor = pt.taql('SELECT gmean(abs(MODEL_DATA)**2) AS MEAN FROM ms1_nodysco_pointsource.ms').getcol('MEAN')
+      print('Mean weights input', weightmean)
+      print('Mean weights change factor', change_factor)
+      print()
 
 def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', \
                            modelcol='MODEL_DATA', stepsize=1000000):
-    """
+   """
     Normalize visibility data by model data.
 
     Args:
@@ -1034,28 +1039,28 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', \
     Returns:
         None
 
-    """
-    if not isinstance(inmslist, list):
+   """
+   if not isinstance(inmslist, list):
         inmslist = [inmslist]
-    for ms in inmslist:
-        t = pt.table(ms, readonly=False, ack=True)
-        if outcol not in t.colnames():
-            print('Adding', outcol, 'to', ms, 'based on', incol)
-            desc = t.getcoldesc(incol)
-            desc['name'] = outcol
-            t.addcols(desc)
-            for row in range(0,t.nrows(),stepsize):   
-                data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
-                if modelcol in t.colnames():
-                    model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
-                    print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-                    print(np.max(abs(model)))
-                    print(np.min(abs(model)))
-                    np.divide(data, model, out=data, where=np.abs(model)>0)
-                    t.putcol(outcol,data,startrow=row,nrow=stepsize,rowincr=1)
-                else:
-                    t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
-            t.close()
+   for ms in inmslist:
+      t = pt.table(ms, readonly=False, ack=True)
+      if outcol not in t.colnames():
+         print('Adding', outcol, 'to', ms, 'based on', incol)
+         desc = t.getcoldesc(incol)
+         desc['name'] = outcol
+         t.addcols(desc)
+      for row in range(0,t.nrows(),stepsize):   
+         data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
+         if modelcol in t.colnames():
+            model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
+            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+            print(np.max(abs(model)))
+            print(np.min(abs(model)))
+            np.divide(data, model, out=data, where=np.abs(model)>0)
+            t.putcol(outcol,data,startrow=row,nrow=stepsize,rowincr=1)
+         else:
+            t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
+      t.close()
 
 def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM', outcol_weight='WEIGHT_SPECTRUM', stepsize=1000000):
     """ Stack a list of MSes.
@@ -6590,6 +6595,60 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               QualityBasedWeights_dtime=10.,QualityBasedWeights_dfreq=5., telescope='LOFAR',\
               ncpu_max=24, mslist_beforeremoveinternational=None):
 
+   ## --- start STACK code ---
+   if args['stack']:
+     # create MODEL_DATA because in case it does not exist, happens under these conditions
+     # only for first (=0) selfcalcycle cycle and if user provides a model
+     if ((skymodel is not None) or (skymodelpointsource is not None) \
+         or (wscleanskymodel is not None)) and selfcalcycle == 0:
+       for ms in mslist: # do the predicts (only used for stacking)   
+         print('Doing sky predict for stacking...') 
+         if skymodel is not None:
+           predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
+
+         if wscleanskymodel is not None:
+           makeimage([ms], wscleanskymodel, 1., 1., \
+                     len(glob.glob(wscleanskymodel + '-????-model.fits')),\
+                     0, 0.0, onlypredict=True, idg=False, usewgridder=True, \
+                     gapchanneldivision=gapchanneldivision)
+
+         if skymodelpointsource is not None :
+           # create MODEL_DATA (no dysco!)
+           run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
+           # do the predict with taql
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource)+ "+0i)'")
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource)+ "+0i)'")
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
+
+     # do the stack and normalization
+     stackwrapper(mslist, msout='stack.MS', column_to_normalise='DATA')
+     mslist_orig = mslist[:] # so we can use it for the applycal
+     mslist = ['stack.MS']
+     
+     # set MODEL_DATA to point source in stack
+     t = pt.table('stack.MS', ack=False)
+     if 'MODEL_DATA' not in t.colnames():
+       t.close()
+       run('DP3 msin=stack.MS msout=. msout.datacolumn=MODEL_DATA steps=[]')
+     else:
+       t.close()
+     print('Predict point source for stack.MS')
+     # do the predict with taql
+     run("taql" + " 'update stack.MS set MODEL_DATA[,0]=(1.0+ +0i)'")
+     run("taql" + " 'update stack.MS set MODEL_DATA[,3]=(1.0+ +0i)'")
+     run("taql" + " 'update stack.MS set MODEL_DATA[,1]=(0+0i)'")
+     run("taql" + " 'update stack.MS set MODEL_DATA[,2]=(0+0i)'")
+     
+     print(mslist, mslist_orig)
+     
+     # set all these to None to avoid skymodel predicts in runDPPPbase()
+     skymodelpointsource = None
+     wscleanskymodel = None
+     skymodel = None
+   ## --- end STACK code ---     
+    
+
    if len(modeldatacolumns) > 1:
      merge_all_in_one = False
    else:
@@ -6770,6 +6829,15 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        run('python3 NeReVar.py --filename=' + ms +\
            ' --dt=' + str(QualityBasedWeights_dtime) + ' --dnu=' + str(QualityBasedWeights_dfreq) +\
             ' --DiagDir=plotlosoto' + ms + '/NeReVar/ --basename=_selfcalcycle' + str(selfcalcycle).zfill(3) + ' --modelcol=MODEL_DATA')
+
+   ## --- start STACK code ---
+   if args['stack']:
+     for ms in mslist_orig:
+       applycal(ms, parmdbmergename, msincol='DATA',msoutcol='CORRECTED_DATA', dysco=dysco)
+       # note parmdbmergename should alwats be correct since we only had one MS (stack.MS) and so it does only "loop" over one MS. 
+   ## --- end STACK code ---
+   
+
    
    if len(modeldatacolumns) > 0:
       np.save('wsclean_h5list.npy', wsclean_h5list)
@@ -7104,11 +7172,19 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
         run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
         run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
 
-    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR': # and selfcalcycle == 0:
+    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
       # PM means point source model adjusted weights
-      create_weight_spectrum(ms, 'WEIGHT_SPECTRUM_PM', updateweights_from_thiscolumn='MODEL_DATA') # always do to re-initialize WEIGHT_SPECTRUM_PM
-      if selfcalcycle == 0: # need to do this only once
+      create_weight_spectrum(ms, 'WEIGHT_SPECTRUM_PM', updateweights_from_thiscolumn='MODEL_DATA', updateweights=False) # always do to re-initialize WEIGHT_SPECTRUM_PM (because stack.MS is re-created each selfcalcycle, also MODEL_DATA changes
+      # for now use updateweights=False, seems to give better results for scalarphasediff type solves
+      # updateweights means WEIGHT_SPECTRUM_PM is updated based on MODEL_DATA**2, however so far this does not seem to give better results
+      
+      # check if colnames are there each time because of stack.MS
+      t = pt.table(ms, ack=False)
+      colnames = t.colnames()
+      t.close() # needs a close here because below were are writing columns potentially
+      if 'DATA_CIRCULAR_PHASEDIFF' not in colnames:
         create_phasediff_column(ms, incol=incol, dysco=dysco)
+      if 'MODEL_DATA_PDIFF' not in colnames:
         create_MODEL_DATA_PDIFF(ms) # make a point source
       soltype = 'phaseonly' # do this type of solve, maybe scalarphase is fine? 'scalarphase' #
       incol='DATA_CIRCULAR_PHASEDIFF'      
@@ -7180,8 +7256,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       else:
          weight_spectrum =  'WEIGHT_SPECTRUM'
       t.close()  
-
-			
+ 
    # check for previous old parmdb and remove them
     if os.path.isfile(parmdb):
       print('H5 file exists  ', parmdb)
@@ -7189,7 +7264,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
 
     cmd = 'DP3 numthreads='+str(np.min([multiprocessing.cpu_count(),ncpu_max])) + ' msin=' + ms + ' '
     cmd += 'msout=. ddecal.mode=' + soltype + ' '
-    cmd += 'msin.weightcolumn='+weight_spectrum + ' '
+    cmd += 'msin.weightcolumn=' + weight_spectrum + ' '
     cmd += 'steps=[ddecal] ddecal.type=ddecal '
     if dysco:
       cmd += 'msout.storagemanager=dysco '
@@ -8019,6 +8094,61 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
    
    return
 
+def multiscale_trigger(fitsmask, args):
+   # update multiscale cleaning setting if allowed/requested
+   multiscale = args['multiscale']
+   if args['update_multiscale'] and fitsmask is not None:
+      print('Size largest island [pixels]:', getlargestislandsize(fitsmask))
+      logger.info('Size largest island [pixels]:' + str(getlargestislandsize(fitsmask)))
+      if getlargestislandsize(fitsmask) > 1000:
+         logger.info('Triggering multiscale clean')
+         multiscale = True
+   return multiscale
+
+def update_uvmin(fitsmask, longbaseline, args):
+   # update uvmin if allowed/requested
+   uvmin = args['uvmin']
+   if not longbaseline and args['update_uvmin'] and fitsmask is not None:
+      if getlargestislandsize(fitsmask) > 1000:
+         print('Size of largest island [pixels]:', getlargestislandsize(fitsmask))
+         logger.info('Size of largest island [pixels]:' + str(getlargestislandsize(fitsmask)))
+         if not LBA:
+            print('Extended emission found, setting uvmin to 750 klambda')
+            logger.info('Extended emission found, setting uvmin to 750 klambda')
+            args['uvmin'] = 750
+         else:
+            print('Extended emission found, setting uvmin to 250 klambda')
+            logger.info('Extended emission found, setting uvmin to 250 klambda')
+            args['uvmin'] = 250
+   return uvmin  
+
+def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args):
+   # MAKE MASK IF REQUESTED
+   # set imagename
+   if args['imager'] == 'WSCLEAN':
+      if args['idg']:
+        imagename  = args['imagename'] + str(selfcalcycle).zfill(3) + '-MFS-image.fits'
+      else:
+        imagename  = args['imagename'] + str(selfcalcycle).zfill(3) + '-MFS-image.fits'
+   if args['imager'] == 'DDFACET':
+      imagename  = args['imagename'] + str(selfcalcycle).zfill(3) +'.app.restored.fits'
+   if args['channelsout'] == 1: # strip MFS from name if no channels images present
+      imagename = imagename.replace('-MFS', '').replace('-I','')
+
+   # check if we need/can do masking & mask
+   if args['fitsmask'] is None:     
+      if maskthreshold_selfcalcycle[selfcalcycle] > 0.0:
+         cmdm  = 'MakeMask.py --Th='+ str(maskthreshold_selfcalcycle[selfcalcycle]) + \
+                 ' --RestoredIm=' + imagename
+         if fitsmask is not None:
+            if os.path.isfile(imagename + '.mask.fits'):
+               os.system('rm -f ' + imagename + '.mask.fits')
+         run(cmdm)
+         fitsmask = imagename + '.mask.fits'
+      else:
+         fitsmask = None # no masking requested as args['maskthreshold'] less/equal 0
+   return fitsmask, imagename
+
 
 ###############################
 ############## MAIN ###########
@@ -8179,7 +8309,7 @@ def main():
    parser.add_argument('--auto', help='Trigger fully automated processing (HBA only for now).', action='store_true')
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction.', action='store_true')
    parser.add_argument('--targetcalILT', help="Type of automated target calibration for HBA international baseline data when --auto is used. Options are: 'tec', 'tecandphase', 'scalarphase'. The default is 'tec'.", default='scalarphase', type=str)
-
+   parser.add_argument('--stack', help='Stacking of visibility data for multiple sources to increase S/N - still under construction.', action='store_true')
 
 
 
@@ -8217,10 +8347,12 @@ def main():
             raise KeyError('Encountered invalid option {:s} in config file {:s}.'.format(arg, os.path.abspath('facetselfcal_config.txt')))
          setattr(options, arg, lineval)
 
-
    args = vars(options)
+   
+   if args['stack']:
+      args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
 
-   version = '7.9.8'
+   version = '8.0.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -8433,17 +8565,6 @@ def main():
        if args['channelsout'] == 1:
              fitsmask = fitsmask.replace('-MFS', '').replace('-I','')
 
-     # BEAM CORRECTION
-     # if not args['no_beamcor'] and i == 0:
-     #    for ms in mslist:
-     #      beamcor(ms, usedppp=args['use_dpppbeamcor'], dysco=args['dysco'])
-
-     # CONVERT TO CIRCULAR/LINEAR CORRELATIONS      
-     # if (args['docircular'] or args['dolinear']) and i == 0:
-
-     #    for ms in mslist:
-     #      circular(ms, linear=args['dolinear'], dysco=args['dysco'])
-
      # BEAM CORRECTION AND/OR CONVERT TO CIRCULAR/LINEAR CORRELATIONS
      for ms in mslist:
        if ((args['docircular'] or args['dolinear']) or (set_beamcor(ms, args['beamcor']))) and (i == 0):
@@ -8481,7 +8602,7 @@ def main():
      if args['stopafterpreapply']:
        print('Stopping as requested via --stopafterpreapply')
        return
-     
+
      # CALIBRATE AGAINST SKYMODEL
      if (args['skymodel'] is not None or args['skymodelpointsource'] is not None \
          or args['wscleanskymodel'] is not None) and (i ==0):
@@ -8672,48 +8793,14 @@ def main():
                            blsmooth_chunking_size=args['blsmooth_chunking_size'], \
                            gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'],mslist_beforeremoveinternational=mslist_beforeremoveinternational)
 
-     # MAKE MASK AND UPDATE UVMIN IF REQUESTED
-     if args['fitsmask'] is None:
-       if args['imager'] == 'WSCLEAN':
-         if args['idg']:
-           imagename  = args['imagename'] + str(i).zfill(3) + '-MFS-image.fits'
-         else:
-           imagename  = args['imagename'] + str(i).zfill(3) + '-MFS-image.fits'
-       if args['imager'] == 'DDFACET':
-         imagename  = args['imagename'] + str(i).zfill(3) +'.app.restored.fits'
-       if args['channelsout'] == 1: # strip MFS from name if no channels images present
-         imagename = imagename.replace('-MFS', '').replace('-I','')
-       if maskthreshold_selfcalcycle[i] > 0.0:
-         cmdm  = 'MakeMask.py --Th='+ str(maskthreshold_selfcalcycle[i]) + ' --RestoredIm=' + imagename
-         if fitsmask is not None:
-           if os.path.isfile(imagename + '.mask.fits'):
-             os.system('rm -f ' + imagename + '.mask.fits')
-         run(cmdm)
-         fitsmask = imagename + '.mask.fits'
-
-         # update uvmin if allowed/requested
-         if not longbaseline and args['update_uvmin']:
-           if getlargestislandsize(fitsmask) > 1000:
-             print('Size of largest island [pixels]:', getlargestislandsize(fitsmask))
-             logger.info('Size of largest island [pixels]:' + str(getlargestislandsize(fitsmask)))
-             if not LBA:
-               print('Extended emission found, setting uvmin to 750 klambda')
-               logger.info('Extended emission found, setting uvmin to 750 klambda')
-               args['uvmin'] = 750
-             else:
-               print('Extended emission found, setting uvmin to 250 klambda')
-               logger.info('Extended emission found, setting uvmin to 250 klambda')
-               args['uvmin'] = 250
-         # update to multiscale cleaning if large island is present
-         if args['update_multiscale']:
-           print('Size largest island [pixels]:', getlargestislandsize(fitsmask))
-           logger.info('Size largest island [pixels]:' + str(getlargestislandsize(fitsmask)))
-           if getlargestislandsize(fitsmask) > 1000:
-             logger.info('Triggering multiscale clean')
-             args['multiscale'] = True
-
-       else:
-         fitsmask = None # no masking requested as args['maskthreshold'] less/equal 0
+     # update fitsmake if allowed/requested 
+     fitsmask, imagename = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args)
+  
+     # update uvmin if allowed/requested
+     args['uvmin'] = update_uvmin(fitsmask, longbaseline, args)
+        
+     # update to multiscale cleaning if large island is present
+     args['multiscale'] = multiscale_trigger(fitsmask, args)
 
      # CUT FLAGGED DATA FROM MS AT START&END to win some compute time if possible
      # if TEC and not args['forwidefield']: # does not work for phaseonly sols
