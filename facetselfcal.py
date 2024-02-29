@@ -6332,7 +6332,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
          imcol = 'DATA'
       t.close()
     
-    baselineav = str (1.5e3*60000.*2.*np.pi *1.5/(24.*60.*60*np.float(imsize)) )
+    baselineav = str (1.5e3*60000.*2.*np.pi *1.5/(24.*60.*60*float(imsize)) )
 
     if imager == 'WSCLEAN':
       cmd = 'wsclean '
@@ -6371,9 +6371,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
          cmd += '-multiscale '
          cmd += '-multiscale-scale-bias ' + str(multiscalescalebias) + ' '
          if multiscalemaxscales == 0:
-           cmd += '-multiscale-max-scales ' + str(np.int(np.rint(np.log2(np.float(imsize)) -3))) + ' '
+           cmd += '-multiscale-max-scales ' + str(int(np.rint(np.log2(float(imsize)) -3))) + ' '
          else: # use value set by user
-           cmd += '-multiscale-max-scales ' + str(np.int(multiscalemaxscales)) + ' '
+           cmd += '-multiscale-max-scales ' + str(int(multiscalemaxscales)) + ' '
       if fitsmask is not None:
         if os.path.isfile(fitsmask):
           cmd += '-fits-mask '+ fitsmask + ' '
