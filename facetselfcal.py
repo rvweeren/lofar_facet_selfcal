@@ -8060,7 +8060,8 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
                        dysco=args['dysco'])
    
    # SOLVE AND GET BEST SOLUTION INTERVAL
-   from find_solint import GetSolint
+   os.system('cp ' + args['helperscriptspathh5merge'] + '/source_selection/phasediff_output.py .')
+   from phasediff_output import GetSolint
    for ms_id, ms in enumerate(mslist):
      scorelist = []
      for solint in range(10,11): # temporary for loop
@@ -8148,6 +8149,22 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args):
       else:
          fitsmask = None # no masking requested as args['maskthreshold'] less/equal 0
    return fitsmask, imagename
+
+def get_diagnostics(fitsfiles, h5s, station):
+    """
+    Get diagnostics to evaluate the selfcal quality in terms of image fidelity and solution stability.
+    This functionality is in particular useful for selecting DD calibrators for VLBI widefield imaging.
+
+    :param fitsfiles: fits files
+    :param h5s: h5parm solution files
+    :param station: for Dutch calibration use 'alldutch' for VLBI calibration use 'international'
+    """
+
+    os.system('cp ' + args['helperscriptspathh5merge'] + '/source_selection/selfcal_selection.py .')
+    from selfcal_selection import main
+    main(h5s, fitsfiles, station)
+
+    return
 
 
 ###############################
@@ -8303,6 +8320,7 @@ def main():
    parser.add_argument('--stopafterpreapply', help='Stop after preapply of solutions', action='store_true')
    parser.add_argument('--noarchive', help='Do not archive the data.', action='store_true')
    parser.add_argument('--skipbackup', help='Leave the original MS intact and work always work on a DP3 copied dataset.', action='store_true')
+   parser.add_argument('--phasediff_only', help='For finding only the phase difference, we want to stop after calibrating and before imaging', action='store_true')
    parser.add_argument('--helperscriptspath', help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.', default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
    parser.add_argument('--helperscriptspathh5merge', help='Path to file location pulled from https://github.com/jurjen93/lofar_helpers.', default=None, type=str)
    parser.add_argument('--configpath', help = 'Path to user config file which will overwrite command line arguments', default = 'facetselfcal_config.txt', type = str)
@@ -8310,7 +8328,7 @@ def main():
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction.', action='store_true')
    parser.add_argument('--targetcalILT', help="Type of automated target calibration for HBA international baseline data when --auto is used. Options are: 'tec', 'tecandphase', 'scalarphase'. The default is 'tec'.", default='scalarphase', type=str)
    parser.add_argument('--stack', help='Stacking of visibility data for multiple sources to increase S/N - still under construction.', action='store_true')
-
+   parser.add_argument('--get_diagnostics', help='With this functionality you can get a prediction for which selfcal cycle gives the highest quality output (works only when >5 selfcal cycle)', action='store_true')
 
 
    parser.add_argument('ms', nargs='+', help='msfile(s)')
@@ -8370,7 +8388,6 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/polconv.py .')
    os.system('cp ' + args['helperscriptspath'] + '/vlass_search.py .')
    os.system('cp ' + args['helperscriptspath'] + '/VLASS_dyn_summary.php .')
-   os.system('cp ' + args['helperscriptspath'] + '/find_solint.py .')
    os.system('cp ' + args['helperscriptspath'] + '/ds9facetgenerator.py .')
    os.system('cp ' + args['helperscriptspath'] + '/default_StokesV.lua .')
 
@@ -8835,6 +8852,22 @@ def main():
      if not LBA:
       archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
       cleanup(mslist)
+
+   # Give additional diagnostics about the selfcal quality --> in particular useful for calibrator selection
+   if args['get_diagnostics']:
+       if abs(args['stop']-args['start'])>5:
+           mergedh5 = [h5 for h5 in glob.glob('merged_selfcalcyle*.h5') if 'linearfulljones' not in h5]
+           if longbaseline:
+               station = 'international'
+           else:
+               station = 'alldutch'
+           images = glob.glob("*MFS-I-image.fits")
+           if len(images)==0:
+               images = glob.glob("*MFS-image.fits")
+           get_diagnostics(images, mergedh5, station)
+       else:
+           print("Need at least 5 selfcal cycles for getting diagnostics")
+
 
 if __name__ == "__main__":
    main()
