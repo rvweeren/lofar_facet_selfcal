@@ -1,5 +1,11 @@
 #!/usr/bin/env python
 
+# stacking, no update multiscale, no uvmin update
+# for stacking auto masking works, but no user masks possible
+# many options for stacking are not allowed and result in crashes, like DDE_predict
+# many functions are not stacking robust
+# and checks for input settings that do not make sense if --stack is set
+
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # flux YX en XY to zero in full jones can be wrong, if fulljones is not the last solve type
@@ -365,7 +371,7 @@ def check_equidistant_freqs(mslist):
         reval (int): the returncode of the command.
     '''
     for ms in mslist:
-        t = pt.table(ms + '/SPECTRAL_WINDOW')
+        t = pt.table(ms + '/SPECTRAL_WINDOW', ack=False)
         chan_freqs = t.getcol('CHAN_FREQ')[0]
         if len(chan_freqs) == 1: # single channel data
             return  
@@ -1054,8 +1060,8 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', \
          if modelcol in t.colnames():
             model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
             print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            print(np.max(abs(model)))
-            print(np.min(abs(model)))
+            #print(np.max(abs(model)))
+            #print(np.min(abs(model)))
             np.divide(data, model, out=data, where=np.abs(model)>0)
             t.putcol(outcol,data,startrow=row,nrow=stepsize,rowincr=1)
          else:
@@ -1989,7 +1995,45 @@ def inputchecker(args, mslist):
     Args:
         args (dict): argparse inputs.
     '''
-    
+    if args['stack']: # avoid options that cannot be used when --stack is set
+        if args['DDE']:
+            print('--dde cannot be used with --stack')
+            raise Exception('--dde cannot be used with --stack') 
+        if args['compute_phasediffstat']:
+            print('--compute-phasediffstat cannot be used with --stack')
+            raise Exception('--compute-phasediffstat cannot be used with --stack') 
+        if args['fitsmask'] is not None:
+            print('--fitsmask cannot be used with --stack')
+            raise Exception('--fitsmask cannot be used with --stack')
+        if args['update_uvmin']:
+            print('--update-uvmin cannot be used with --stack')
+            raise Exception('--update-uvmin cannot be used with --stack') 
+        if args['update_multiscale']:
+            print('--update-multiscale cannot be used with --stack')
+            raise Exception('--update-multiscale cannot be used with --stack') 
+        if args['remove_outside_center']:
+            print('--remove-outside-center cannot be used with --stack')
+            raise Exception('--remove-outside-center cannot be used with --stack') 
+        if args['auto']:
+            print('--auto cannot be used with --stack')
+            raise Exception('--auto cannot be used with --stack') 
+        if args['start'] !=0:
+            print('--restarts (start>0) are not allowed')
+            raise Exception('--restarts (start>0) are not allowed') 
+        if args['startfromtgss']:
+            print('--startfromtgss cannot be used with --stack')
+            raise Exception('--startfromtgss cannot be used with --stack') 
+        if args['startfromvlass']:
+            print('--startfromvlass cannot be used with --stack')
+            raise Exception('--startfromvlass cannot be used with --stack') 
+        if args['tgssfitsimage'] is not None:
+            print('--tgssfitsimage cannot be used with --stack')
+            raise Exception('--tgssfitsimage cannot be used with --stack')  
+        if args['QualityBasedWeights']:
+            print('--QualityBasedWeights cannot be used with --stack')
+            raise Exception('--QualityBasedWeights cannot be used with --stack')  
+
+ 
     if args['uvmin']!=None and type(args['uvmin']) is not list:
         if args['uvmin'] < 0.0:
             print('--uvmin needs to be positive')
@@ -3999,7 +4043,7 @@ def getms_phase_stats(ms, datacolumn='DATA',uvcutfraction=0.666):
 
 
 def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
-   t = pt.table(ms + '/SPECTRAL_WINDOW')
+   t = pt.table(ms + '/SPECTRAL_WINDOW', ack=False)
    chanw = np.median(t.getcol('CHAN_WIDTH'))
    freq = np.median(t.getcol('CHAN_FREQ'))
    nfreq = len(t.getcol('CHAN_FREQ')[0])
@@ -5049,7 +5093,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
 
 
 def beamkeywords(ms):
-    t = pt.table(ms, readonly=True)
+    t = pt.table(ms, readonly=True, ack=False)
     applybeam_info = False
     try:
        beammode = t.getcolkeyword('DATA', 'LOFAR_APPLIED_BEAM_MODE')
@@ -5306,7 +5350,7 @@ def getdeclinationms(ms):
     input: a ms
     output: declination in degrees
     '''
-    t = pt.table(ms +'/FIELD', readonly=True)
+    t = pt.table(ms +'/FIELD', readonly=True, ack=False)
     direction = np.squeeze ( t.getcol('PHASE_DIR') )
     t.close()
     return 360.*direction[1]/(2.*np.pi)
@@ -6109,7 +6153,7 @@ def flatten(f):
 
 
 def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
-                       channelsout, datacolumn='CORRECTED_DATA', outcol='SUBTRACTED_DATA', dysco=True, userbox=None, idg=False):
+                       channelsout, datacolumn='CORRECTED_DATA', outcol='SUBTRACTED_DATA', dysco=True, userbox=None, idg=False, facetregionfile='facets.reg',h5list=[]):
    # get imageheader to check frequency
    hdul = fits.open(imagebasename + '-MFS-image.fits')
    header = hdul[0].header
@@ -6213,7 +6257,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               fullpol=False, taperinnertukey=None, gapchanneldivision=False, \
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None, \
               DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False, \
-              wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0):
+              wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0, stack=False):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     if idg:
@@ -6331,7 +6375,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     # so some ms can have a beam correction and others not
     # for example because of different directions where the beam was applied
     for ms in mslist:
-      t = pt.table(ms,readonly=True) 
+      t = pt.table(ms,readonly=True, ack=False) 
       colnames =t.colnames()
       if 'CORRECTED_DATA' not in colnames: # for first imaging run
          imcol = 'DATA'
@@ -6614,12 +6658,12 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
 
          if skymodelpointsource is not None :
            # create MODEL_DATA (no dysco!)
-           run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
+           run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]',log=True)
            # do the predict with taql
-           run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource)+ "+0i)'")
-           run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource)+ "+0i)'")
-           run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
-           run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource)+ "+0i)'",log=True)
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource)+ "+0i)'",log=True)
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'",log=True)
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'",log=True)
 
      # do the stack and normalization
      stackwrapper(mslist, msout='stack.MS', column_to_normalise='DATA')
@@ -6630,15 +6674,15 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
      t = pt.table('stack.MS', ack=False)
      if 'MODEL_DATA' not in t.colnames():
        t.close()
-       run('DP3 msin=stack.MS msout=. msout.datacolumn=MODEL_DATA steps=[]')
+       run('DP3 msin=stack.MS msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
      else:
        t.close()
      print('Predict point source for stack.MS')
      # do the predict with taql
-     run("taql" + " 'update stack.MS set MODEL_DATA[,0]=(1.0+ +0i)'")
-     run("taql" + " 'update stack.MS set MODEL_DATA[,3]=(1.0+ +0i)'")
-     run("taql" + " 'update stack.MS set MODEL_DATA[,1]=(0+0i)'")
-     run("taql" + " 'update stack.MS set MODEL_DATA[,2]=(0+0i)'")
+     run("taql" + " 'update stack.MS set MODEL_DATA[,0]=(1.0+ +0i)'", log=True)
+     run("taql" + " 'update stack.MS set MODEL_DATA[,3]=(1.0+ +0i)'", log=True)
+     run("taql" + " 'update stack.MS set MODEL_DATA[,1]=(0+0i)'", log=True)
+     run("taql" + " 'update stack.MS set MODEL_DATA[,2]=(0+0i)'", log=True)
      
      print(mslist, mslist_orig)
      
@@ -8108,6 +8152,8 @@ def multiscale_trigger(fitsmask, args):
 
 def update_uvmin(fitsmask, longbaseline, args):
    # update uvmin if allowed/requested
+   if args['stack']:
+      return args['uvmin']  
    uvmin = args['uvmin']
    if not longbaseline and args['update_uvmin'] and fitsmask is not None:
       if getlargestislandsize(fitsmask) > 1000:
@@ -8123,32 +8169,41 @@ def update_uvmin(fitsmask, longbaseline, args):
             args['uvmin'] = 250
    return uvmin  
 
-def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args):
+def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, mslist):
    # MAKE MASK IF REQUESTED
-   # set imagename
-   if args['imager'] == 'WSCLEAN':
-      if args['idg']:
-        imagename  = args['imagename'] + str(selfcalcycle).zfill(3) + '-MFS-image.fits'
+   fitsmask_list = []
+   for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
+      if args['stack']:
+         stackstr= '_stack' + str(msim_id).zfill(2)
       else:
-        imagename  = args['imagename'] + str(selfcalcycle).zfill(3) + '-MFS-image.fits'
-   if args['imager'] == 'DDFACET':
-      imagename  = args['imagename'] + str(selfcalcycle).zfill(3) +'.app.restored.fits'
-   if args['channelsout'] == 1: # strip MFS from name if no channels images present
-      imagename = imagename.replace('-MFS', '').replace('-I','')
+         stackstr='' # empty string
+   
+      # set imagename
+      if args['imager'] == 'WSCLEAN':
+          if args['idg']:
+            imagename  = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '-MFS-image.fits'
+          else:
+            imagename  = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '-MFS-image.fits'
+      if args['imager'] == 'DDFACET':
+          imagename  = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.app.restored.fits'
+      if args['channelsout'] == 1: # strip MFS from name if no channels images present
+          imagename = imagename.replace('-MFS', '').replace('-I','')
 
-   # check if we need/can do masking & mask
-   if args['fitsmask'] is None:     
-      if maskthreshold_selfcalcycle[selfcalcycle] > 0.0:
-         cmdm  = 'MakeMask.py --Th='+ str(maskthreshold_selfcalcycle[selfcalcycle]) + \
-                 ' --RestoredIm=' + imagename
-         if fitsmask is not None:
-            if os.path.isfile(imagename + '.mask.fits'):
-               os.system('rm -f ' + imagename + '.mask.fits')
-         run(cmdm)
-         fitsmask = imagename + '.mask.fits'
-      else:
-         fitsmask = None # no masking requested as args['maskthreshold'] less/equal 0
-   return fitsmask, imagename
+      # check if we need/can do masking & mask
+      if args['fitsmask'] is None:     
+          if maskthreshold_selfcalcycle[selfcalcycle] > 0.0:
+            cmdm  = 'MakeMask.py --Th='+ str(maskthreshold_selfcalcycle[selfcalcycle]) + \
+                    ' --RestoredIm=' + imagename
+            if fitsmask is not None:
+                if os.path.isfile(imagename + '.mask.fits'):
+                  os.system('rm -f ' + imagename + '.mask.fits')
+            run(cmdm)
+            fitsmask = imagename + '.mask.fits'
+            fitsmask_list.append(fitsmask)
+          else:
+            fitsmask = None # no masking requested as args['maskthreshold'] less/equal 0
+            fitsmask_list.append(fitsmask)
+   return fitsmask_list, imagename, fitsmask_list
 
 def get_diagnostics(fitsfiles, h5s, station):
     """
@@ -8166,6 +8221,15 @@ def get_diagnostics(fitsfiles, h5s, station):
 
     return
 
+
+def nested_mslistforimaging(mslist, stack=False):
+   if not stack:
+      return [mslist] # has format [[ms1.ms,ms2.ms,....]]
+   else:
+      mslistreturn = []
+      for ms in mslist:
+         mslistreturn.append([ms])
+      return mslistreturn # has format [[ms1.ms],[ms2.ms],[...]] 
 
 ###############################
 ############## MAIN ###########
@@ -8369,6 +8433,7 @@ def main():
    
    if args['stack']:
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
+      args['noarchive'] = True
 
    version = '8.0.0'
    print_title(version)
@@ -8557,7 +8622,11 @@ def main():
    wsclean_h5list = []
    facetregionfile = None
    modeldatacolumns = []
-
+   if args['stack']:
+      fitsmask_list = [None]*len(mslist)
+   else:   
+      fitsmask_list = [fitsmask]
+      
    # ----- START SELFCAL LOOP -----
    for i in range(args['start'],args['stop']):
 
@@ -8682,74 +8751,80 @@ def main():
      
      
 
-     # MAKE IMAGE
-     if len(modeldatacolumns) > 1:
-       facetregionfile = 'facets.reg'
-     else:
-       if args['DDE'] and i == 0: # we are making image000 without having DDE solutions yet
-         if telescope == 'LOFAR' and not args['disable_IDG_DDE_predict']: # temporarilly ensure idg=True so image000 has model-pb
-            args['idg'] = True
-     makeimage(mslist, args['imagename'] + str(i).zfill(3), args['pixelscale'], args['imsize'], \
-               args['channelsout'], args['niter'], args['robust'], \
-               multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
-               uvminim=args['uvminim'], predict=not args['stopafterskysolve'],\
-               fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
-               imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
-               removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], \
-               usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
-               deconvolutionchannels=args['deconvolutionchannels'], \
-               parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
-               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, localrmswindow=args['localrmswindow'], \
-               facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
-               multiscalemaxscales=args['multiscalemaxscales'])
-     args['idg'] = idgin # set back
-     if args['makeimage_ILTlowres_HBA']:
-       if args['phaseupstations'] is None:
-          briggslowres = -1.5
-       else:
-          briggslowres = -0.5
-       makeimage(mslist, args['imagename'] +'1.2arcsectaper' + str(i).zfill(3), \
-               args['pixelscale'], args['imsize'], \
-               args['channelsout'], args['niter'],briggslowres, uvtaper='1.2arcsec', \
-               multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
-               uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=args['fitspectralpol'], \
-               automask=automask, removenegativecc=False, \
-               fitspectralpolorder=args['fitspectralpolorder'], predict=False, \
-               usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
-               deconvolutionchannels=args['deconvolutionchannels'], \
-               parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
-               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'])
-     if args['makeimage_fullpol']:
-       makeimage(mslist, args['imagename'] +'fullpol' + str(i).zfill(3), \
-               args['pixelscale'], args['imsize'], \
-               args['channelsout'], args['niter'], args['robust'], \
-               multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
-               uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=False, \
-               automask=automask, removenegativecc=False, predict=False, \
-               usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
-               deconvolutionchannels=args['deconvolutionchannels'], \
-               parallelgridding=args['parallelgridding'],\
-               multiscalescalebias=args['multiscalescalebias'], fullpol=True,\
-               taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'])
+     #  --- start imaging part ---
+     for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
+        if args['stack']:
+          stackstr= '_stack' + str(msim_id).zfill(2)
+        else:
+          stackstr='' # empty string
+        if len(modeldatacolumns) > 1:
+          facetregionfile = 'facets.reg'
+        else:
+          if args['DDE'] and i == 0: # we are making image000 without having DDE solutions yet
+            if telescope == 'LOFAR' and not args['disable_IDG_DDE_predict']: # temporarilly ensure idg=True so image000 has model-pb
+                args['idg'] = True
+        makeimage(mslistim, args['imagename'] + str(i).zfill(3) + stackstr, \
+                  args['pixelscale'], args['imsize'], \
+                  args['channelsout'], args['niter'], args['robust'], \
+                  multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id], \
+                  uvminim=args['uvminim'], predict=not args['stopafterskysolve'],\
+                  fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
+                  imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
+                  removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], \
+                  usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
+                  deconvolutionchannels=args['deconvolutionchannels'], \
+                  parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
+                  taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, localrmswindow=args['localrmswindow'], \
+                  facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
+                  multiscalemaxscales=args['multiscalemaxscales'],stack=args['stack'])
+        args['idg'] = idgin # set back
+        if args['makeimage_ILTlowres_HBA']:
+          if args['phaseupstations'] is None:
+              briggslowres = -1.5
+          else:
+              briggslowres = -0.5
+          makeimage(mslistim, args['imagename'] +'1.2arcsectaper' + str(i).zfill(3) + stackstr, \
+                  args['pixelscale'], args['imsize'], \
+                  args['channelsout'], args['niter'],briggslowres, uvtaper='1.2arcsec', \
+                  multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id], \
+                  uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=args['fitspectralpol'], \
+                  automask=automask, removenegativecc=False, \
+                  fitspectralpolorder=args['fitspectralpolorder'], predict=False, \
+                  usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
+                  deconvolutionchannels=args['deconvolutionchannels'], \
+                  parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
+                  taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'])
+        if args['makeimage_fullpol']:
+          makeimage(mslistim, args['imagename'] +'fullpol' + str(i).zfill(3) + stackstr, \
+                  args['pixelscale'], args['imsize'], \
+                  args['channelsout'], args['niter'], args['robust'], \
+                  multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id], \
+                  uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=False, \
+                  automask=automask, removenegativecc=False, predict=False, \
+                  usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
+                  deconvolutionchannels=args['deconvolutionchannels'], \
+                  parallelgridding=args['parallelgridding'],\
+                  multiscalescalebias=args['multiscalescalebias'], fullpol=True,\
+                  taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'])
 
-
-
-     # MAKE FIGURE WITH APLPY
-     if args['imager'] == 'WSCLEAN':
-       if args['idg']:
-         plotpngimage = args['imagename'] + str(i).zfill(3) + '.png'
-         plotfitsimage= args['imagename'] + str(i).zfill(3) +'-MFS-image.fits'
-       else:
-         plotpngimage = args['imagename'] + str(i).zfill(3) + '.png'
-         plotfitsimage= args['imagename'] + str(i).zfill(3) +'-MFS-image.fits'
-     if args['imager'] == 'DDFACET':
-       plotpngimage = args['imagename'] + str(i) + '.png'   
-       plotfitsimage = args['imagename'] + str(i).zfill(3) +'.app.restored.fits'
-       
-     if args['channelsout'] == 1:
-       plotpngimage = plotpngimage.replace('-MFS', '').replace('-I','')
-       plotfitsimage = plotfitsimage.replace('-MFS', '').replace('-I','')
-     plotimage(plotfitsimage, plotpngimage, mask=fitsmask, rmsnoiseimage=plotfitsimage)
+        # make figure
+        if args['imager'] == 'WSCLEAN':
+          if args['idg']:
+            plotpngimage = args['imagename'] + str(i).zfill(3) + stackstr + '.png'
+            plotfitsimage= args['imagename'] + str(i).zfill(3) + stackstr +'-MFS-image.fits'
+          else:
+            plotpngimage = args['imagename'] + str(i).zfill(3) + stackstr + '.png'
+            plotfitsimage= args['imagename'] + str(i).zfill(3) + stackstr +'-MFS-image.fits'
+        if args['imager'] == 'DDFACET':
+          plotpngimage = args['imagename'] + str(i) + '.png'   
+          plotfitsimage = args['imagename'] + str(i).zfill(3) + stackstr +'.app.restored.fits'
+          
+        if args['channelsout'] == 1:
+          plotpngimage = plotpngimage.replace('-MFS', '').replace('-I','')
+          plotfitsimage = plotfitsimage.replace('-MFS', '').replace('-I','')
+        plotimage(plotfitsimage, plotpngimage, mask=fitsmask_list[msim_id], rmsnoiseimage=plotfitsimage)
+        
+     #  --- end imaging part ---
 
      modeldatacolumns = [] 
      if args['DDE']:
@@ -8810,12 +8885,12 @@ def main():
                            blsmooth_chunking_size=args['blsmooth_chunking_size'], \
                            gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'],mslist_beforeremoveinternational=mslist_beforeremoveinternational)
 
-     # update fitsmake if allowed/requested 
-     fitsmask, imagename = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args)
-  
      # update uvmin if allowed/requested
      args['uvmin'] = update_uvmin(fitsmask, longbaseline, args)
-        
+
+     # update fitsmake if allowed/requested 
+     fitsmask, imagename, fitsmask_list = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args, mslist)
+  
      # update to multiscale cleaning if large island is present
      args['multiscale'] = multiscale_trigger(fitsmask, args)
 
@@ -8845,7 +8920,7 @@ def main():
                localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'])
       
       remove_outside_box(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], \
-                         args['imsize'],args['channelsout'], dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'])
+                         args['imsize'],args['channelsout'], dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'],h5list=wsclean_h5list)
                
    # ARCHIVE DATA AFTER SELFCAL if requested
    if not longbaseline and not args['noarchive'] :
