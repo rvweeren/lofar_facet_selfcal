@@ -8216,8 +8216,8 @@ def get_diagnostics(fitsfiles, h5s, station):
     """
 
     os.system('cp ' + args['helperscriptspathh5merge'] + '/source_selection/selfcal_selection.py .')
-    from selfcal_selection import main
-    main(h5s, fitsfiles, station)
+    from selfcal_selection import main as quality_check
+    quality_check(h5s, fitsfiles, station)
 
     return
 
