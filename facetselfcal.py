@@ -8733,6 +8733,9 @@ def main():
                              ncpu_max=args['ncpu_max_DP3solve'],\
                              mslist_beforeremoveinternational=mslist_beforeremoveinternational)
 
+     if args['phasediff_only']:
+       return
+
      # TRIGGER MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
        multiscale = True
