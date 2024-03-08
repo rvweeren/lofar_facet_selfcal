@@ -8497,7 +8497,7 @@ def main():
        args['preapplyH5_list'][h5parm_id] = h5parmdb.split('/')[-1] # update input list to local location
        
    if type(args['skymodel']) is list: # resort args['skymodel' based on next sorted(mslist)
-      args['skymodel'] = [x for _,x in sorted(zip(mslist,args['skymodel']))]
+      args['skymodel'] = [x for _,x in sorted(zip(args['ms'],args['skymodel']))]
    mslist = sorted(args['ms'])
 
 
