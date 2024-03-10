@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 
-# stacking, no update multiscale, no uvmin update
+# make skymodelpointsource, wscleanskymodel lists for stacking
 # for stacking auto masking works, but no user masks possible
 # many options for stacking are not allowed and result in crashes, like DDE_predict
 # many functions are not stacking robust
-# and checks for input settings that do not make sense if --stack is set
 
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
@@ -2038,6 +2037,16 @@ def inputchecker(args, mslist):
             print('Skymodel cannot be a list if --stack is not set')
             raise Exception('Skymodel cannot be a list if --stack is not set')  
 
+    if not args['stack']:
+        if type(args['skymodelpointsource']) is list:
+            print('skymodelpointsource cannot be a list if --stack is not set')
+            raise Exception('skymodelpointsource cannot be a list if --stack is not set')  
+
+    if not args['stack']:
+        if type(args['wscleanskymodel']) is list:
+            print('wscleanskymodel cannot be a list if --stack is not set')
+            raise Exception('wscleanskymodel cannot be a list if --stack is not set')  
+
     if args['uvmin'] is not None and type(args['uvmin']) is not list:
         if args['uvmin'] < 0.0:
             print('--uvmin needs to be positive')
@@ -2249,6 +2258,10 @@ def inputchecker(args, mslist):
         if args['phaseupstations'] not in ['core', 'superterp']:
             print('Wrong input detected for option --phaseupstations, should be core or superterp')
             raise Exception('Wrong input detected for option --phaseupstations, should be core or superterp')
+    if args['phaseupstations'] is not None:
+        if args['phaseupstations'] in args['antennaconstraint_list']:
+            print('Wrong input detected for option --antennaconstraint-list, --phaseupstations is set and phased-up stations are not available anymore for --antennaconstraint-list')
+            raise Exception('Wrong input detected for option --antennaconstraint-list, --phaseupstations is set and phased-up stations are not available anymore for --antennaconstraint-list')
 
     if args['soltypecycles_list'][0] != 0:
         print('Wrong input detected for option --soltypecycles-list should always start with 0')
@@ -2282,10 +2295,16 @@ def inputchecker(args, mslist):
     if (args['skymodel'] is not None) and (args['skymodelpointsource']) is not None:
         print('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
         raise Exception('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
-    if (args['skymodelpointsource'] is not None):
-        if (args['skymodelpointsource'] <= 0.0):
+    if (args['skymodelpointsource'] is not None and type(args['skymodelpointsource']) is not list):
+        if args['skymodelpointsource'] <= 0.0:
             print('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
             raise Exception('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
+    if type(args['skymodelpointsource']) is list:
+        for skymp in args['skymodelpointsource']:
+            if float(skymp) <= 0.0:
+                print('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
+                raise Exception('Wrong input, flux density provided for skymodelpointsource is <= 0.0')             
+          
     if (args['msinnchan'] is not None):
         if (args['msinnchan'] <= 0):
             print('Wrong input for msinnchan, must be larger than zero')
@@ -6665,13 +6684,18 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
            predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
          if skymodel is not None and type(skymodel) is list:
            predictsky(ms, skymodel[ms_id], modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
-         if wscleanskymodel is not None:
+         if wscleanskymodel is not None and type(wscleanskymodel) is str:
            makeimage([ms], wscleanskymodel, 1., 1., \
                      len(glob.glob(wscleanskymodel + '-????-model.fits')),\
                      0, 0.0, onlypredict=True, idg=False, usewgridder=True, \
                      gapchanneldivision=gapchanneldivision)
+         if wscleanskymodel is not None and type(wscleanskymodel) is list:
+           makeimage([ms], wscleanskymodel[ms_id], 1., 1., \
+                     len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),\
+                     0, 0.0, onlypredict=True, idg=False, usewgridder=True, \
+                     gapchanneldivision=gapchanneldivision)   
 
-         if skymodelpointsource is not None :
+         if skymodelpointsource is not None and type(skymodelpointsource) is float :
            # create MODEL_DATA (no dysco!)
            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]',log=True)
            # do the predict with taql
@@ -6679,6 +6703,16 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
            run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource)+ "+0i)'",log=True)
            run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'",log=True)
            run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'",log=True)
+
+         if skymodelpointsource is not None and type(skymodelpointsource) is list :
+           # create MODEL_DATA (no dysco!)
+           run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]',log=True)
+           # do the predict with taql
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource[ms_id])+ "+0i)'",log=True)
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource[ms_id])+ "+0i)'",log=True)
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'",log=True)
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'",log=True)
+
 
      # do the stack and normalization
      stackwrapper(mslist, msout='stack.MS', column_to_normalise='DATA')
@@ -7843,6 +7877,19 @@ def arg_as_str_or_list(s):
     raise argparse.ArgumentTypeError("Argument \"%s\" is not a string or list" % (s))
     return
 
+def arg_as_float_or_list(s):
+    try:
+        return float(s)
+    except:
+        pass
+    v = ast.literal_eval(s)
+    if type(v) is list:
+        #print('Skymodel is a list')
+        return v
+    raise argparse.ArgumentTypeError("Argument \"%s\" is not a float or list" % (s))
+    return
+
+
 
 def makemaskthresholdlist(maskthresholdlist, stop):
    maskthresholdselfcalcycle = []
@@ -8389,8 +8436,8 @@ def main():
    # Startmodel
    startmodelparser.add_argument('--skymodel', help='Skymodel for first selfcalcycle. The default is None.', type=arg_as_str_or_list)
    startmodelparser.add_argument('--skymodelsource', help='Source name in skymodel. The default is None (means the skymodel only contains one source/patch).', type=str)
-   startmodelparser.add_argument('--skymodelpointsource', help='If set, start from a point source in the phase center with the flux density given by this parameter. The default is None (means do not use this option).', type=float, default=None)
-   startmodelparser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict). The default is None.', type=str, default=None)   
+   startmodelparser.add_argument('--skymodelpointsource', help='If set, start from a point source in the phase center with the flux density given by this parameter. The default is None (means do not use this option).', type=arg_as_float_or_list, default=None)
+   startmodelparser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict). The default is None.', type=arg_as_str_or_list, default=None)   
    startmodelparser.add_argument('--predictskywithbeam', help='Predict the skymodel with the beam array factor.', action='store_true')
    startmodelparser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required).', action='store_true')
    startmodelparser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data (not yet implemented).', action='store_true')
@@ -8483,7 +8530,6 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/polconv.py .')
    os.system('cp ' + args['helperscriptspath'] + '/vlass_search.py .')
    os.system('cp ' + args['helperscriptspath'] + '/VLASS_dyn_summary.php .')
-   os.system('cp ' + args['helperscriptspath'] + '/find_solint.py .')
    os.system('cp ' + args['helperscriptspath'] + '/ds9facetgenerator.py .')
    os.system('cp ' + args['helperscriptspath'] + '/default_StokesV.lua .')
 
@@ -8495,9 +8541,14 @@ def main():
      if h5parmdb is not None:
        os.system('cp ' + h5parmdb +  ' .') # make them local because source direction will ne updated for merging
        args['preapplyH5_list'][h5parm_id] = h5parmdb.split('/')[-1] # update input list to local location
-       
-   if type(args['skymodel']) is list: # resort args['skymodel' based on next sorted(mslist)
+
+   # reorder lists based on sorted(args['ms'])    
+   if type(args['skymodel']) is list: 
       args['skymodel'] = [x for _,x in sorted(zip(args['ms'],args['skymodel']))]
+   if type(args['wscleanskymodel']) is list: 
+      args['wscleanskymodel'] = [x for _,x in sorted(zip(args['ms'],args['wscleanskymodel']))]
+   if type(args['skymodelpointsource']) is list: 
+      args['skymodelpointsource'] = [x for _,x in sorted(zip(args['ms'],args['skymodelpointsource']))]
    mslist = sorted(args['ms'])
 
 
