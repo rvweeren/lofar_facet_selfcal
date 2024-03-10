@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 
-# stacking, no update multiscale, no uvmin update
+# make skymodelpointsource, wscleanskymodel lists for stacking
 # for stacking auto masking works, but no user masks possible
 # many options for stacking are not allowed and result in crashes, like DDE_predict
 # many functions are not stacking robust
-# and checks for input settings that do not make sense if --stack is set
 
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
@@ -2020,12 +2019,12 @@ def inputchecker(args, mslist):
         if args['start'] !=0:
             print('--restarts (start>0) are not allowed')
             raise Exception('--restarts (start>0) are not allowed') 
-        if args['startfromtgss']:
-            print('--startfromtgss cannot be used with --stack')
-            raise Exception('--startfromtgss cannot be used with --stack') 
-        if args['startfromvlass']:
-            print('--startfromvlass cannot be used with --stack')
-            raise Exception('--startfromvlass cannot be used with --stack') 
+        #if args['startfromtgss']:
+        #    print('--startfromtgss cannot be used with --stack')
+        #    raise Exception('--startfromtgss cannot be used with --stack') 
+        #if args['startfromvlass']:
+        #    print('--startfromvlass cannot be used with --stack')
+        #    raise Exception('--startfromvlass cannot be used with --stack') 
         if args['tgssfitsimage'] is not None:
             print('--tgssfitsimage cannot be used with --stack')
             raise Exception('--tgssfitsimage cannot be used with --stack')  
@@ -2033,8 +2032,22 @@ def inputchecker(args, mslist):
             print('--QualityBasedWeights cannot be used with --stack')
             raise Exception('--QualityBasedWeights cannot be used with --stack')  
 
- 
-    if args['uvmin']!=None and type(args['uvmin']) is not list:
+    if not args['stack']:
+        if type(args['skymodel']) is list:
+            print('Skymodel cannot be a list if --stack is not set')
+            raise Exception('Skymodel cannot be a list if --stack is not set')  
+
+    if not args['stack']:
+        if type(args['skymodelpointsource']) is list:
+            print('skymodelpointsource cannot be a list if --stack is not set')
+            raise Exception('skymodelpointsource cannot be a list if --stack is not set')  
+
+    if not args['stack']:
+        if type(args['wscleanskymodel']) is list:
+            print('wscleanskymodel cannot be a list if --stack is not set')
+            raise Exception('wscleanskymodel cannot be a list if --stack is not set')  
+
+    if args['uvmin'] is not None and type(args['uvmin']) is not list:
         if args['uvmin'] < 0.0:
             print('--uvmin needs to be positive')
             raise Exception('--uvmin needs to be positive')    
@@ -2196,10 +2209,17 @@ def inputchecker(args, mslist):
             raise Exception('Cannot find fitsmask, file does not exist')
 
     if args['skymodel'] is not None:
-        if not (os.path.isfile(args['skymodel'])) and not (os.path.isdir(args['skymodel'])):
-            print('Cannot find skymodel, file does not exist')
-            raise Exception('Cannot find skymodel, file does not exist')
-
+        if type(args['skymodel']) is str:
+            #print(type(args['skymodel']), args['skymodel'][0])
+            if not (os.path.isfile(args['skymodel'])) and not (os.path.isdir(args['skymodel'])):
+                print('Cannot find skymodel, file does not exist', args['skymodel'])
+                raise Exception('Cannot find skymodel, file does not exist')
+        if type(args['skymodel']) is list:
+            for skym in args['skymodel']:
+                if not os.path.isfile(skym) and not os.path.isdir(skym):
+                    print('Cannot find skymodel, file does not exist', skym)
+                    raise Exception('Cannot find skymodel, file does not exist')
+            
     if args['docircular'] and args['dolinear']:
         print('Conflicting input, docircular and dolinear used')
         raise Exception('Conflicting input, docircular and dolinear used')
@@ -2238,6 +2258,10 @@ def inputchecker(args, mslist):
         if args['phaseupstations'] not in ['core', 'superterp']:
             print('Wrong input detected for option --phaseupstations, should be core or superterp')
             raise Exception('Wrong input detected for option --phaseupstations, should be core or superterp')
+    if args['phaseupstations'] is not None:
+        if args['phaseupstations'] in args['antennaconstraint_list']:
+            print('Wrong input detected for option --antennaconstraint-list, --phaseupstations is set and phased-up stations are not available anymore for --antennaconstraint-list')
+            raise Exception('Wrong input detected for option --antennaconstraint-list, --phaseupstations is set and phased-up stations are not available anymore for --antennaconstraint-list')
 
     if args['soltypecycles_list'][0] != 0:
         print('Wrong input detected for option --soltypecycles-list should always start with 0')
@@ -2271,10 +2295,16 @@ def inputchecker(args, mslist):
     if (args['skymodel'] is not None) and (args['skymodelpointsource']) is not None:
         print('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
         raise Exception('Wrong input, you cannot use a separate skymodel file and then also set skymodelpointsource')
-    if (args['skymodelpointsource'] is not None):
-        if (args['skymodelpointsource'] <= 0.0):
+    if (args['skymodelpointsource'] is not None and type(args['skymodelpointsource']) is not list):
+        if args['skymodelpointsource'] <= 0.0:
             print('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
             raise Exception('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
+    if type(args['skymodelpointsource']) is list:
+        for skymp in args['skymodelpointsource']:
+            if float(skymp) <= 0.0:
+                print('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
+                raise Exception('Wrong input, flux density provided for skymodelpointsource is <= 0.0')             
+          
     if (args['msinnchan'] is not None):
         if (args['msinnchan'] <= 0):
             print('Wrong input for msinnchan, must be larger than zero')
@@ -2345,16 +2375,18 @@ def get_uvwmax(ms):
     t.close()
     return np.max(ssq)
 
-def makeBBSmodelforVLASS(filename):
+def makeBBSmodelforVLASS(filename, extrastrname=''):
     img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10))#, \
                             # frequency=150e6, beam=(25./3600,25./3600,0.0) )
-    img.write_catalog(format='bbs', bbs_patches='single', outfile='vlass.skymodel', clobber=True)
+    img.write_catalog(format='bbs', bbs_patches='single', \
+                      outfile='vlass' + extrastrname + '.skymodel'  , clobber=True)
     #bbsmodel = 'bla.skymodel'
     del img
-    return 'vlass.skymodel'    
+    return 'vlass' + extrastrname + '.skymodel'  
     
 
-def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=None, ms=None):
+def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=None, \
+                        ms=None, extrastrname=''):
     ''' Creates a TGSS skymodel in DP3-readable format.
     
     Args:
@@ -2364,7 +2396,7 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
         imsize (int): image size in pixels.
         ms (str): if no box file is given, use this Measurement Set to determine the sky area to make a model of.
     Returns:
-        tgss.skymodel: name of the output skymodel (always tgss.skymodel).
+        tgss.skymodel: name of the output skymodel (always tgss[#nr].skymodel).
     '''
     tgsspixsize = 6.2    
     if boxfile is None and imsize is None:
@@ -2410,11 +2442,12 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
 
     img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10), \
                              frequency=150e6, beam=(25./3600,25./3600,0.0) )
-    img.write_catalog(format='bbs', bbs_patches='single', outfile='tgss.skymodel', clobber=True)
+    img.write_catalog(format='bbs', bbs_patches='single', \
+                      outfile='tgss' + extrastrname + '.skymodel', clobber=True)
     # bbsmodel = 'bla.skymodel'
     del img
     print(filename)
-    return 'tgss.skymodel',filename
+    return 'tgss' + extrastrname + '.skymodel', filename
 
 def getregionboxcenter(regionfile, standardbox=True):
     ''' Extract box center of a DS9 box region.
@@ -6645,18 +6678,24 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
      # only for first (=0) selfcalcycle cycle and if user provides a model
      if ((skymodel is not None) or (skymodelpointsource is not None) \
          or (wscleanskymodel is not None)) and selfcalcycle == 0:
-       for ms in mslist: # do the predicts (only used for stacking)   
+       for ms_id, ms in enumerate(mslist): # do the predicts (only used for stacking)   
          print('Doing sky predict for stacking...') 
-         if skymodel is not None:
+         if skymodel is not None and type(skymodel) is str:
            predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
-
-         if wscleanskymodel is not None:
+         if skymodel is not None and type(skymodel) is list:
+           predictsky(ms, skymodel[ms_id], modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
+         if wscleanskymodel is not None and type(wscleanskymodel) is str:
            makeimage([ms], wscleanskymodel, 1., 1., \
                      len(glob.glob(wscleanskymodel + '-????-model.fits')),\
                      0, 0.0, onlypredict=True, idg=False, usewgridder=True, \
                      gapchanneldivision=gapchanneldivision)
+         if wscleanskymodel is not None and type(wscleanskymodel) is list:
+           makeimage([ms], wscleanskymodel[ms_id], 1., 1., \
+                     len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),\
+                     0, 0.0, onlypredict=True, idg=False, usewgridder=True, \
+                     gapchanneldivision=gapchanneldivision)   
 
-         if skymodelpointsource is not None :
+         if skymodelpointsource is not None and type(skymodelpointsource) is float :
            # create MODEL_DATA (no dysco!)
            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]',log=True)
            # do the predict with taql
@@ -6664,6 +6703,16 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
            run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource)+ "+0i)'",log=True)
            run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'",log=True)
            run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'",log=True)
+
+         if skymodelpointsource is not None and type(skymodelpointsource) is list :
+           # create MODEL_DATA (no dysco!)
+           run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]',log=True)
+           # do the predict with taql
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource[ms_id])+ "+0i)'",log=True)
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource[ms_id])+ "+0i)'",log=True)
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'",log=True)
+           run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'",log=True)
+
 
      # do the stack and normalization
      stackwrapper(mslist, msout='stack.MS', column_to_normalise='DATA')
@@ -7144,7 +7193,6 @@ def predictsky_wscleanfits(ms, imagebasename, usewgridder=True, \
 
 
 def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None,beamproximitylimit=240.0):
-
    try:
       run('showsourcedb in=' + skymodel + ' > /dev/null') 
       sourcedb = skymodel # means skymodel is already a binary sourcedb
@@ -7818,6 +7866,31 @@ def arg_as_list(s):
         raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (s))
     return v
 
+def arg_as_str_or_list(s):
+    if "[" not in s and "]" not in s:
+        #print('Return str')
+        return str(s)
+    v = ast.literal_eval(s)
+    if type(v) is list:
+        #print('Skymodel is a list')
+        return v
+    raise argparse.ArgumentTypeError("Argument \"%s\" is not a string or list" % (s))
+    return
+
+def arg_as_float_or_list(s):
+    try:
+        return float(s)
+    except:
+        pass
+    v = ast.literal_eval(s)
+    if type(v) is list:
+        #print('Skymodel is a list')
+        return v
+    raise argparse.ArgumentTypeError("Argument \"%s\" is not a float or list" % (s))
+    return
+
+
+
 def makemaskthresholdlist(maskthresholdlist, stop):
    maskthresholdselfcalcycle = []
    for mm in range(stop):
@@ -8209,7 +8282,6 @@ def get_diagnostics(fitsfiles, h5s, station):
     """
     Get diagnostics to evaluate the selfcal quality in terms of image fidelity and solution stability.
     This functionality is in particular useful for selecting DD calibrators for VLBI widefield imaging.
-
     :param fitsfiles: fits files
     :param h5s: h5parm solution files
     :param station: for Dutch calibration use 'alldutch' for VLBI calibration use 'international'
@@ -8221,7 +8293,6 @@ def get_diagnostics(fitsfiles, h5s, station):
 
     return
 
-
 def nested_mslistforimaging(mslist, stack=False):
    if not stack:
       return [mslist] # has format [[ms1.ms,ms2.ms,....]]
@@ -8230,6 +8301,12 @@ def nested_mslistforimaging(mslist, stack=False):
       for ms in mslist:
          mslistreturn.append([ms])
       return mslistreturn # has format [[ms1.ms],[ms2.ms],[...]] 
+
+def mslist_return_stack(mslist, stack):
+   if stack:
+      return mslist
+   else:
+      return [mslist[0]] # just the first one
 
 ###############################
 ############## MAIN ###########
@@ -8357,10 +8434,10 @@ def main():
       
    startmodelparser = parser.add_argument_group("-------------------------Starting model Settings-------------------------")
    # Startmodel
-   startmodelparser.add_argument('--skymodel', help='Skymodel for first selfcalcycle. The default is None.', type=str)
+   startmodelparser.add_argument('--skymodel', help='Skymodel for first selfcalcycle. The default is None.', type=arg_as_str_or_list)
    startmodelparser.add_argument('--skymodelsource', help='Source name in skymodel. The default is None (means the skymodel only contains one source/patch).', type=str)
-   startmodelparser.add_argument('--skymodelpointsource', help='If set, start from a point source in the phase center with the flux density given by this parameter. The default is None (means do not use this option).', type=float, default=None)
-   startmodelparser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict). The default is None.', type=str, default=None)   
+   startmodelparser.add_argument('--skymodelpointsource', help='If set, start from a point source in the phase center with the flux density given by this parameter. The default is None (means do not use this option).', type=arg_as_float_or_list, default=None)
+   startmodelparser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict). The default is None.', type=arg_as_str_or_list, default=None)   
    startmodelparser.add_argument('--predictskywithbeam', help='Predict the skymodel with the beam array factor.', action='store_true')
    startmodelparser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required).', action='store_true')
    startmodelparser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data (not yet implemented).', action='store_true')
@@ -8435,7 +8512,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '8.0.0'
+   version = '8.1.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -8465,7 +8542,16 @@ def main():
        os.system('cp ' + h5parmdb +  ' .') # make them local because source direction will ne updated for merging
        args['preapplyH5_list'][h5parm_id] = h5parmdb.split('/')[-1] # update input list to local location
 
+   # reorder lists based on sorted(args['ms'])    
+   if type(args['skymodel']) is list: 
+      args['skymodel'] = [x for _,x in sorted(zip(args['ms'],args['skymodel']))]
+   if type(args['wscleanskymodel']) is list: 
+      args['wscleanskymodel'] = [x for _,x in sorted(zip(args['ms'],args['wscleanskymodel']))]
+   if type(args['skymodelpointsource']) is list: 
+      args['skymodelpointsource'] = [x for _,x in sorted(zip(args['ms'],args['skymodelpointsource']))]
    mslist = sorted(args['ms'])
+
+
 
    # remove non-ms that ended up in mslist
    # mslist = removenonms(mslist)
@@ -8576,26 +8662,38 @@ def main():
    logbasicinfo(args, fitsmask, mslist, version, sys.argv)
 
 
+   skymodel_list = []
    # Make starting skymodel from TGSS or VLASS survey if requested
-   if args['startfromtgss'] and args['start'] == 0:
-     if args['skymodel'] is None:
-       args['skymodel'],tgssfitsfile = makeBBSmodelforTGSS(args['boxfile'],fitsimage = args['tgssfitsimage'], \
-                                              pixelscale=args['pixelscale'], imsize=args['imsize'], ms=mslist[0])
-     else:
-       print('You cannot provide a skymodel/skymodelpointsource file manually while using --startfromtgss')
-       raise Exception('You cannot provide a skymodel/skymodelpointsource manually while using --startfromtgss')
+   for mstmp_id, mstmp in enumerate(mslist_return_stack(mslist, args['stack'])):
+     if args['startfromtgss'] and args['start'] == 0:
+       if args['skymodel'] is None:
+         tmpskymodel, tgssfitsfile = makeBBSmodelforTGSS(args['boxfile'],\
+                                         fitsimage = args['tgssfitsimage'], \
+                                         pixelscale=args['pixelscale'], \
+                                         imsize=args['imsize'], ms=mstmp, extrastrname=str(mstmp_id))
+         skymodel_list.append(tmpskymodel)
+       else:
+         print('You cannot provide a skymodel/skymodelpointsource file manually while using --startfromtgss')
+         raise Exception('You cannot provide a skymodel/skymodelpointsource manually while using --startfromtgss')
 
-   if args['startfromvlass'] and args['start'] == 0:
-     if args['skymodel'] is None and args['skymodelpointsource'] is None:
-       run('python vlass_search.py '+ mslist[0])
-       args['skymodel'] = makeBBSmodelforVLASS('vlass_poststamp.fits')
-     else:
-       print('You cannot provide a skymodel/skymodelpointsource manually while using --startfromvlass')
-       raise Exception('You cannot provide a skymodel/skymodelpointsource manually while using --startfromvlass')
+   
+   for mstmp_id, mstmp in enumerate(mslist_return_stack(mslist, args['stack'])):
+     if args['startfromvlass'] and args['start'] == 0:
+       if args['skymodel'] is None and args['skymodelpointsource'] is None:
+         run('python vlass_search.py '+ mstmp)
+         skymodel_list.append(makeBBSmodelforVLASS('vlass_poststamp.fits', extrastrname=str(mstmp_id)))
+       else:
+         print('You cannot provide a skymodel/skymodelpointsource manually while using --startfromvlass')
+         raise Exception('You cannot provide a skymodel/skymodelpointsource manually while using --startfromvlass')
 
+   # note if skymodel_list is not set (len==0), args['skymodel'] keeps it value from argparse
+   if len(skymodel_list) > 1: # so startfromtgss or startfromvlass was done and --stack was true
+      args['skymodel'] = skymodel_list
+   if len(skymodel_list) == 1:  # so startfromtgss or startfromvlass was done
+      args['skymodel'] = skymodel_list[0] # make string again, not a list type
+   print(args['skymodel'])
 
-
-
+   #print (makeBBSmodelforTGSS,  args['skymodel'])
    nchan_list,solint_list,smoothnessconstraint_list, smoothnessreffrequency_list, \
    smoothnessspectralexponent_list, smoothnessrefdistance_list, \
    antennaconstraint_list, resetsols_list, soltypecycles_list, \
@@ -8732,10 +8830,9 @@ def main():
                              QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],\
                              ncpu_max=args['ncpu_max_DP3solve'],\
                              mslist_beforeremoveinternational=mslist_beforeremoveinternational)
-
      if args['phasediff_only']:
        return
-
+     
      # TRIGGER MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
        multiscale = True
