@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# make skymodelpointsource, wscleanskymodel lists for stacking
 # for stacking auto masking works, but no user masks possible
 # many options for stacking are not allowed and result in crashes, like DDE_predict
 # many functions are not stacking robust
@@ -897,7 +896,8 @@ def getlargestislandsize(fitsmask):
     return max_area
 
 
-def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnorm=False, dysco=True):
+def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', \
+                       ampnorm=False, dysco=False, testscfactor=1., crosshandtozero=True):
     ''' Creates a new column to solve for a phase slope from.
 
     Args:
@@ -927,11 +927,17 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', ampnor
         dataslope = np.copy(data)
         for ff in range(data.shape[1] - 1):
             if ampnorm:
-                dataslope[:, ff, 0] = np.copy(np.exp(1j * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
-                dataslope[:, ff, 3] = np.copy(np.exp(1j * (np.angle(data[:, ff, 3]) -np.angle(data[:, ff + 1, 3]))))
+                dataslope[:, ff, 0] = np.copy(np.exp(1j*testscfactor*(np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
+                dataslope[:, ff, 3] = np.copy(np.exp(1j*testscfactor*(np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
+                if crosshandtozero:
+                   dataslope[:, ff, 1] = 0.*np.exp(1j*0)
+                   dataslope[:, ff, 2] = 0.*np.exp(1j*0)
             else:
-                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0]) * np.exp(1j * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
-                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3]) * np.exp(1j * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
+                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0]) * np.exp(1j * testscfactor*(np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
+                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3]) * np.exp(1j * testscfactor*(np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
+                if crosshandtozero:
+                   dataslope[:, ff, 1] = 0.*np.exp(1j*0)
+                   dataslope[:, ff, 2] = 0.*np.exp(1j*0)
 
         # last freq set to second to last freq because difference reduces length of freq axis with one
         dataslope[:, -1, :] = np.copy(dataslope[:, -2, :])
@@ -965,6 +971,53 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
     #stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
     now = time.time()
     print(f'Stacking took {now - start} seconds')
+
+def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=False,\
+                            originalmodel='MODEL_DATA',newmodel='MODEL_DATA_PHASE_SLOPE', backup=True):
+   if not isinstance(inmslist, list):
+        inmslist = [inmslist]
+   stepsize = 1000000
+   for ms in inmslist:
+      t = pt.table(ms, readonly=False, ack=True)
+      weightref = 'WEIGHT_SPECTRUM'
+      if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+         weightref = 'WEIGHT_SPECTRUM_SOLVE' # for LoTSS-DR2 datasets 
+      if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
+         desc = t.getcoldesc(weightref)
+         desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
+         t.addcols(desc)
+        
+      if outweightcol not in t.colnames():
+         print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+         desc = t.getcoldesc(weightref)
+         desc['name'] = outweightcol
+         t.addcols(desc)
+      #os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolum={outweightcol} steps=[]')
+      for row in range(0,t.nrows(),stepsize):   
+         print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+         weight = t.getcol(weightref,startrow=row,nrow=stepsize,rowincr=1).astype(np.float64)
+         if updateweights and originalmodel in t.colnames() and newmodel in t.colnames():
+            model_orig = t.getcol(originalmodel,startrow=row,nrow=stepsize,rowincr=1).astype(np.complex256)
+            model_new = t.getcol(newmodel,startrow=row,nrow=stepsize,rowincr=1).astype(np.complex256)
+            
+            model_orig[:,:,1] = model_orig[:,:,0] # make everything XX/RR
+            model_orig[:,:,2] = model_orig[:,:,0] # make everything XX/RR
+            model_orig[:,:,3] = model_orig[:,:,0] # make everything XX/RR
+            model_new[:,:,1] = model_new[:,:,0] # make everything XX/RR
+            model_new[:,:,2] = model_new[:,:,0] # make everything XX/RR
+            model_new[:,:,3] = model_new[:,:,0] # make everything XX/RR
+         else: 
+            model_orig = 1.
+            model_new = 1.
+         print('Mean weights input',np.nanmean(weight))
+         print('Mean weights change factor',np.nanmean((np.abs(model_orig))**2))
+         t.putcol(outweightcol, (weight*(np.abs(model_orig/model_new))**2).astype(np.float64), startrow=row, nrow=stepsize, rowincr=1)
+         #print(weight.shape, model_orig.shape)
+      t.close()
+      print()
+      del weight, model_orig, model_new
+
+
 
 def create_weight_spectrum(inmslist, outweightcol, updateweights=False,\
                             updateweights_from_thiscolumn='MODEL_DATA', backup=True):
@@ -1154,7 +1207,8 @@ def stackMS_taql(inmslist: list, outputms: str ='stack.MS', incol: str ='DATA_NO
 
 
 
-def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True):
+def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', \
+                            dysco=True, stepsize = 1000000):
     ''' Creates a new column for the phase difference solve.
 
     Args:
@@ -1162,8 +1216,9 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
         incol (str): name of the input column to copy (meta)data from.
         outcol (str): name of the output column that will be created.
         dysco (bool): dysco compress the output column.
+        stepsize (int): step size for row looping in casacore tables getcol/putcol 
     '''
-    stepsize = 1000000
+    
 
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
@@ -2850,8 +2905,13 @@ def makephasediffh5(phaseh5, refant):
     H5pol.close()
     return
     
-def makephaseCDFh5(phaseh5): 
+def makephaseCDFh5(phaseh5, backup=True, testscfactor=1.): 
     # note for scalarphase/phaseonly solve, does not work for tecandphase as freq axis is missing there for phase000
+    if backup:
+       if os.path.isfile(phaseh5 + '.psbackup'):
+         os.system('rm -f ' + phaseh5 + '.psbackup')
+       os.system('cp ' + phaseh5 + ' ' + phaseh5 + '.psbackup')
+       
     H5 = tables.open_file(phaseh5,mode='a')
 
     phaseCDF = H5.root.sol000.phase000.val[:] # time, freq, ant, dir, pol
@@ -2860,13 +2920,58 @@ def makephaseCDFh5(phaseh5):
     nfreq = len(H5.root.sol000.phase000.freq[:])
     for ff in range(nfreq-1):
       # reverse order so phase increase towards lower frequnecies
-      phaseCDF[:,nfreq-ff-2, ...]  = np.copy(phaseCDF[:,nfreq-ff-2, ...] + phaseCDF[:, nfreq-ff-1, ...])
+      phaseCDF[:,nfreq-ff-2, ...]  = np.copy(phaseCDF[:,nfreq-ff-2, ...] + (testscfactor*phaseCDF[:, nfreq-ff-1, ...]))
 
     print(phaseCDF.shape)
     H5.root.sol000.phase000.val[:] = phaseCDF
     H5.flush()
     H5.close()
     return
+
+def makephaseCDFh5_h5merger(phaseh5, ms, modeldatacolumns, backup=True, testscfactor=1.): 
+    # note for scalarphase/phaseonly solve, does not work for tecandphase as freq axis is missing there for phase000
+    #if soltypein == 'scalarphase_slope':
+    #   single_pol_merge = True
+    #if soltypein == 'phaseonly_slope':
+    #   single_pol = False
+    #if soltypein not in ['scalarphase_slope','phaseonly_slope']:
+    #   print('Wrong input in makephaseCDFh5_h5merger')
+    #   sys.exit()
+
+    if len(modeldatacolumns) > 1:
+       merge_all_in_one = False
+    else:
+       merge_all_in_one = True
+       
+      
+    if backup:
+       if os.path.isfile(phaseh5 + '.psbackup'):
+         os.system('rm -f ' + phaseh5 + '.psbackup')
+       os.system('cp ' + phaseh5 + ' ' + phaseh5 + '.psbackup')
+    # going to overwrite phaseh5, first move to new file
+    if os.path.isfile(phaseh5 + '.in'):
+       os.system('rm -f ' + phaseh5 + '.in')
+    os.system('mv ' + phaseh5 + ' ' + phaseh5 + '.in')
+
+    h5_merger.merge_h5(h5_out=phaseh5,h5_tables=phaseh5+'.in',ms_files=ms,\
+                          merge_all_in_one=merge_all_in_one, \
+                          propagate_flags=True)       
+    H5 = tables.open_file(phaseh5,mode='a')
+
+    phaseCDF = H5.root.sol000.phase000.val[:] # time, freq, ant, dir, pol
+    phaseCDF_tmp = np.copy(phaseCDF)
+    print('Shape to make phase CDF array', phaseCDF.shape)
+    nfreq = len(H5.root.sol000.phase000.freq[:])
+    for ff in range(nfreq-1):
+      # reverse order so phase increase towards lower frequnecies
+      phaseCDF[:,nfreq-ff-2, ...]  = np.copy(phaseCDF[:,nfreq-ff-2, ...] + (testscfactor*phaseCDF[:, nfreq-ff-1, ...]))
+
+    print(phaseCDF.shape)
+    H5.root.sol000.phase000.val[:] = phaseCDF
+    H5.flush()
+    H5.close()
+    return  
+  
 
 
 def copyoverscalarphase(scalarh5, phasexxyyh5): 
@@ -3844,7 +3949,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
        try:
          nchan = options.nchan_list[soltype_id]
        except:
-         nchan = 10
+         nchan = 1 # if nothing is set use 1
 
        # smoothnessconstraint
        try:
@@ -3910,7 +4015,8 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
        soltypecycles = options.soltypecycles_list[soltype_id]
 
        # force nchan 1 for tec(andphase) solve and in case smoothnessconstraint is invoked
-       if soltype == 'tec' or  soltype == 'tecandphase' or smoothnessconstraint > 0.0:
+       #if soltype == 'tec' or  soltype == 'tecandphase' or smoothnessconstraint > 0.0:
+       if soltype == 'tec' or  soltype == 'tecandphase':
          nchan  = 1
 
 
@@ -6807,7 +6913,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      SMconstraintrefdistance=smoothnessrefdistance_list[soltypenumber][msnumber],\
                      antennaconstraint=antennaconstraint_list[soltypenumber][msnumber], \
                      resetsols=resetsols_list[soltypenumber][msnumber], \
-                     restoreflags=restoreflags, maxiter=100, flagging=flagging, skymodel=skymodel, \
+                     restoreflags=restoreflags, flagging=flagging, skymodel=skymodel, \
                      flagslowphases=flagslowphases, flagslowamprms=flagslowamprms, \
                      flagslowphaserms=flagslowphaserms, \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
@@ -7016,7 +7122,7 @@ def calibrateandapplycal_old(mslist, selfcalcycle, args, solint_list, nchan_list
                      SMconstraintrefdistance=smoothnessrefdistance_list[soltypenumber][msnumber],\
                      antennaconstraint=antennaconstraint_list[soltypenumber][msnumber], \
                      resetsols=resetsols_list[soltypenumber][msnumber], \
-                     restoreflags=restoreflags, maxiter=100, flagging=flagging, skymodel=skymodel, \
+                     restoreflags=restoreflags, flagging=flagging, skymodel=skymodel, \
                      flagslowphases=flagslowphases, flagslowamprms=flagslowamprms, \
                      flagslowphaserms=flagslowphaserms, incol=incol[msnumber], \
                      predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
@@ -7221,7 +7327,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 SMconstraint=0.0, SMconstraintreffreq=0.0, \
                 SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None, \
                 resetsols=None, restoreflags=False, \
-                maxiter=100, flagging=False, skymodel=None, flagslowphases=True, \
+                maxiter=100, tolerance=1e-4, flagging=False, skymodel=None, flagslowphases=True, \
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
                 skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,\
@@ -7290,11 +7396,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       modeldata = 'MODEL_DATA_PHASEONLY'
 
     if soltype in ['phaseonly_slope', 'scalarphase_slope']:
-      create_phase_slope(ms, incol=incol, outcol='DATA_PHASE_SLOPE', ampnorm=False, dysco=dysco)
-      create_phase_slope(ms, incol='MODEL_DATA', outcol='MODEL_DATA_PHASE_SLOPE', ampnorm=False, dysco=dysco)
+      create_phase_slope(ms, incol=incol, outcol='DATA_PHASE_SLOPE', ampnorm=True, dysco=dysco)
+      create_phase_slope(ms, incol='MODEL_DATA', outcol='MODEL_DATA_PHASE_SLOPE', ampnorm=True, dysco=dysco)
       soltype = soltype.split('_slope')[0]
       incol = 'DATA_PHASE_SLOPE'
       modeldata = 'MODEL_DATA_PHASE_SLOPE'
+      # udpate weights according to weights * (MODEL_DATA/MODEL_DATA_PHASE_SLOPE)**2
+      create_weight_spectrum_modelratio(ms, 'WEIGHT_SPECTRUM_PM', \
+                                        updateweights=True, originalmodel='MODEL_DATA',\
+                                        newmodel='MODEL_DATA_PHASE_SLOPE', backup=True)
 
     if soltype in ['fulljones']:
       print('Setting XY and YX to 0+0i')
@@ -7338,7 +7448,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       includesphase = False
 
     # figure out which weight_spectrum column to use
-    if soltypein == 'scalarphasediff' or soltypein == 'scalarphasediffFR':
+    if soltypein == 'scalarphasediff' or soltypein == 'scalarphasediffFR' or \
+           soltypein == 'phaseonly_slope' or soltypein == 'scalarphase_slope' :
        weight_spectrum = 'WEIGHT_SPECTRUM_PM'
     else:
       # check for WEIGHT_SPECTRUM_SOLVE from DR2 products
@@ -7425,15 +7536,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
         cmd += 'ddecal.smoothnessrefdistance=' + str(SMconstraintrefdistance*1e3) + ' ' # input units in km
 
     if soltype in ['phaseonly','scalarphase','tecandphase','tec','rotation']:
-       cmd += 'ddecal.tolerance=1.e-4 '
+       cmd += 'ddecal.tolerance=' + str(tolerance) + ' '
        if soltype in ['tecandphase','tec']:
           cmd += 'ddecal.approximatetec=True '
           cmd += 'ddecal.stepsize=0.2 '
           cmd += 'ddecal.maxapproxiter=45 '
           cmd += 'ddecal.approxtolerance=6e-3 '
     if soltype in ['complexgain','scalarcomplexgain','scalaramplitude','amplitudeonly','rotation+diagonal','fulljones']:
-       cmd += 'ddecal.tolerance=1.e-4 ' # for now the same as phase soltypes
-
+       cmd += 'ddecal.tolerance=' + str(tolerance) + ' ' # for now the same as phase soltypes
+    #cmd += 'ddecal.detectstalling=False '
 
     print('DP3 solve:', cmd)
     logger.info('DP3 solve: ' + cmd)
@@ -7482,7 +7593,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
 
     if incol == 'DATA_PHASE_SLOPE':
       print('Manually updating H5 to get the cumulative phase')
-      makephaseCDFh5(parmdb)
+      #makephaseCDFh5(parmdb)
+      makephaseCDFh5_h5merger(parmdb, ms, modeldatacolumns)
 
     if resetsols is not None:
       if soltype in ['phaseonly','scalarphase','tecandphase','tec','rotation','fulljones','complexgain','scalarcomplexgain']:
@@ -8400,8 +8512,8 @@ def main():
    calibrationparser.add_argument('--QualityBasedWeights-dfreq', help='QualityBasedWeights frequency in units of MHz (default 5)',  type=float, default=5.0)
    calibrationparser.add_argument('--ncpu-max-DP3solve', help='Maximum number of threads for DP3 solves, default=24 (too high value can result in BLAS errors)', type=int, default=24)
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
-   calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into when --DDE is used. Directions are found automatically. Only used if --facetdirections is not set.', type=int, default=8)
-   calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Only used if --facetdirections is not set. Note that --targetFlux takes presidence over --Nfacets', type=float, default=2.0)
+   calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into when --DDE is used. Directions are found automatically. Only used if --facetdirections is not set. Note this parameter is currently ignored because of LSM.group algorithm=tesselate', type=int, default=8)
+   calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Only used if --facetdirections is not set. Note that --targetFlux takes presedence over --Nfacets', type=float, default=2.0)
    
    calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
    calibrationparser.add_argument('--DDE-predict', help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=WSCLEAN (note: option WSCLEAN will use a lot of disk space as there is one MODEL column per direction written to the MS)', type=str, default='WSCLEAN')
