@@ -6194,7 +6194,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
      if numClusters > 0:
         LSM.group(algorithm='cluster',numClusters=numClusters)
      else:
-        LSM.group(algorithm='tesselate', targetFlux=str(targetFlux) +' Jy',weightBySize=weightBySize)
+        LSM.group(algorithm='tessellate', targetFlux=str(targetFlux) +' Jy',weightBySize=weightBySize)
      
      print('Number of directions', len(LSM.getPatchPositions()))
      PatchPositions = LSM.getPatchPositions()
