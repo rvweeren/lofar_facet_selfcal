@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
-# for stacking auto masking works, but no user masks possible
-# many options for stacking are not allowed and result in crashes, like DDE_predict
-# many functions are not stacking robust
+# for stacking auto masking works, but no user masks are possible
 
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
@@ -6061,7 +6059,7 @@ def parse_facetdirections(facetdirections,niter):
       return PatchPositions_array, None
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
-                channelsout, numClusters=10, facetdirections=None, \
+                channelsout, numClusters=0, facetdirections=None, \
                 DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=False, telescope='LOFAR', dde_skymodel=None, targetFlux=2.0,skyview=None):
 
    if telescope == 'LOFAR' and not disable_IDG_DDE_predict:
@@ -6071,7 +6069,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
 
    solints = create_facet_directions(imagebasename,selfcalcycle,\
    	              targetFlux=targetFlux, ms=mslist[0], imsize=imsize, \
-	              pixelscale=pixelscale, groupalgorithm='tessellate',numClusters=numClusters,\
+	              pixelscale=pixelscale, numClusters=numClusters,\
 	              facetdirections=facetdirections)  
 
    # remove previous facets.fits if needed and create template fits file for facets
@@ -6149,7 +6147,7 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
 
 
 def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, imsize=None, \
-                            pixelscale=None, groupalgorithm='tessellate',numClusters=10, weightBySize=False, facetdirections=None):
+                            pixelscale=None, numClusters=0, weightBySize=False, facetdirections=None):
    '''
    create a facet region file based on an input image or file provided by the user
    if there is an image use lsmtool tessellation algorithm 
@@ -6157,7 +6155,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
    This function also returns the solints obtained out of the file (if avail). It is up to 
    the function that calls this to do something with it or not.
    ''' 
-  
+   # groupalgorithm =
    solints = None # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
    if facetdirections is not None:
      try:
@@ -6192,7 +6190,12 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
      else:
       os.system('cp -r {} facetdirections.skymodel'.format(imagename))
      LSM = lsmtool.load('facetdirections.skymodel')
-     LSM.group(algorithm=groupalgorithm, targetFlux=str(targetFlux) +' Jy', numClusters=numClusters, weightBySize=weightBySize)
+     
+     if numClusters > 0:
+        LSM.group(algorithm='cluster',numClusters=numClusters)
+     else:
+        LSM.group(algorithm='tessellate', targetFlux=str(targetFlux) +' Jy',weightBySize=weightBySize)
+     
      print('Number of directions', len(LSM.getPatchPositions()))
      PatchPositions = LSM.getPatchPositions()
    
@@ -8388,7 +8391,7 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
           else:
             fitsmask = None # no masking requested as args['maskthreshold'] less/equal 0
             fitsmask_list.append(fitsmask)
-   return fitsmask_list, imagename, fitsmask_list
+   return fitsmask, imagename, fitsmask_list
 
 def get_diagnostics(fitsfiles, h5s, station):
     """
@@ -8512,9 +8515,8 @@ def main():
    calibrationparser.add_argument('--QualityBasedWeights-dfreq', help='QualityBasedWeights frequency in units of MHz (default 5)',  type=float, default=5.0)
    calibrationparser.add_argument('--ncpu-max-DP3solve', help='Maximum number of threads for DP3 solves, default=24 (too high value can result in BLAS errors)', type=int, default=24)
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
-   calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into when --DDE is used. Directions are found automatically. Only used if --facetdirections is not set. Note this parameter is currently ignored because of LSM.group algorithm=tesselate', type=int, default=8)
-   calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Only used if --facetdirections is not set. Note that --targetFlux takes presedence over --Nfacets', type=float, default=2.0)
-   
+   calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into when --DDE is used. Directions are found automatically. Only used if --facetdirections is not set. Keep to default (=0) if you want to use --targetFlux instead', type=int, default=0)
+   calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Directions are found automatically. Only used if --facetdirections is not set. Ignored when --NFacets is set to > 0', type=float, default=2.0)
    calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
    calibrationparser.add_argument('--DDE-predict', help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=WSCLEAN (note: option WSCLEAN will use a lot of disk space as there is one MODEL column per direction written to the MS)', type=str, default='WSCLEAN')
    calibrationparser.add_argument('--disable-IDG-DDE-predict', help='Normally, if LOFAR data is detected the WSCLean predict of the facets will use IDG, setting this option turns it off and predicts the apparent model with wridding (facet mode is never used here in these predicts). For non-LOFAR data the predicts uses the apparent model with wridding. Note: if the primary beam is not time varying and scalar then using the apparent model is fully accurate.', action='store_true')
