@@ -23,7 +23,7 @@
 #pt.taql("select ANTENNA1,ANTENNA2,gntrue(FLAG)/(gntrue(FLAG)+gnfalse(FLAG)) as NFLAG from L656064_129_164MHz_uv_pre-cal.concat.ms WHERE (ANTENNA1=={:d} OR ANTENNA2=={:d}) AND ANTENNA1!=ANTENNA2".format(antidx, antidx)).getcol('NFLAG')
 
 # example:
-# python facetselfal.py -b box_18.reg --forwidefield --usewgridder --avgfreqstep=2 --avgtimestep=2 --smoothnessconstraint-list="[0.0,0.0,5.0]" --antennaconstraint-list="['core']" --solint-list=[1,20,120] --soltypecycles-list="[0,1,3]" --soltypelist="['tecandphase','tecandphase','scalarcomplexgain']" test.ms
+# python facetselfal.py -b box_18.reg --forwidefield --avgfreqstep=2 --avgtimestep=2 --smoothnessconstraint-list="[0.0,0.0,5.0]" --antennaconstraint-list="['core']" --solint-list=[1,20,120] --soltypecycles-list="[0,1,3]" --soltypelist="['tecandphase','tecandphase','scalarcomplexgain']" test.ms
 
 # Standard library imports
 import argparse
@@ -97,6 +97,19 @@ def copy_over_sourcedirection_h5(h5ref, h5):
     H.close()
     return
 '''
+
+def selfcal_animatedgif(fitsstr, outname):
+   limit_min = -250e-6
+   limit_max = 2.5e-2
+   cmd = 'ds9 ' + fitsstr + ' '
+   cmd += '-single -view basic -frame first -geometry 800x800 -zoom to fit -sqrt -scale limits ' 
+   cmd +=  str(limit_max)  + ' ' + str(limit_max) + ' '
+   cmd += '-cmap ch05m151008 -colorbar lock yes -frame lock wcs '
+   cmd += '-lock scalelimits yes -movie frame gif 10 '
+   cmd += outname + ' -quit'
+   run(cmd)
+   return
+
 
 def find_closest_ddsol(h5, ms): # 
    """
@@ -6467,8 +6480,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         
         # step 3 predict with wsclean
         cmd = 'wsclean -predict '
-        if not usewgridder and not idg:
-          cmd += '-padding 1.8 '
+        #if not usewgridder and not idg:
+        #  cmd += '-padding 1.8 '
         if channelsout > 1:
           cmd += '-channels-out ' + str(channelsout) + ' '
           if gapchanneldivision:
@@ -6539,8 +6552,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
       cmd += ' -clean-border 1 -parallel-reordering 4 '
       # -weighting-rank-filter 3 -fit-beam
       cmd += '-mgain 0.8 -data-column ' + imcol + ' '
-      if not usewgridder and not idg:
-        cmd += '-padding 1.4 '
+      #if not usewgridder and not idg:
+      #  cmd += '-padding 1.4 '
       if channelsout > 1:
         cmd += ' -join-channels -channels-out ' + str(channelsout) + ' '
         if gapchanneldivision:
@@ -6644,8 +6657,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         # because at that moment there is no h5list yet and this avoids an unnecessary DI-type predict 
         cmd = 'wsclean -size '
         cmd += str(int(imsize)) + ' ' + str(int(imsize)) +  ' -predict '
-        if not usewgridder and not idg:
-           cmd += '-padding 1.8 ' 
+        #if not usewgridder and not idg:
+        #   cmd += '-padding 1.8 ' 
         if channelsout > 1:
           cmd += ' -channels-out ' + str(channelsout) + ' '
           if gapchanneldivision:
@@ -6796,12 +6809,12 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          if wscleanskymodel is not None and type(wscleanskymodel) is str:
            makeimage([ms], wscleanskymodel, 1., 1., \
                      len(glob.glob(wscleanskymodel + '-????-model.fits')),\
-                     0, 0.0, onlypredict=True, idg=False, usewgridder=True, \
+                     0, 0.0, onlypredict=True, idg=False, \
                      gapchanneldivision=gapchanneldivision)
          if wscleanskymodel is not None and type(wscleanskymodel) is list:
            makeimage([ms], wscleanskymodel[ms_id], 1., 1., \
                      len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),\
-                     0, 0.0, onlypredict=True, idg=False, usewgridder=True, \
+                     0, 0.0, onlypredict=True, idg=False, \
                      gapchanneldivision=gapchanneldivision)   
 
          if skymodelpointsource is not None and type(skymodelpointsource) is float :
@@ -7182,10 +7195,6 @@ def calibrateandapplycal_old(mslist, selfcalcycle, args, solint_list, nchan_list
 
    wsclean_h5list = []
 
-   # tmp work-around because h5 merge crashes on dde merges 
-   #if len(modeldatacolumns) > 0:
-   #   return parmdbmergelist
-   
 
    # merge all solutions 
    if True:
@@ -7359,7 +7368,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     #if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if wscleanskymodel is not None and create_modeldata:
         makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')),\
-        0, 0.0, onlypredict=True, idg=False, usewgridder=True, \
+        0, 0.0, onlypredict=True, idg=False, \
         gapchanneldivision=gapchanneldivision)
 
 
@@ -7655,11 +7664,6 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       logger.info(cmdlosoto)
       run(cmdlosoto)
 
-    # print(findrefant_core(parmdb))
-    # print(onechannel)
-    # if len(tables.file._open_files.filenames) >= 1: # for debugging      
-    #  print('Location 1 Some HDF5 files are not closed:', tables.file._open_files.filenames)
-    #  sys.exit()
 
     if soltype in ['phaseonly','scalarphase']:
       losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol, outplotname=outplotname, refant=findrefant_core(parmdb)) # phase matrix plot
@@ -7668,10 +7672,6 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       print(cmdlosoto)
       logger.info(cmdlosoto)
       run(cmdlosoto)
-      # if len(tables.file._open_files.filenames) >= 1: # for debugging
-      #  print('Location 1.5 Some HDF5 files are not closed:', tables.file._open_files.filenames)
-      #  sys.exit()
-      #
 
 
     if soltype in ['tecandphase', 'tec']:
@@ -7764,6 +7764,9 @@ def update_sourcedir_h5_dde(h5, sourcedirpickle):
     return
 
 def has0coordinates(h5):
+    """
+    Check if the coordinates in the directions are 0, avoids being hit by this rare DP3 bug
+    """
     h5 = tables.open_file(h5)
     for c in h5.root.sol000.source[:]:
         x, y = c[1]
@@ -8176,9 +8179,6 @@ def basicsetup(mslist, args):
 
    maskthreshold_selfcalcycle = makemaskthresholdlist(args['maskthreshold'], args['stop'])
 
-   #if args['start'] == 0:
-   #  os.system('rm -f nchan.p solint.p smoothnessconstraint.p smoothnessreffrequency.p smoothnessspectralexponent.p smoothnessrefdistance.p antennaconstraint.p resetsols.p soltypecycles.p')
-
    return longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, \
           maskthreshold_selfcalcycle, outtarname, args
 
@@ -8455,7 +8455,7 @@ def main():
    imagingparser.add_argument('--multiscale', help='Use multiscale deconvolution (see WSClean documentation).', action='store_true')
    imagingparser.add_argument('--multiscalescalebias', help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.7.', default=0.75, type=float)
    imagingparser.add_argument('--multiscalemaxscales', help='Multiscalescale max scale parameter for WSClean (see WSClean documentation). Default 0 (means set automatically).', default=0, type=int)
-   imagingparser.add_argument('--usewgridder', help='Use wgridder from WSClean, mainly useful for very large images. This is by default True.', type=ast.literal_eval, default=True)
+   #imagingparser.add_argument('--usewgridder', help='Use wgridder from WSClean, mainly useful for very large images. This is by default True.', type=ast.literal_eval, default=True)
    imagingparser.add_argument('--paralleldeconvolution', help="Parallel-deconvolution size for WSCLean (see WSClean documentation). This is by default 0 (no parallel deconvolution). Suggested value for very large images is about 2000.", default=0, type=int)
    imagingparser.add_argument('--parallelgridding', help="Parallel-gridding for WSClean (see WSClean documentation). This is by default 1.", default=1, type=int)
    imagingparser.add_argument('--deconvolutionchannels', help="Deconvolution channels value for WSClean (see WSClean documentation). This is by default 0 (means deconvolution-channels equals channels-out).", default=0, type=int)
@@ -8873,10 +8873,6 @@ def main():
                               losotobeamlib=args['losotobeamcor_beamlib'], idg=args['idg'])
 
 
-     # PRE-APPLY SOLUTIONS (from a nearby direction for example)
-     # if (args['preapplyH5_list'][0]) is not None and i == 0:
-     #    preapply(args['preapplyH5_list'], mslist, dysco=args['dysco'])
-
      # TMP AVERAGE TO SPEED UP CALIBRATION
      if args['autofrequencyaverage_calspeedup'] and i == 0:
          avgfreqstep = []
@@ -8984,8 +8980,7 @@ def main():
                   uvminim=args['uvminim'], predict=not args['stopafterskysolve'],\
                   fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
                   imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
-                  removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], \
-                  usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
+                  removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], paralleldeconvolution=args['paralleldeconvolution'],\
                   deconvolutionchannels=args['deconvolutionchannels'], \
                   parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
                   taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, localrmswindow=args['localrmswindow'], \
@@ -9004,7 +8999,7 @@ def main():
                   uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=args['fitspectralpol'], \
                   automask=automask, removenegativecc=False, \
                   fitspectralpolorder=args['fitspectralpolorder'], predict=False, \
-                  usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
+                  paralleldeconvolution=args['paralleldeconvolution'],\
                   deconvolutionchannels=args['deconvolutionchannels'], \
                   parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
                   taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'])
@@ -9015,7 +9010,7 @@ def main():
                   multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id], \
                   uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=False, \
                   automask=automask, removenegativecc=False, predict=False, \
-                  usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
+                  paralleldeconvolution=args['paralleldeconvolution'],\
                   deconvolutionchannels=args['deconvolutionchannels'], \
                   parallelgridding=args['parallelgridding'],\
                   multiscalescalebias=args['multiscalescalebias'], fullpol=True,\
@@ -9126,7 +9121,7 @@ def main():
                fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
                imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
                removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], \
-               usewgridder=args['usewgridder'], paralleldeconvolution=args['paralleldeconvolution'],\
+               paralleldeconvolution=args['paralleldeconvolution'],\
                deconvolutionchannels=args['deconvolutionchannels'], \
                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
                taperinnertukey=args['taperinnertukey'], \
