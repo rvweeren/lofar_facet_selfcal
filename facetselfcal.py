@@ -2,6 +2,10 @@
 
 # for stacking auto masking works, but no user masks are possible
 
+# Add stacking restarts
+# Add multi-run stacking
+# Add direction reset, for DDE solves
+# Taql ms wsclean speedup
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # flux YX en XY to zero in full jones can be wrong, if fulljones is not the last solve type
@@ -6160,7 +6164,8 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
 
 
 def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, imsize=None, \
-                            pixelscale=None, numClusters=0, weightBySize=False, facetdirections=None):
+                            pixelscale=None, numClusters=0, weightBySize=False, \
+                            facetdirections=None, imsizemargin=40):
    '''
    create a facet region file based on an input image or file provided by the user
    if there is an image use lsmtool tessellation algorithm 
@@ -6190,7 +6195,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
      if ms is not None and imsize is not None and pixelscale is not None:
          cmd = 'python ds9facetgenerator.py '
          cmd += '--ms=' + ms + ' '
-         cmd += '--h5=facetdirections.p --imsize=' + str(imsize) +' --pixelscale=' + str(pixelscale)
+         cmd += '--h5=facetdirections.p --imsize=' + str(imsize+imsizemargin) +' --pixelscale=' + str(pixelscale)
          run(cmd)
      return solints
    elif selfcalcycle==0:
@@ -6228,7 +6233,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
      if ms is not None and imsize is not None and pixelscale is not None:
          cmd = 'python ds9facetgenerator.py '
          cmd += '--ms=' + ms + ' '
-         cmd += '--h5=facetdirections.p --imsize=' + str(imsize) +' --pixelscale=' + str(pixelscale)
+         cmd += '--h5=facetdirections.p --imsize=' + str(imsize+imsizemargin) +' --pixelscale=' + str(pixelscale)
          run(cmd)
      return solints
    else:
@@ -6549,7 +6554,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
          cmd += '-weight briggs ' + str(robust) 
       else:
          cmd += '-weight ' + str(robust)
-      cmd += ' -clean-border 1 -parallel-reordering 4 '
+      #cmd += ' -clean-border 1 ' # not needed anymore for WSCleand
+      cmd += ' -parallel-reordering 4 '
       # -weighting-rank-filter 3 -fit-beam
       cmd += '-mgain 0.8 -data-column ' + imcol + ' '
       #if not usewgridder and not idg:
