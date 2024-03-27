@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 
 # for stacking auto masking works, but no user masks are possible
-
-# Add stacking restarts
+# Stacking check that freq and time axes are identical
 # Add multi-run stacking
-# Add direction reset, for DDE solves
 # Taql ms wsclean speedup
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
@@ -13,7 +11,7 @@
 # directions in h5 file might be changed up by DP3, relevant dor DP3 predict-solves
 # fix RR-LL referencing for flaged solutions, check for possible superterp reference station
 # put all fits images in images folder, all solutions in solutions folder? to reduce clutter
-# implement idea of phase detrending.
+# phase detrending.
 # log command into the FITS header
 # BLsmooth not for gain solves option
 # BLsmooth constant smooth for gain solves
@@ -2086,9 +2084,9 @@ def inputchecker(args, mslist):
         if args['auto']:
             print('--auto cannot be used with --stack')
             raise Exception('--auto cannot be used with --stack') 
-        if args['start'] !=0:
-            print('--restarts (start>0) are not allowed')
-            raise Exception('--restarts (start>0) are not allowed') 
+        #if args['start'] !=0:
+        #    print('--restarts (start>0) are not allowed')
+        #    raise Exception('--restarts (start>0) are not allowed') 
         #if args['startfromtgss']:
         #    print('--startfromtgss cannot be used with --stack')
         #    raise Exception('--startfromtgss cannot be used with --stack') 
@@ -2116,6 +2114,30 @@ def inputchecker(args, mslist):
         if type(args['wscleanskymodel']) is list:
             print('wscleanskymodel cannot be a list if --stack is not set')
             raise Exception('wscleanskymodel cannot be a list if --stack is not set')  
+
+    # sanity check for resetdir_list input
+    if type(args['resetdir_list']) is not list:
+        print('--resetdir-list needs to be of type list')
+        raise Exception('--resetdir-list needs to be of type list') 
+    for resetdir in args['resetdir_list']: # check if it contains None or a integer list-type
+        if resetdir is not None:
+            if type(resetdir) is not list:
+                print('--resetdir-list needs to None list-items, or contain a list of directions_id')
+                raise Exception('--resetdir-list needs to None list-items, or contain a list of directions_id')         
+            else:
+                from astropy.io import ascii
+                for dir_id in resetdir:
+                    if type(dir_id) is not int:
+                        print('--resetdir-list, direction IDs provided need to be integers')
+                        raise Exception('--resetdir-list, direction IDs provided need to be integers')                             
+                    if dir_id < 0: # if we get here we have an integer
+                        print('--resetdir-list, direction IDs provided need to be integers >= 0')
+                        raise Exception('--resetdir-list, direction IDs provided need to be integers >= 0')
+                    data = ascii.read(args['facetdirections'])
+                    if dir_id+1 > len(data): 
+                        print('--direction IDs provided for reset is too high for the number of directions provided by ' + args['facetdirections'])
+                        raise Exception('--direction IDs provided for reset is too high for the number of directions provided by ' + args['facetdirections'])
+                    
 
     if args['uvmin'] is not None and type(args['uvmin']) is not list:
         if args['uvmin'] < 0.0:
@@ -3250,8 +3272,190 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
 
     H.flush()
     H.close()
+    return
+
+def resetsolsfordir(h5parm, dirlist, refant=None):
+    ''' Reset solutions for directions (DDE solves only)
+
+    Args:
+      h5parm: h5parm file
+      dirlist: list of direction_id to reset
+      refant: reference antenna
+    '''
+    print(h5parm, dirlist)
+    fulljones = fulljonesparmdb(h5parm) # True/False
+    hasphase = True
+    hasamps  = True
+    hasrotatation = True
+    hastec = True
+
+    H=tables.open_file(h5parm, mode='a')
+
+    # figure of we have phase and/or amplitude solutions
+    try:
+     directions = H.root.sol000.amplitude000.dir[:]
+     axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+    except:
+      hasamps = False
+    try:
+     directions = H.root.sol000.phase000.dir[:]
+     axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+    except:
+     hasphase = False
+    try:
+     directions = H.root.sol000.tec000.dir[:]
+     axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+    except:
+     hastec = False
+    try:
+     directions = H.root.sol000.rotation000.dir[:]
+     axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+    except:
+     hasrotatation = False
+
+    if hasamps:
+     amp = H.root.sol000.amplitude000.val[:]
+    if hasphase: # also phasereference
+     phase = H.root.sol000.phase000.val[:]
+     refant_idx = np.where(H.root.sol000.phase000.ant[:].astype(str) == refant) # to deal with byte strings
+     print(refant_idx, refant)
+     antennaxis = axisn.index('ant')
+     axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+     print('Referencing phase to ', refant, 'Axis entry number', axisn.index('ant'))
+     if antennaxis == 0:
+        phasen = phase - phase[refant_idx[0],...]
+     if antennaxis == 1:
+        phasen = phase - phase[:,refant_idx[0],...]
+     if antennaxis == 2:
+        phasen = phase - phase[:,:,refant_idx[0],...]
+     if antennaxis == 3:
+        phasen = phase - phase[:,:,:,refant_idx[0],...]
+     if antennaxis == 4:
+        phasen = phase - phase[:,:,:,:,refant_idx[0],...]
+     phase = np.copy(phasen)
 
 
+    if hastec:
+     tec = H.root.sol000.tec000.val[:]
+     refant_idx = np.where(H.root.sol000.tec000.ant[:].astype(str) == refant) # to deal with byte strings
+     print(refant_idx, refant)
+     antennaxis = axisn.index('ant')
+     axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+     print('Referencing tec to ', refant, 'Axis entry number', axisn.index('ant'))
+     if antennaxis == 0:
+        tecn = tec - tec[refant_idx[0],...]
+     if antennaxis == 1:
+        tecn = tec - tec[:,refant_idx[0],...]
+     if antennaxis == 2:
+        tecn = tec - tec[:,:,refant_idx[0],...]
+     if antennaxis == 3:
+        tecn = tec - tec[:,:,:,refant_idx[0],...]
+     if antennaxis == 4:
+        tecn = tec - tec[:,:,:,:,refant_idx[0],...]
+     tec = np.copy(tecn)
+
+    if hasrotatation:
+     rotation = H.root.sol000.rotation000.val[:]
+     refant_idx = np.where(H.root.sol000.rotation000.ant[:].astype(str) == refant) # to deal with byte strings
+     print(refant_idx, refant)
+     antennaxis = axisn.index('ant')
+     axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+     print('Referencing rotation to ', refant, 'Axis entry number', axisn.index('ant'))
+     if antennaxis == 0:
+        rotationn = rotation - rotation[refant_idx[0],...]
+     if antennaxis == 1:
+        rotationn = rotation - rotation[:,refant_idx[0],...]
+     if antennaxis == 2:
+        rotationn = rotation - rotation[:,:,refant_idx[0],...]
+     if antennaxis == 3:
+        rotationn = rotation - rotation[:,:,:,refant_idx[0],...]
+     if antennaxis == 4:
+        rotationn = rotation - rotation[:,:,:,:,refant_idx[0],...]
+     rotation = np.copy(rotationn)
+
+
+    for directionid,direction in enumerate(directions.astype(str)): # to deal with byte formatted array
+     # if not isinstance(antenna, str):
+     #  antenna_str = antenna.decode() # to deal with byte formatted antenna names
+     # else:
+     #  antenna_str = antenna # already str type
+
+     print(directionid,direction, hasphase, hasamps, hastec, hasrotatation)
+     if directionid in dirlist: # in this case reset value to 0.0 (or 1.0)
+       if hasphase:
+         diraxis = axisn.index('dir')
+         axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+         print('Resetting phase direction ID', directionid, 'Axis entry number', axisn.index('dir'))
+         # print(phase[:,:,directionid,...])
+         if diraxis == 0:
+           phase[directionid,...] = 0.0
+         if diraxis == 1:
+           phase[:,directionid,...] = 0.0
+         if diraxis == 2:
+           phase[:,:,directionid,...] = 0.0
+         if diraxis == 3:
+           phase[:,:,:,directionid,...] = 0.0
+         if diraxis == 4:
+           phase[:,:,:,:,directionid,...] = 0.0
+         # print(phase[:,:,directionid,...])
+       if hasamps:
+         diraxis = axisn.index('dir')
+         axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+         print('Resetting amplitude direction ID', directionid, 'Axis entry number', axisn.index('dir'))
+         if diraxis == 0:
+           amp[directionid,...] = 1.0
+         if diraxis == 1:
+           amp[:,directionid,...] = 1.0
+         if diraxis == 2:
+           amp[:,:,directionid,...] = 1.0
+         if diraxis == 3:
+           amp[:,:,:,directionid,...] = 1.0
+         if diraxis == 4:
+           amp[:,:,:,:,directionid,...] = 1.0
+         if fulljones:
+           amp[...,1] = 0.0 # XY, assumpe pol is last axis
+           amp[...,2] = 0.0 # YX, assume pol is last axis
+
+       if hastec:
+         diraxis = axisn.index('dir')
+         axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+         print('Resetting TEC direction ID', directionid, 'Axis entry number', axisn.index('dir'))
+         if diraxis == 0:
+           tec[directionid,...] = 0.0
+         if diraxis == 1:
+           tec[:,directionid,...] = 0.0
+         if diraxis == 2:
+           tec[:,:,directionid,...] = 0.0
+         if diraxis == 3:
+           tec[:,:,:,directionid,...] = 0.0
+         if diraxis == 4:
+           tec[:,:,:,:,directionid,...] = 0.0
+       if hasrotatation:
+         diraxis = axisn.index('dir')
+         axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+         print('Resetting rotation direction ID', directionid, 'Axis entry number', axisn.index('dir'))
+         if diraxis == 0:
+           rotation[directionid,...] = 0.0
+         if diraxis == 1:
+           rotation[:,directionid,...] = 0.0
+         if diraxis == 2:
+           rotation[:,:,directionid,...] = 0.0
+         if diraxis == 3:
+           rotation[:,:,:,directionid,...] = 0.0
+         if diraxis == 4:
+           rotation[:,:,:,:,directionid,...] = 0.0
+    # fill values back in
+    if hasphase:
+     H.root.sol000.phase000.val[:] = np.copy(phase)
+    if hasamps:
+     H.root.sol000.amplitude000.val[:] = np.copy(amp)
+    if hastec:
+     H.root.sol000.tec000.val[:] = np.copy(tec)
+    if hasrotatation:
+     H.root.sol000.rotation000.val[:] = np.copy(rotation)
+
+    H.flush()
+    H.close()
     return
 
 
@@ -3912,6 +4116,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    smoothnessrefdistance_list = [] #  # nest list with len(options.soltype_list), inner list is for ms
    antennaconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
    resetsols_list = [] # nested list with len(options.soltype_list), inner list is for ms
+   resetdir_list = [] # nested list with len(options.soltype_list), inner list is for ms
    soltypecycles_list = []  # nested list with len(options.soltype_list), inner list is for ms
    uvmin_list = []  # nested list with len(options.soltype_list), inner list is for ms
    uvmax_list = []  # nested list with len(options.soltype_list), inner list is for ms
@@ -3941,6 +4146,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
      solint_ms  = [] # list with len(mslist)
      antennaconstraint_list_ms   = [] # list with len(mslist)
      resetsols_list_ms = [] # list with len(mslist)
+     resetdir_list_ms = [] # list with len(mslist)
      smoothnessconstraint_list_ms  = [] # list with len(mslist)
      smoothnessreffrequency_list_ms  = [] # list with len(mslist)
      smoothnessspectralexponent_list_ms = [] # list with len(mslist)
@@ -4002,6 +4208,12 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
        except:
          resetsols = None
 
+       # resetdir
+       try:
+         resetdir = options.resetdir_list[soltype_id]
+       except:
+         resetdir = None
+
        # uvmin
        try:
          uvmin = options.uvmin[soltype_id]
@@ -4043,6 +4255,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
        smoothnessrefdistance_list_ms.append(smoothnessrefdistance)
        antennaconstraint_list_ms.append(antennaconstraint)
        resetsols_list_ms.append(resetsols)
+       resetdir_list_ms.append(resetdir)
        soltypecycles_list_ms.append(soltypecycles)
        uvmin_list_ms.append(uvmin)
        uvmax_list_ms.append(uvmax)
@@ -4054,6 +4267,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
      solint_list.append(solint_ms) # list of lists
      antennaconstraint_list.append(antennaconstraint_list_ms)   # list of lists
      resetsols_list.append(resetsols_list_ms) # list of lists
+     resetdir_list.append(resetdir_list_ms) # list of lists
      smoothnessconstraint_list.append(smoothnessconstraint_list_ms) # list of lists
      smoothnessreffrequency_list.append(smoothnessreffrequency_list_ms) # list of lists
      smoothnessspectralexponent_list.append(smoothnessspectralexponent_list_ms) # list of lists
@@ -4111,6 +4325,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    print('smoothnessrefdistance:',smoothnessrefdistance_list)
    print('antennaconstraint:',antennaconstraint_list)
    print('resetsols:',resetsols_list)
+   print('resetdir:', resetdir_list)
    print('soltypecycles:',soltypecycles_list)
    print('uvmin:',uvmin_list)
    print('uvmax:',uvmax_list)
@@ -4126,6 +4341,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    logger.info('smoothnessrefdistance: ' + str(options.smoothnessrefdistance_list))
    logger.info('antennaconstraint: ' + str(options.antennaconstraint_list))
    logger.info('resetsols: ' + str(options.resetsols_list))
+   logger.info('resetdir: ' + str(options.resetdir_list))
    logger.info('soltypecycles: ' + str(options.soltypecycles_list))
    logger.info('uvmin: ' + str(options.uvmin))
    logger.info('uvmax: ' + str(options.uvmax))
@@ -4133,7 +4349,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    logger.info('uvmaxim: ' + str(options.uvmaxim))
 
 
-   return nchan_list, solint_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list
+   return nchan_list, solint_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list
 
 def getms_amp_stats(ms, datacolumn='DATA',uvcutfraction=0.666, robustsigma=True):
    uvdismod = get_uvwmax(ms)*uvcutfraction  
@@ -4277,7 +4493,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
                           insmoothnessconstraint_list=None, insmoothnessreffrequency_list=None, \
                           insmoothnessspectralexponent_list=None,\
                           insmoothnessrefdistance_list=None,\
-                          inantennaconstraint_list=None, inresetsols_list=None, \
+                          inantennaconstraint_list=None, inresetsols_list=None, inresetdir_list=None,\
                           insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0,\
                           phasefactorsolint=1.0, delaycal=False):
    """
@@ -4605,6 +4821,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    print('smoothnessrefdistance_list:',insmoothnessrefdistance_list)
    print('antennaconstraint:',inantennaconstraint_list)
    print('resetsols:',inresetsols_list)
+   print('resetdir:',inresetdir_list)
    print('soltypecycles:',insoltypecycles_list)
 
    logger.info('soltype: '+ str(soltype_list) + ' ' + str(mslist))
@@ -4616,10 +4833,11 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    logger.info('smoothnessrefdistance: ' + str(insmoothnessrefdistance_list))
    logger.info('antennaconstraint: ' + str(inantennaconstraint_list))
    logger.info('resetsols: ' + str(inresetsols_list))
+   logger.info('resetdir: ' + str(inresetdir_list))
    logger.info('soltypecycles: ' + str(insoltypecycles_list))
 
 
-   return innchan_list, insolint_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, insmoothnessrefdistance_list, inantennaconstraint_list, inresetsols_list, insoltypecycles_list
+   return innchan_list, insolint_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, insmoothnessrefdistance_list, inantennaconstraint_list, inresetsols_list, inresetdir_list, insoltypecycles_list
 
 
 
@@ -5704,47 +5922,7 @@ def flaghighamps_fulljones(parmdb, highampval=10.,flagging=True, setweightsphase
     return
 
 
-
-def flagbadampsold(parmdb, setweightsphases=True):
-    '''
-    flag bad amplitudes in H5 parmdb, those with amplitude==1.0
-    '''
-    # check if full jones
-    H=tables.open_file(parmdb)
-    amplitude = H.root.sol000.amplitude000.val[:]
-    weights   = H.root.sol000.amplitude000.weight[:]
-    if amplitude.shape[-1] == 4:
-      fulljones = True
-    else:
-      fulljones = False
-    H.close()
-
-    H5 = h5parm.h5parm(parmdb, readonly=False)
-    amps =H5.getSolset('sol000').getSoltab('amplitude000').getValues()[0]
-    idx = np.where(amps <= 0.0)
-    amps[idx] = 1.0
-
-    idx = np.where(amps == 1.0)
-    weights = H5.getSolset('sol000').getSoltab('amplitude000').getValues(weight=True)[0]
-
-    weights[idx] = 0.0
-    H5.getSolset('sol000').getSoltab('amplitude000').setValues(weights,weight=True)
-
-    # also put phases weights and phases to zero
-    if setweightsphases:
-        phases =H5.getSolset('sol000').getSoltab('phase000').getValues()[0]
-        weights_p = H5.getSolset('sol000').getSoltab('phase000').getValues(weight=True)[0]
-        weights_p[idx] = 0.0
-        phases[idx] = 0.0
-
-        H5.getSolset('sol000').getSoltab('phase000').setValues(weights_p,weight=True)
-        H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
-
-    H5.close()
-    return
-
-
-def flagbadamps(parmdb, setweightsphases=True):
+def flagbadamps(parmdb, setweightsphases=True, flagamp1=True):
     '''
     flag bad amplitudes in H5 parmdb, those with amplitude==1.0
     '''
@@ -5760,8 +5938,9 @@ def flagbadamps(parmdb, setweightsphases=True):
     if not fulljones:
        idx = np.where(amplitude <= 0.0)      
        amplitude[idx] = 1.0
-       idx = np.where(amplitude == 1.0)
-       weights[idx] = 0.0
+       if flagamp1:
+          idx = np.where(amplitude == 1.0)
+          weights[idx] = 0.0
        
        H.root.sol000.amplitude000.val[:] = amplitude
        H.root.sol000.amplitude000.weight[:] = weights 
@@ -5786,8 +5965,9 @@ def flagbadamps(parmdb, setweightsphases=True):
        weights_xx = weights[...,0]
        idx = np.where(amps_xx <= 0.0)
        amps_xx[idx] = 1.0
-       idx = np.where(amps_xx == 1.0)
-       weights_xx[idx] =  0.0
+       if flagamp1:
+          idx = np.where(amps_xx == 1.0)
+          weights_xx[idx] =  0.0
        if setweightsphases:
           phase_xx = phase[...,0]
           weights_p_xx = weights_p[...,0]
@@ -5825,8 +6005,9 @@ def flagbadamps(parmdb, setweightsphases=True):
        weights_yy = weights[...,3]
        idx = np.where(amps_yy <= 0.0)
        amps_yy[idx] = 1.0
-       idx = np.where(amps_yy == 1.0)
-       weights_yy[idx] =  0.0
+       if flagamp1:
+          idx = np.where(amps_yy == 1.0)
+          weights_yy[idx] =  0.0
        if setweightsphases:
           phase_yy = phase[...,3]
           weights_p_yy = weights_p[...,3]
@@ -6438,8 +6619,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               mask_region(model,squarebox,'box_' + model)  
         
         cmd = 'wsclean -predict '
-        if not usewgridder and not idg:
-          cmd += '-padding 1.8 '
+        #if not usewgridder and not idg:
+        #  cmd += '-padding 1.8 '
         if channelsout > 1:
           cmd += '-channels-out ' + str(channelsout) + ' '
           if gapchanneldivision:
@@ -6787,7 +6968,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               soltype_list, soltypecycles_list, smoothnessconstraint_list, \
               smoothnessreffrequency_list, smoothnessspectralexponent_list, \
               smoothnessrefdistance_list, \
-              antennaconstraint_list, resetsols_list, uvmin=0, \
+              antennaconstraint_list, resetsols_list, resetdir_list, uvmin=0, \
               normamps=False, normamps_per_ms=False, skymodel=None, \
               predictskywithbeam=False, restoreflags=False, flagging=False, \
               longbaseline=False, BLsmooth=False, flagslowphases=True, \
@@ -6935,6 +7116,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      SMconstraintrefdistance=smoothnessrefdistance_list[soltypenumber][msnumber],\
                      antennaconstraint=antennaconstraint_list[soltypenumber][msnumber], \
                      resetsols=resetsols_list[soltypenumber][msnumber], \
+                     resetdir=resetdir_list[soltypenumber][msnumber], \
                      restoreflags=restoreflags, flagging=flagging, skymodel=skymodel, \
                      flagslowphases=flagslowphases, flagslowamprms=flagslowamprms, \
                      flagslowphaserms=flagslowphaserms, \
@@ -7144,6 +7326,7 @@ def calibrateandapplycal_old(mslist, selfcalcycle, args, solint_list, nchan_list
                      SMconstraintrefdistance=smoothnessrefdistance_list[soltypenumber][msnumber],\
                      antennaconstraint=antennaconstraint_list[soltypenumber][msnumber], \
                      resetsols=resetsols_list[soltypenumber][msnumber], \
+                     resetdir=resetdir_list[soltypenumber][msnumber], \
                      restoreflags=restoreflags, flagging=flagging, skymodel=skymodel, \
                      flagslowphases=flagslowphases, flagslowamprms=flagslowamprms, \
                      flagslowphaserms=flagslowphaserms, incol=incol[msnumber], \
@@ -7344,7 +7527,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 SMconstraint=0.0, SMconstraintreffreq=0.0, \
                 SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None, \
-                resetsols=None, restoreflags=False, \
+                resetsols=None, resetdir=None, restoreflags=False, \
                 maxiter=100, tolerance=1e-4, flagging=False, skymodel=None, flagslowphases=True, \
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
@@ -7622,6 +7805,16 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
          refant = None
       resetsolsforstations(parmdb, antennaconstraintstr(resetsols, antennasms, HBAorLBA, useforresetsols=True), refant=refant)
 
+    if resetdir is not None:
+      if soltype in ['phaseonly','scalarphase','tecandphase','tec','rotation','fulljones','complexgain','scalarcomplexgain']:
+         refant=findrefant_core(parmdb)
+         force_close(parmdb)
+      else:
+         refant = None
+      #sys.exit()
+      resetsolsfordir(parmdb, resetdir, refant=refant)
+
+
     if number_freqchan_h5(parmdb) > 1:
       onechannel = False
     else:
@@ -7633,7 +7826,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
 
     # Check for bad values
     if soltype in ['scalarcomplexgain','complexgain','amplitudeonly','scalaramplitude','fulljones','rotation+diagonal']:
-      flagbadamps(parmdb, setweightsphases=includesphase)
+      if resetdir is not None or resetsols is not None:
+         flagbadamps(parmdb, setweightsphases=includesphase, flagamp1=False) # otherwise it flags the solutions which where reset
+      else:
+         flagbadamps(parmdb, setweightsphases=includesphase)
       if soltype == 'fulljones':
          removenans_fulljones(parmdb)
       else:  
@@ -8399,6 +8595,31 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
             fitsmask_list.append(fitsmask)
    return fitsmask, imagename, fitsmask_list
 
+def set_fitsmask_restart(args, i, mslist):
+   fitsmask_list = []
+   for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
+      if args['stack']:
+         stackstr= '_stack' + str(msim_id).zfill(2)
+      else:
+         stackstr='' # empty string
+   
+      if args['idg']:
+        if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'):
+          fitsmask = args['imagename'] + str(i-1).zfill(3)+ stackstr + '-MFS-image.fits.mask.fits'
+      else:
+        if args['imager'] == 'WSCLEAN':
+          if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'):
+            fitsmask = args['imagename'] + str(i-1).zfill(3)+ stackstr + '-MFS-image.fits.mask.fits'
+        if args['imager'] == 'DDFACET':
+          if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + stackstr + '.app.restored.fits'):
+            fitsmask = args['imagename'] + str(i-1).zfill(3) + stackstr + '.app.restored.fits.mask.fits'
+      if args['channelsout'] == 1:
+        fitsmask = fitsmask.replace('-MFS', '').replace('-I','')
+      
+      fitsmask_list.append(fitsmask)
+   return fitsmask, fitsmask_list
+
+
 def get_diagnostics(fitsfiles, h5s, station):
     """
     Get diagnostics to evaluate the selfcal quality in terms of image fidelity and solution stability.
@@ -8499,6 +8720,7 @@ def main():
    calibrationparser.add_argument("--smoothnessrefdistance-list", type=arg_as_list, default=[0.,0.,0.], help="If smoothnessrefdistance is not equal to zero then this parameter determines the freqeuency smoothness reference distance in units of km, with the smoothness scaling with distance. See DP3 documentation. The default is [0.,0.,0.].")
    calibrationparser.add_argument("--antennaconstraint-list", type=arg_as_list, default=[None,None,None], help="List with constraints on the antennas used (in same order as soltype-list input). Possible input: 'superterp', 'coreandfirstremotes', 'core', 'remote', 'distantremote', 'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes, alldutchandclosegerman', 'alldutchbutnoST001'. The default is [None,None,None].")
    calibrationparser.add_argument("--resetsols-list", type=arg_as_list, default=[None,None,None], help="Values of these stations will be rest to 0.0 (phases), or 1.0 (amplitudes), default None, possible settings are the same as for antennaconstraint-list (alldutch, core, etc)). The default is [None,None,None].")
+   calibrationparser.add_argument("--resetdir-list", type=arg_as_list, default=[None,None,None], help="Values of these directions will be rest to 0.0 (phases), or 1.0 (amplitudes) for DDE solves. The default is [None,None,None]. It requires --facetdirections being set a user defined direction list so the directions are known. An example would be '[None,[1,4],None]', meaning that directions 1 and 4 are being reset, counting starts at zero in the second solve in the pertubation list.")
    calibrationparser.add_argument("--soltypecycles-list", type=arg_as_list, default=[0,999,3], help="Selfcalcycle where step from soltype-list starts. The default is [0,999,3].")
    calibrationparser.add_argument("--BLsmooth", help='Employ BLsmooth for low S/N data.', action='store_true')
    calibrationparser.add_argument('--dejumpFR', help='Dejump Faraday solutions when using scalarphasediffFR.', action='store_true')
@@ -8632,7 +8854,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '8.1.0'
+   version = '8.4.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -8723,7 +8945,7 @@ def main():
    # SETUP VARIOUS PARAMETERS
    longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, maskthreshold_selfcalcycle, \
        outtarname, args = basicsetup(mslist, args)
-
+ 
    # PRE-APPLY SOLUTIONS (from a nearby direction for example)
    # if (args['applydelaycalH5_list'][0]) is not None and  args['start'] == 0:
    #      preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'], dysco=args['dysco'])
@@ -8816,7 +9038,7 @@ def main():
    #print (makeBBSmodelforTGSS,  args['skymodel'])
    nchan_list,solint_list,smoothnessconstraint_list, smoothnessreffrequency_list, \
    smoothnessspectralexponent_list, smoothnessrefdistance_list, \
-   antennaconstraint_list, resetsols_list, soltypecycles_list, \
+   antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, \
    uvmin_list, uvmax_list, uvminim_list, uvmaxim_list  = \
                                               setinitial_solint(mslist, longbaseline, LBA, options)
 
@@ -8856,19 +9078,8 @@ def main():
         
      # AUTOMATICALLY PICKUP PREVIOUS MASK (in case of a restart)
      if (i > 0) and (args['fitsmask'] is None):
-       if args['idg']:
-         if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + '-MFS-image.fits.mask.fits'):
-             fitsmask = args['imagename'] + str(i-1).zfill(3) + '-MFS-image.fits.mask.fits'
-       else:
-         if args['imager'] == 'WSCLEAN':
-           if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + '-MFS-image.fits.mask.fits'):
-               fitsmask = args['imagename'] + str(i-1).zfill(3) + '-MFS-image.fits.mask.fits'
-         if args['imager'] == 'DDFACET':
-           if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + '.app.restored.fits'):
-               fitsmask = args['imagename'] + str(i-1).zfill(3) + '.app.restored.fits.mask.fits'
-       if args['channelsout'] == 1:
-             fitsmask = fitsmask.replace('-MFS', '').replace('-I','')
-
+       fitsmask, fitsmask_list = set_fitsmask_restart(args, i, mslist)
+       
      # BEAM CORRECTION AND/OR CONVERT TO CIRCULAR/LINEAR CORRELATIONS
      for ms in mslist:
        if ((args['docircular'] or args['dolinear']) or (set_beamcor(ms, args['beamcor']))) and (i == 0):
@@ -8925,7 +9136,7 @@ def main():
         wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
                              soltypecycles_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
                              smoothnessspectralexponent_list, smoothnessrefdistance_list, \
-                             antennaconstraint_list, resetsols_list, uvmin=args['uvmin'], normamps=args['normampsskymodel'], \
+                             antennaconstraint_list, resetsols_list, resetdir_list, uvmin=args['uvmin'], normamps=args['normampsskymodel'], \
                              normamps_per_ms=args['normamps_per_ms'],\
                              skymodel=args['skymodel'], \
                              predictskywithbeam=args['predictskywithbeam'], \
@@ -9067,7 +9278,7 @@ def main():
        print('Recomputing solints .... ')
        nchan_list,solint_list,smoothnessconstraint_list,smoothnessreffrequency_list,\
                               smoothnessspectralexponent_list, smoothnessrefdistance_list, \
-                              antennaconstraint_list, resetsols_list, \
+                              antennaconstraint_list, resetsols_list, resetdir_list, \
                               soltypecycles_list  = \
                               auto_determinesolints(mslist, args['soltype_list'], \
                               longbaseline, LBA, \
@@ -9078,6 +9289,7 @@ def main():
                               insmoothnessrefdistance_list=smoothnessrefdistance_list,\
                               inantennaconstraint_list=antennaconstraint_list, \
                               inresetsols_list=resetsols_list, \
+                              inresetdir_list=resetdir_list,\
                               insoltypecycles_list=soltypecycles_list, redo=True, \
                               tecfactorsolint=args['tecfactorsolint'], \
                               gainfactorsolint=args['gainfactorsolint'], \
@@ -9088,7 +9300,7 @@ def main():
      wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], soltypecycles_list,\
                            smoothnessconstraint_list, smoothnessreffrequency_list,\
                            smoothnessspectralexponent_list, smoothnessrefdistance_list,\
-                           antennaconstraint_list, resetsols_list, uvmin=args['uvmin'], \
+                           antennaconstraint_list, resetsols_list, resetdir_list, uvmin=args['uvmin'], \
                            normamps=args['normamps'], normamps_per_ms=args['normamps_per_ms'],\
                            restoreflags=args['restoreflags'], \
                            flagging=args['doflagging'], longbaseline=longbaseline, \
