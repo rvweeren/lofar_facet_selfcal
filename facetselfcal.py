@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# for stacking auto masking works, but no user masks are possible
 # Stacking check that freq and time axes are identical
 # Add multi-run stacking
 # Taql ms wsclean speedup
@@ -99,6 +98,41 @@ def copy_over_sourcedirection_h5(h5ref, h5):
     H.close()
     return
 '''
+
+def check_for_BDPbug_longsolint(mslist, facetdirections):
+   from astropy.io import ascii
+   data = ascii.read(facetdirections)
+   dirs, solints = parse_facetdirections(facetdirections, 1000)
+   if solints is None:
+      return  
+   
+   solint_reformat= np.array(solints)
+   import math
+   for ms in mslist:
+      t = pt.table(ms, readonly=True, ack=False)
+      time = np.unique(t.getcol('TIME'))
+      t.close()
+      print('------------' + ms)
+      ms_ntimes = len(time)
+      #print(ms, ms_ntimes)
+      for solintcyle_id, tmpval in enumerate(solint_reformat[0]): 
+         print(' --- ' + str('pertubation cycle=') + str(solintcyle_id) + '--- ')
+         solints_cycle = solint_reformat[:,solintcyle_id]
+         solints = [int(format_solint(x, ms)) for x in solints_cycle]
+         print('Solint unmodified per direction', solints) 
+         solints = tweak_solints(solints)
+         print('Solint tweaked per direction   ', solints) 
+        
+         lcm = math.lcm(*solints)
+         divisors = [int(lcm/i) for i in solints]
+         print('Solint passed to DP3 would be:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
+         if lcm > ms_ntimes:
+            print('Bad divisor for solutions_per_direction DDE solve. DP3 Solint > number of timeslots in the MS')
+            sys.exit() 
+      print('------------')
+
+   return
+
 
 def selfcal_animatedgif(fitsstr, outname):
    limit_min = -250e-6
@@ -211,6 +245,57 @@ def parse_history(ms, hist_item):
     print('WARNING:' + hist_item + ' not found')
     return None
 
+
+def find_prime_factors(n):
+  factorlist = []
+  num = n
+  while (n % 2 == 0):
+    factorlist.append(2)
+    n = n/2
+
+  for i in range(3,int(num/2)+1,2):
+    while (n % i == 0):
+      factorlist.append(i)
+      n = n/i
+    if (n==1):
+      break
+  return(factorlist)
+
+def tweak_solintsold(solints, solval=20):
+    solints_return = []
+    for sol in solints:
+        soltmp = sol
+        if soltmp > solval:
+           soltmp += (int)(soltmp & 1) # round up to even
+        solints_return.append((soltmp)) 
+    return solints_return
+
+def tweak_solints(solints, solvalthresh=11):
+    """
+    Returns modified solints that can be factorized by 2 or 3 if input contains number >= solvalthresh
+    """
+    solints_return = []
+    if np.max(solints) < solvalthresh:
+        return solints  
+    possible_solints = listof2and3prime(startval=2, stopval=10000)
+    for sol in solints:
+        solints_return.append(find_nearest(possible_solints, sol)) 
+    return solints_return
+
+
+def listof2and3prime(startval=2, stopval=10000):
+   solint=[1]
+   for i in np.arange(startval,stopval):
+     factors = find_prime_factors(i)
+     if len(factors) > 0:
+        if factors[-1] == 2 or factors[-1] == 3 :
+          solint.append(i)
+   return solint
+
+def find_nearest(array, value):
+    array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
+    return array[idx]
 
 def get_time_preavg_factor_LTAdata(ms):
     """
@@ -433,7 +518,7 @@ def fix_bad_weightspectrum(mslist, clipvalue):
     return
 
 
-def format_solint(solint, ms):
+def format_solint(solint, ms, return_ntimes=False):
     ''' Format the solution interval for DP3 calls.
 
     Args:
@@ -443,7 +528,13 @@ def format_solint(solint, ms):
         solintout (str): processed solution interval.
     '''
     if str(solint).isdigit():
-        return str(solint)
+        if return_ntimes:
+            t = pt.table(ms, readonly=True, ack=False)
+            time = np.unique(t.getcol('TIME'))
+            t.close()
+            return str(solint), len(time)
+        else:
+            return str(solint)
     else:
         t = pt.table(ms, readonly=True, ack=False)
         time = np.unique(t.getcol('TIME'))
@@ -457,7 +548,10 @@ def format_solint(solint, ms):
             solintout = int(np.rint(3600. * float(re.findall(r'[+-]?\d+(?:\.\d+)?', solint)[0]) / tint))
         if solintout < 1:
             solintout = 1
-        return str(solintout)
+        if return_ntimes:
+            return str(solintout), len(time)
+        else:
+            return str(solintout)
 
 
 def format_nchan(nchan, ms):
@@ -2267,6 +2361,8 @@ def inputchecker(args, mslist):
        if not os.path.isfile(args['facetdirections']):
           print('--facetdirections file does not exist')
           raise Exception('--facetdirections file does not exist')      
+       check_for_BDPbug_longsolint(mslist, args['facetdirections'])
+    
 
     if args['DDE']:
        if 'fulljones' in  args['soltype_list']:
@@ -7678,6 +7774,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     # Do list comprehension if solint is a list
     if type(solint) == list:
        solints = [int(format_solint(x, ms)) for x in solint]
+       solints = tweak_solints(solints)
        import math
        lcm = math.lcm(*solints)
        divisors = [int(lcm/i) for i in solints]
@@ -8741,7 +8838,7 @@ def main():
    calibrationparser.add_argument('--QualityBasedWeights-start', help='Experts only.',  type=int, default=5)
    calibrationparser.add_argument('--QualityBasedWeights-dtime', help='QualityBasedWeights timestep in units of minutes (default 5)',  type=float, default=5.0)
    calibrationparser.add_argument('--QualityBasedWeights-dfreq', help='QualityBasedWeights frequency in units of MHz (default 5)',  type=float, default=5.0)
-   calibrationparser.add_argument('--ncpu-max-DP3solve', help='Maximum number of threads for DP3 solves, default=24 (too high value can result in BLAS errors)', type=int, default=24)
+   calibrationparser.add_argument('--ncpu-max-DP3solve', help='Maximum number of threads for DP3 solves, default=24 (too high value can result in BLAS errors)', type=int, default=64)
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into when --DDE is used. Directions are found automatically. Only used if --facetdirections is not set. Keep to default (=0) if you want to use --targetFlux instead', type=int, default=0)
    calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Directions are found automatically. Only used if --facetdirections is not set. Ignored when --NFacets is set to > 0', type=float, default=2.0)
@@ -8854,7 +8951,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '8.4.0'
+   version = '8.5.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -9333,21 +9430,22 @@ def main():
       # make image after calibration so the calibration and images match 
       # normally we would finish with calirbation and not have the subsequent image, make this i+1 image here
       makeimage(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], args['imsize'], \
-               args['channelsout'], args['niter'], args['robust'], \
-               multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
-               uvminim=args['uvminim'], \
-               fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
-               imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
-               removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], \
-               paralleldeconvolution=args['paralleldeconvolution'],\
-               deconvolutionchannels=args['deconvolutionchannels'], \
-               parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
-               taperinnertukey=args['taperinnertukey'], \
-               gapchanneldivision=args['gapchanneldivision'], predict=False, \
-               localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'])
+                args['channelsout'], args['niter'], args['robust'], \
+                multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
+                uvminim=args['uvminim'], \
+                fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
+                imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
+                removenegativecc=args['removenegativefrommodel'], fitspectralpolorder=args['fitspectralpolorder'], \
+                paralleldeconvolution=args['paralleldeconvolution'],\
+                deconvolutionchannels=args['deconvolutionchannels'], \
+                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
+                taperinnertukey=args['taperinnertukey'], \
+                gapchanneldivision=args['gapchanneldivision'], predict=False, \
+                localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'])
       
       remove_outside_box(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], \
-                         args['imsize'],args['channelsout'], dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'],h5list=wsclean_h5list)
+                         args['imsize'],args['channelsout'], dysco=args['dysco'],\
+                         userbox=args['remove_outside_center_box'], idg=args['idg'],h5list=wsclean_h5list)
                
    # ARCHIVE DATA AFTER SELFCAL if requested
    if not longbaseline and not args['noarchive'] :
