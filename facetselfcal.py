@@ -8690,7 +8690,9 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
           else:
             fitsmask = None # no masking requested as args['maskthreshold'] less/equal 0
             fitsmask_list.append(fitsmask)
-   return fitsmask, imagename, fitsmask_list
+      else:
+        fitsmask_list.append(fitsmask)  
+   return fitsmask, fitsmask_list, imagename
 
 def set_fitsmask_restart(args, i, mslist):
    fitsmask_list = []
@@ -8951,7 +8953,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '8.5.0'
+   version = '8.5.1'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -9162,7 +9164,7 @@ def main():
    if args['stack']:
       fitsmask_list = [None]*len(mslist)
    else:   
-      fitsmask_list = [fitsmask]
+      fitsmask_list = [fitsmask] # *len(mslist) last part not needed because of the enumerate(nested_mslistforimaging(mslist, stack=args['stack']))
       
    # ----- START SELFCAL LOOP -----
    for i in range(args['start'],args['stop']):
@@ -9413,7 +9415,7 @@ def main():
      args['uvmin'] = update_uvmin(fitsmask, longbaseline, args)
 
      # update fitsmake if allowed/requested 
-     fitsmask, imagename, fitsmask_list = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args, mslist)
+     fitsmask, fitsmask_list, imagename = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args, mslist)
   
      # update to multiscale cleaning if large island is present
      args['multiscale'] = multiscale_trigger(fitsmask, args)
