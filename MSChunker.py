@@ -323,7 +323,10 @@ class MSChunker:
                         "to {1:0.3f} to ensure the minimum timestep requirement is "
                         "met.".format(data_fraction, min(1.0, mintime / tottime))
                     )
-                nchunks = int(np.ceil(data_fraction / (mintime / tottime)))
+                if mintime <=0:
+                    nchunks = 1
+                else:
+                    nchunks = int(np.ceil(data_fraction / (mintime / tottime)))
                 if nchunks == 1:
                     # Center the chunk around the midpoint (which is generally the most
                     # sensitive, near transit)
