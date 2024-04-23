@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
-# high channels-out NO, fitspectralpol order? # XX, YY issue? diagonal no # beam wgridder/idg no
+# after a restart, changing --fitspectralpol=0 to --fitspectralpol>0 gives an error as imagename_NNN-sources.txt does not exist
+# Allow restarts with updatig directions.txt (requires facet{N}.reg? No)
 # add html summary overview
 # Stacking check that freq and time axes are identical
 # Add multi-run stacking
-# Taql ms wsclean speedup
+# Taql ms wsclean speedup, DONE, working?
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # flux YX en XY to zero in full jones can be wrong, if fulljones is not the last solve type
@@ -45,6 +46,7 @@ import sys
 import time
 
 from itertools import product
+from itertools import groupby
 
 # Third party imports
 import astropy
@@ -101,6 +103,63 @@ def copy_over_sourcedirection_h5(h5ref, h5):
     H.close()
     return
 '''
+
+def getAntennas(ms):
+   """
+   Return a list of antenna names
+   """
+   t = pt.table(ms + "/ANTENNA", readonly=True, ack=False)
+   antennas = t.getcol('NAME')
+   t.close()
+   return antennas
+
+
+def concat_ms_wsclean_facetimaging(mslist, h5list=None,concatms=True):
+
+   import h5_merger
+   keyfunct = lambda x: ' '.join(sorted(getAntennas(x)))
+
+   MSs_list = sorted(mslist, key=keyfunct) # needs to be sorted
+
+   groups = []
+   for k, g in groupby(MSs_list, keyfunct):
+      groups.append(list(g))
+   print(f"Found {len(groups)} groups of datasets with same antennas.")
+
+   for i, group in enumerate(groups, start=1):
+      antennas = ', '.join(getAntennas(group[0]))
+      print(f"WSClean MS group {i}: {group}")
+      print(f"List of antennas: {antennas}")
+
+   MSs_files_clean = []
+   H5s_files_clean = []
+   for g, group in enumerate(groups):
+      if os.path.isdir(f'wsclean_concat_{g}.ms') and concatms:
+         os.system(f'rm -rf wsclean_concat_{g}.ms')
+      
+      if h5list is not None:
+         h5group = []
+         for ms in group:
+            h5group.append(time_match_mstoH5(h5list, ms))
+         print('------------------------------')
+         print('MS group and matched h5 group', group, h5group)
+         print('------------------------------')
+         if os.path.isfile(f'wsclean_concat_{g}.h5'):
+            os.system(f'wsclean_concat_{g}.h5')     
+         h5_merger.merge_h5(h5_out=f'wsclean_concat_{g}.h5', h5_tables=h5group, propagate_flags=True)
+         H5s_files_clean.append(f'wsclean_concat_{g}.h5')
+      if concatms:
+         print(f'taql select from {group} giving wsclean_concat_{g}.ms as plain')
+         run(f'taql select from {group} giving wsclean_concat_{g}.ms as plain')
+      MSs_files_clean.append(f'wsclean_concat_{g}.ms')
+    
+   #MSs_files_clean = ' '.join(MSs_files_clean)
+
+   #print('Use the following ms files as input in wsclean:')
+   #print(MSs_files_clean)
+   
+   return MSs_files_clean, H5s_files_clean
+
 
 def check_for_BDPbug_longsolint(mslist, facetdirections):
    from astropy.io import ascii
@@ -1750,7 +1809,7 @@ def checklongbaseline(ms):
     return haslongbaselines
 
 
-def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
+def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartchan=0., \
             phaseshiftbox=None, msinntimes=None, makecopy=False, \
             makesubtract=False, delaycal=False, freqresolution='195.3125kHz',\
             dysco=True, cmakephasediffstat=False, dataincolumn='DATA', removeinternational=False):
@@ -1762,6 +1821,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
         timestep (int): the number of time slots to average.
         start (int): selfcal cycle that is being started from.
         msinnchan (int): number of channels to take from the input Measurement Set.
+        msinstartchan (int): start chanel for msinnchan
         phaseshiftbox (str): path to a DS9 region file to phaseshift to.
         msinntimes (int): number of timeslots to take from the input Measurement Set.
         makecopy (bool): appends '.copy' when making a copy of a Measurement Set.
@@ -1837,6 +1897,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
 
             if msinnchan is not None:
                 cmd += 'msin.nchan=' + str(msinnchan) + ' '
+                cmd += 'msin.startchan=' + str(msinstartchan) + ' '
             if msinntimes is not None:
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
             if start == 0:
@@ -1883,6 +1944,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, \
                     cmd += 'av.timeresolution=' + str(timestepstr) + ' '
             if msinnchan is not None:
                 cmd += 'msin.nchan=' + str(msinnchan) + ' '
+                cmd += 'msin.startchan=' + str(msinstartchan) + ' '
             if msinntimes is not None:
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
 
@@ -2235,7 +2297,10 @@ def inputchecker(args, mslist):
                         print('--direction IDs provided for reset is too high for the number of directions provided by ' + args['facetdirections'])
                         raise Exception('--direction IDs provided for reset is too high for the number of directions provided by ' + args['facetdirections'])
                     
-
+    if args['groupms_h5facetspeedup']:
+        if not args['DDE']:
+            print('--groupms-h5facetspeedup can only be used with --DDE')
+            raise Exception('--groupms-h5facetspeedup can only be used with --DDE')
     if args['DDE_predict'] == 'DP3':
         if args['fitspectralpol'] < 1:  
             print('--fitspectralpol needs to be turned on, otherwise no skymodel is produced by WSClean and we cannot predict these components with DP3. Put --DDE-predict=WSCLEAN or fitspectralpol>0')
@@ -2500,6 +2565,10 @@ def inputchecker(args, mslist):
             if float(skymp) <= 0.0:
                 print('Wrong input, flux density provided for skymodelpointsource is <= 0.0')
                 raise Exception('Wrong input, flux density provided for skymodelpointsource is <= 0.0')             
+
+    if (args['msinstartchan'] < 0):
+        print('Wrong input for msinstartchan, must be larger than zero')
+        raise Exception('Wrong input for msinstartchan, must be larger than zero')
           
     if (args['msinnchan'] is not None):
         if (args['msinnchan'] <= 0):
@@ -6372,7 +6441,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
    solints = create_facet_directions(imagebasename,selfcalcycle,\
    	              targetFlux=targetFlux, ms=mslist[0], imsize=imsize, \
 	              pixelscale=pixelscale, numClusters=numClusters,\
-	              facetdirections=facetdirections)  
+	              facetdirections=facetdirections, restart=restart)  
 
    # remove previous facets.fits if needed and create template fits file for facets
    if os.path.isfile('facets.fits'):
@@ -6383,7 +6452,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
    else:
      os.system('cp ' + skyview + ' facets.fits')   
 
-   if restart:
+   if restart: # in that case we also have a previous image avaialble
       os.system('cp ' + imagebasename + str(selfcalcycle-1).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
    else:
       os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
@@ -6403,7 +6472,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
    hdu.writeto('facets.fits',overwrite=True)
 
    if restart: 
-      # restart with DDE_predict=DP3 because then just modeldatacolumns is made
+      # restart with DDE_predict=DP3 because then only modeldatacolumns are made
       # The wsclean predict step is skipped in makeimage
       modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
                                 pixelscale, imsize, channelsout, predict=True, \
@@ -6412,7 +6481,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                                 disable_primarybeam_image=disable_primary_beam, \
                                 disable_primarybeam_predict=disable_primary_beam)
       # selfcalcycle-1 because makeimage has not yet produced an image at this point
-      if fitspectralpol > 0:
+      if fitspectralpol > 0 and DDE_predict == 'DP3':
          dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle-1).zfill(3) + \
                                    '-sources.txt', 'facets.fits') 
       else: 
@@ -6436,7 +6505,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                                 DDE_predict=DDE_predict, idg=idg, \
                                 disable_primarybeam_image=disable_primary_beam, \
                                 disable_primarybeam_predict=disable_primary_beam)
-      if fitspectralpol > 0:
+      if fitspectralpol > 0 and DDE_predict == 'DP3':
          dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3)  + \
                                    '-sources.txt', 'facets.fits')
       else:
@@ -6468,12 +6537,12 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
 
 def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, imsize=None, \
                             pixelscale=None, numClusters=0, weightBySize=False, \
-                            facetdirections=None, imsizemargin=100):
+                            facetdirections=None, imsizemargin=100, restart=False):
    '''
    create a facet region file based on an input image or file provided by the user
    if there is an image use lsmtool tessellation algorithm 
 
-   This function also returns the solints obtained out of the file (if avail). It is up to 
+   This function also returns the solints obtained out of the facetdirections file (if avail). It is up to 
    the function that calls this to do something with it or not.
    ''' 
    # groupalgorithm =
@@ -6490,12 +6559,17 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
          raise Exception('Trouble read file format:' + facetdirections) 
      print(PatchPositions_array)
 
+     # write new facetdirections.p file
      if os.path.isfile('facetdirections.p'):
          os.system('rm -f facetdirections.p')  
      f = open('facetdirections.p', 'wb')
      pickle.dump(PatchPositions_array,f)
      f.close()
-     if ms is not None and imsize is not None and pixelscale is not None:
+     
+     # generate polygon composite regions file for WSClean imaging
+     # in case of a restart this is not done, and the old facets.reg is kept
+     # using the old facets.reg is important in case we change the number of facet directions, so the that first image after the restart is done with the old directions (and the h5file used was made using that)
+     if ms is not None and imsize is not None and pixelscale is not None and not restart:
          cmd = 'python ds9facetgenerator.py '
          cmd += '--ms=' + ms + ' '
          cmd += '--h5=facetdirections.p --imsize=' + str(imsize+imsizemargin) +' --pixelscale=' + str(pixelscale)
@@ -6532,7 +6606,8 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
      f = open('facetdirections.p', 'wb')
      pickle.dump(PatchPositions_array,f)
      f.close()
-      
+     
+    # generate polygon composite regions file for WSClean imaging 
      if ms is not None and imsize is not None and pixelscale is not None:
          cmd = 'python ds9facetgenerator.py '
          cmd += '--ms=' + ms + ' '
@@ -6722,7 +6797,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False, \
               wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0, \
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False, \
-              facet_beam_update_time=120):
+              facet_beam_update_time=120, groupms_h5facetspeedup=False):
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     if idg:
@@ -6939,7 +7014,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
       if len(h5list) > 0:
          cmd += '-facet-regions ' + facetregionfile  + ' '
-         cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
+         if groupms_h5facetspeedup:
+            mslist_concat, h5list_concat = concat_ms_wsclean_facetimaging(mslist, h5list=h5list, concatms=False)
+            cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list_concat)) + ' '
+            cmd += ' amplitude000,phase000 '
+         else:
+            cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
+            
          if not is_scallar_array_forwsclean(h5list):
             cmd += '-diagonal-solutions '
          if telescope == 'LOFAR':
@@ -6953,9 +7034,15 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
 
       cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' 
-      print('WSCLEAN: ', cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)
-      logger.info(cmd + ' -niter ' + str(niter) + ' ' + msliststring)
-      run(cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)
+      if len(h5list) > 0 and groupms_h5facetspeedup:
+         msliststring_concat = ' '.join(map(str, mslist_concat))
+         print('WSCLEAN: ', cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring_concat)
+         logger.info(cmd + ' -niter ' + str(niter) + ' ' + msliststring_concat)
+         run(cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring_concat)
+      else:
+         print('WSCLEAN: ', cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)
+         logger.info(cmd + ' -niter ' + str(niter) + ' ' + msliststring)
+         run(cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)
 
 
       # REMOVE nagetive model components, these are artifacts (only for Stokes I)
@@ -7296,6 +7383,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
              else:
                corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA']) # saves disk space
          else: # so this is the last solve, no other pertubation
+           # note we reverse ([::-1]) the solution tables here because we switch from a corrupt approach to a correct. This is important as fulljones and diaginal solutions do not commute
            applycal(ms, parmdbmergelist[msnumber][::-1], msincol='DATA', msoutcol='CORRECTED_DATA',\
                     dysco=dysco, modeldatacolumns=modeldatacolumns) # saves disks space
          count = count + 1 # extra counter because parmdbmslist can have less length than mslist as soltypecycles_list goes per ms
@@ -8885,14 +8973,17 @@ def main():
    imagingparser.add_argument('--taperinnertukey', help="Value for taper-inner-tukey in WSClean (see WSClean documentation), useful to supress negative bowls when using --uvminim. Typically values between 1.5 and 4.0 give good results. The default is None.", default=None, type=float)
    imagingparser.add_argument('--makeimage-ILTlowres-HBA', help='Make 1.2 arcsec tapered image as quality check of ILT 1 arcsec imaging.', action='store_true')
    imagingparser.add_argument('--makeimage-fullpol', help='Make Stokes IQUV version for quality checking.', action='store_true')
+   imagingparser.add_argument('--groupms-h5facetspeedup', help='Speed up DDE imaging with h5s', action='store_true')
+   
 
    calibrationparser = parser.add_argument_group("-------------------------Calibration Settings-------------------------")
    # Calibration options
    calibrationparser.add_argument('--avgfreqstep', help="Extra DP3 frequency averaging to speed up a solve. This is done before any other correction and could be useful for long baseline infield calibrators. Allowed are integer values or for example '195.3125kHz'; options for units: 'Hz', 'kHz', or 'MHz'. The default is None.", type=str_or_int, default=None)
    calibrationparser.add_argument('--avgtimestep', help="Extra DP3 time averaging to speed up a solve. This is done before any other correction and could be useful for long baseline infield calibrators. Allowed are integer values or for example '16.1s'; options for units: 's' or 'sec'. The default is None.", type=str_or_int, default=None)
    calibrationparser.add_argument('--msinnchan', help="Before averaging, only take this number of input channels. The default is None.", type=int, default=None)
+   calibrationparser.add_argument('--msinstartchan', help="Before averaging, start channel for --msinnchan. The default is 0. ", type=int, default=0)
    calibrationparser.add_argument('--msinntimes', help="DP3 msin.ntimes setting. This is mainly used for testing purposes. The default is None.", type=int, default=None)
-   calibrationparser.add_argument('--autofrequencyaverage-calspeedup', help="Try extra averaging during some selfcalcycles to speed up calibration.", action='store_true')
+   calibrationparser.add_argument('--autofrequencyaverage-calspeedup', help="Update April 24: Avoid usage because of corrupt vs correct. Try extra averaging during some selfcalcycles to speed up calibration.", action='store_true')
    calibrationparser.add_argument('--autofrequencyaverage', help='Try frequency averaging if it does not result in bandwidth smearing',  action='store_true')
 
    calibrationparser.add_argument('--phaseupstations', help="Phase up to a superstation. Possible input: 'core' or 'superterp'. The default is None.", default=None, type=str)
@@ -8917,7 +9008,7 @@ def main():
    calibrationparser.add_argument("--BLsmooth", help='Employ BLsmooth for low S/N data.', action='store_true')
    calibrationparser.add_argument('--dejumpFR', help='Dejump Faraday solutions when using scalarphasediffFR.', action='store_true')
    calibrationparser.add_argument('--usemodeldataforsolints', help='Determine solints from MODEL_DATA.', action='store_true')
-   calibrationparser.add_argument("--preapplyH5-list", type=arg_as_list, default=[None], help="List of H5 files to preapply (one for each MS). The default is [None].")
+   calibrationparser.add_argument("--preapplyH5-list", type=arg_as_list, default=[None], help="Update April 2024: Avoid usage because of corrupt vs correct. List of H5 files to preapply (one for each MS). The default is [None].")
    calibrationparser.add_argument('--normamps', help='Normalize global amplitudes to 1.0. The default is True (False if fulljones is used).', type=ast.literal_eval, default=True)
    calibrationparser.add_argument('--normampsskymodel', help='Normalize global amplitudes to 1.0 when solving against an external skymodel. The default is False (turned off if fulljones is used).', type=ast.literal_eval, default=False)
    calibrationparser.add_argument('--normamps-per-ms', help='Normalize amplitudes to 1.0 for each MS separately, by default this is not done', action='store_true')
@@ -8975,7 +9066,7 @@ def main():
    startmodelparser.add_argument('--wscleanskymodel', help='WSclean basename for model images (for a WSClean predict). The default is None.', type=arg_as_str_or_list, default=None)   
    startmodelparser.add_argument('--predictskywithbeam', help='Predict the skymodel with the beam array factor.', action='store_true')
    startmodelparser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required).', action='store_true')
-   startmodelparser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data (not yet implemented).', action='store_true')
+   startmodelparser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data.', action='store_true')
    startmodelparser.add_argument('--tgssfitsimage', help='Start TGSS fits image for model (if not provided use SkyView). The default is None.', type=str)
 
    # General options
@@ -9047,7 +9138,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '8.5.4'
+   version = '8.5.6'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -9164,7 +9255,7 @@ def main():
 
    # AVERAGE if requested/possible
    mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'], \
-                    start=args['start'], msinnchan=args['msinnchan'],\
+                    start=args['start'], msinnchan=args['msinnchan'], msinstartchan=['msinstartchan'],\
                     phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'],\
                     dysco=args['dysco'],removeinternational=args['removeinternational'])
 
@@ -9223,6 +9314,9 @@ def main():
       fitsmask_list = [None]*len(mslist)
    else:   
       fitsmask_list = [fitsmask] # *len(mslist) last part not needed because of the enumerate(nested_mslistforimaging(mslist, stack=args['stack']))
+
+   if args['groupms_h5facetspeedup'] and args['start'] == 0: 
+      concat_ms_wsclean_facetimaging(mslist)
       
    # ----- START SELFCAL LOOP -----
    for i in range(args['start'],args['stop']):
@@ -9271,7 +9365,7 @@ def main():
        print('Stopping as requested via --stopafterpreapply')
        return
 
-     # CALIBRATE AGAINST SKYMODEL
+     # CALIBRATE AGAINST THE INITAL SKYMODEL (selfcalcycle 0) IF REQUESTED
      if (args['skymodel'] is not None or args['skymodelpointsource'] is not None \
          or args['wscleanskymodel'] is not None) and (i ==0):
          # Function that 
@@ -9322,7 +9416,8 @@ def main():
      else:
        multiscale = False
 
-     if args['DDE'] and args['start'] != 0 and i == args['start']: # set modeldatacolumns and dde_skymodel for a restart
+     # RESTART FOR A DDE RUN, set modeldatacolumns and dde_skymodel
+     if args['DDE'] and args['start'] != 0 and i == args['start']: 
         modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['imagename'], i, \
                    mslist, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
@@ -9362,7 +9457,7 @@ def main():
                   facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
                   multiscalemaxscales=args['multiscalemaxscales'],stack=args['stack'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
-                  disable_primarybeam_predict=args['disable_primary_beam'])
+                  disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
         args['idg'] = idgin # set back
         if args['makeimage_ILTlowres_HBA']:
           if args['phaseupstations'] is None:
@@ -9381,7 +9476,8 @@ def main():
                   parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
                   taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
-                  disable_primarybeam_predict=args['disable_primary_beam'])
+                  disable_primarybeam_predict=args['disable_primary_beam'],\
+                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
         if args['makeimage_fullpol']:
           makeimage(mslistim, args['imagename'] +'fullpol' + str(i).zfill(3) + stackstr, \
                   args['pixelscale'], args['imsize'], \
@@ -9395,7 +9491,8 @@ def main():
                   multiscalescalebias=args['multiscalescalebias'], fullpol=True,\
                   taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
-                  disable_primarybeam_predict=args['disable_primary_beam'])
+                  disable_primarybeam_predict=args['disable_primary_beam'], \
+                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
 
         # make figure
         if args['imager'] == 'WSCLEAN':
@@ -9510,7 +9607,8 @@ def main():
                 gapchanneldivision=args['gapchanneldivision'], predict=False, \
                 localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'],\
                 disable_primarybeam_image=args['disable_primary_beam'], \
-                disable_primarybeam_predict=args['disable_primary_beam'])
+                disable_primarybeam_predict=args['disable_primary_beam'], \
+                groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
       
       remove_outside_box(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], \
                          args['imsize'],args['channelsout'], dysco=args['dysco'],\
