@@ -1,11 +1,8 @@
 #!/usr/bin/env python
 
-# after a restart, changing --fitspectralpol=0 to --fitspectralpol>0 gives an error as imagename_NNN-sources.txt does not exist
-# Allow restarts with updatig directions.txt (requires facet{N}.reg? No)
 # add html summary overview
 # Stacking check that freq and time axes are identical
 # Add multi-run stacking
-# Taql ms wsclean speedup, DONE, working?
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # flux YX en XY to zero in full jones can be wrong, if fulljones is not the last solve type
@@ -145,8 +142,9 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None,concatms=True):
          print('MS group and matched h5 group', group, h5group)
          print('------------------------------')
          if os.path.isfile(f'wsclean_concat_{g}.h5'):
-            os.system(f'wsclean_concat_{g}.h5')     
-         h5_merger.merge_h5(h5_out=f'wsclean_concat_{g}.h5', h5_tables=h5group, propagate_flags=True)
+            os.system(f'rm -rf wsclean_concat_{g}.h5')     
+         h5_merger.merge_h5(h5_out=f'wsclean_concat_{g}.h5', h5_tables=h5group, \
+                            propagate_flags=True, time_concat=True)
          H5s_files_clean.append(f'wsclean_concat_{g}.h5')
       if concatms:
          print(f'taql select from {group} giving wsclean_concat_{g}.ms as plain')
