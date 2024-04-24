@@ -4195,7 +4195,7 @@ def plotimage(fitsimagename,outplotname,mask=None,rmsnoiseimage=None):
 
 
 
-def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True):
+def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mergedh5_i=None, facetregionfile=None):
   path = '/disks/ftphome/pub/vanweeren'
   for ms in mslist:
     msout = ms + '.calibrated'
@@ -4220,7 +4220,15 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True):
     if os.path.isfile(regionfile):
       cmd +=  regionfile + ' '
 
+  if mergedh5_i is not None:
+    mergedh5_i_string = ' '.join(map(str, mergedh5_i ))
+    cmd += mergedh5_i_string + ' '
 
+  if facetregionfile is not None:  # add facet region file to tar if it exists
+    if os.path.isfile(facetregionfile):
+      cmd +=  facetregionfile + ' '	
+
+	
   if os.path.isfile(outtarname):
       os.system('rm -f ' + outtarname)
   logger.info('Creating archived calibrated tarball: ' + outtarname)
@@ -9615,7 +9623,11 @@ def main():
    # ARCHIVE DATA AFTER SELFCAL if requested
    if not longbaseline and not args['noarchive'] :
      if not LBA:
-      archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
+        if args['DDE']:
+	   mergedh5_i = glob.glob('merged_selfcalcyle' + str(i).zfill(3) + '*.h5')
+	   archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'], mergedh5_i, 'facets.reg')
+	else:
+	   archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
       cleanup(mslist)
 
    # Give additional diagnostics about the selfcal quality --> in particular useful for calibrator selection
