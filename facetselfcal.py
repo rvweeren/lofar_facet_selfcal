@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# bdsf still steals the logger https://github.com/lofar-astron/PyBDSF/issues/176
 # add html summary overview
 # Stacking check that freq and time axes are identical
 # Add multi-run stacking
@@ -61,8 +62,8 @@ import tables
 import scipy.special
 
 from astropy.io import fits
-from astropy.io import ascii
 from astropy.wcs import WCS
+from astropy.io import ascii
 from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
 #from astropy.coordinates import angular_separation
 from astropy.time import Time
@@ -201,7 +202,6 @@ def check_for_BDPbug_longsolint(mslist, facetdirections):
       print('------------')
 
    return
-
 
 def selfcal_animatedgif(fitsstr, outname):
    limit_min = -250e-6
@@ -2250,15 +2250,6 @@ def inputchecker(args, mslist):
         if args['auto']:
             print('--auto cannot be used with --stack')
             raise Exception('--auto cannot be used with --stack') 
-        #if args['start'] !=0:
-        #    print('--restarts (start>0) are not allowed')
-        #    raise Exception('--restarts (start>0) are not allowed') 
-        #if args['startfromtgss']:
-        #    print('--startfromtgss cannot be used with --stack')
-        #    raise Exception('--startfromtgss cannot be used with --stack') 
-        #if args['startfromvlass']:
-        #    print('--startfromvlass cannot be used with --stack')
-        #    raise Exception('--startfromvlass cannot be used with --stack') 
         if args['tgssfitsimage'] is not None:
             print('--tgssfitsimage cannot be used with --stack')
             raise Exception('--tgssfitsimage cannot be used with --stack')  
@@ -2270,6 +2261,10 @@ def inputchecker(args, mslist):
         if type(args['skymodel']) is list:
             print('Skymodel cannot be a list if --stack is not set')
             raise Exception('Skymodel cannot be a list if --stack is not set')  
+
+    if args['DDE'] and not args['forwidefield']:    
+        print('--forwidefield needs to be set in DDE mode')
+        raise Exception('--forwidefield needs to be set in DDE mode')
 
     if not args['stack']:
         if type(args['skymodelpointsource']) is list:
@@ -4202,7 +4197,6 @@ def plotimage(fitsimagename,outplotname,mask=None,rmsnoiseimage=None):
       plotimage_aplpy(fitsimagename,outplotname,mask,rmsnoiseimage)
 
 
-
 def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mergedh5_i=None, facetregionfile=None):
   path = '/disks/ftphome/pub/vanweeren'
   for ms in mslist:
@@ -4246,6 +4240,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
     msout = ms + '.calibrated'
     os.system('rm -rf ' + msout)
   return
+
 
 
 
@@ -6416,7 +6411,6 @@ def parse_facetdirections(facetdirections,niter):
        for the given niter. In the future, this function should also return a 
        list of solints, nchans and other things 
     '''
-    from astropy.io import ascii
     data = ascii.read(facetdirections)
     ra,dec = data['RA'],data['DEC']
     try:
@@ -7028,7 +7022,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
       if len(h5list) > 0:
          cmd += '-facet-regions ' + facetregionfile  + ' '
-         if groupms_h5facetspeedup:
+         if groupms_h5facetspeedup and len(mslist) > 1:
             mslist_concat, h5list_concat = concat_ms_wsclean_facetimaging(mslist, h5list=h5list, concatms=False)
             cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list_concat)) + ' '
             cmd += ' amplitude000,phase000 '
@@ -7048,7 +7042,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
 
       cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' 
-      if len(h5list) > 0 and groupms_h5facetspeedup:
+      if len(h5list) > 0 and groupms_h5facetspeedup and len(mslist) > 1:
          msliststring_concat = ' '.join(map(str, mslist_concat))
          print('WSCLEAN: ', cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring_concat)
          logger.info(cmd + ' -niter ' + str(niter) + ' ' + msliststring_concat)
@@ -9042,7 +9036,7 @@ def main():
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into when --DDE is used. Directions are found automatically. Only used if --facetdirections is not set. Keep to default (=0) if you want to use --targetFlux instead', type=int, default=0)
    calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Directions are found automatically. Only used if --facetdirections is not set. Ignored when --NFacets is set to > 0', type=float, default=2.0)
-   calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file or pickle containing facet directions. If ASCII, it needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
+   calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
    calibrationparser.add_argument('--DDE-predict', help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=WSCLEAN (note: option WSCLEAN will use a lot of disk space as there is one MODEL column per direction written to the MS)', type=str, default='WSCLEAN')
    calibrationparser.add_argument('--disable-IDG-DDE-predict', help='Normally, if LOFAR data is detected the WSCLean predict of the facets will use IDG, setting this option turns it off and predicts the apparent model with wridding (facet mode is never used here in these predicts). For non-LOFAR data the predicts uses the apparent model with wridding. Note: if the primary beam is not time varying and scalar then using the apparent model is fully accurate.', action='store_true')
    calibrationparser.add_argument('--disable-primary-beam', help='For WSCLEAN imaging and predicts disable the primary beam corrections (so run with "apparent" images only)', action='store_true')
@@ -9152,7 +9146,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '8.5.6'
+   version = '8.5.7'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -9329,7 +9323,7 @@ def main():
    else:   
       fitsmask_list = [fitsmask] # *len(mslist) last part not needed because of the enumerate(nested_mslistforimaging(mslist, stack=args['stack']))
 
-   if args['groupms_h5facetspeedup'] and args['start'] == 0: 
+   if args['groupms_h5facetspeedup'] and args['start'] == 0 and len(mslist) > 1: 
       concat_ms_wsclean_facetimaging(mslist)
       
    # ----- START SELFCAL LOOP -----
@@ -9631,12 +9625,13 @@ def main():
    # ARCHIVE DATA AFTER SELFCAL if requested
    if not longbaseline and not args['noarchive'] :
      if not LBA:
-        if args['DDE']:
-	   mergedh5_i = glob.glob('merged_selfcalcyle' + str(i).zfill(3) + '*.h5')
-	   archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'], mergedh5_i, 'facets.reg')
-	else:
-	   archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
-      cleanup(mslist)
+       if args['DDE']:
+         mergedh5_i = glob.glob('merged_selfcalcyle' + str(i).zfill(3) + '*.h5')
+         archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, \
+                 dysco=args['dysco'], mergedh5_i=mergedh5_i, facetregionfile='facets.reg')
+       else:
+          archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
+       cleanup(mslist)
 
    # Give additional diagnostics about the selfcal quality --> in particular useful for calibrator selection
    if args['get_diagnostics']: #TODO: More testing
