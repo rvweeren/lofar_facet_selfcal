@@ -61,6 +61,7 @@ import tables
 import scipy.special
 
 from astropy.io import fits
+from astropy.io import ascii
 from astropy.wcs import WCS
 from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
 #from astropy.coordinates import angular_separation
@@ -160,9 +161,17 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None,concatms=True):
 
 
 def check_for_BDPbug_longsolint(mslist, facetdirections):
-   from astropy.io import ascii
-   data = ascii.read(facetdirections)
-   dirs, solints = parse_facetdirections(facetdirections, 1000)
+   try:
+      dirs, solints = parse_facetdirections(facetdirections, 1000)
+   except:
+       try:
+         f = open(facetdirections, 'rb')
+         PatchPositions_array = pickle.load(f)
+         f.close()
+         solints = None
+       except: 
+         raise Exception('Trouble read file format:' + facetdirections) 
+	   
    if solints is None:
       return  
    
@@ -2282,7 +2291,6 @@ def inputchecker(args, mslist):
                 print('--resetdir-list needs to None list-items, or contain a list of directions_id')
                 raise Exception('--resetdir-list needs to None list-items, or contain a list of directions_id')         
             else:
-                from astropy.io import ascii
                 for dir_id in resetdir:
                     if type(dir_id) is not int:
                         print('--resetdir-list, direction IDs provided need to be integers')
@@ -9026,7 +9034,7 @@ def main():
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into when --DDE is used. Directions are found automatically. Only used if --facetdirections is not set. Keep to default (=0) if you want to use --targetFlux instead', type=int, default=0)
    calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Directions are found automatically. Only used if --facetdirections is not set. Ignored when --NFacets is set to > 0', type=float, default=2.0)
-   calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
+   calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file or pickle containing facet directions. If ASCII, it needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
    calibrationparser.add_argument('--DDE-predict', help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=WSCLEAN (note: option WSCLEAN will use a lot of disk space as there is one MODEL column per direction written to the MS)', type=str, default='WSCLEAN')
    calibrationparser.add_argument('--disable-IDG-DDE-predict', help='Normally, if LOFAR data is detected the WSCLean predict of the facets will use IDG, setting this option turns it off and predicts the apparent model with wridding (facet mode is never used here in these predicts). For non-LOFAR data the predicts uses the apparent model with wridding. Note: if the primary beam is not time varying and scalar then using the apparent model is fully accurate.', action='store_true')
    calibrationparser.add_argument('--disable-primary-beam', help='For WSCLEAN imaging and predicts disable the primary beam corrections (so run with "apparent" images only)', action='store_true')
