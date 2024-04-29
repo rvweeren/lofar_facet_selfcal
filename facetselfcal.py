@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# useful? https://learning-python.com/thumbspage.html
 # bdsf still steals the logger https://github.com/lofar-astron/PyBDSF/issues/176
 # add html summary overview
 # Stacking check that freq and time axes are identical
@@ -9,17 +10,17 @@
 # flux YX en XY to zero in full jones can be wrong, if fulljones is not the last solve type
 # solving 2 times for fulljones goes completly wrong because of the above
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
-# directions in h5 file might be changed up by DP3, relevant dor DP3 predict-solves
+# directions in h5 file might be changed up by DP3, relevant for DP3 predict-solves
 # fix RR-LL referencing for flaged solutions, check for possible superterp reference station
 # put all fits images in images folder, all solutions in solutions folder? to reduce clutter
 # phase detrending.
 # log command into the FITS header
 # BLsmooth not for gain solves option
 # BLsmooth constant smooth for gain solves
-# if noise goes up stop selfcal
+# stop selfcal  based on some metrics
 # make Ateam plot
 # use scalarphasediff sols stats for solints? test amplitude stats as well
-# parallel solving with DP3, given that DP3 often does use all cores?
+# parallel solving with DP3, given that DP3 often does not use all cores?
 # uvmin, uvmax, uvminim, uvmaxim per ms per soltype
 
 #antidx = 0
@@ -6254,7 +6255,14 @@ def medianamp(h5):
        weights_yx = weights[...,2]
        idx_xy = np.where(weights_xy != 0.0)
        idx_yx = np.where(weights_yx != 0.0)
-       medamps_cross = 0.5*(10**(np.nanmedian(np.log10(amps_xy[idx_xy]))) + 10**(np.nanmedian(np.log10(amps_yx[idx_yx]))))
+       
+       amps_xy_tmp = amps_xy[idx_xy]
+       amps_yx_tmp = amps_xy[idx_yx]
+       
+       idx_xy = np.where(amps_xy_tmp > 0.0)
+       idx_yx = np.where(amps_yx_tmp > 0.0)
+       
+       medamps_cross = 0.5*(10**(np.nanmedian(np.log10(amps_xy_tmp[idx_xy]))) + 10**(np.nanmedian(np.log10(amps_yx_tmp[idx_yx]))))
        print('Median amplitude of XY+YX ', h5, ':', medamps_cross)
 
     logger.info('Median Stokes I amplitude of ' + h5 + ': ' + str(medamps))
@@ -6699,7 +6707,10 @@ def flatten(f):
 
 
 def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
-                       channelsout, datacolumn='CORRECTED_DATA', outcol='SUBTRACTED_DATA', dysco=True, userbox=None, idg=False, facetregionfile='facets.reg',h5list=[]):
+                       channelsout, datacolumn='CORRECTED_DATA', \
+                       outcol='SUBTRACTED_DATA', dysco=True, userbox=None, \
+                       idg=False, h5list=[], facetregionfile=None, \
+                       disable_primary_beam=False):
    # get imageheader to check frequency
    hdul = fits.open(imagebasename + '-MFS-image.fits')
    header = hdul[0].header
@@ -6729,19 +6740,38 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
    r[0].coord_list[2] = boxsize # units degr
    r[0].coord_list[3] = boxsize # units degr
    r.write('templatebox.reg')
-   # predict the model
-   if userbox is None:
-      makeimage(mslist, imagebasename, pixsize, imsize, \
-                channelsout, onlypredict=True, squarebox='templatebox.reg', idg=idg)
-      phaseshiftbox = 'templatebox.reg'
-   else:
-      if userbox != 'keepall':
+   
+   # predict the model non-DDE case
+   if len(h5list) == 0:
+      if userbox is None:
          makeimage(mslist, imagebasename, pixsize, imsize, \
-                   channelsout, onlypredict=True, squarebox=userbox, idg=idg) 
-         phaseshiftbox = userbox
-      else:  
-         phaseshiftbox = None # so option keepall was set by the user
-
+                   channelsout, onlypredict=True, squarebox='templatebox.reg', \
+                   idg=idg, disable_primarybeam_predict=disable_primary_beam)
+         phaseshiftbox = 'templatebox.reg'
+      else:
+         if userbox != 'keepall':
+            makeimage(mslist, imagebasename, pixsize, imsize, \
+                      channelsout, onlypredict=True, squarebox=userbox, \
+                      idg=idg,  disable_primarybeam_predict=disable_primary_beam) 
+            phaseshiftbox = userbox
+         else:  
+            phaseshiftbox = None # so option keepall was set by the user
+   else: # so this we are in DDE mode as h5list is not empty
+      if userbox is None:
+         makeimage(mslist, imagebasename, pixsize, imsize, \
+                   channelsout, onlypredict=True, squarebox='templatebox.reg', \
+                   idg=idg, h5list=h5list, facetregionfile=facetregionfile, \
+                    disable_primarybeam_predict=disable_primary_beam)
+         phaseshiftbox = 'templatebox.reg'
+      else:
+         if userbox != 'keepall':
+            makeimage(mslist, imagebasename, pixsize, imsize, \
+                      channelsout, onlypredict=True, squarebox=userbox, \
+                      idg=idg, h5list=h5list, facetregionfile=facetregionfile, \
+                       disable_primarybeam_predict=disable_primary_beam) 
+            phaseshiftbox = userbox
+         else:  
+            phaseshiftbox = None # so option keepall was set by the user
    # write new data column (if keepall was not set) where rest of the field outside the box is removed
    if phaseshiftbox is not None:
       stepsize = 100000
@@ -6860,7 +6890,59 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
       return
     #  --- end predict only ---
 
-    #  --- DDE predict only with facets ---
+
+    #  --- DDE-NO-FACET-LOOP CORRUPT-predict, so everything ends up in MODEL_DATA and is corrupted
+    if onlypredict and facetregionfile is not None and predict and squarebox is not None:
+        # do the masking
+        for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
+          print (model, 'box_' + model)
+          mask_region(model,squarebox,'box_' + model)  
+              
+        # predict with wsclean
+        cmd = 'wsclean -predict '
+        #if not usewgridder and not idg:
+        #  cmd += '-padding 1.8 '
+        if channelsout > 1:
+          cmd += '-channels-out ' + str(channelsout) + ' '
+          if gapchanneldivision:
+            cmd += '-gap-channel-division '
+        if idg:
+          cmd += '-gridder idg -idg-mode cpu '
+          if not disable_primarybeam_predict:
+            if telescope == 'LOFAR':        
+              cmd += '-grid-with-beam -use-differential-lofar-beam '
+              cmd += '-beam-aterm-update ' + str(facet_beam_update_time) + ' '
+          #cmd += '-pol iquv '
+          cmd += '-pol i '
+          cmd += '-padding 1.8 '
+        else:
+          if usewgridder:
+            cmd += '-gridder wgridder '
+            cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+            if nosmallinversion:
+              cmd += '-no-small-inversion ' 
+          if parallelgridding > 1:
+            cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
+      
+        cmd += '-facet-regions ' + facetregionfile  + ' '
+        cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
+        if telescope == 'LOFAR':
+          if not disable_primarybeam_predict:
+            cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
+            cmd += '-use-differential-lofar-beam '
+      
+        cmd += '-name box_' + imageout + ' ' + msliststring
+        if DDE_predict == 'WSCLEAN':
+          print('DDE PREDICT STEP: ', cmd)
+          run(cmd)
+        return 
+    #  --- NO-FACET-LOOP end DDE CORRUPT-predict only ---
+
+
+
+
+    #  --- DDE-FACET-LOOP predict, so all facets are predicted  ---
+    #  --- each facet gets its own model column ---
     if onlypredict and facetregionfile is not None and predict:
       # step 1 open facetregionfile
       modeldatacolumns_list=[]
@@ -9146,7 +9228,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '8.5.7'
+   version = '8.6.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -9620,7 +9702,9 @@ def main():
       
       remove_outside_box(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], \
                          args['imsize'],args['channelsout'], dysco=args['dysco'],\
-                         userbox=args['remove_outside_center_box'], idg=args['idg'],h5list=wsclean_h5list)
+                         userbox=args['remove_outside_center_box'], idg=args['idg'],\
+                         h5list=wsclean_h5list, facetregionfile='facets.reg', \
+                         disable_primary_beam=args['disable_primary_beam'])
                
    # ARCHIVE DATA AFTER SELFCAL if requested
    if not longbaseline and not args['noarchive'] :
