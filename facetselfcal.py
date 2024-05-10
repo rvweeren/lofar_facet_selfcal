@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# compression: blosc2
 # useful? https://learning-python.com/thumbspage.html
 # bdsf still steals the logger https://github.com/lofar-astron/PyBDSF/issues/176
 # add html summary overview
@@ -103,6 +104,13 @@ def copy_over_sourcedirection_h5(h5ref, h5):
     H.close()
     return
 '''
+
+
+def set_DDE_predict_skymodel_solve(wscleanskymodel):
+  if wscleanskymodel is not None:
+     return 'WSCLEAN'
+  else: 
+     return 'DP3'
 
 def getAntennas(ms):
    """
@@ -2267,6 +2275,10 @@ def inputchecker(args, mslist):
         print('--forwidefield needs to be set in DDE mode')
         raise Exception('--forwidefield needs to be set in DDE mode')
 
+    if args['DDE'] and args['idg']:    
+        print('Option --idg cannot be used with option --DDE')
+        raise Exception('Option --idg cannot be used with option --DDE')
+
     if not args['stack']:
         if type(args['skymodelpointsource']) is list:
             print('skymodelpointsource cannot be a list if --stack is not set')
@@ -2449,7 +2461,31 @@ def inputchecker(args, mslist):
        if 'rotation+diagonal' in  args['soltype_list']:
           print('Invalid soltype input in combination with --DDE')
           raise Exception('Invalid soltype input in combination with --DDE') 
-
+       if args['wscleanskymodel'] is not None and args['facetdirections'] is None:
+          print('If --DDE and --wscleanskymodel are set provide a direction file via --facetdirections')
+          raise Exception('DDE with a wscleanskymodel requires a user-specified facetdirections')
+       if args['wscleanskymodel'] is not None and args['Nfacets'] > 0:
+          print('If --DDE and --wscleanskymodel are set you cannot use Nfacets')
+          raise Exception('If --DDE and --wscleanskymodel are set you cannot use Nfacets')
+       if args['wscleanskymodel'] is not None:
+          nonpblist = glob.glob(args['wscleanskymodel'] + '-????-model.fits')
+          pblist = glob.glob(args['wscleanskymodel'] + '-????-model-pb.fits')
+          
+          # set telescope
+          t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
+          telescope = t.getcol('TELESCOPE_NAME')[0] 
+          t.close()
+           #check number of model-pb images matches channelsout
+          if not args['disable_primary_beam'] and telescope == 'LOFAR':
+             if len(pblist) != args['channelsout']:
+                 print('Number of model-pb.fits images does not match channelsout')
+                 raise Exception('Number of model-pb.fits images does not match channelsout')
+          #for image in nonpblist+pblist
+          #    hdu = flatten( fits.open(image))
+          #    if hdu.shape()[0] != args['imsize'] 
+          #    findrms(np.ndarray.flatten(hdu[0].data))
+          #    hdu.close()
+         
 
     for ms in mslist:
         if not check_phaseup_station(ms):  
@@ -2607,6 +2643,9 @@ def inputchecker(args, mslist):
             print('Not enough WSClean channel model images found')
             print(glob.glob(args['wscleanskymodel'] + '-????-model.fits'))
             raise Exception('Not enough WSClean channel model images found')
+        if len(glob.glob(args['wscleanskymodel'] + '-????-model.fits')) != args['channelsout']:
+            print('Number of model images provided needs to match channelsout')
+            raise Exception('Number of model images provided needs to match channelsout')
         if (args['wscleanskymodel'].find('/') != -1):
             print('wscleanskymodel contains a slash, not allowed, needs to be in pwd')
             raise Exception('wscleanskymodel contains a slash, not allowed, needs to be in pwd')
@@ -6447,7 +6486,9 @@ def parse_facetdirections(facetdirections,niter):
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                 channelsout, numClusters=0, facetdirections=None, \
-                DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=False, telescope='LOFAR', dde_skymodel=None, targetFlux=2.0,skyview=None, fitspectralpol=3,disable_primary_beam=False):
+                DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=True, \
+                telescope='LOFAR', dde_skymodel=None, targetFlux=2.0,skyview=None, \
+                fitspectralpol=3,disable_primary_beam=False, wscleanskymodel=None):
 
    if telescope == 'LOFAR' and not disable_IDG_DDE_predict:
       idg = True # predict WSCLEAN with beam using IDG (wsclean facet mode with h5 is not efficient here)
@@ -6455,25 +6496,34 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
       idg = False
 
    solints = create_facet_directions(imagebasename,selfcalcycle,\
-   	              targetFlux=targetFlux, ms=mslist[0], imsize=imsize, \
-	              pixelscale=pixelscale, numClusters=numClusters,\
-	              facetdirections=facetdirections, restart=restart)  
+                                     targetFlux=targetFlux, ms=mslist[0], imsize=imsize, \
+                                     pixelscale=pixelscale, numClusters=numClusters,\
+                                     facetdirections=facetdirections, restart=restart)  
 
-   # remove previous facets.fits if needed and create template fits file for facets
+   # --- start CREATE facets.fits -----
+   # remove previous facets.fits if needed
    if os.path.isfile('facets.fits'):
      os.system ('rm -f facets.fits')  
    if skyview==None:
-     if not restart:
+     if not restart and wscleanskymodel is None:
         os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
+     if not restart and wscleanskymodel is not None:
+        os.system('cp ' + glob.glob(wscleanskymodel + '-????-*model*.fits')[0] + ' facets.fits')
    else:
      os.system('cp ' + skyview + ' facets.fits')   
 
    if restart: # in that case we also have a previous image avaialble
       os.system('cp ' + imagebasename + str(selfcalcycle-1).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
-   else:
-      os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
+   #else:
+   #   if selfcalcycle == 0 and wscleanskymodel is not None: 
+   #     os.system('cp ' + glob.glob(wscleanskymodel + '-????-*model*.fits')[0] + ' facets.fits')
+        
+      #else:
+      #  os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
+   # --- end CREATE facets.fits -----
 
-   # fill in facets.fits with values, every facets get a constant value, for lsmtool
+
+   # FILL in facets.fits with values, every facets get a constant value, for lsmtool
    hdu=fits.open('facets.fits')
    hduflat = flatten(hdu)
    region = pyregion.open('facets.reg')
@@ -6487,9 +6537,10 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
           hdu[0].data[np.where(manualmask == True)] = facet_id
    hdu.writeto('facets.fits',overwrite=True)
 
+
    if restart: 
-      # restart with DDE_predict=DP3 because then only modeldatacolumns are made
-      # The wsclean predict step is skipped in makeimage
+      # restart with DDE_predict=DP3 because then only the variable modeldatacolumns is made
+      # So the wsclean predict step is skipped in makeimage but modeldatacolumns is created
       modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
                                 pixelscale, imsize, channelsout, predict=True, \
                                 onlypredict=True, facetregionfile='facets.reg', \
@@ -6503,17 +6554,28 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
       else: 
          dde_skymodel = 'dummy.skymodel' # no model exists if spectralpol is turned off
    elif skyview != None:
-    modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
+      modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
                               pixelscale, imsize, channelsout, predict=True, \
                               onlypredict=True, facetregionfile='facets.reg', \
                               DDE_predict=DDE_predict,\
                               disable_primarybeam_image=disable_primary_beam, \
                               disable_primarybeam_predict=disable_primary_beam)
-    if fitspectralpol > 0:
-       dde_skymodel = groupskymodel(skyview, 'facets.fits')
-    else: 
-       dde_skymodel = 'dummy.skymodel' # no model exists if spectralpol is turned off
+      if fitspectralpol > 0:
+         dde_skymodel = groupskymodel(skyview, 'facets.fits')
+      else: 
+         dde_skymodel = 'dummy.skymodel' # no model exists if spectralpol is turned off
    
+   elif wscleanskymodel is not None: # DDE wscleanskymodel solve at the start
+      modeldatacolumns = makeimage(mslist, wscleanskymodel, \
+                                pixelscale, imsize, channelsout, predict=True, \
+                                onlypredict=True, facetregionfile='facets.reg', \
+                                DDE_predict='WSCLEAN', idg=idg, \
+                                disable_primarybeam_image=disable_primary_beam, \
+                                disable_primarybeam_predict=disable_primary_beam)
+      # assume there is no model for DDE wscleanskymodel solve at the start
+      # since we are making image000 afterwards anyway setting a dummy now is ok
+      dde_skymodel = 'dummy.skymodel' 
+      print(modeldatacolumns)
    else: 
       modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
                                 pixelscale, imsize, channelsout, predict=True, \
@@ -6528,7 +6590,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
          dde_skymodel = 'dummy.skymodel' # no model exists if spectralpol is turned off
    # check if -pb version of source list exists
    # needed because image000 does not have a pb version as no facet imaging is used, however, if IDG is used it does exist and hence the following does also handfle that
-   if telescope == 'LOFAR': # not for MeerKAT because WSCclean still has a bug if no primary beam is used, for now assume we do not use a primary beam for MeerKAT
+   if telescope == 'LOFAR' and wscleanskymodel is None: # not for MeerKAT because WSCclean still has a bug if no primary beam is used, for now assume we do not use a primary beam for MeerKAT
       if os.path.isfile(imagebasename + str(selfcalcycle).zfill(3)  + \
                         '-sources-pb.txt'):
          if fitspectralpol > 0:
@@ -6835,7 +6897,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False, \
               wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0, \
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False, \
-              facet_beam_update_time=120, groupms_h5facetspeedup=False):
+              facet_beam_update_time=120, groupms_h5facetspeedup=False, \
+              singlefacetpredictspeedup=True, forceimagingwithfacets=True):
+    '''
+    forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
+    '''
+    
+    
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     if idg:
@@ -6951,11 +7019,12 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         r[facet_id:facet_id+1].write('facet' + str(facet_id) + '.reg') # split facet from region file
      
         # step 2 mask outside of region file
-        for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
-          modelout = 'facet_' + model
-          if DDE_predict == 'WSCLEAN':
-            print (model, modelout)
-            mask_region_inv(model,'facet' + str(facet_id) + '.reg',modelout)
+        if not singlefacetpredictspeedup: # not needed, because WSClean will do the facet cutting
+          for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
+            modelout = 'facet_' + model
+            if DDE_predict == 'WSCLEAN':
+              print (model, modelout)
+              mask_region_inv(model,'facet' + str(facet_id) + '.reg',modelout)
         
         # step 3 predict with wsclean
         cmd = 'wsclean -predict '
@@ -6982,13 +7051,19 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               cmd += '-no-small-inversion ' 
           if parallelgridding > 1:
             cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
-      
-        #cmd += '-facet-regions ' + facetregionfile  + ' '
-        # cmd += '-apply-facet-solutions ' + h5 + ' amplitude000,phase000 ' # 
-        #if telescope == 'LOFAR':
-        #  cmd += '-apply-facet-beam -facet-beam-update 600 -use-differential-lofar-beam '
-      
-        cmd += '-name facet_' + imageout + ' ' + msliststring
+        
+        # NEW CODE FOR SPEEDUP
+        if singlefacetpredictspeedup:
+          cmd += '-facet-regions ' + 'facet' + str(facet_id) + '.reg'  + ' '
+          if telescope == 'LOFAR':
+            if not disable_primarybeam_predict:
+              cmd += '-apply-facet-beam -facet-beam-update ' +str(facet_beam_update_time)  + ' '
+              cmd += '-use-differential-lofar-beam '
+          cmd += '-name ' + imageout + ' ' + msliststring
+        else:
+          cmd += '-name facet_' + imageout + ' ' + msliststring
+        
+        
         if DDE_predict == 'WSCLEAN':
           print('DDE PREDICT STEP: ', cmd)
           run(cmd)
@@ -7094,7 +7169,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
           cmd += '-pol iquv -join-polarizations '
         else:
           cmd += '-pol i '
-        if len(h5list) == 0: # only use baseline-averaging if we are not using facets
+        if len(h5list) == 0 and facetregionfile is None: # only use baseline-averaging without facets
+          #if not forceimagingwithfacets:
           cmd += '-baseline-averaging ' + baselineav + ' '
         if usewgridder:
           cmd += '-gridder wgridder '
@@ -7117,6 +7193,11 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             if not disable_primarybeam_image:
                cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                cmd += '-use-differential-lofar-beam '
+      elif forceimagingwithfacets and facetregionfile is not None: # so h5list is zero, but we still want facet imaging
+         cmd += '-facet-regions ' + facetregionfile  + ' '
+         if telescope == 'LOFAR' and not disable_primarybeam_image:
+            cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
+            cmd += '-use-differential-lofar-beam '  
       else:
          if telescope == 'LOFAR' and not check_phaseup_station(mslist[0]) and not idg:
             if not disable_primarybeam_image:
@@ -7426,6 +7507,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          print(solint_list)
          print(soltypenumber)
          print(msnumber)
+         print(modeldatacolumns)
          runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
                      uvmin=uvmin, \
                      SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
@@ -8710,10 +8792,10 @@ def basicsetup(mslist, args):
    t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
    telescope = t.getcol('TELESCOPE_NAME')[0] 
    t.close()
-   idgin = args['idg'] # store here as we update args['idg'] at some point to made image000 for selfcalcycle 0 in when --DDE is enabled
+   #idgin = args['idg'] # store here as we update args['idg'] at some point to made image000 for selfcalcycle 0 in when --DDE is enabled
 
    return longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, \
-          maskthreshold_selfcalcycle, outtarname, idgin, telescope, args
+          maskthreshold_selfcalcycle, outtarname, telescope, args
 
 
 
@@ -9120,7 +9202,7 @@ def main():
    calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Directions are found automatically. Only used if --facetdirections is not set. Ignored when --NFacets is set to > 0', type=float, default=2.0)
    calibrationparser.add_argument('--facetdirections', help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.', type=str, default=None)
    calibrationparser.add_argument('--DDE-predict', help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=WSCLEAN (note: option WSCLEAN will use a lot of disk space as there is one MODEL column per direction written to the MS)', type=str, default='WSCLEAN')
-   calibrationparser.add_argument('--disable-IDG-DDE-predict', help='Normally, if LOFAR data is detected the WSCLean predict of the facets will use IDG, setting this option turns it off and predicts the apparent model with wridding (facet mode is never used here in these predicts). For non-LOFAR data the predicts uses the apparent model with wridding. Note: if the primary beam is not time varying and scalar then using the apparent model is fully accurate.', action='store_true')
+   #calibrationparser.add_argument('--disable-IDG-DDE-predict', help='Normally, if LOFAR data is detected the WSCLean predict of the facets will use IDG, setting this option turns it off and predicts the apparent model with wridding (facet mode is never used here in these predicts). For non-LOFAR data the predicts uses the apparent model with wridding. Note: if the primary beam is not time varying and scalar then using the apparent model is fully accurate.', action='store_true')
    calibrationparser.add_argument('--disable-primary-beam', help='For WSCLEAN imaging and predicts disable the primary beam corrections (so run with "apparent" images only)', action='store_true')
    
 
@@ -9228,7 +9310,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '8.6.0'
+   version = '9.0.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -9312,7 +9394,7 @@ def main():
 
    # SETUP VARIOUS PARAMETERS
    longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, maskthreshold_selfcalcycle, \
-       outtarname, idgin, telescope, args = basicsetup(mslist, args)
+       outtarname, telescope, args = basicsetup(mslist, args)
  
    # PRE-APPLY SOLUTIONS (from a nearby direction for example)
    # if (args['applydelaycalH5_list'][0]) is not None and  args['start'] == 0:
@@ -9407,6 +9489,13 @@ def main():
 
    if args['groupms_h5facetspeedup'] and args['start'] == 0 and len(mslist) > 1: 
       concat_ms_wsclean_facetimaging(mslist)
+
+   # create facets.reg so we have it avaialble for image000 
+   # so that we can use WSClean facet mode, but without having h5 DDE solutions
+   if args['facetdirections'] is not None and  args['start'] == 0:
+      create_facet_directions(None,0, ms=mslist[0], imsize=args['imsize'], \
+	              pixelscale=args['pixelscale'],facetdirections=args['facetdirections'])
+      facetregionfile = 'facets.reg' # so when making image000 we can use it without having h5 DDE solutions
       
    # ----- START SELFCAL LOOP -----
    for i in range(args['start'],args['stop']):
@@ -9466,7 +9555,10 @@ def main():
                    mslist, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], \
-                   DDE_predict='DP3', restart=False,skyview=tgssfitsfile,targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'], disable_primary_beam=args['disable_primary_beam'])
+                   DDE_predict='DP3', restart=False,skyview=tgssfitsfile,\
+                   targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],\
+                   disable_primary_beam=args['disable_primary_beam'], \
+                   wscleanskymodel=args['wscleanskymodel'])
            
            if candidate_solints is not None:
              candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
@@ -9491,12 +9583,14 @@ def main():
                              uvminscalarphasediff=args['uvminscalarphasediff'], \
                              docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'], telescope=telescope, \
                              blsmooth_chunking_size=args['blsmooth_chunking_size'], \
-                             gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict='DP3', \
+                             gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,\
+                             DDE_predict=set_DDE_predict_skymodel_solve(args['wscleanskymodel']),\
                              QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], \
                              QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],\
                              QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],\
                              ncpu_max=args['ncpu_max_DP3solve'],\
                              mslist_beforeremoveinternational=mslist_beforeremoveinternational)
+        
      if args['phasediff_only']:
        return
      
@@ -9513,7 +9607,7 @@ def main():
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], \
                    DDE_predict=args['DDE_predict'], restart=True, \
-                   disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope, \
+                   telescope=telescope, \
                    targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],\
                    disable_primary_beam=args['disable_primary_beam'])
         wsclean_h5list = list(np.load('wsclean_h5list.npy'))
@@ -9528,10 +9622,10 @@ def main():
           stackstr='' # empty string
         if len(modeldatacolumns) > 1:
           facetregionfile = 'facets.reg'
-        else:
-          if args['DDE'] and i == 0: # we are making image000 without having DDE solutions yet
-            if telescope == 'LOFAR' and not args['disable_IDG_DDE_predict']: # temporarilly ensure idg=True so image000 has model-pb
-                args['idg'] = True
+        #else:
+          #if args['DDE'] and i == 0: # we are making image000 without having DDE solutions yet
+            #if telescope == 'LOFAR' and not args['disable_IDG_DDE_predict']: # so image000 has model-pb
+            #    args['idg'] = True
         makeimage(mslistim, args['imagename'] + str(i).zfill(3) + stackstr, \
                   args['pixelscale'], args['imsize'], \
                   args['channelsout'], args['niter'], args['robust'], \
@@ -9548,7 +9642,7 @@ def main():
                   multiscalemaxscales=args['multiscalemaxscales'],stack=args['stack'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
                   disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
-        args['idg'] = idgin # set back
+        #args['idg'] = idgin # set back
         if args['makeimage_ILTlowres_HBA']:
           if args['phaseupstations'] is None:
               briggslowres = -1.5
@@ -9609,7 +9703,7 @@ def main():
                    mslist, args['imsize'], args['pixelscale'], \
                    args['channelsout'],numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], DDE_predict=args['DDE_predict'], \
-                   disable_IDG_DDE_predict=args['disable_IDG_DDE_predict'], telescope=telescope, \
+                   telescope=telescope, \
                    targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],\
                    disable_primary_beam=args['disable_primary_beam'])
         if candidate_solints is not None:
@@ -9738,3 +9832,4 @@ def main():
 
 if __name__ == "__main__":
    main()
+
