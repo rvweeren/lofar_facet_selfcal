@@ -6769,7 +6769,7 @@ def flatten(f):
 
 
 def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
-                       channelsout, datacolumn='CORRECTED_DATA', \
+                       channelsout, \
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None, \
                        idg=False, h5list=[], facetregionfile=None, \
                        disable_primary_beam=False):
@@ -6777,6 +6777,11 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
    hdul = fits.open(imagebasename + '-MFS-image.fits')
    header = hdul[0].header
 
+   if len(h5list) != 0:
+      datacolumn = 'DATA' # for DDE
+   else:
+      datacolumn = 'CORRECTED_DATA'
+   
    if (header['CRVAL3'] < 500e6): # means we have LOFAR?, just a random value here
       boxsize = 1.5 # degr   
    if (header['CRVAL3'] > 500e6) and (header['CRVAL3'] < 1.0e9): # UHF-band
@@ -6963,7 +6968,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     if onlypredict and facetregionfile is not None and predict and squarebox is not None:
         # do the masking
         for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
-          print (model, 'box_' + model)
+          print (squarebox, model, 'box_' + model)
           mask_region(model,squarebox,'box_' + model)  
               
         # predict with wsclean
