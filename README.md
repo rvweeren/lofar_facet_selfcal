@@ -5,16 +5,21 @@ Requirements:
 - https://github.com/jurjen93/lofar_helpers 
 - Container with all standard LOFAR software: https://tikk3r.github.io/flocs/ 
 
+Installation:
+create a directory and\
+`git clone https://github.com/jurjen93/lofar_helpers.git`\
+`git clone https://github.com/rvweeren/lofar_facet_selfcal.git`\
+\
+\
+Usage:\
+\
+HBA Dutch baselines for extracted LoTSS data from the ddf-pipeline:
 
-Usage:
-
-HBA Dutch baselines (e.g., LoTSS)
-
-`facetselfcal.py -b yourDS9extractbox.reg --auto -i yourimagename yourextracted.ms`
+`python /<path>/lofar_facet_selfcal/facetselfcal.py --helperscriptspath="/<path>/lofar_facet_selfcal/" --helperscriptspathh5merge="/<path>/lofar_helpers/" -b yourDS9extractbox.reg --auto -i yourimagename yourextracted.ms`
 
 or 
 
-`facetselfcal.py --imsize=1600 --auto -i yourimagename yourextracted.ms`
+`python /<path>/lofar_facet_selfcal/facetselfcal.py --helperscriptspath="/<path>/lofar_facet_selfcal/" --helperscriptspathh5merge="/<path>/lofar_helpers/" --imsize=1600 --auto -i yourimagename yourextracted.ms`
  
 
 HBA international baselines
