@@ -2684,7 +2684,7 @@ def get_uvwmax(ms):
 def makeBBSmodelforVLASS(filename, extrastrname=''):
     img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10))#, \
                             # frequency=150e6, beam=(25./3600,25./3600,0.0) )
-    img.write_catalog(format='bbs', bbs_patches='single', \
+    img.write_catalog(format='bbs', bbs_patches='source', \
                       outfile='vlass' + extrastrname + '.skymodel'  , clobber=True)
     #bbsmodel = 'bla.skymodel'
     del img
@@ -2748,7 +2748,7 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
 
     img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10), \
                              frequency=150e6, beam=(25./3600,25./3600,0.0) )
-    img.write_catalog(format='bbs', bbs_patches='single', \
+    img.write_catalog(format='bbs', bbs_patches='source', \
                       outfile='tgss' + extrastrname + '.skymodel', clobber=True)
     # bbsmodel = 'bla.skymodel'
     del img
@@ -9034,6 +9034,10 @@ def set_fitsmask_restart(args, i, mslist):
           if os.path.isfile(args['imagename'] + str(i-1).zfill(3) + stackstr + '.app.restored.fits'):
             fitsmask = args['imagename'] + str(i-1).zfill(3) + stackstr + '.app.restored.fits.mask.fits'
       if args['channelsout'] == 1:
+        if args['imager'] == 'WSCLEAN':
+            fitsmask = args['imagename'] + str(i-1).zfill(3)+ stackstr + '-MFS-image.fits.mask.fits'
+        if args['imager'] == 'DDFACET':
+            fitsmask = args['imagename'] + str(i-1).zfill(3) + stackstr + '.app.restored.fits.mask.fits'
         fitsmask = fitsmask.replace('-MFS', '').replace('-I','')
       
       fitsmask_list.append(fitsmask)
@@ -9201,7 +9205,7 @@ def main():
    calibrationparser.add_argument('--QualityBasedWeights-start', help='Experts only.',  type=int, default=5)
    calibrationparser.add_argument('--QualityBasedWeights-dtime', help='QualityBasedWeights timestep in units of minutes (default 5)',  type=float, default=5.0)
    calibrationparser.add_argument('--QualityBasedWeights-dfreq', help='QualityBasedWeights frequency in units of MHz (default 5)',  type=float, default=5.0)
-   calibrationparser.add_argument('--ncpu-max-DP3solve', help='Maximum number of threads for DP3 solves, default=24 (too high value can result in BLAS errors)', type=int, default=64)
+   calibrationparser.add_argument('--ncpu-max-DP3solve', help='Maximum number of threads for DP3 solves, default=64 (too high value can result in BLAS errors)', type=int, default=64)
    calibrationparser.add_argument('--DDE', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--Nfacets', help='Number of directions to solve into when --DDE is used. Directions are found automatically. Only used if --facetdirections is not set. Keep to default (=0) if you want to use --targetFlux instead', type=int, default=0)
    calibrationparser.add_argument('--targetFlux', help='targetFlux in Jy for groupalgorithm to create facet directions when --DDE is set (default = 2.0). Directions are found automatically. Only used if --facetdirections is not set. Ignored when --NFacets is set to > 0', type=float, default=2.0)
@@ -9782,27 +9786,28 @@ def main():
    if args['remove_outside_center']:
       # make image after calibration so the calibration and images match 
       # normally we would finish with calirbation and not have the subsequent image, make this i+1 image here
-      makeimage(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], args['imsize'], \
-                args['channelsout'], args['niter'], args['robust'], \
-                multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
-                uvminim=args['uvminim'], \
-                fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
-                imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
-                removenegativecc=args['removenegativefrommodel'], \
-                paralleldeconvolution=args['paralleldeconvolution'],\
-                deconvolutionchannels=args['deconvolutionchannels'], \
-                parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
-                taperinnertukey=args['taperinnertukey'], \
-                gapchanneldivision=args['gapchanneldivision'], predict=False, \
-                localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'],\
-                disable_primarybeam_image=args['disable_primary_beam'], \
-                disable_primarybeam_predict=args['disable_primary_beam'], \
-                groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
-      
+      makeimage(mslistim, args['imagename'] + str(i+1).zfill(3), \
+                  args['pixelscale'], args['imsize'], \
+                  args['channelsout'], args['niter'], args['robust'], \
+                  multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
+                  uvminim=args['uvminim'], predict=False,\
+                  fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
+                  imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
+                  removenegativecc=args['removenegativefrommodel'],\
+                  paralleldeconvolution=args['paralleldeconvolution'],\
+                  deconvolutionchannels=args['deconvolutionchannels'], \
+                  parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],\
+                  taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, localrmswindow=args['localrmswindow'], \
+                  facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
+                  multiscalemaxscales=args['multiscalemaxscales'],\
+                  disable_primarybeam_image=args['disable_primary_beam'], \
+                  disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
+
+
       remove_outside_box(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], \
                          args['imsize'],args['channelsout'], dysco=args['dysco'],\
                          userbox=args['remove_outside_center_box'], idg=args['idg'],\
-                         h5list=wsclean_h5list, facetregionfile='facets.reg', \
+                         h5list=wsclean_h5list, facetregionfile=facetregionfile, \
                          disable_primary_beam=args['disable_primary_beam'])
                
    # ARCHIVE DATA AFTER SELFCAL if requested
@@ -9811,7 +9816,7 @@ def main():
        if args['DDE']:
          mergedh5_i = glob.glob('merged_selfcalcyle' + str(i).zfill(3) + '*.h5')
          archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, \
-                 dysco=args['dysco'], mergedh5_i=mergedh5_i, facetregionfile='facets.reg')
+                 dysco=args['dysco'], mergedh5_i=mergedh5_i, facetregionfile=facetregionfile)
        else:
           archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
        cleanup(mslist)
