@@ -7235,10 +7235,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         removeneNaNfrommodel(glob.glob(imageout + '-????-*model*.fits'))
 
       # Check is anything was cleaned. If not, stop the selfcal to avoid obscure errors later
-      if idg:
+      if channelsout > 1: 
         checkforzerocleancomponents(glob.glob(imageout +'-????-*model*.fits'))  # only Stokes I
       else:
-        checkforzerocleancomponents(glob.glob(imageout + '-????-*model*.fits'))
+        checkforzerocleancomponents(glob.glob(imageout + '-*model*.fits'))
 
       if predict and len(h5list) == 0 and not DDEimaging: 
         # we check for DDEimaging to avoid a predict for image000 in a --DDE run
