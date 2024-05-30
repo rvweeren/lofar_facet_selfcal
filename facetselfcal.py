@@ -7653,7 +7653,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
       return wsclean_h5list
    else:
       return []
-   return
+  #  return
 
 
 # this version creates CORRECTED_PREAPPLY columns
@@ -7860,7 +7860,7 @@ def calibrateandapplycal_old(mslist, selfcalcycle, args, solint_list, nchan_list
       return wsclean_h5list
    else:
       return []
-   return
+  #  return
 
 
 
@@ -8374,7 +8374,7 @@ def update_sourcedir_h5_dde(h5, sourcedirpickle):
        H.root.sol000.source[direction_id] =  (direction['name'], [sourcedir[direction_id,0], sourcedir[direction_id,1]])
     
     H.close()
-    
+
     return
 
 def has0coordinates(h5):
@@ -8607,7 +8607,7 @@ def arg_as_str_or_list(s):
         #print('Skymodel is a list')
         return v
     raise argparse.ArgumentTypeError("Argument \"%s\" is not a string or list" % (s))
-    return
+    # return
 
 def arg_as_float_or_list(s):
     try:
@@ -8619,7 +8619,7 @@ def arg_as_float_or_list(s):
         #print('Skymodel is a list')
         return v
     raise argparse.ArgumentTypeError("Argument \"%s\" is not a float or list" % (s))
-    return
+    # return
 
 
 
@@ -9351,11 +9351,11 @@ def main():
 
    # reorder lists based on sorted(args['ms'])    
    if type(args['skymodel']) is list: 
-      args['skymodel'] = [x for _,x in sorted(zip(args['ms'],args['skymodel']))]
+      args['skymodel'] = [x for _, x in sorted(zip(args['ms'],args['skymodel']))]
    if type(args['wscleanskymodel']) is list: 
-      args['wscleanskymodel'] = [x for _,x in sorted(zip(args['ms'],args['wscleanskymodel']))]
+      args['wscleanskymodel'] = [x for _, x in sorted(zip(args['ms'],args['wscleanskymodel']))]
    if type(args['skymodelpointsource']) is list: 
-      args['skymodelpointsource'] = [x for _,x in sorted(zip(args['ms'],args['skymodelpointsource']))]
+      args['skymodelpointsource'] = [x for _, x in sorted(zip(args['ms'],args['skymodelpointsource']))]
    mslist = sorted(args['ms'])
 
 
