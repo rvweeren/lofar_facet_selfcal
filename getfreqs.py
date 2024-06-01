@@ -4,7 +4,7 @@ import casacore.tables as pt
 import numpy as np
 import argparse
 from astropy.io import ascii
-import sys
+# import sys
 import os.path
 
 def uniqueobsid(mslist):

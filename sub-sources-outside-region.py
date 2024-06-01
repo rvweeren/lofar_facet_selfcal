@@ -500,10 +500,10 @@ def adjustboxrotationlocalnorth(boxregionfile, fitsimage):
       sys.exit()
     
     ra  = r[0].coord_list[0]
-    dec = r[0].coord_list[1]
-    boxsizex = r[0].coord_list[2]
-    boxsizey = r[0].coord_list[3]
-    angle = r[0].coord_list[4]
+    # dec = r[0].coord_list[1]
+    # boxsizex = r[0].coord_list[2]
+    # boxsizey = r[0].coord_list[3]
+    # angle = r[0].coord_list[4]
     
 
     r[0].coord_list[4] = CRVAL1 - ra # rotate box
