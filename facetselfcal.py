@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# BDA step DP3
+# fix coordinate order pre-apply
 # compression: blosc2
 # useful? https://learning-python.com/thumbspage.html
 # bdsf still steals the logger https://github.com/lofar-astron/PyBDSF/issues/176
@@ -90,20 +92,17 @@ os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 # clear_download_cache()
 
 
-# this function does not work, for some reason cannot modify the source table
-'''
 def copy_over_sourcedirection_h5(h5ref, h5):
+    '''
+    Replace source direction in h5 with the one in h5ref
+    '''
+    from overwrite_table import overwrite_table
     Href = tables.open_file(h5ref, mode='r')
-    ssdir = np.copy(Href.root.sol000.source[0]['dir'])
+    refsource = Href.root.sol000.source[:]
     Href.close()
-    H = tables.open_file(h5, mode='a')
-    print(ssdir, H.root.sol000.source[0]['dir'])
-    H.root.sol000.source[0]['dir'] = np.copy(ssdir)
-    H.flush()
-    print(ssdir, H.root.sol000.source[0]['dir'])
-    H.close()
+    overwrite_table(h5, 'source', refsource)
     return
-'''
+
 
 
 def set_DDE_predict_skymodel_solve(wscleanskymodel):
@@ -2271,6 +2270,18 @@ def inputchecker(args, mslist):
             print('Skymodel cannot be a list if --stack is not set')
             raise Exception('Skymodel cannot be a list if --stack is not set')  
 
+    if args['DDE'] and args['preapplyH5_list'][0] is not None:
+        print('--DDE and --preapplyH5-list cannot be used together')
+        raise Exception('--DDE and --preapplyH5_list cannot be used together')
+
+    if args['DDE']:
+        for ms in mslist:
+             t = pt.table(ms, readonly=True, ack=False) 
+             if 'CORRECTED_DATA' in t.colnames(): # not allowed for DDE runs (because solving from DATA and imaging from DATA with an h5)
+                 print(ms, 'contains a CORRECTED_DATA column, this is not allowed when using --DDE')
+                 raise Exception('CORRECTED_DATA should not be present when using option --DDE')
+             t.close()  
+
     if args['DDE'] and not args['forwidefield']:    
         print('--forwidefield needs to be set in DDE mode')
         raise Exception('--forwidefield needs to be set in DDE mode')
@@ -2356,6 +2367,10 @@ def inputchecker(args, mslist):
         print('BLsmooth tecfactor is way too high')
         raise Exception('BLsmooth tecfactor is way too high')
 
+    if args['aoflagger_strategy'] is not None and not os.path.isfile(args['aoflagger_strategy']):
+        print('Cannot find aoflagger-strategy ' + args['aoflagger_strategy'] + ', file does not exist')
+        raise Exception('Cannot find aoflagger-strategy, file does not exist')
+       
     if not os.path.isfile('lib_multiproc.py'):
         print('Cannot find lib_multiproc.py, file does not exist, use --helperscriptspath')
         raise Exception('Cannot find lib_multiproc.py, file does not exist, use --helperscriptspath')
@@ -2381,6 +2396,9 @@ def inputchecker(args, mslist):
     if not os.path.isfile('VLASS_dyn_summary.php'):
         print('Cannot find VLASS_dyn_summary.php, file does not exist, use --helperscriptspath')
         raise Exception('Cannot find VLASS_dyn_summary.php, file does not exist, use --helperscriptspath')      
+    if not os.path.isfile('overwrite_table.py'):
+        print('Cannot find overwrite_table.py, file does not exist, use --helperscriptspath or --helperscriptspathh5merge')
+        raise Exception('Cannot find overwrite_table.py, file does not exist, use --helperscriptspath or --helperscriptspathh5merge') 
 
     if args['phaseshiftbox'] is not None:
         if not os.path.isfile(args['phaseshiftbox']):
@@ -6561,7 +6579,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                               disable_primarybeam_image=disable_primary_beam, \
                               disable_primarybeam_predict=disable_primary_beam)
       if fitspectralpol > 0:
-         dde_skymodel = groupskymodel(skyview, 'facets.fits')
+         dde_skymodel = groupskymodel(imagebasename, 'facets.fits')  # imagebasename
       else: 
          dde_skymodel = 'dummy.skymodel' # no model exists if spectralpol is turned off
    
@@ -6603,6 +6621,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
    
 def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):   
    import lsmtool
+   print('Loading:', skymodelin)
    LSM = lsmtool.load(skymodelin)
    LSM.group(algorithm='facet', facet=facetfitsfile)
    if skymodelout is not None: 
@@ -7587,8 +7606,10 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        if args['preapplyH5_list'][0] is not None:
          preapplyh5parm = time_match_mstoH5(args['preapplyH5_list'], ms)
          # replace the source direction coordinates so that the merge goes correctly
-         # copy_over_sourcedirection_h5(parmdbmergelist[msnumber][0], preapplyh5parm)
+         copy_over_sourcedirection_h5(parmdbmergelist[msnumber][0], preapplyh5parm)
          parmdbmergelist[msnumber].append(preapplyh5parm)
+        
+
 
        if is_scallar_array_forwsclean(parmdbmergelist[msnumber]):
          single_pol_merge = True
@@ -7646,14 +7667,11 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
        # note parmdbmergename should alwats be correct since we only had one MS (stack.MS) and so it does only "loop" over one MS. 
    ## --- end STACK code ---
    
-
-   
    if len(modeldatacolumns) > 0:
       np.save('wsclean_h5list.npy', wsclean_h5list)
       return wsclean_h5list
    else:
       return []
-  #  return
 
 
 # this version creates CORRECTED_PREAPPLY columns
@@ -7811,7 +7829,7 @@ def calibrateandapplycal_old(mslist, selfcalcycle, args, solint_list, nchan_list
        if args['preapplyH5_list'][0] is not None:
          preapplyh5parm = time_match_mstoH5(args['preapplyH5_list'], ms)
          # replace the source direction coordinates so that the merge goes correctly
-         # copy_over_sourcedirection_h5(parmdbmergelist[msnumber][0], preapplyh5parm)
+         copy_over_sourcedirection_h5(parmdbmergelist[msnumber][0], preapplyh5parm)
          parmdbmergelist[msnumber].append(preapplyh5parm)
 
        if is_scallar_array_forwsclean(parmdbmergelist[msnumber]):
@@ -7860,7 +7878,6 @@ def calibrateandapplycal_old(mslist, selfcalcycle, args, solint_list, nchan_list
       return wsclean_h5list
    else:
       return []
-  #  return
 
 
 
@@ -8369,12 +8386,10 @@ def update_sourcedir_h5_dde(h5, sourcedirpickle):
     f.close()
     
     H = tables.open_file(h5,mode='a')
-    
     for direction_id, direction in enumerate(np.copy(H.root.sol000.source[:])):
        H.root.sol000.source[direction_id] =  (direction['name'], [sourcedir[direction_id,0], sourcedir[direction_id,1]])
-    
     H.close()
-
+    
     return
 
 def has0coordinates(h5):
@@ -8607,7 +8622,7 @@ def arg_as_str_or_list(s):
         #print('Skymodel is a list')
         return v
     raise argparse.ArgumentTypeError("Argument \"%s\" is not a string or list" % (s))
-    # return
+
 
 def arg_as_float_or_list(s):
     try:
@@ -8619,7 +8634,6 @@ def arg_as_float_or_list(s):
         #print('Skymodel is a list')
         return v
     raise argparse.ArgumentTypeError("Argument \"%s\" is not a float or list" % (s))
-    # return
 
 
 
@@ -9234,7 +9248,7 @@ def main():
    flaggingparser.add_argument('--flagslowphaserms', help='RMS outlier value to flag on slow phases. The default 7.0.', default=7.0, type=float)
    flaggingparser.add_argument('--doflagslowphases', help='If solution flagging is done also flag outliers phases in the slow phase solutions. The default is True.', type=ast.literal_eval, default=True)
    flaggingparser.add_argument('--useaoflagger', help='Run AOflagger on input data.', action='store_true')
-   flaggingparser.add_argument('--aoflagger-strategy', help='Use this strategy for AOflagger (options are: "default_StokesV.lua")', default=None, type=str)
+   flaggingparser.add_argument('--aoflagger-strategy', help='Use this strategy for AOflagger (options are: "default_StokesV.lua", "LBAdefaultwideband.lua")', default=None, type=str)
    flaggingparser.add_argument('--useaoflaggerbeforeavg', help='Flag with AOflagger before (True) or after averaging (False). The default is True.', type=ast.literal_eval, default=True)
    flaggingparser.add_argument('--flagtimesmeared', help='Flag data that is severely time smeared. Warning: expert only', action='store_true')
    flaggingparser.add_argument('--removeinternational', help='Remove the international stations if present', action='store_true')
@@ -9319,15 +9333,17 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '9.0.0'
+   version = '9.2.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
    if args['helperscriptspathh5merge'] is not None:
      os.system('cp ' + args['helperscriptspathh5merge'] + '/h5_merger.py .')
+     os.system('cp ' + args['helperscriptspathh5merge'] + '/h5_helpers/overwrite_table.py .')
      sys.path.append(os.path.abspath(args['helperscriptspathh5merge']))
    else:
      os.system('cp ' + args['helperscriptspath'] + '/h5_merger.py .')
+     os.system('cp ' + args['helperscriptspath'] + '/overwrite_table.py .')
 
    global h5_merger
    import h5_merger
@@ -9339,7 +9355,8 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/VLASS_dyn_summary.php .')
    os.system('cp ' + args['helperscriptspath'] + '/ds9facetgenerator.py .')
    os.system('cp ' + args['helperscriptspath'] + '/default_StokesV.lua .')
-
+   os.system('cp ' + args['helperscriptspath'] + '/LBAdefaultwideband.lua .')
+   
    if args['helperscriptspathh5merge'] is None:  
       check_code_is_uptodate()
 
