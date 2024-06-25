@@ -7960,7 +7960,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 ampresetvalfactor=10., uvmax=None, \
                 modeldatacolumns=[], solveralgorithm='directionsolve', solveralgorithm_dde='directioniterative', preapplyH5_dde=[], \
                 dde_skymodel=None, DDE_predict='WSCLEAN',telescope='LOFAR', beamproximitylimit=240.,\
-                ncpu_max=24):
+                ncpu_max=24, bdaaverager=False):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
@@ -8092,7 +8092,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     cmd = 'DP3 numthreads='+str(np.min([multiprocessing.cpu_count(),ncpu_max])) + ' msin=' + ms + ' '
     cmd += 'msout=. ddecal.mode=' + soltype + ' '
     cmd += 'msin.weightcolumn=' + weight_spectrum + ' '
-    cmd += 'steps=[ddecal] ddecal.type=ddecal '
+    if bdaaverager:
+      cmd += 'steps=[bda,ddecal] ddecal.type=ddecal bda.type=bdaaverager '
+    else:
+      cmd += 'steps=[ddecal] ddecal.type=ddecal ' 
     if dysco:
       cmd += 'msout.storagemanager=dysco '
       cmd += 'msout.storagemanager.weightbitrate=16 '
@@ -8111,6 +8114,13 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
        cmd += 'ddecal.solint=' + format_solint(solint, ms) + ' '
     cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
+
+    if bdaaverager:
+      cmd += 'bda.frequencybase= ' + 'bda.minchannels=' + format_nchan(nchan, ms) + ' ' 
+      if type(solint) == list:
+        cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm/np.max(divisors)) + ' ' 
+      else:
+        cmd += 'bda.timebase= ' + 'bda.maxinterval=' + format_solint(solint, ms) + ' ' 
 
     if len(modeldatacolumns) > 0:
       if DDE_predict == 'DP3':
@@ -8972,7 +8982,7 @@ def multiscale_trigger(fitsmask, args):
          multiscale = True
    return multiscale
 
-def update_uvmin(fitsmask, longbaseline, args):
+def update_uvmin(fitsmask, longbaseline, args, LBA):
    # update uvmin if allowed/requested
    if args['stack']:
       return args['uvmin']  
@@ -9333,7 +9343,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '9.2.0'
+   version = '9.3.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -9784,7 +9794,7 @@ def main():
                            gapchanneldivision=args['gapchanneldivision'],modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,DDE_predict=args['DDE_predict'], QualityBasedWeights=args['QualityBasedWeights'], QualityBasedWeights_start=args['QualityBasedWeights_start'], QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'],mslist_beforeremoveinternational=mslist_beforeremoveinternational)
 
      # update uvmin if allowed/requested
-     args['uvmin'] = update_uvmin(fitsmask, longbaseline, args)
+     args['uvmin'] = update_uvmin(fitsmask, longbaseline, args, LBA)
 
      # update fitsmake if allowed/requested 
      fitsmask, fitsmask_list, imagename = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args, mslist)
