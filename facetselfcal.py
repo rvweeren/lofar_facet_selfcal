@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
+# WSCLEAN update regarding -diaginal-solutions
 # BDA step DP3
-# fix coordinate order pre-apply
 # compression: blosc2
 # useful? https://learning-python.com/thumbspage.html
 # bdsf still steals the logger https://github.com/lofar-astron/PyBDSF/issues/176
@@ -92,6 +92,33 @@ os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 # clear_download_cache()
 
 
+
+def create_empty_fitsimage(ms, imsize, pixelsize, outfile):
+    '''
+    Create emtpy (zeros) FITS file with size imsize and pixelsize
+    Image center coincides with the phase center of the provided ms
+    '''
+    data = np.zeros((imsize, imsize)) 
+
+    w = WCS(naxis=2)
+    # what is the center pixel of the XY grid.
+    w.wcs.crpix = [imsize/2, imsize/2]
+
+    # coordinate of the pixel.
+    w.wcs.crval = grab_coord_MS(ms)
+
+    # the pixel scale
+    w.wcs.cdelt = np.array([pixelsize/3600., pixelsize/3600.])
+    
+    # projection
+    w.wcs.ctype = ["RA---SIN", "DEC--SIN"]
+
+    # write the HDU object WITH THE HEADER
+    header = w.to_header()
+    hdu = fits.PrimaryHDU(data, header=header)
+    hdu.writeto(outfile, overwrite=True)
+    return 
+
 def copy_over_sourcedirection_h5(h5ref, h5):
     '''
     Replace source direction in h5 with the one in h5ref
@@ -119,6 +146,116 @@ def getAntennas(ms):
    antennas = t.getcol('NAME')
    t.close()
    return antennas
+
+
+def grab_coord_MS(MS):
+    """
+    Read the coordinates of a field from one MS corresponding to the selection given in the parameters
+
+    Parameters
+    ----------
+    MS : str
+        Full name (with path) to one MS of the field
+
+    Returns
+    -------
+    RA, Dec : "tuple"
+        coordinates of the field (RA, Dec in deg , J2000)
+    """
+
+    # reading the coordinates ("position") from the MS
+    # NB: they are given in rad,rad (J2000)
+    [[[ra,dec]]] = pt.table(MS+'::FIELD', readonly=True, ack=False).getcol('PHASE_DIR')
+
+    # RA is stocked in the MS in [-pi;pi]
+    # => shift for the negative angles before the conversion to deg (so that RA in [0;2pi])
+    if ra<0:
+        ra=ra+2*np.pi
+
+    # convert radians to degrees
+    ra_deg =  ra/np.pi*180.
+    dec_deg = dec/np.pi*180.
+
+    # and sending the coordinates in deg
+    return(ra_deg,dec_deg)
+
+
+def getGSM(ms_input, SkymodelPath='gsm.skymodel', Radius="5.", DoDownload="Force", Source="GSM", targetname = "pointing", fluxlimit = None):
+    """
+    Download the skymodel for the target field
+
+    Parameters
+    ----------
+    ms_input : str
+        String from the list (map) of the target MSs
+    SkymodelPath : str
+        Full name (with path) to the skymodel; if YES is true, the skymodel will be downloaded here
+    Radius : string with float (default = "5.")
+        Radius for the TGSS/GSM cone search in degrees
+    DoDownload : str ("Force" or "True" or "False")
+        Download or not the TGSS skymodel or GSM.
+        "Force": download skymodel from TGSS or GSM, delete existing skymodel if needed.
+        "True" or "Yes": use existing skymodel file if it exists, download skymodel from
+                         TGSS or GSM if it does not.
+        "False" or "No": Do not download skymodel, raise an exception if skymodel
+                         file does not exist.
+    targetname : str
+        Give the patch a certain name, default: "pointing"
+    """
+    import lsmtool
+    FileExists = os.path.isfile(SkymodelPath)
+    if (not FileExists and os.path.exists(SkymodelPath)):
+        raise ValueError("download_tgss_skymodel_target: Path: \"%s\" exists but is not a file!"%(SkymodelPath))
+    download_flag = False
+    #if not os.path.exists(os.path.dirname(SkymodelPath)):
+    #    os.makedirs(os.path.dirname(SkymodelPath))
+    if DoDownload.upper() == "FORCE":
+        if FileExists:
+            os.remove(SkymodelPath)
+        download_flag = True
+    elif DoDownload.upper() == "TRUE" or DoDownload.upper() == "YES":
+        if FileExists:
+            print("USING the exising skymodel in "+ SkymodelPath)
+            return(0)
+        else:
+            download_flag = True
+    elif DoDownload.upper() == "FALSE" or DoDownload.upper() == "NO":
+         if FileExists:
+            print("USING the exising skymodel in "+ SkymodelPath)
+            return(0)
+         else:
+            raise ValueError("download_tgss_skymodel_target: Path: \"%s\" does not exist and skymodel download is disabled!"%(SkymodelPath))
+
+    # If we got here, then we are supposed to download the skymodel.
+    assert download_flag is True # Jaja, belts and suspenders...
+    print("DOWNLOADING skymodel for the target into "+ SkymodelPath)
+
+    # Reading a MS to find the coordinate (pyrap)
+    [RATar,DECTar]=grab_coord_MS(ms_input)
+
+    # Downloading the skymodel, skip after five tries
+    errorcode = 1
+    tries     = 0
+    while errorcode != 0 and tries < 5:
+        if Source == 'TGSS':
+            errorcode = os.system("wget -O "+SkymodelPath+ " \'http://tgssadr.strw.leidenuniv.nl/cgi-bin/gsmv5.cgi?coord="+str(RATar)+","+str(DECTar)+"&radius="+str(Radius)+"&unit=deg&deconv=y\' ")
+        elif Source == 'GSM':
+            errorcode = os.system("wget -O "+SkymodelPath+ " \'https://lcs165.lofar.eu/cgi-bin/gsmv1.cgi?coord="+str(RATar)+","+str(DECTar)+"&radius="+str(Radius)+"&unit=deg&deconv=y\' ")
+        time.sleep(5)
+        tries += 1
+
+    if not os.path.isfile(SkymodelPath):
+        raise IOError("download_tgss_skymodel_target: Path: \"%s\" does not exist after trying to download the skymodel."%(SkymodelPath))
+
+    # Treat all sources as one group (direction)
+    skymodel = lsmtool.load(SkymodelPath)
+    if fluxlimit:
+        skymodel.remove('I<' + str(fluxlimit))
+    skymodel.group('single', root = targetname)
+    skymodel.write(clobber=True)
+    
+    return SkymodelPath
+
 
 
 def concat_ms_wsclean_facetimaging(mslist, h5list=None,concatms=True):
@@ -6506,7 +6643,8 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                 channelsout, numClusters=0, facetdirections=None, \
                 DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=True, \
                 telescope='LOFAR', dde_skymodel=None, targetFlux=2.0,skyview=None, \
-                fitspectralpol=3,disable_primary_beam=False, wscleanskymodel=None):
+                fitspectralpol=3,disable_primary_beam=False, wscleanskymodel=None, \
+                skymodel=None):
 
    if telescope == 'LOFAR' and not disable_IDG_DDE_predict:
       idg = True # predict WSCLEAN with beam using IDG (wsclean facet mode with h5 is not efficient here)
@@ -6523,10 +6661,13 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
    if os.path.isfile('facets.fits'):
      os.system ('rm -f facets.fits')  
    if skyview==None:
-     if not restart and wscleanskymodel is None:
+     if not restart and wscleanskymodel is None and skymodel is None:
         os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')   
      if not restart and wscleanskymodel is not None:
-        os.system('cp ' + glob.glob(wscleanskymodel + '-????-*model*.fits')[0] + ' facets.fits')
+        #os.system('cp ' + glob.glob(wscleanskymodel + '-????-*model*.fits')[0] + ' facets.fits')
+        create_empty_fitsimage(mslist[0], int(imsize), float(pixelscale), 'facets.fits')
+     if not restart and skymodel is not None: 
+        create_empty_fitsimage(mslist[0], int(imsize), float(pixelscale), 'facets.fits')
    else:
      os.system('cp ' + skyview + ' facets.fits')   
 
@@ -6922,7 +7063,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0, \
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False, \
               facet_beam_update_time=120, groupms_h5facetspeedup=False, \
-              singlefacetpredictspeedup=True, forceimagingwithfacets=True):
+              singlefacetpredictspeedup=True, forceimagingwithfacets=True, ddpsfgrid=None):
     '''
     forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
     '''
@@ -7150,6 +7291,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         cmd += '-auto-mask '+ str(automask)  + ' -auto-threshold 0.5 ' # to avoid automask 0
       if localrmswindow > 0:
         cmd += '-local-rms-window ' + str(localrmswindow) + ' '
+
+      if ddpsfgrid is not None:
+        cmd += '-dd-psf-grid ' + str(ddpsfgrid) + ' ' +  str(ddpsfgrid) + ' '
 
       if multiscale:
          # cmd += '-multiscale '+' -multiscale-scales 0,4,8,16,32,64 -multiscale-scale-bias 0.6 '
@@ -7964,12 +8108,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
-
     modeldata = 'MODEL_DATA' # the default, update if needed for scalarphasediff and phmin solves
     if BLsmooth:
-      print('python BLsmooth.py -n 8 -c '+ str(blsmooth_chunking_size) + ' -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(iontimefactor) + \
-                ' -s ' + str(blscalefactor) + ' -u ' + str(ionfreqfactor) + ' ' + ms)
-      run('python BLsmooth.py -n 8 -c '+ str(blsmooth_chunking_size) + ' -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(iontimefactor) + \
+      t = pt.table(ms, ack=False)
+      colnames = t.colnames()
+      t.close()
+      if 'SMOOTHED_DATA' not in colnames:
+        print('python BLsmooth.py -n 8 -c '+ str(blsmooth_chunking_size) + ' -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(iontimefactor) + \
+                   ' -s ' + str(blscalefactor) + ' -u ' + str(ionfreqfactor) + ' ' + ms)
+        run('python BLsmooth.py -n 8 -c '+ str(blsmooth_chunking_size) + ' -i '+ incol + ' -o SMOOTHED_DATA -f ' + str(iontimefactor) + \
                 ' -s ' + str(blscalefactor) + ' -u ' + str(ionfreqfactor) + ' ' + ms)
       incol = 'SMOOTHED_DATA'
 
@@ -9099,7 +9246,7 @@ def mslist_return_stack(mslist, stack):
       return [mslist[0]] # just the first one
 
 def set_skymodels_external_surveys(args, mslist):
-   # Make starting skymodel from TGSS or VLASS survey if requested
+   # Make starting skymodel from TGSS, VLASS, or LOFAR/LINC GSM if requested
    skymodel_list = []
    tgssfitsfile = None
    # --- TGSS ---
@@ -9124,6 +9271,15 @@ def set_skymodels_external_surveys(args, mslist):
        else:
          print('You cannot provide a skymodel/skymodelpointsource manually while using --startfromvlass')
          raise Exception('You cannot provide a skymodel/skymodelpointsource manually while using --startfromvlass')
+
+   # --- GSM ---
+   for mstmp_id, mstmp in enumerate(mslist_return_stack(mslist, args['stack'])):
+     if args['startfromgsm'] and args['start'] == 0:
+       if args['skymodel'] is None and args['skymodelpointsource'] is None:
+         skymodel_list.append(getGSM(mstmp, SkymodelPath='gsm'+str(mstmp_id)+'.skymodel', Radius=str(args['pixelscale']*args['imsize']/3600.)))
+       else:
+         print('You cannot provide a skymodel/skymodelpointsource manually while using --startfromgsm')
+         raise Exception('You cannot provide a skymodel/skymodelpointsource manually while using --startfromgsm')
 
    # note if skymodel_list is not set (len==0), args['skymodel'] keeps it value from argparse
    if len(skymodel_list) > 1: # so startfromtgss or startfromvlass was done and --stack was true
@@ -9162,7 +9318,7 @@ def main():
    #imagingparser.add_argument('--deepmultiscale', help='Do extra multiscale deconvolution on the residual.', action='store_true')
    imagingparser.add_argument('--uvminim', help='Inner uv-cut for imaging in lambda. The default is 80.', default=80., type=floatlist_or_float)
    imagingparser.add_argument('--uvmaxim', help='Outer uv-cut for imaging in lambda. The default is None', default=None, type=floatlist_or_float)
-   imagingparser.add_argument('--pixelscale','--pixelsize', help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA (these are also the default values).', type=float)
+   imagingparser.add_argument('--pixelscale','--pixelsize', help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations (these are also the default values).', type=float)
    imagingparser.add_argument('--channelsout', help='Number of channels out during imaging (see WSClean documentation). This is by default 6.', default=6, type=int)
    imagingparser.add_argument('--multiscale', help='Use multiscale deconvolution (see WSClean documentation).', action='store_true')
    imagingparser.add_argument('--multiscalescalebias', help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.75.', default=0.75, type=float)
@@ -9173,6 +9329,8 @@ def main():
    imagingparser.add_argument('--deconvolutionchannels', help="Deconvolution channels value for WSClean (see WSClean documentation). This is by default 0 (means deconvolution-channels equals channels-out).", default=0, type=int)
    imagingparser.add_argument('--idg', help="Use the Image Domain gridder (see WSClean documentation).", action='store_true')
    imagingparser.add_argument('--fitspectralpol', help="Use fit-spectral-pol in WSClean (see WSClean documentation) with this order. The default is 3. fit-spectral-pol can be disabled by setting it to a value less than 1", default=3, type=int)
+   imagingparser.add_argument('--ddpsfgrid', help="Value for option -dd-psf-grid with WSClean (integer, by default this value is not set and the option is not used", type=int)
+   
    #imagingparser.add_argument('--fitspectralpolorder', help="fit-spectral-pol order for WSClean (see WSClean documentation). The default is 3.", default=3, type=int)
    imagingparser.add_argument("--gapchanneldivision", help='Use the -gap-channel-division option in wsclean imaging and predicts (default is not to use it)', action='store_true')
    imagingparser.add_argument('--taperinnertukey', help="Value for taper-inner-tukey in WSClean (see WSClean documentation), useful to supress negative bowls when using --uvminim. Typically values between 1.5 and 4.0 give good results. The default is None.", default=None, type=float)
@@ -9272,6 +9430,7 @@ def main():
    startmodelparser.add_argument('--predictskywithbeam', help='Predict the skymodel with the beam array factor.', action='store_true')
    startmodelparser.add_argument('--startfromtgss', help='Start from TGSS skymodel for positions (boxfile required).', action='store_true')
    startmodelparser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data.', action='store_true')
+   startmodelparser.add_argument('--startfromgsm', help='Start from LINC GSM skymodel.', action='store_true')
    startmodelparser.add_argument('--tgssfitsimage', help='Start TGSS fits image for model (if not provided use SkyView). The default is None.', type=str)
 
    # General options
@@ -9343,7 +9502,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '9.3.0'
+   version = '9.5.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -9594,7 +9753,7 @@ def main():
                    DDE_predict='DP3', restart=False,skyview=tgssfitsfile,\
                    targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],\
                    disable_primary_beam=args['disable_primary_beam'], \
-                   wscleanskymodel=args['wscleanskymodel'])
+                   wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel'])
            
            if candidate_solints is not None:
              candidate_solints = np.swapaxes(np.array([candidate_solints]*len(mslist)),1,0).T.tolist()
@@ -9677,7 +9836,7 @@ def main():
                   facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
                   multiscalemaxscales=args['multiscalemaxscales'],stack=args['stack'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
-                  disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
+                  disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'])
         #args['idg'] = idgin # set back
         if args['makeimage_ILTlowres_HBA']:
           if args['phaseupstations'] is None:
@@ -9697,7 +9856,7 @@ def main():
                   taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
                   disable_primarybeam_predict=args['disable_primary_beam'],\
-                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
+                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'])
         if args['makeimage_fullpol']:
           makeimage(mslistim, args['imagename'] +'fullpol' + str(i).zfill(3) + stackstr, \
                   args['pixelscale'], args['imsize'], \
@@ -9712,7 +9871,7 @@ def main():
                   taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
                   disable_primarybeam_predict=args['disable_primary_beam'], \
-                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
+                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'])
 
         # make figure
         if args['imager'] == 'WSCLEAN':
@@ -9828,7 +9987,7 @@ def main():
                   facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
                   multiscalemaxscales=args['multiscalemaxscales'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
-                  disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'])
+                  disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'])
 
 
       remove_outside_box(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], \
