@@ -4324,7 +4324,7 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None)
   ax.set_xlabel('Right Ascension (J2000)')
   ax.set_ylabel('Declination (J2000)')
   cbar = plt.colorbar(img)
-  cbar.set_label('Flux (Jy beam$^{-1}$')
+  cbar.set_label('Flux (Jy beam$^{-1}$)')
   ax.add_artist(_add_astropy_beam(fitsimagename))
 
   if mask is not None:
