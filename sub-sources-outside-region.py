@@ -246,7 +246,7 @@ def filechecker(clustercat, dicomask, indico, h5sols, HMPmodelfits, uselowres):
   '''
   Check if files are present to avoid errors to avoid crashes
   '''
-  if HMPmodelfits == None:
+  if HMPmodelfits is None:
     if not os.path.isfile(indico):
         raise IOError(indico + ' does not exist')
     if not os.path.isfile(dicomask):
@@ -258,7 +258,7 @@ def filechecker(clustercat, dicomask, indico, h5sols, HMPmodelfits, uselowres):
   if not os.path.isfile(clustercat):
     raise IOError(clustercat + ' does not exist')   
 
-  if h5sols == None:
+  if h5sols is None:
     if not os.path.isdir('SOLSDIR'):
      raise IOError('SOLSDIR directory does not exist')
 
@@ -487,7 +487,7 @@ def adjustboxrotationlocalnorth(boxregionfile, fitsimage):
     hduflat = flatten(hdu)
     
     CRVAL1 = hduflat.header['CRVAL1'] # RA 
-    CRVAL2 = hduflat.header['CRVAL2'] # Dec 
+    # CRVAL2 = hduflat.header['CRVAL2'] # Dec 
     
     hdu.close()
     
@@ -635,7 +635,7 @@ if args['mslist']=='big-mslist.txt':
   striparchivename()
 
 uselowres = args['uselowres']
-if uselowres == False:
+if not uselowres:
   fullmask    = 'image_full_ampphase_di_m.NS.mask01.fits'
   indico      = 'image_full_ampphase_di_m.NS.DicoModel'
   outdico     = 'image_full_ampphase_di_m_SUB.NS.DicoModel'
@@ -644,11 +644,11 @@ else:
   indico      = 'image_full_low_m.DicoModel'
   outdico     = 'image_full_low_m_SUB.DicoModel'
 
-if args['dicomask'] != None:
+if args['dicomask'] is not None:
   fullmask = args['dicomask']
-if args['indico'] != None:
+if args['indico'] is not None:
   indico = args['indico']
-if args['HMPmodelfits'] != None:
+if args['HMPmodelfits'] is not None:
   fullmask = args['HMPmodelfits']
 
 if not os.path.isfile(args['mslist']):
@@ -691,7 +691,7 @@ else:
 
 #print doflagafter, takeoutbeam, aoflagger, dysco, split
 filechecker(clustercat, fullmask, indico, args['h5sols'], args['HMPmodelfits'],args['uselowres'])
-if args['h5sols'] == None:
+if args['h5sols'] is None:
   if args['DDESolutions_DDSols']:
     ddsols = args['DDESolutions_DDSols'].split('_smoothed')[0]  
   else:
@@ -778,24 +778,24 @@ if dopredict:
     os.system('rm -f ' + outmask)
 
     if boxfile != 'fullfield':
-      if args['HMPmodelfits'] != None:  
+      if args['HMPmodelfits'] is not None:  
          mask_region_cube(args['HMPmodelfits'],boxfile,outmask)
       else:
          mask_region(fullmask,boxfile,outmask)  
     else:
       outmask = fullmask
-      if args['HMPmodelfits'] != None:
+      if args['HMPmodelfits'] is not None:
          print('This combination of fullfield and HMPmodelfits doet not work')
          sys.exit()
           
-    if args['HMPmodelfits'] == None:
+    if args['HMPmodelfits'] is None:
       run("MaskDicoModel.py --MaskName=%s --InDicoModel=%s --OutDicoModel=%s"%(outmask,indico,outdico))
 
 
 
     if holesfixed:
        print('Starting DDF for prediction') 
-       if args['h5sols'] != None:
+       if args['h5sols'] is not None:
          if not args['useHMP']:
             run("DDF.py --Output-Name=image_dd_SUB --Data-ChunkHours=" + str(args['chunkhours']) + " --Data-MS=" + args['mslist'] + " --Deconv-PeakFactor 0.001000 --Data-ColName " + args['column'] + " --Parallel-NCPU="+str(ncpu) + " --Facets-CatNodes=" + clustercat + " --Beam-CenterNorm=1 --Deconv-Mode SSD --Beam-Model=LOFAR --Beam-LOFARBeamMode=A --Weight-Robust " + str(robust) +" --Image-NPix=" + str(imagenpix) + " --CF-wmax 50000 --CF-Nw 100 --Output-Also onNeds --Image-Cell "+ str(imagecell) + " --Facets-NFacets=11 --SSDClean-NEnlargeData 0 --Freq-NDegridBand 1 --Beam-NBand 1 --Facets-DiamMax 1.5 --Facets-DiamMin 0.1 --Deconv-RMSFactor=3.000000 --SSDClean-ConvFFTSwitch 10000 --Data-Sort 1 --Cache-Dir=. --Log-Memory 1 --Cache-Weight=reset --Output-Mode=Predict --Output-RestoringBeam 6.000000 --Freq-NBand=2 --RIME-DecorrMode=FT --SSDClean-SSDSolvePars [S,Alpha] --SSDClean-BICFactor 0 --Mask-Auto=1 --Mask-SigTh=5.00 --Mask-External=" + outmask + " --DDESolutions-GlobalNorm=None --DDESolutions-DDModeGrid=AP --DDESolutions-DDModeDeGrid=AP --DDESolutions-DDSols=["+ args['h5sols']+ ":" + args['h5solstring'] + "] --Predict-InitDicoModel=" + outdico + " --Selection-UVRangeKm=" + uvsel + " --GAClean-MinSizeInit=10 --Cache-Reset 1 --Beam-Smooth=1 --Predict-ColName='PREDICT_SUB' --Misc-IgnoreDeprecationMarking=1")
          else:
