@@ -360,11 +360,11 @@ def mask_region(infilename,ds9region,outfilename):
 
     hdu=fits.open(infilename)
     hduflat = flatten(hdu)
-    map=hdu[0].data
+    # map=hdu[0].data
 
     r = pyregion.open(ds9region)
     manualmask = r.get_mask(hdu=hduflat)
-    rmsval = np.mean(hdu[0].data[0][0][np.where(manualmask == True)])
+    # rmsval = np.mean(hdu[0].data[0][0][np.where(manualmask == True)])
     hdu[0].data[0][0][np.where(manualmask == True)] = 0.0
     hdu.writeto(outfilename,overwrite=True)
 
@@ -375,7 +375,7 @@ def mask_except_region(infilename,ds9region,outfilename):
 
     hdu=fits.open(infilename)
     hduflat = flatten(hdu)
-    map=hdu[0].data
+    # map=hdu[0].data
 
     r = pyregion.open(ds9region)
     manualmask = r.get_mask(hdu=hduflat)

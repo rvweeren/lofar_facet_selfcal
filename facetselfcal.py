@@ -3426,7 +3426,7 @@ def makephaseCDFh5(phaseh5, backup=True, testscfactor=1.):
     H5 = tables.open_file(phaseh5,mode='a')
 
     phaseCDF = H5.root.sol000.phase000.val[:] # time, freq, ant, dir, pol
-    phaseCDF_tmp = np.copy(phaseCDF)
+    # phaseCDF_tmp = np.copy(phaseCDF)
     print('Shape to make phase CDF array', phaseCDF.shape)
     nfreq = len(H5.root.sol000.phase000.freq[:])
     for ff in range(nfreq-1):
@@ -3574,7 +3574,7 @@ def fix_rotationreference(h5parm, refant):
     
     H=tables.open_file(h5parm, mode='a')
 
-    antennas = H.root.sol000.rotation000.ant[:]
+    # antennas = H.root.sol000.rotation000.ant[:]
     axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
     
     rotation = H.root.sol000.rotation000.val[:]
@@ -5648,7 +5648,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
         f.write('operation= SMOOTH\n')
         if onechannel:
           f.write('axesToSmooth = [time]\n')
-          f.write('size = [%s]\n' % (boxsize, boxsize))
+          f.write('size = [%s]\n' % (boxsize, boxsize))  # noqa: F507
         else:
           f.write('axesToSmooth = [freq,time]\n')
           f.write('size = [%s,%s]\n' % (boxsize, boxsize))
@@ -5659,7 +5659,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
     f.write('operation= SMOOTH\n')
     if onechannel:
       f.write('axesToSmooth = [time]\n')
-      f.write('size = [%s]\n' % (boxsize, boxsize))
+      f.write('size = [%s]\n' % (boxsize, boxsize))  # noqa: F507
     else:
       f.write('axesToSmooth = [freq,time]\n')
       f.write('size = [%s,%s]\n' % (boxsize, boxsize))
@@ -6000,7 +6000,7 @@ def findrms(mIn,maskSup=1e-7):
     rmsold=np.std(m)
     diff=1e-1
     cut=3.
-    bins=np.arange(np.min(m),np.max(m),(np.max(m)-np.min(m))/30.)
+    # bins=np.arange(np.min(m),np.max(m),(np.max(m)-np.min(m))/30.)
     med=np.median(m)
     for i in range(10):
         ind=np.where(np.abs(m-med)<rmsold*cut)[0]
@@ -6563,7 +6563,7 @@ def medianamp(h5):
 
     if fulljones:
        amps_xy = amplitude[...,1]
-       amps_yx = amplitude[...,2]
+      #  amps_yx = amplitude[...,2]
        weights_xy = weights[...,1]
        weights_yx = weights[...,2]
        idx_xy = np.where(weights_xy != 0.0)
