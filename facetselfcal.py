@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-# rotation reference station needs to be set
-#BLsmooth-list ? so we can handle scintillations
 # scalarphasediff vs rotation+diagonal?
 # BDA step DP3
 # compression: blosc2
@@ -20,7 +18,6 @@
 # put all fits images in images folder, all solutions in solutions folder? to reduce clutter
 # phase detrending.
 # log command into the FITS header
-# BLsmooth not for gain solves option
 # BLsmooth constant smooth for gain solves
 # stop selfcal  based on some metrics
 # make Ateam plot
@@ -1865,7 +1862,7 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
         msout = ms + '.phaseup'
         msoutlist.append(msout)
 
-        cmd = "DP3 msin=" + ms + " steps=[add,filter] msout.writefullresflag=False "
+        cmd = "DP3 msin=" + ms + " steps=[add,filter] "
         cmd += "msout=" + msout + " msin.datacolumn=" + datacolumn + " "
         cmd += "filter.type=filter filter.remove=True "
         if dysco:
@@ -2060,7 +2057,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             
             msout = os.path.basename(msout)
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
-            cmd += 'msout=' + msout + ' msin.weightcolumn=WEIGHT_SPECTRUM msout.writefullresflag=False '
+            cmd += 'msout=' + msout + ' msin.weightcolumn=WEIGHT_SPECTRUM '
             cmd += 'msin.datacolumn=' + dataincolumn + ' '
             if dysco:
                 cmd += 'msout.storagemanager=dysco '
@@ -2132,7 +2129,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             if dysco:
                 cmd += ' msout.storagemanager=dysco '
                 cmd += 'msout.storagemanager.weightbitrate=16 '
-            cmd += 'msout=' + msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE msout.writefullresflag=False '
+            cmd += 'msout=' + msouttmp + ' msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE '
             if removemostlyflaggedstations: 
                 # step below can be skipped since flagstationlist was already made/defined
                 #flagstationlist = return_antennas_highflaggingpercentage(ms)
@@ -2329,7 +2326,7 @@ def applycal(ms, inparmdblist, msincol='DATA',msoutcol='CORRECTED_DATA', \
     if not isinstance(inparmdblist, list):
         inparmdblist = [inparmdblist]
 
-    cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(),12])) + ' msin=' + ms
+    cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(),8])) + ' msin=' + ms
     cmd += ' msout=' + msout + ' '
     cmd += 'msin.datacolumn=' + msincol + ' '
     if msout == '.':
@@ -2762,7 +2759,7 @@ def inputchecker(args, mslist):
             print('Cannot find boxfile, file does not exist')
             raise Exception('Cannot find boxfile, file does not exist')
 
-    if args['fitsmask'] is not None:
+    if args['fitsmask'] is not None and args['fitsmask'] != 'nofitsmask':
         if not (os.path.isfile(args['fitsmask'])):
             print('Cannot find fitsmask, file does not exist')
             raise Exception('Cannot find fitsmask, file does not exist')
@@ -3426,7 +3423,6 @@ def makephaseCDFh5(phaseh5, backup=True, testscfactor=1.):
     H5 = tables.open_file(phaseh5,mode='a')
 
     phaseCDF = H5.root.sol000.phase000.val[:] # time, freq, ant, dir, pol
-    # phaseCDF_tmp = np.copy(phaseCDF)
     print('Shape to make phase CDF array', phaseCDF.shape)
     nfreq = len(H5.root.sol000.phase000.freq[:])
     for ff in range(nfreq-1):
@@ -3574,7 +3570,6 @@ def fix_rotationreference(h5parm, refant):
     
     H=tables.open_file(h5parm, mode='a')
 
-    # antennas = H.root.sol000.rotation000.ant[:]
     axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
     
     rotation = H.root.sol000.rotation000.val[:]
@@ -4369,7 +4364,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     if dysco:
       cmd+= 'msout.storagemanager=dysco '
       cmd += 'msout.storagemanager.weightbitrate=16 '
-    cmd+=  'msin.weightcolumn=WEIGHT_SPECTRUM steps=[] msout.writefullresflag=False '
+    cmd+=  'msin.weightcolumn=WEIGHT_SPECTRUM steps=[] '
     if starttime is not None:
       cmd+= 'msin.starttime=' + starttime + ' '
     if endtime is not None:
@@ -4381,7 +4376,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     if dysco:
       cmd+= 'msout.storagemanager=dysco '
       cmd += 'msout.storagemanager.weightbitrate=16 '
-    cmd+= 'msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE steps=[] msout.writefullresflag=False '
+    cmd+= 'msin.weightcolumn=WEIGHT_SPECTRUM_SOLVE steps=[] '
     if starttime is not None:
       cmd+= 'msin.starttime=' + starttime + ' '
     if endtime is not None:
@@ -4543,7 +4538,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
     if os.path.isdir(msout):
       os.system('rm -rf ' + msout)
     cmd  ='DP3 numthreads='+ str(multiprocessing.cpu_count()) +' msin=' + ms + ' msout=' + msout + ' '
-    cmd +='msin.datacolumn=CORRECTED_DATA msout.writefullresflag=False steps=[] '
+    cmd +='msin.datacolumn=CORRECTED_DATA steps=[] '
     if dysco:
       cmd += 'msout.storagemanager=dysco '
       cmd += 'msout.storagemanager.weightbitrate=16 '
@@ -5648,7 +5643,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
         f.write('operation= SMOOTH\n')
         if onechannel:
           f.write('axesToSmooth = [time]\n')
-          f.write('size = [%s]\n' % (boxsize, boxsize))  # noqa: F507
+          f.write('size = [%s]\n' % (boxsize))
         else:
           f.write('axesToSmooth = [freq,time]\n')
           f.write('size = [%s,%s]\n' % (boxsize, boxsize))
@@ -5659,7 +5654,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
     f.write('operation= SMOOTH\n')
     if onechannel:
       f.write('axesToSmooth = [time]\n')
-      f.write('size = [%s]\n' % (boxsize, boxsize))  # noqa: F507
+      f.write('size = [%s]\n' % (boxsize))
     else:
       f.write('axesToSmooth = [freq,time]\n')
       f.write('size = [%s,%s]\n' % (boxsize, boxsize))
@@ -6000,7 +5995,6 @@ def findrms(mIn,maskSup=1e-7):
     rmsold=np.std(m)
     diff=1e-1
     cut=3.
-    # bins=np.arange(np.min(m),np.max(m),(np.max(m)-np.min(m))/30.)
     med=np.median(m)
     for i in range(10):
         ind=np.where(np.abs(m-med)<rmsold*cut)[0]
@@ -6563,14 +6557,14 @@ def medianamp(h5):
 
     if fulljones:
        amps_xy = amplitude[...,1]
-      #  amps_yx = amplitude[...,2]
+       amps_yx = amplitude[...,2]
        weights_xy = weights[...,1]
        weights_yx = weights[...,2]
        idx_xy = np.where(weights_xy != 0.0)
        idx_yx = np.where(weights_yx != 0.0)
        
        amps_xy_tmp = amps_xy[idx_xy]
-       amps_yx_tmp = amps_xy[idx_yx]
+       amps_yx_tmp = amps_yx[idx_yx]
        
        idx_xy = np.where(amps_xy_tmp > 0.0)
        idx_yx = np.where(amps_yx_tmp > 0.0)
@@ -6732,7 +6726,7 @@ def parse_facetdirections(facetdirections,niter):
        for the given niter. In the future, this function should also return a 
        list of solints, nchans and other things 
     '''
-    data = ascii.read(facetdirections)
+    data = ascii.read(facetdirections, format='commented_header', comment="\s*#")
     ra,dec = data['RA'],data['DEC']
     try:
       start = data['start']
@@ -6759,7 +6753,7 @@ def parse_facetdirections(facetdirections,niter):
       return PatchPositions_array, None
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
-                channelsout, numClusters=0, facetdirections=None, \
+                channelsout, args, numClusters=0, facetdirections=None, \
                 DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=True, \
                 telescope='LOFAR', dde_skymodel=None, targetFlux=2.0,skyview=None, \
                 fitspectralpol=3,disable_primary_beam=False, wscleanskymodel=None, \
@@ -6824,20 +6818,22 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                                 onlypredict=True, facetregionfile='facets.reg', \
                                 DDE_predict='DP3',\
                                 disable_primarybeam_image=disable_primary_beam, \
-                                disable_primarybeam_predict=disable_primary_beam)
+                                disable_primarybeam_predict=disable_primary_beam,\
+                                fulljones_h5_facetbeam=not args['single_dual_speedup'])
       # selfcalcycle-1 because makeimage has not yet produced an image at this point
       if fitspectralpol > 0 and DDE_predict == 'DP3':
          dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle-1).zfill(3) + \
                                    '-sources.txt', 'facets.fits') 
       else: 
          dde_skymodel = 'dummy.skymodel' # no model exists if spectralpol is turned off
-   elif skyview != None:
+   elif skyview is not None:
       modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
                               pixelscale, imsize, channelsout, predict=True, \
                               onlypredict=True, facetregionfile='facets.reg', \
                               DDE_predict=DDE_predict,\
                               disable_primarybeam_image=disable_primary_beam, \
-                              disable_primarybeam_predict=disable_primary_beam)
+                              disable_primarybeam_predict=disable_primary_beam,\
+                              fulljones_h5_facetbeam=not args['single_dual_speedup'])
       if fitspectralpol > 0:
          dde_skymodel = groupskymodel(imagebasename, 'facets.fits')  # imagebasename
       else: 
@@ -6849,7 +6845,8 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                                 onlypredict=True, facetregionfile='facets.reg', \
                                 DDE_predict='WSCLEAN', idg=idg, \
                                 disable_primarybeam_image=disable_primary_beam, \
-                                disable_primarybeam_predict=disable_primary_beam)
+                                disable_primarybeam_predict=disable_primary_beam, \
+                                fulljones_h5_facetbeam=not args['single_dual_speedup'])
       # assume there is no model for DDE wscleanskymodel solve at the start
       # since we are making image000 afterwards anyway setting a dummy now is ok
       dde_skymodel = 'dummy.skymodel' 
@@ -6860,7 +6857,8 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
                                 onlypredict=True, facetregionfile='facets.reg', \
                                 DDE_predict=DDE_predict, idg=idg, \
                                 disable_primarybeam_image=disable_primary_beam, \
-                                disable_primarybeam_predict=disable_primary_beam)
+                                disable_primarybeam_predict=disable_primary_beam, \
+                                fulljones_h5_facetbeam=not args['single_dual_speedup'])
       if fitspectralpol > 0 and DDE_predict == 'DP3':
          dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3)  + \
                                    '-sources.txt', 'facets.fits')
@@ -7048,7 +7046,7 @@ def flatten(f):
 
 
 def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
-                       channelsout, \
+                       channelsout, args, \
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None, \
                        idg=False, h5list=[], facetregionfile=None, \
                        disable_primary_beam=False):
@@ -7092,13 +7090,15 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
       if userbox is None:
          makeimage(mslist, imagebasename, pixsize, imsize, \
                    channelsout, onlypredict=True, squarebox='templatebox.reg', \
-                   idg=idg, disable_primarybeam_predict=disable_primary_beam)
+                   idg=idg, disable_primarybeam_predict=disable_primary_beam,\
+                   fulljones_h5_facetbeam=not args['single_dual_speedup'])
          phaseshiftbox = 'templatebox.reg'
       else:
          if userbox != 'keepall':
             makeimage(mslist, imagebasename, pixsize, imsize, \
                       channelsout, onlypredict=True, squarebox=userbox, \
-                      idg=idg,  disable_primarybeam_predict=disable_primary_beam) 
+                      idg=idg,  disable_primarybeam_predict=disable_primary_beam, \
+                      fulljones_h5_facetbeam=not args['single_dual_speedup']) 
             phaseshiftbox = userbox
          else:  
             phaseshiftbox = None # so option keepall was set by the user
@@ -7107,14 +7107,16 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
          makeimage(mslist, imagebasename, pixsize, imsize, \
                    channelsout, onlypredict=True, squarebox='templatebox.reg', \
                    idg=idg, h5list=h5list, facetregionfile=facetregionfile, \
-                    disable_primarybeam_predict=disable_primary_beam)
+                    disable_primarybeam_predict=disable_primary_beam, \
+                    fulljones_h5_facetbeam=not args['single_dual_speedup'])
          phaseshiftbox = 'templatebox.reg'
       else:
          if userbox != 'keepall':
             makeimage(mslist, imagebasename, pixsize, imsize, \
                       channelsout, onlypredict=True, squarebox=userbox, \
                       idg=idg, h5list=h5list, facetregionfile=facetregionfile, \
-                       disable_primarybeam_predict=disable_primary_beam) 
+                       disable_primarybeam_predict=disable_primary_beam, \
+                       fulljones_h5_facetbeam=not args['single_dual_speedup']) 
             phaseshiftbox = userbox
          else:  
             phaseshiftbox = None # so option keepall was set by the user
@@ -7183,7 +7185,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False, \
               facet_beam_update_time=120, groupms_h5facetspeedup=False, \
               singlefacetpredictspeedup=True, forceimagingwithfacets=True, ddpsfgrid=None, \
-              fulljones_h5_facetbeam=True):
+              fulljones_h5_facetbeam=False):
     '''
     forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
     '''
@@ -7437,7 +7439,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
            cmd += '-multiscale-max-scales ' + str(int(np.rint(np.log2(float(imsize)) -3))) + ' '
          else: # use value set by user
            cmd += '-multiscale-max-scales ' + str(int(multiscalemaxscales)) + ' '
-      if fitsmask is not None:
+      if fitsmask is not None and fitsmask != 'nofitsmask':
         if os.path.isfile(fitsmask):
           cmd += '-fits-mask '+ fitsmask + ' '
         else:
@@ -7600,7 +7602,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               '--Comp-BDAMode=1 --DDESolutions-DDModeGrid=AP --DDESolutions-DDModeDeGrid=AP --Cache-Reset=1 ' + \
               '--RIME-ForwardMode=BDA-degrid --Predict-ColName=MODEL_DATA --Selection-UVRange=[0.1,2000.] ' + \
               '--Output-RestoringBeam=' + str(restoringbeam) + ' --Mask-SigTh=5.0 '
-        if fitsmask is not None:
+        if fitsmask is not None and fitsmask != 'nofitsmask':
            cmd += '--Mask-External=' + fitsmask + ' --Mask-Auto=0 '
         else:
            cmd += '--Mask-Auto=1 '
@@ -7704,12 +7706,14 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
            makeimage([ms], wscleanskymodel, 1., 1., \
                      len(glob.glob(wscleanskymodel + '-????-model.fits')),\
                      0, 0.0, onlypredict=True, idg=False, \
-                     gapchanneldivision=gapchanneldivision)
+                     gapchanneldivision=gapchanneldivision, \
+                     fulljones_h5_facetbeam=not args['single_dual_speedup'])
          if wscleanskymodel is not None and type(wscleanskymodel) is list:
            makeimage([ms], wscleanskymodel[ms_id], 1., 1., \
                      len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),\
                      0, 0.0, onlypredict=True, idg=False, \
-                     gapchanneldivision=gapchanneldivision)   
+                     gapchanneldivision=gapchanneldivision,\
+                     fulljones_h5_facetbeam=not args['single_dual_speedup'])   
 
          if skymodelpointsource is not None and type(skymodelpointsource) is float :
            # create MODEL_DATA (no dysco!)
@@ -7833,7 +7837,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff, create_modeldata=create_modeldata, \
                      selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,\
                      clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],\
-                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns, preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict, telescope=telescope, ncpu_max=ncpu_max, soltype_list=soltype_list)
+                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns, preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict, telescope=telescope, ncpu_max=ncpu_max, soltype_list=soltype_list, DP3_dual_single=args['single_dual_speedup'])
 
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
@@ -7863,7 +7867,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
              else:
                corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA']) # saves disk space
          else: # so this is the last solve, no other pertubation
-           # note we reverse ([::-1]) the solution tables here because we switch from a corrupt approach to a correct. This is important as fulljones and diaginal solutions do not commute
+           # note we reverse ([::-1]) the solution tables here because we switch from a corrupt approach to a correct. This is important as fulljones and diagonal solutions do not commute
            applycal(ms, parmdbmergelist[msnumber][::-1], msincol='DATA', msoutcol='CORRECTED_DATA',\
                     dysco=dysco, modeldatacolumns=modeldatacolumns) # saves disks space
          count = count + 1 # extra counter because parmdbmslist can have less length than mslist as soltypecycles_list goes per ms
@@ -7956,213 +7960,6 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
       return wsclean_h5list
    else:
       return []
-
-
-# this version creates CORRECTED_PREAPPLY columns
-def calibrateandapplycal_old(mslist, selfcalcycle, args, solint_list, nchan_list, \
-              soltype_list, soltypecycles_list, smoothnessconstraint_list, \
-              smoothnessreffrequency_list, smoothnessspectralexponent_list, \
-              smoothnessrefdistance_list, \
-              antennaconstraint_list, resetsols_list, uvmin=0, \
-              normamps=False, normamps_per_ms=False, skymodel=None, \
-              predictskywithbeam=False, restoreflags=False, flagging=False, \
-              longbaseline=False, BLsmooth=False, flagslowphases=True, \
-              flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None, \
-              skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, \
-              ionfreqfactor=1.0, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, \
-              docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8, \
-              gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None, DDE_predict='WSCLEAN', ncpu_max=24):
-
-   if len(modeldatacolumns) > 1:
-     merge_all_in_one = False
-   else:
-     merge_all_in_one = True
-
-   single_pol_merge = False
-
-   soltypecycles_list_array = np.array(soltypecycles_list) # needed to slice (slicing does not work in nested l
-   incol = [] # len(mslist)
-   pertubation = [] # len(mslist)
-   for ms in mslist:
-     incol.append('DATA') # start here, will be updated at applycal step for next solve if needed
-     pertubation.append(False)
-
-   parmdbmergelist =  [[] for x in range(len(mslist))]   #  [[],[],[],[]] nested list length mslist used for Jurjen's h5_merge
-   # LOOP OVER THE ENTIRE SOLTYPE LIST (so includes pertubations via a pre-applycal)
-   for soltypenumber, soltype in enumerate(soltype_list):
-     # SOLVE LOOP OVER MS
-     parmdbmslist = []
-     for msnumber, ms in enumerate(mslist):
-       # check we are above far enough in the selfcal to solve for the extra pertubation
-       if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]:
-         print('selfcalcycle, soltypenumber',selfcalcycle, soltypenumber)
-         if (soltypenumber < len(soltype_list)-1):
-
-           print(selfcalcycle,soltypecycles_list[soltypenumber+1][msnumber])
-           print('Array soltypecycles_list ahead',soltypecycles_list_array[soltypenumber+1:len(soltypecycles_list_array[:,0]),msnumber])
-           # if (selfcalcycle >= soltypecycles_list[soltypenumber+1][msnumber]): # this looks one soltpype ahead...hmmm, not good 
-           print("---------------------------------------")
-           print(soltypecycles_list_array,soltypenumber,msnumber)
-           if selfcalcycle >= np.min(soltypecycles_list_array[soltypenumber+1:len(soltypecycles_list_array[:,0]),msnumber]): # this looks all soltype ahead   
-             pertubation[msnumber] = True
-           else:
-             pertubation[msnumber] = False
-         else:
-           pertubation[msnumber] = False
-
-         if ((skymodel is not None) or (skymodelpointsource is not None) or (wscleanskymodel is not None)) and selfcalcycle == 0:
-           parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
-         else:
-           parmdb = soltype + str(soltypenumber) + '_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
-
-         # set create_modeldata to False it was already prediceted before
-         create_modeldata = True 
-         if soltypenumber >= 1:
-            for tmpsoltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', \
-                               'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase', \
-                               'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', \
-                               'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
-               if tmpsoltype in soltype_list[0:soltypenumber]:
-                  print('Previous solve already predicted MODEL_DATA, will skip that step', soltype, soltypenumber)
-                  create_modeldata = False  
-
-         runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb, soltype, \
-                     uvmin=uvmin, \
-                     SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
-                     SMconstraintreffreq=smoothnessreffrequency_list[soltypenumber][msnumber],\
-                     SMconstraintspectralexponent=smoothnessspectralexponent_list[soltypenumber][msnumber],\
-                     SMconstraintrefdistance=smoothnessrefdistance_list[soltypenumber][msnumber],\
-                     antennaconstraint=antennaconstraint_list[soltypenumber][msnumber], \
-                     resetsols=resetsols_list[soltypenumber][msnumber], \
-                     resetdir=resetdir_list[soltypenumber][msnumber], \
-                     restoreflags=restoreflags, flagging=flagging, skymodel=skymodel, \
-                     flagslowphases=flagslowphases, flagslowamprms=flagslowamprms, \
-                     flagslowphaserms=flagslowphaserms, incol=incol[msnumber], \
-                     predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth, skymodelsource=skymodelsource, \
-                     skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,\
-                     iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff, create_modeldata=create_modeldata, \
-                     selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,\
-                     clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],\
-                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns, preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict, ncpu_max=ncpu_max)
-
-         parmdbmslist.append(parmdb)
-         parmdbmergelist[msnumber].append(parmdb) # for h5_merge
-
-     # NORMALIZE amplitudes
-     if normamps and (soltype in ['complexgain','scalarcomplexgain','rotation+diagonal',\
-                                  'amplitudeonly','scalaramplitude']) and len(parmdbmslist) > 0:
-       print('Doing global gain normalization')
-       normamplitudes(parmdbmslist, norm_per_ms=normamps_per_ms) # list of h5 for different ms, all same soltype
-
-     # APPLYCAL or PRE-APPLYCAL
-     count = 0
-     for msnumber, ms in enumerate(mslist):
-       if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]: #
-         print(pertubation[msnumber], parmdbmslist[count], msnumber, count)
-         if pertubation[msnumber]: # so another solve follows after this
-           if soltypenumber == 0:
-             if len(modeldatacolumns) > 1:
-               if DDE_predict == 'WSCLEAN':
-                 corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns) # for DDE
-             else:  
-               #corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA']) # saves disk space
-               applycal(ms, parmdbmslist[count], msincol='DATA',\
-                        msoutcol='CORRECTED_PREAPPLY' + str(soltypenumber), dysco=dysco, \
-                        modeldatacolumns=modeldatacolumns)
-           else:
-             if len(modeldatacolumns) > 1:
-               if DDE_predict == 'WSCLEAN':
-                 corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns) # for DDE
-             else:
-               #corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA']) # saves disk space
-               applycal(ms, parmdbmslist[count], msincol=incol[msnumber], \
-                        msoutcol='CORRECTED_PREAPPLY' + str(soltypenumber), dysco=dysco, \
-                        modeldatacolumns=modeldatacolumns) # msincol gets incol from previous solve
-           incol[msnumber] = 'CORRECTED_PREAPPLY' + str(soltypenumber) # SET NEW incol for next solve
-         else: # so this is the last solve, no other pertubation
-           if soltypenumber == 0:
-             applycal(ms, parmdbmslist[count], msincol='DATA',msoutcol='CORRECTED_DATA', \
-                      dysco=dysco, modeldatacolumns=modeldatacolumns)
-           else:
-             #applycal(ms, parmdbmslist, msincol='DATA', msoutcol='CORRECTED_DATA',\
-             #         dysco=dysco, modeldatacolumns=modeldatacolumns) # saves disks space
-             applycal(ms, parmdbmslist[count], msincol=incol[msnumber], msoutcol='CORRECTED_DATA',\
-                      dysco=dysco, modeldatacolumns=modeldatacolumns) # msincol gets incol from previous solve
-         count = count + 1 # extra counter because parmdbmslist can have less length than mslist as soltypecycles_list goes per ms
-
-   wsclean_h5list = []
-
-
-   # merge all solutions 
-   if True:
-     # import h5_merger
-     for msnumber, ms in enumerate(mslist):
-       if ((skymodel is not None) or (skymodelpointsource is not None) or (wscleanskymodel is not None)) and selfcalcycle == 0:
-         parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
-         parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
-       else:
-         parmdbmergename = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
-         parmdbmergename_pc = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_linearfulljones_' + os.path.basename(ms) + '.h5' 
-       if os.path.isfile(parmdbmergename):
-         os.system('rm -f ' + parmdbmergename)
-       if os.path.isfile(parmdbmergename_pc):
-         os.system('rm -f ' + parmdbmergename_pc)
-       wsclean_h5list.append(parmdbmergename)  
-
-       # add extra from preapplyH5_list
-       if args['preapplyH5_list'][0] is not None:
-         preapplyh5parm = time_match_mstoH5(args['preapplyH5_list'], ms)
-         # replace the source direction coordinates so that the merge goes correctly
-         copy_over_sourcedirection_h5(parmdbmergelist[msnumber][0], preapplyh5parm)
-         parmdbmergelist[msnumber].append(preapplyh5parm)
-
-       if is_scallar_array_forwsclean(parmdbmergelist[msnumber]):
-         single_pol_merge = True
-       else:  
-         single_pol_merge = False
-       print(parmdbmergename,parmdbmergelist[msnumber],ms)
-       h5_merger.merge_h5(h5_out=parmdbmergename,h5_tables=parmdbmergelist[msnumber],ms_files=ms,\
-                          convert_tec=True, merge_all_in_one=merge_all_in_one, \
-                          propagate_flags=True, single_pol=single_pol_merge)
-       # add CS stations back for superstation
-       if mslist_beforephaseup is not None:
-         print('mslist_beforephaseup: ' + mslist_beforephaseup[msnumber])
-         if is_scallar_array_forwsclean([parmdbmergename]):
-           single_pol_merge = True 
-         else:
-           single_pol_merge = False 
-         h5_merger.merge_h5(h5_out=parmdbmergename.replace("selfcalcyle",\
-                            "addCS_selfcalcyle"),h5_tables=parmdbmergename, \
-                            ms_files=mslist_beforephaseup[msnumber], convert_tec=True, merge_all_in_one=merge_all_in_one, single_pol=single_pol_merge, \
-                            propagate_flags=True, add_cs=True)
-
-       # make LINEAR solutions from CIRCULAR (never do a single_pol merge here!)
-       if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or docircular:
-         h5_merger.merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True, propagate_flags=True)
-         # add CS stations back for superstation
-         if mslist_beforephaseup is not None:
-           h5_merger.merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcyle",\
-                              "addCS_selfcalcyle"),h5_tables=parmdbmergename_pc, \
-                              ms_files=mslist_beforephaseup[msnumber], convert_tec=True, merge_all_in_one=merge_all_in_one, \
-                              propagate_flags=True, add_cs=True)
-
-
-       if False:
-         # testing only to check if merged H5 file is correct and makes a good image
-         applycal(ms, parmdbmergename, msincol='DATA',msoutcol='CORRECTED_DATA', dysco=dysco)
-
-       # plot merged solution file
-       losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, \
-                            medamp=medianamp(parmdbmergename), \
-                            outplotname=parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0], \
-                            refant=findrefant_core(parmdbmergename))
-       run('losoto ' + parmdbmergename + ' ' + losotoparset)
-       force_close(parmdbmergename)
-   if len(modeldatacolumns) > 0:
-      return wsclean_h5list
-   else:
-      return []
-
 
 
 def is_binary(file_name):
@@ -9478,7 +9275,7 @@ def main():
    imagingparser.add_argument('--localrmswindow', help="local-rms-window parameter for automasking in WSClean (in units of psfs), default=0 (0 means it is not used; suggested value 50)", default=0, type=int)
    imagingparser.add_argument('--removenegativefrommodel', help="Remove negative clean components in model predict. This is by default turned off at selfcalcycle 2. See also option autoupdate-removenegativefrommodel.", type=ast.literal_eval, default=True)
    imagingparser.add_argument('--autoupdate-removenegativefrommodel', help="Turn off removing negative clean components at selfcalcycle 2 (for high dynamic range imaging it is better to keep all clean components). The default is True.", type=ast.literal_eval, default=True)
-   imagingparser.add_argument('--fitsmask', help='Fits mask for deconvolution (needs to match image size). If this is not provided automasking is used.', type=str)
+   imagingparser.add_argument('--fitsmask', help='Fits mask for deconvolution (needs to match image size). If this is not provided automasking is used in combination with MakeMask.py. If set to "nofitsmask" then only WSCLean auto-masking is used', type=str)
    imagingparser.add_argument('--robust', help='Briggs robust parameter for imagaging. The default is -0.5. Also allowed are the strings uniform or naturual which will override Briggs weighting.', default=-0.5, type=str_or_float)
    imagingparser.add_argument('--multiscale-start', help='Start multiscale deconvolution at this selfcal cycle. This is by default 1.', default=1, type=int)
 
@@ -9612,7 +9409,7 @@ def main():
    parser.add_argument('--forwidefield', help='Keep solutions such that they can be used for widefield imaging/screens.', action='store_true')
    parser.add_argument('--remove-outside-center', help='Subtract sources that are outside the central parts of the image, square box is used (experimental)', action='store_true')
    parser.add_argument('--remove-outside-center-box', help='User defined box to subtract sources that are outside this part of the image. If not set boxsize is set automatically. If "keepall" is set then no subtract is done and everything is kept, this is mainly useful if you are already working on box-extracted data', type=str, default=None)
-   
+   parser.add_argument('--single-dual-speedup', help='Speed up calibration and imaging if possible using datause=single/dual in DP3 and -scalar/diagonal-visibilities in WSClean. Requires a recent (mid July 2024) DP3 and WSClean versions. Default is True. Set to --single-dual-speedup=False to disable to speed-up', type=ast.literal_eval, default=True)
    parser.add_argument('--dysco', help='Use Dysco compression. The default is True.', type=ast.literal_eval, default=True)
    parser.add_argument('--resetweights', help='If you want to ignore weight_spectrum_solve.', action='store_true')
    parser.add_argument('--start', help='Start selfcal cycle at this iteration number. The default is 0.', default=0, type=int)
@@ -9673,7 +9470,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '9.8.0'
+   version = '9.9.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -9920,7 +9717,7 @@ def main():
         if args['DDE']:
            modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['skymodel'], i, \
                    mslist, args['imsize'], args['pixelscale'], \
-                   args['channelsout'],numClusters=args['Nfacets'], \
+                   args['channelsout'], args, numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], \
                    DDE_predict='DP3', restart=False,skyview=tgssfitsfile,\
                    targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],\
@@ -9972,7 +9769,7 @@ def main():
      if args['DDE'] and args['start'] != 0 and i == args['start']: 
         modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['imagename'], i, \
                    mslist, args['imsize'], args['pixelscale'], \
-                   args['channelsout'],numClusters=args['Nfacets'], \
+                   args['channelsout'], args, numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], \
                    DDE_predict=args['DDE_predict'], restart=True, \
                    telescope=telescope, \
@@ -10009,7 +9806,7 @@ def main():
                   facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
                   multiscalemaxscales=args['multiscalemaxscales'],stack=args['stack'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
-                  disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'])
+                  disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],fulljones_h5_facetbeam=not args['single_dual_speedup'])
         #args['idg'] = idgin # set back
         if args['makeimage_ILTlowres_HBA']:
           if args['phaseupstations'] is None:
@@ -10029,7 +9826,9 @@ def main():
                   taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
                   disable_primarybeam_predict=args['disable_primary_beam'],\
-                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'])
+                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'], \
+                  ddpsfgrid=args['ddpsfgrid'], \
+                  fulljones_h5_facetbeam=not args['single_dual_speedup'])
         if args['makeimage_fullpol']:
           makeimage(mslistim, args['imagename'] +'fullpol' + str(i).zfill(3) + stackstr, \
                   args['pixelscale'], args['imsize'], \
@@ -10044,7 +9843,8 @@ def main():
                   taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'], facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'], multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
                   disable_primarybeam_predict=args['disable_primary_beam'], \
-                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'])
+                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],\
+                  fulljones_h5_facetbeam=not args['single_dual_speedup'])
 
         # make figure
         if args['imager'] == 'WSCLEAN':
@@ -10069,7 +9869,7 @@ def main():
      if args['DDE']:
         modeldatacolumns, dde_skymodel, candidate_solints = prepare_DDE(args['imagename'], i, \
                    mslist, args['imsize'], args['pixelscale'], \
-                   args['channelsout'],numClusters=args['Nfacets'], \
+                   args['channelsout'], args, numClusters=args['Nfacets'], \
                    facetdirections=args['facetdirections'], DDE_predict=args['DDE_predict'], \
                    telescope=telescope, \
                    targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],\
@@ -10162,11 +9962,12 @@ def main():
                   facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
                   multiscalemaxscales=args['multiscalemaxscales'],\
                   disable_primarybeam_image=args['disable_primary_beam'], \
-                  disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'])
+                  disable_primarybeam_predict=args['disable_primary_beam'], groupms_h5facetspeedup=args['groupms_h5facetspeedup'], \
+                  ddpsfgrid=args['ddpsfgrid'], fulljones_h5_facetbeam=not args['single_dual_speedup'])
 
 
       remove_outside_box(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], \
-                         args['imsize'],args['channelsout'], dysco=args['dysco'],\
+                         args['imsize'],args['channelsout'], args, dysco=args['dysco'],\
                          userbox=args['remove_outside_center_box'], idg=args['idg'],\
                          h5list=wsclean_h5list, facetregionfile=facetregionfile, \
                          disable_primary_beam=args['disable_primary_beam'])
