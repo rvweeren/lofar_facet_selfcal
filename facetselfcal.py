@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# gain normalization per direction for DDE solves?
 # scalarphasediff vs rotation+diagonal?
 # BDA step DP3
 # compression: blosc2
@@ -1669,9 +1670,9 @@ def fulljonesparmdb(h5):
     '''
     H=tables.open_file(h5) 
     try:
-        phase = H.root.sol000.phase000.val[:]
-        amplitude = H.root.sol000.amplitude000.val[:]
-        if phase.shape[-1] == 4 and amplitude.shape[-1] == 4:
+        pol_p = H.root.sol000.phase000.pol[:]
+        pol_a = H.root.sol000.amplitude000.pol[:]
+        if len(pol_p) == 4 and len(pol_a) == 4:
             fulljones = True
         else:
             fulljones = False
@@ -7046,7 +7047,7 @@ def flatten(f):
 
 
 def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
-                       channelsout, args, \
+                       channelsout, single_dual_speedup=True, \
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None, \
                        idg=False, h5list=[], facetregionfile=None, \
                        disable_primary_beam=False):
@@ -7091,14 +7092,14 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
          makeimage(mslist, imagebasename, pixsize, imsize, \
                    channelsout, onlypredict=True, squarebox='templatebox.reg', \
                    idg=idg, disable_primarybeam_predict=disable_primary_beam,\
-                   fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                   fulljones_h5_facetbeam=not single_dual_speedup)
          phaseshiftbox = 'templatebox.reg'
       else:
          if userbox != 'keepall':
             makeimage(mslist, imagebasename, pixsize, imsize, \
                       channelsout, onlypredict=True, squarebox=userbox, \
                       idg=idg,  disable_primarybeam_predict=disable_primary_beam, \
-                      fulljones_h5_facetbeam=not args['single_dual_speedup']) 
+                      fulljones_h5_facetbeam=not single_dual_speedup) 
             phaseshiftbox = userbox
          else:  
             phaseshiftbox = None # so option keepall was set by the user
@@ -7108,7 +7109,7 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
                    channelsout, onlypredict=True, squarebox='templatebox.reg', \
                    idg=idg, h5list=h5list, facetregionfile=facetregionfile, \
                     disable_primarybeam_predict=disable_primary_beam, \
-                    fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                    fulljones_h5_facetbeam=not single_dual_speedup)
          phaseshiftbox = 'templatebox.reg'
       else:
          if userbox != 'keepall':
@@ -7116,7 +7117,7 @@ def remove_outside_box(mslist, imagebasename,  pixsize, imsize, \
                       channelsout, onlypredict=True, squarebox=userbox, \
                       idg=idg, h5list=h5list, facetregionfile=facetregionfile, \
                        disable_primarybeam_predict=disable_primary_beam, \
-                       fulljones_h5_facetbeam=not args['single_dual_speedup']) 
+                       fulljones_h5_facetbeam=not single_dual_speedup) 
             phaseshiftbox = userbox
          else:  
             phaseshiftbox = None # so option keepall was set by the user
@@ -9967,7 +9968,7 @@ def main():
 
 
       remove_outside_box(mslist, args['imagename'] + str(i+1).zfill(3), args['pixelscale'], \
-                         args['imsize'],args['channelsout'], args, dysco=args['dysco'],\
+                         args['imsize'],args['channelsout'], single_dual_speedup= args['single_dual_speedup'], dysco=args['dysco'],\
                          userbox=args['remove_outside_center_box'], idg=args['idg'],\
                          h5list=wsclean_h5list, facetregionfile=facetregionfile, \
                          disable_primary_beam=args['disable_primary_beam'])
