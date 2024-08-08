@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# gain normalization per direction for DDE solves?
+# add rotation+scalarphase, etc.
 # scalarphasediff vs rotation+diagonal?
 # BDA step DP3
 # compression: blosc2
@@ -1714,6 +1714,42 @@ def fix_weights_rotationh5(h5parm):
          pass
      return
 
+
+def h5_has_dir(h5):
+   H=tables.open_file(h5)
+   try:
+       if 'dir' in H.root.sol000.phase000.val.attrs['AXES'].decode().split(','):
+           H.close()
+           return True
+   except:
+       pass  
+   try:
+       if 'dir' in H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(','):
+           H.close()
+           return True
+   except:
+       pass  
+   try:
+       if 'dir' in H.root.sol000.tec000.val.attrs['AXES'].decode().split(','):
+           H.close()
+           return True
+   except:
+       pass  
+   try:
+       if 'dir' in H.root.sol000.rotation000.val.attrs['AXES'].decode().split(','):
+           H.close()
+           return True
+   except:
+       pass  
+   try:
+       if 'dir' in H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(','):
+           H.close()
+           return True
+   except:
+       pass  
+   print('Here')     
+   H.close()
+   return False
 
 def reset_gains_noncore(h5parm, keepanntennastr='CS'):
     ''' Resets the gain of non-CS stations to unity amplitude and zero phase.
@@ -6576,7 +6612,162 @@ def medianamp(h5):
     logger.info('Median Stokes I amplitude of ' + h5 + ': ' + str(medamps))
     return medamps
 
+
 def normamplitudes(parmdb, norm_per_ms=False):
+    has_dir = h5_has_dir(parmdb[0])
+    H = tables.open_file(parmdb[0])
+    axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+    if has_dir:
+        directions = H.root.sol000.amplitude000.dir[:] # should be the same for all parmdb in the list
+    H.close()
+
+    if norm_per_ms:
+        for parmdbi in parmdb:
+            H = tables.open_file(parmdbi,mode='a')
+            if not has_dir:        
+                amps =H.root.sol000.amplitude000.val[:]
+                weights = H.root.sol000.amplitude000.weight[:]
+                idx = np.where(weights != 0.0)
+                amps = np.log10(amps)
+                logger.info(parmdbi + ' Mean amplitudes before normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                amps = amps - (np.nanmean(amps[idx]))
+                logger.info(parmdbi + ' Mean amplitudes after normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                amps = 10**(amps)
+                H.root.sol000.amplitude000.val[:] = amps
+                H.flush()
+                H.close()
+            else:    
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                diraxis = axisn.index('dir')
+                ampsfull =H.root.sol000.amplitude000.val[:]
+                weightsfull = H.root.sol000.amplitude000.weight[:]
+                for dir_id, direction in enumerate(directions):
+                    print('Normalizing direction', direction, 'Axis entry number', axisn.index('dir'))
+                    if diraxis == 0:
+                        amps = ampsfull[dir_id, ...]
+                        weights = weightsfull[dir_id, ...]
+                    if diraxis == 1:
+                        amps = ampsfull[:, dir_id, ...]
+                        weights = weightsfull[:, dir_id, ...]
+                    if diraxis == 2:
+                        amps = ampsfull[:, :, dir_id, ...]
+                        weights = weightsfull[:, :, dir_id, ...]
+                    if diraxis == 3:
+                        amps = ampsfull[:, :, :, dir_id, ...]
+                        weights = weightsfull[:, :, :, dir_id, ...]
+                    if diraxis == 4:
+                        amps = ampsfull[:, :, :, :, dir_id, ...]
+                        weights = weightsfull[:, :, :, :, dir_id, ...]
+                        
+                    idx = np.where(weights != 0.0)
+                    amps = np.log10(amps)
+                    logger.info('Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                    print('Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                    amps = amps - (np.nanmean(amps[idx]))
+                    logger.info('Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes after normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                    amps = 10**(amps)    
+
+                    # put back vales in ampsfull
+                    if diraxis == 0:
+                        ampsfull[dir_id, ...] = amps
+                    if diraxis == 1:
+                        ampsfull[:, dir_id, ...] = amps
+                    if diraxis == 2:
+                        ampsfull[:, :, dir_id, ...] = amps
+                    if diraxis == 3:
+                        ampsfull[:, :, :, dir_id, ...] = amps
+                    if diraxis == 4:
+                        ampsfull[:, :, :, :, dir_id, ...] = amps
+                H.root.sol000.amplitude000.val[:] = ampsfull
+                H.flush()
+                H.close()        
+        return  # norm_per_ms
+
+    if not has_dir:      
+        for i, parmdbi in enumerate(parmdb):
+            H = tables.open_file(parmdbi,mode='r')
+            ampsfull = H.root.sol000.amplitude000.val[:]
+            weightsfull = H.root.sol000.amplitude000.weight[:]
+            idx = np.where(weights != 0.0)
+            logger.info(parmdbi + '  Normfactor: '+ str(10**(np.nanmean(np.log10(ampsfull[idx])))))
+            if i == 0:
+                amps = np.ndarray.flatten(ampsfull[idx])
+            else:
+                amps = np.concatenate((amps, np.ndarray.flatten(ampsfull[idx])),axis=0)
+
+            H.close()
+        normmin = (np.nanmean(np.log10(amps)))
+        logger.info('Global normfactor: ' + str(10**normmin))
+        # now write the new H5 files
+        for parmdbi in parmdb:
+            H = tables.open_file(parmdbi,mode='a')
+            ampsfull = H.root.sol000.amplitude000.val[:]
+            ampsfull = (np.log10(ampsfull)) - normmin
+            ampsfull = 10**ampsfull
+            H.root.sol000.amplitude000.val[:] = ampsfull
+            H.flush()
+            H.close()
+    else:    
+        for dir_id, direction in enumerate(directions):  
+            for i, parmdbi in enumerate(parmdb):
+                H = tables.open_file(parmdbi,mode='r')
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                ampsfull = H.root.sol000.amplitude000.val[:]
+                weightsfull = H.root.sol000.amplitude000.weight[:]
+                diraxis = axisn.index('dir')  
+                H.close() 
+                if diraxis == 0:
+                    ampsi = ampsfull[dir_id, ...]
+                    weights = weightsfull[dir_id, ...]
+                if diraxis == 1:
+                    ampsi = ampsfull[:, dir_id, ...]
+                    weights = weightsfull[:, dir_id, ...]
+                if diraxis == 2:
+                    ampsi = ampsfull[:, :, dir_id, ...]
+                    weights = weightsfull[:, :, dir_id, ...]
+                if diraxis == 3:
+                    ampsi = ampsfull[:, :, :, dir_id, ...]
+                    weights = weightsfull[:, :, :, dir_id, ...]
+                if diraxis == 4:
+                    ampsi = ampsfull[:, :, :, :, dir_id, ...]
+                    weights = weightsfull[:, :, :, :, dir_id, ...]
+                idx = np.where(weights != 0.0)
+                if i == 0:
+                    amps = np.ndarray.flatten(ampsi[idx])
+                else:
+                    amps = np.concatenate((amps, np.ndarray.flatten(ampsi[idx])),axis=0)
+            normmin = (np.nanmean(np.log10(amps)))
+            logger.info('Global normfactor directon:' +  str(dir_id) + ' ' + str(10**normmin))
+            print('Global normfactor directon:' +  str(dir_id) + ' ' + str(10**normmin))
+            for parmdbi in parmdb:
+                H = tables.open_file(parmdbi,mode='a')
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                ampsfull = H.root.sol000.amplitude000.val[:]
+                diraxis = axisn.index('dir')
+                # put back vales in ampsfull
+                if diraxis == 0:
+                    ampsfull[dir_id, ...] = (np.log10(ampsfull[dir_id, ...])) - normmin
+                    ampsfull[dir_id, ...] = 10**ampsfull[dir_id, ...]
+                if diraxis == 1:
+                    ampsfull[:, dir_id, ...] = (np.log10(ampsfull[:, dir_id, ...])) - normmin
+                    ampsfull[:, dir_id, ...] = 10**ampsfull[:, dir_id, ...]
+                if diraxis == 2:
+                    ampsfull[:, :, dir_id, ...] = (np.log10(ampsfull[:, :, dir_id, ...])) - normmin
+                    ampsfull[:, :, dir_id, ...] = 10**ampsfull[:, :, dir_id, ...]
+                if diraxis == 3:
+                    ampsfull[:, :, :, dir_id, ...] = (np.log10(ampsfull[:, :, :, dir_id, ...])) - normmin
+                    ampsfull[:, :, :, dir_id, ...] = 10**ampsfull[:, :, :, dir_id, ...]
+                if diraxis == 4:
+                    ampsfull[:, :, :, :, dir_id, ...] = (np.log10(ampsfull[:, :, :, :, dir_id, ...])) - normmin
+                    ampsfull[:, :, :, :, dir_id, ...] = 10**ampsfull[:, :, :, :, dir_id, ...]
+                H.root.sol000.amplitude000.val[:] = ampsfull
+                H.flush()
+                H.close()
+    return           
+
+
+
+def normamplitudes_old(parmdb, norm_per_ms=False):
     '''
     normalize amplitude solutions to one
     '''
@@ -9471,7 +9662,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '9.9.0'
+   version = '9.10.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
