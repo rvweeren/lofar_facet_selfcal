@@ -9370,21 +9370,6 @@ def set_fitsmask_restart(args, i, mslist):
    return fitsmask, fitsmask_list
 
 
-def get_diagnostics(fitsfiles, h5s, station):
-    """
-    Get diagnostics to evaluate the selfcal quality in terms of image fidelity and solution stability.
-    This functionality is in particular useful for selecting DD calibrators for VLBI widefield imaging.
-    :param fitsfiles: fits files
-    :param h5s: h5parm solution files
-    :param station: for Dutch calibration use 'alldutch' for VLBI calibration use 'international'
-    """
-
-    os.system('cp ' + args['helperscriptspathh5merge'] + '/source_selection/selfcal_selection.py .')
-    from selfcal_selection import main as quality_check
-    quality_check(h5s, fitsfiles, station)
-
-    return
-
 def nested_mslistforimaging(mslist, stack=False):
    if not stack:
       return [mslist] # has format [[ms1.ms,ms2.ms,....]]
@@ -10175,9 +10160,8 @@ def main():
           archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
        cleanup(mslist)
 
-   # Give additional diagnostics about the selfcal quality --> in particular useful for calibrator selection
-   if args['get_diagnostics']: #TODO: More testing
-       # print("WARNING: --get_diagnostics is still an experimental option")
+   # Get additional diagnostics about the selfcal quality --> in particular useful for calibrator selection
+   if args['get_diagnostics']:
        logger.info("WARNING: --get_diagnostics is still an experimental option")
        if abs(args['stop']-args['start'])>5:
            mergedh5 = [h5 for h5 in glob.glob('merged_selfcalcyle*.h5') if 'linearfulljones' not in h5]
@@ -10188,10 +10172,11 @@ def main():
            images = glob.glob("*MFS-I-image.fits")
            if len(images)==0:
                images = glob.glob("*MFS-image.fits")
-           get_diagnostics(images, mergedh5, station)
+           os.system('cp ' + args['helperscriptspathh5merge'] + '/source_selection/selfcal_selection.py .')
+           from selfcal_selection import main as quality_check
+           quality_check(mergedh5, images, station)
        else:
            logger.info("Need at least 5 selfcal cycles for getting diagnostics")
-           # print("Need at least 5 selfcal cycles for getting diagnostics")
 
 
 if __name__ == "__main__":
