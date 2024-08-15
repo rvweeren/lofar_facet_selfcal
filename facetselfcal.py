@@ -6832,8 +6832,13 @@ def normamplitudes_old(parmdb, norm_per_ms=False):
 
 
 def checkforzerocleancomponents(imagenames):
-    """
-    check if something was cleaned, if not stop de script to avoid more obscure errors later
+    """ Check if something was cleaned, if not stop de script to avoid more obscure errors later
+
+    Args:
+        imagenames (list): List of model images to check for clean components.
+
+    Raises:
+        RuntimeError: if all model images are 0.
     """
     n_images = len(imagenames)
     n_zeros = 0
@@ -6850,7 +6855,7 @@ def checkforzerocleancomponents(imagenames):
         hdul.close()
     if n_zeros == n_images:
         logger.error("All channel maps models were zero: Stopping the selfcal")
-        raise Exception("All model images contain zeros")
+        raise RuntimeError("All model images contain zeros")
     return
 
 
