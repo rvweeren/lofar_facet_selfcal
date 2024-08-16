@@ -2547,7 +2547,7 @@ def inputchecker(args, mslist):
     t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
     telescope = t.getcol('TELESCOPE_NAME')[0] 
     t.close()
-    if telescope == 'MeerKAT':
+    if telescope != 'LOFAR':
         for ms in mslist:
             check_equidistant_times(ms)  
 
