@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# check for regular time axis
 # HBAorLBA (not relevant for MeerKAT)
 # scalarphasediff vs rotation+diagonal?
 # BDA step DP3
@@ -13,7 +12,6 @@
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
-# directions in h5 file might be changed up by DP3, relevant for DP3 predict-solves
 # fix RR-LL referencing for flaged solutions, check for possible superterp reference station
 # put all fits images in images folder, all solutions in solutions folder? to reduce clutter
 # phase detrending.
@@ -2548,8 +2546,7 @@ def inputchecker(args, mslist):
     telescope = t.getcol('TELESCOPE_NAME')[0] 
     t.close()
     if telescope != 'LOFAR':
-        for ms in mslist:
-            check_equidistant_times(ms)  
+        check_equidistant_times(mslist)  
 
     if True in args['BLsmooth_list']:
         if len(args['soltypecycles_list']) != len(args['BLsmooth_list']):
