@@ -6848,9 +6848,6 @@ def checkforzerocleancomponents(imagenames):
         data = hdul[0].data
         if not np.any(data):  # this checks if all elements are 0.0
             print("Model image:", image, "contains only zeros.")
-            # hdul.close()
-            # logger.error('Model image: ' + image + ' contains only zeros. Stopping the selfcal')
-            # raise Exception('One of the model images contains only zeros')
             n_zeros = n_zeros + 1
         hdul.close()
     if n_zeros == n_images:
