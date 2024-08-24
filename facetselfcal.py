@@ -3912,8 +3912,31 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
          if antennaxis == 4:
            amp[:,:,:,:,antennaid,...] = 1.0
          if fulljones:
-           amp[...,1] = 0.0 # XY, assumpe pol is last axis
-           amp[...,2] = 0.0 # YX, assume pol is last axis
+           print('pol entry axis:', axisn.index('pol'))
+           if len(axisn) != axisn.index('pol')+1:
+              print('Pol-axis not the last enrty, cannot handle this')
+              sys.exit()
+           # hardcoded, assumes pol-axis is last
+           if antennaxis == 0:
+             amp[antennaid,...,1] = 0.
+             amp[antennaid,...,2] = 0.
+           if antennaxis == 1:
+             amp[:,antennaid,...,1] = 0.
+             amp[:,antennaid,...,2] = 0.
+           if antennaxis == 2:
+             amp[:,:,antennaid,...,1] = 0.
+             amp[:,:,antennaid,...,2] = 0.
+           if antennaxis == 3:
+             amp[:,:,:,antennaid,...,1] = 0.
+             amp[:,:,:,antennaid,...,2] = 0.
+           if antennaxis == 4:
+             amp[:,:,:,:,antennaid,...,1] = 0.
+             amp[:,:,:,:,antennaid,...,2] = 0.
+           
+           #k = axisn.index('pol')
+           #amp[tuple(slice(None) if j != k else antennaid for j in range(arr.ndim))] 
+           #amp[...,1] = 0.0 # XY, assumpe pol is last axis
+           #amp[...,2] = 0.0 # YX, assume pol is last axis
 
        if hastec:
          antennaxis = axisn.index('ant')
@@ -4096,8 +4119,29 @@ def resetsolsfordir(h5parm, dirlist, refant=None):
          if diraxis == 4:
            amp[:,:,:,:,directionid,...] = 1.0
          if fulljones:
-           amp[...,1] = 0.0 # XY, assumpe pol is last axis
-           amp[...,2] = 0.0 # YX, assume pol is last axis
+           print('pol entry axis:', axisn.index('pol'))
+           if len(axisn) != axisn.index('pol')+1:
+              print('Pol-axis not the last enrty, cannot handle this')
+              sys.exit()
+           # hardcoded, assumes pol-axis is last
+           if diraxis == 0:
+             amp[directionid,...,1] = 0.
+             amp[directionid,...,2] = 0.
+           if diraxis == 1:
+             amp[:,directionid,...,1] = 0.
+             amp[:,directionid,...,2] = 0.
+           if diraxis == 2:
+             amp[:,:,directionid,...,1] = 0.
+             amp[:,:,directionid,...,2] = 0.
+           if diraxis == 3:
+             amp[:,:,:,directionid,...,1] = 0.
+             amp[:,:,:,directionid,...,2] = 0.
+           if diraxis == 4:
+             amp[:,:,:,:,directionid,...,1] = 0.
+             amp[:,:,:,:,directionid,...,2] = 0.
+           
+           #amp[...,1] = 0.0 # XY, assumpe pol is last axis
+           #amp[...,2] = 0.0 # YX, assume pol is last axis
 
        if hastec:
          diraxis = axisn.index('dir')
@@ -6571,7 +6615,7 @@ def flaghighamps_fulljones(parmdb, highampval=10.,flagging=True, setweightsphase
     return
 
 
-def flagbadamps(parmdb, setweightsphases=True, flagamp1=True):
+def flagbadamps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=True):
     '''
     flag bad amplitudes in H5 parmdb, those with amplitude==1.0
     '''
@@ -6628,8 +6672,9 @@ def flagbadamps(parmdb, setweightsphases=True, flagamp1=True):
        weights_xy = weights[...,1]
        idx = np.where(amps_xy == 1.0)
        amps_xy[idx] = 0.0
-       idx = np.where(amps_xy == 0.0)
-       weights_xy[idx] =  0.0
+       if flagampxyzero:
+          idx = np.where(amps_xy == 0.0) # we do not want this if we resetsols
+          weights_xy[idx] =  0.0
        if setweightsphases:
           phase_xy = phase[...,1]
           weights_p_xy = weights_p[...,1]
@@ -6641,8 +6686,9 @@ def flagbadamps(parmdb, setweightsphases=True, flagamp1=True):
        weights_yx = weights[...,2]
        idx = np.where(amps_yx == 1.0)
        amps_yx[idx] = 0.0
-       idx = np.where(amps_yx == 0.0)
-       weights_yx[idx] =  0.0
+       if flagampxyzero:
+          idx = np.where(amps_yx == 0.0)
+          weights_yx[idx] =  0.0
        if setweightsphases:
           phase_yx = phase[...,2]
           weights_p_yx = weights_p[...,2]
@@ -6708,10 +6754,17 @@ def medianamp(h5):
     weights_xx = weights[...,0]
     weights_yy = weights[...,-1]
 
-    idx_xx = np.where(weights_xx != 0.0)
-    idx_yy = np.where(weights_yy != 0.0)
-
-    medamps = 0.5*(10**(np.nanmedian(np.log10(amps_xx[idx_xx]))) + 10**(np.nanmedian(np.log10(amps_yy[idx_yy]))))
+    idx_xx = np.where(weights_xx != 0.0) 
+    idx_yy = np.where(weights_yy != 0.0) 
+    amps_xx_tmp = amps_xx[idx_xx]
+    amps_yy_tmp = amps_yy[idx_yy]
+    
+    idx_xx = np.where(amps_xx_tmp != 1.0) # remove 1.0, these can be "resetsols" values
+    idx_yy = np.where(amps_yy_tmp != 1.0) # remove 1.0, these can be "resetsols" values
+    if any(map(len, idx_xx)) and any(map(len, idx_yy)):
+       medamps = 0.5*(10**(np.nanmedian(np.log10(amps_xx_tmp[idx_xx]))) + 10**(np.nanmedian(np.log10(amps_yy_tmp[idx_yy]))))
+    else:
+       medamps = 1.
     print('Median  Stokes I amplitude of ', h5, ':', medamps)
 
     if fulljones:
@@ -8170,6 +8223,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      SMconstraintrefdistance=smoothnessrefdistance_list[soltypenumber][msnumber],\
                      antennaconstraint=antennaconstraint_list[soltypenumber][msnumber], \
                      resetsols=resetsols_list[soltypenumber][msnumber], \
+                     resetsols_list = resetsols_list, \
                      resetdir=resetdir_list[soltypenumber][msnumber], \
                      restoreflags=restoreflags, flagging=flagging, skymodel=skymodel, \
                      flagslowphases=flagslowphases, flagslowamprms=flagslowamprms, \
@@ -8179,7 +8233,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                      iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor, dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff, create_modeldata=create_modeldata, \
                      selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size, gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,\
                      clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],\
-                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns, preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict, telescope=telescope, ncpu_max=ncpu_max, soltype_list=soltype_list, DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir)
+                     clipsollow=args['clipsollow'], uvmax=args['uvmax'],modeldatacolumns=modeldatacolumns, preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel, DDE_predict=DDE_predict, telescope=telescope, ncpu_max=ncpu_max, soltype_list=soltype_list, DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir, normamps=normamps)
 
          parmdbmslist.append(parmdb)
          parmdbmergelist[msnumber].append(parmdb) # for h5_merge
@@ -8470,7 +8524,8 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 SMconstraint=0.0, SMconstraintreffreq=0.0, \
                 SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None, \
-                resetsols=None, resetdir=None, restoreflags=False, \
+                resetsols=None, resetsols_list=[None], resetdir=None, \
+                resetdir_list=[None], restoreflags=False, \
                 maxiter=100, tolerance=1e-4, flagging=False, skymodel=None, flagslowphases=True, \
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
@@ -8480,7 +8535,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                 ampresetvalfactor=10., uvmax=None, \
                 modeldatacolumns=[], solveralgorithm='directioniterative', solveralgorithm_dde='directioniterative', preapplyH5_dde=[], \
                 dde_skymodel=None, DDE_predict='WSCLEAN',telescope='LOFAR', beamproximitylimit=240.,\
-                ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None):
+                ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None, normamps=True):
 
     soltypein = soltype # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
@@ -8707,10 +8762,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
          print('DDE_predict with soltypelist_includedir is not supported')
          raise Exception('DDE_predict with soltypelist_includedir is not supported')
       
+      modeldatacolumns_solve = [] # empty
       if False: # work in progress still
         if soltypelist_includedir is not None:
           modeldatacolumns_solve = updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms) 
-      
       
       if DDE_predict == 'DP3':
          cmd += 'ddecal.sourcedb=' + dde_skymodel + ' '
@@ -8718,8 +8773,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
            cmd += 'ddecal.usebeammodel=True '
            cmd += 'ddecal.usechannelfreq=True ddecal.beammode=array_factor '
            cmd += 'ddecal.beamproximitylimit=' + str(beamproximitylimit) + ' '
-      else:  
-         cmd += "ddecal.modeldatacolumns='[" + ','.join(map(str, modeldatacolumns)) + "]' " 
+      else:
+         if len(modeldatacolumns_solve) >0: # >0 (and not > 1 because we can have 1 direction left)
+           cmd += "ddecal.modeldatacolumns='[" + ','.join(map(str, modeldatacolumns_solve)) + "]' " 
+         else:
+           cmd += "ddecal.modeldatacolumns='[" + ','.join(map(str, modeldatacolumns)) + "]' "
       if len(modeldatacolumns) > 1: # so we are doing a dde solve
         cmd += 'ddecal.solveralgorithm=' + solveralgorithm_dde + ' '
       else: # in case the list still has length 1
@@ -8874,7 +8932,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
          force_close(parmdb)
       else:
          refant = None
-      #sys.exit()
+      
       resetsolsfordir(parmdb, resetdir, refant=refant)
 
 
@@ -8889,7 +8947,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
                    'fulljones','rotation+diagonal','rotation+diagonalamplitude',\
                    'rotation+scalar','rotation+scalaramplitude']:
       if resetdir is not None or resetsols is not None:
-         flagbadamps(parmdb, setweightsphases=includesphase, flagamp1=False) # otherwise it flags the solutions which where reset
+         flagbadamps(parmdb, setweightsphases=includesphase, flagamp1=False, flagampxyzero=False) # otherwise it flags the solutions which where reset
       else:
          flagbadamps(parmdb, setweightsphases=includesphase)
       if soltype == 'fulljones':
@@ -8897,6 +8955,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
       else:  
          removenans(parmdb, 'amplitude000')
       medamp = medianamp(parmdb)
+
 
       if soltype != 'amplitudeonly' and soltype != 'scalaramplitude' \
              and soltype != 'rotation+diagonalamplitude' \
@@ -8906,12 +8965,17 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
          #except:
          #  pass
          removenans(parmdb, 'phase000')
+      
       if soltype == 'fulljones':
-         flaglowamps_fulljones(parmdb, lowampval=medamp/ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
-         flaghighamps_fulljones(parmdb, highampval=medamp*ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
+         #if normamps: #and all(rsl is None for rsl in resetsols_list) and all(rdl is None for rdl in resetdir_list):
+             # otherwise you get too much setting to 1 due to large amp deviations, in particular fullones on raw data which has very high correlator amps (with different ILT vals), also resets in that case cause issues (resets are ok if the amplitudes are close to 1). Hence using the normamps test seems the most logical choice
+             flaglowamps_fulljones(parmdb, lowampval=medamp/ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
+             flaghighamps_fulljones(parmdb, highampval=medamp*ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
       else:
-         flaglowamps(parmdb, lowampval=medamp/ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
-         flaghighamps(parmdb, highampval=medamp*ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
+         #if normamps: #and all(rsl is None for rsl in resetsols_list) and all(rdl is None for rdl in resetdir_list): 
+            # otherwise you get too much setting to 1 due to large amp deviations, in particular fullones on raw data which has very high correlator amps (with different ILT vals), also resets in that case cause issues (resets are ok if the amplitudes are close to 1).  Hence using the normamps test seems the most logical choice
+            flaglowamps(parmdb, lowampval=medamp/ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
+            flaghighamps(parmdb, highampval=medamp*ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
 
       if soltype == 'fulljones' and clipsolutions:
         print('Fulljones and solution clipping not supported')
