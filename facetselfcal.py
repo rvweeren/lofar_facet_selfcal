@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# HBAorLBA (not relevant for MeerKAT)
+
 # scalarphasediff vs rotation+diagonal?
 # BDA step DP3
 # compression: blosc2
@@ -943,6 +943,8 @@ def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA', warn=False, retur
         warn_distance = 1.25
     if HBAorLBA == 'LBA':
         warn_distance = 3.0
+    if HBAorLBA == 'other':
+        warn_distance = 3.0
 
     field_table = pt.table(msname + '::FIELD', ack=False)
     direction = field_table.getcol('PHASE_DIR').squeeze()
@@ -1362,7 +1364,7 @@ def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=Fals
          desc = t.getcoldesc(weightref)
          desc['name'] = outweightcol
          t.addcols(desc)
-      #os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolum={outweightcol} steps=[]')
+      #os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
       for row in range(0,t.nrows(),stepsize):   
          print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
          weight = t.getcol(weightref,startrow=row,nrow=stepsize,rowincr=1).astype(np.float64)
@@ -1409,7 +1411,7 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False,\
          desc = t.getcoldesc(weightref)
          desc['name'] = outweightcol
          t.addcols(desc)
-      #os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolum={outweightcol} steps=[]')
+      #os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
       for row in range(0,t.nrows(),stepsize):   
          print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
          weight = t.getcol(weightref,startrow=row,nrow=stepsize,rowincr=1).astype(np.float64)
@@ -8330,7 +8332,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                             medamp=medianamp(parmdbmergename), \
                             outplotname=parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0], \
                             refant=findrefant_core(parmdbmergename),\
-                            fulljones=fulljonesparmdb(parmdbmergename))
+                            fulljones=fulljonesparmdb(parmdbmergename), onepol=single_pol_merge)
        run('losoto ' + parmdbmergename + ' ' + losotoparset)
        force_close(parmdbmergename)
    
@@ -8515,7 +8517,7 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
    
    return modeldatacolumns_solve
 
-def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
+def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
                 SMconstraint=0.0, SMconstraintreffreq=0.0, \
                 SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None, \
                 resetsols=None, resetsols_list=[None], resetdir=None, \
@@ -8550,7 +8552,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
         predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
 
     #if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
-    if wscleanskymodel is not None and create_modeldata:
+    if wscleanskymodel is not None and create_modeldata and len(modeldatacolumns) == 0:
         makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')),\
         0, 0.0, onlypredict=True, idg=False, \
         gapchanneldivision=gapchanneldivision)
@@ -8636,11 +8638,16 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=0, \
     t = pt.table(ms + '/ANTENNA',ack=False)
     antennasms = t.getcol('NAME')
     t.close()
-    if freq > 100e6:
-      HBAorLBA = 'HBA'
+    
+    
+    if telescope == 'LOFAR':
+      if freq > 100e6:
+        HBAorLBA = 'HBA'
+      else:
+        HBAorLBA = 'LBA'
+      print('This is', HBAorLBA, 'data')
     else:
-      HBAorLBA = 'LBA'
-    print('This is', HBAorLBA, 'data')
+        HBAorLBA = 'other'
     print('This ms contains', antennasms)
 
     # determine if phases needs to be included, important if slowgains do not contain phase solutions
@@ -9379,13 +9386,22 @@ def basicsetup(mslist, args):
    t    = pt.table(mslist[0] + '/SPECTRAL_WINDOW',ack=False)
    freq = np.median(t.getcol('CHAN_FREQ')[0])
    t.close()
+   # set telescope
+   t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
+   telescope = t.getcol('TELESCOPE_NAME')[0] 
+   t.close()
 
-   if freq < 100e6:
-     LBA = True
-     HBAorLBA = 'HBA'
-   else:
+   if telescope == 'LOFAR':
+     if freq < 100e6:
+       LBA = True
+       HBAorLBA = 'HBA'
+     else:
+       LBA = False
+       HBAorLBA = 'LBA'
+   else: 
+     HBAorLBA = 'other'
      LBA = False
-     HBAorLBA = 'LBA'
+     HBA = False
 
    # set some default values if not provided
    if args['uvmin'] is None:
