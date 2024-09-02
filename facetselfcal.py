@@ -8404,29 +8404,17 @@ def predictsky_wscleanfits(ms, imagebasename, usewgridder=True, \
 
 
 def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None,beamproximitylimit=240.0):
-   try:
-      run('showsourcedb in=' + skymodel + ' > /dev/null') 
-      sourcedb = skymodel # means skymodel is already a binary sourcedb
-   except:
-      # make sourcedb
-      sourcedb = skymodel + 'sourcedb'
-      if os.path.isfile(sourcedb):
-         os.system('rm -rf ' + sourcedb)
-      cmdmsdb = "makesourcedb in=" + skymodel + " "
-      cmdmsdb += "out=" + sourcedb + " outtype='blob' format='<' append=False"
-      print(cmdmsdb)
-      run(cmdmsdb)
 
    cmd = 'DP3 numthreads='+str(multiprocessing.cpu_count())+ ' msin=' + ms + ' msout=. '
-   cmd += 'p.sourcedb=' + sourcedb + ' steps=[p] p.type=predict msout.datacolumn=' + modeldata + ' '
+   cmd += 'p.sourcedb=' + skymodel + ' steps=[p] p.type=predict msout.datacolumn=' + modeldata + ' '
    if sources is not None:
       cmd += 'p.sources=[' + str(sources) + '] '
    if predictskywithbeam:
       cmd += 'p.usebeammodel=True p.usechannelfreq=True p.beammode=array_factor '
       cmd += 'p.beamproximitylimit=' + str(beamproximitylimit) + ' '
+
    print(cmd)
    run(cmd)
-   return
 
 def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms):
    modeldatacolumns_solve = []
