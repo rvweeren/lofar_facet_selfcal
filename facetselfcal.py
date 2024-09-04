@@ -7740,6 +7740,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         model_allzero = checkforzerocleancomponents(glob.glob(imageout + '-*model*.fits'))
       if model_allzero:
           logger.error("All channel maps models were zero: Stopping the selfcal")
+          print("All channel maps models were zero: Stopping the selfcal")
           sys.exit(0)
 
       if predict and len(h5list) == 0 and not DDEimaging: 
@@ -9632,6 +9633,7 @@ def main():
 
    # if a config file exists, then read the information. Priotise specified config over default
    if os.path.isfile(options.configpath):
+      print("Using config file located at {options.configpath}")
       config = options.configpath
    else:
       config = 'facetselfcal_config.txt'
