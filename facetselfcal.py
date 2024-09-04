@@ -32,6 +32,7 @@
 # Standard library imports
 import argparse
 import ast
+import configparser
 import fnmatch
 import glob
 import logging
@@ -9997,38 +9998,31 @@ def main():
 
    options = parser.parse_args()
 
-   # if a config file exists, then read the information. Priotise specified config over default
+   # If a config file exists, then read the information. Priotise specified config over default.
    if os.path.isfile(options.configpath):
-      print("Using config file located at {options.configpath}")
-      config = options.configpath
+       config = options.configpath
    else:
-      config = 'facetselfcal_config.txt'
+       config = "facetselfcal_config.txt"
 
    if os.path.isfile(config):
-      print('A config file (%s) exists, using it. This contains:'%config)
-      with open(config, 'r') as f:
-         lines = f.readlines()
-      for line in lines:
-         print( line )
-         # first get the value
-         lineval = line.split('=')[1].lstrip().rstrip('\n')
-         try:
-            lineval = float( lineval )
-            if int(lineval) - lineval == 0:
-               lineval = int(lineval)
-         except:
-            if '[' in lineval:
-                lineval = arg_as_list(lineval)
-            elif (lineval.lower() == 'true') or (lineval.lower() == 'false'):
-                print(type(lineval))
-                print(lineval)
-                lineval = ast.literal_eval(lineval)
-         # this updates the vaue if it exists, or creates a new one if it doesn't
-         arg = line.split('=')[0].rstrip()
-         if arg not in vars(options).keys():
-            raise KeyError('Encountered invalid option {:s} in config file {:s}.'.format(arg, os.path.abspath('facetselfcal_config.txt')))
-         setattr(options, arg, lineval)
-
+       print("A config file (%s) exists, using it. This contains:" % config)
+       parser = configparser.ConfigParser()
+       # Preserve upper case in options
+       parser.optionxform = str
+       with open(config) as f:
+           parser.read_string("[DEFAULT]\n" + f.read())
+       for k, v in parser["DEFAULT"].items():
+           print(f"{k} = {v}")
+           if k not in vars(options).keys():
+               raise KeyError(
+                   "Encountered invalid option {:s} in config file {:s}.".format(
+                       k, os.path.abspath(config)
+                   )
+               )
+           if os.path.exists(os.path.expanduser(v)):
+               setattr(options, k, v)
+           else:
+               setattr(options, k, ast.literal_eval(v))
    args = vars(options)
    
    if args['stack']:
