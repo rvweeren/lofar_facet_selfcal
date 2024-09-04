@@ -16,13 +16,7 @@ import csv
 import sys
 from argparse import ArgumentParser
 from typing import Union
-
-try: # fix this?
-    from selfcal_selection import parse_source_from_h5
-    import scienceplots
-    plt.style.use(['science', 'ieee'])
-except ImportError:
-    pass
+from selfcal_selection import parse_source_from_h5
 
 
 def make_utf8(inp):
@@ -73,7 +67,7 @@ class GetSolint:
 
         :param h5: h5parm
         :param optimal_score: score to fit solution interval
-        :param ref_solint: reference solution interval
+        :param ref_solint: reference solution interval in minutes
         :param station: station name
         """
 
@@ -90,24 +84,29 @@ class GetSolint:
         Plot circstd score in function of solint for given C
         """
 
-        # normal_sigmas = [n / 1000 for n in range(1, 10000)]
-        # values = [circstd(normal(0, n, 300)) for n in normal_sigmas]
-        # x = (self.C*limit**2) / (np.array(normal_sigmas) ** 2) / 2
+        plt.figure(figsize=(10, 7), dpi=120)
         bestsolint = self.best_solint
-        # plt.plot(x, values, alpha=0.5)
         solints = np.array(range(1, int(max(bestsolint * 200, self.ref_solint * 150)))) / 100
-        plt.plot(solints, [self.theoretical_curve(float(t)) for t in solints], color='green')
-        plt.scatter([self.ref_solint], [self.cstd], c='blue', label='measurement', s=80, marker='x')
-        plt.scatter([bestsolint], [self.optimal_score], color='red', label='best solint', s=80, marker='x')
+        plt.plot(solints, [self.theoretical_curve(float(t)) for t in solints],
+                 color='#2ca02c', linewidth=2, label='Theoretical Curve')
+        plt.scatter([self.ref_solint], [self.cstd], label=f'Solint={int(round(self.ref_solint, 0))}min',
+                    s=250, marker='X', edgecolor='black', zorder=5, alpha=0.8)
+        plt.scatter([bestsolint], [self.optimal_score], color='#d62728', label='Best Solint',
+                    s=250, marker='*', edgecolor='black', zorder=5, alpha=0.9)
         if extrapoints is not None:
-            plt.scatter(extrapoints[0], extrapoints[1], color='orange', label='other measurements', s=80, marker='x')
+            plt.scatter(extrapoints[0], extrapoints[1], color='orange', label='Other Measurements',
+                s=80, marker='o', edgecolor='black', zorder=5, alpha=0.7)
         plt.xlim(0, max(bestsolint * 1.5, self.ref_solint * 1.5))
-        # plt.xlim(0, 0.2)
-        plt.xlabel("solint (min)")
-        plt.ylabel("circstd score")
-        plt.legend(frameon=True, loc='upper right', fontsize=10)
+        plt.xlabel("Solint (min)", fontsize=14)
+        plt.ylabel("$\sigma_{c}$ (rad)", fontsize=16)
+
+        plt.xticks(fontsize=13)  # Setting the font size for x-ticks
+        plt.yticks(fontsize=13)  # Setting the font size for y-ticks
+
+        plt.legend(frameon=True, loc='upper right', fontsize=12, fancybox=True, shadow=True)
         if title is not None:
-            plt.title(title)
+            plt.title(title, fontsize=16, fontweight='bold')
+        plt.tight_layout()
         if saveas is not None:
             plt.savefig(saveas)
         else:
@@ -138,6 +137,7 @@ class GetSolint:
         if self.cstd == 0:
             self.get_phasediff_score(station=self.station)
         normvar = self._circvar_to_normvar(self.cstd ** 2)
+        print(normvar, type(normvar))
         return normvar * self.ref_solint
 
     def get_phasediff_score(self, station: str = None):
@@ -234,8 +234,6 @@ def parse_args():
 
 def main():
 
-    print('WARNING: THIS SCRIPT HAS BEEN MOVED TO https://github.com/rvweeren/lofar_facet_selfcal REPOSITORY\n'
-          'This version has therefore not be maintained since September 2024')
 
     args = parse_args()
 
