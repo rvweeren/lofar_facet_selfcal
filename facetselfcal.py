@@ -9177,101 +9177,68 @@ def get_phasediff_score(h5, station=False):
         return circstd(phasemod, nan_policy='omit')
 
 
-def get_phasediff_score_old(h5):
-    """
-    Calculate score for phasediff
-    :param h5: input h5 file
-    :return: circular standard deviation score
-    """
-    from scipy.stats import circstd
-    H = tables.open_file(h5)
-
-    stations = [make_utf8(s) for s in list(H.root.sol000.antenna[:]['name'])]
-    distant_stations_idx = [stations.index(station) for station in stations if
-                            ('RS' not in station) &
-                            ('ST' not in station) &
-                            ('CS' not in station) &
-                            ('DE' not in station)]
-
-    axes = str(H.root.sol000.phase000.val.attrs["AXES"]).replace("b'", '').replace("'", '').split(',')
-    axes_idx = sorted({ax: axes.index(ax) for ax in axes}.items(), key=lambda x: x[1], reverse=True)
-
-    phase = H.root.sol000.phase000.val[:]
-    H.close()
-
-    phasemod = phase % (2 * np.pi)
-
-    for ax in axes_idx:
-        if ax[0] == 'pol':  # YX should be zero
-            phasemod = phasemod.take(indices=0, axis=ax[1])
-        elif ax[0] == 'dir':  # there should just be one direction
-            if phasemod.shape[ax[1]] == 1:
-                phasemod = phasemod.take(indices=0, axis=ax[1])
-            else:
-                sys.exit('ERROR: This solution file should only contain one direction, but it has ' +
-                         str(phasemod.shape[ax[1]]) + ' directions')
-        elif ax[0] == 'freq':  # faraday corrected
-            phasemod = np.diff(phasemod, axis=ax[1])
-        elif ax[0] == 'ant':  # take only international stations
-            phasemod = phasemod.take(indices=distant_stations_idx, axis=ax[1])
-
-    return circstd(phasemod, nan_policy='omit')
-
-
 def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
-   
-   mslist_input = mslist[:] # make a copy
-   # AVERAGE       
-   #mslist = average(mslist, freqstep=[freqstep]*len(mslist), timestep=timestep, \
-   #                 cmakephasediffstat=True,dysco=args['dysco'])
+    """
+    Compute phasediff statistics using circular standard deviations on the solutions of a scalarphasediff solve for
+    international stations.
 
-   # CHECK WE ARE IN CIRCULAR AND DO BEAM CORRECTION
-   for ms in mslist:
-      beamcor_and_lin2circ(ms, dysco=args['dysco'], \
+    The procedure and rational is described in Section 3.3 of de Jong et al. (2024)
+
+    :param mslist: list of measurement sets
+    :param args: input arguments
+    :param nchan: n channels
+    :param solint: solution interval
+    """
+
+    from source_selection.phasediff_output import GetSolint
+   
+    mslist_input = mslist[:] # make a copy
+
+    # Verify if we are in circular pol basis and do beam correction
+    for ms in mslist:
+        beamcor_and_lin2circ(ms, dysco=args['dysco'], \
                            beam=set_beamcor(ms, args['beamcor']), \
                            lin2circ=True,
                            losotobeamlib=args['losotobeamcor_beamlib'])
- 
-   # PHASEUP IF NEEDEED
-   if args['phaseupstations']:
-      mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], \
+
+    # Phaseup if needed
+    if args['phaseupstations']:
+        mslist = phaseup(mslist,datacolumn='DATA',superstation=args['phaseupstations'], \
                        dysco=args['dysco'])
    
-   # SOLVE AND GET BEST SOLUTION INTERVAL
-   os.system('cp ' + args['helperscriptspathh5merge'] + '/source_selection/phasediff_output.py .')
-   from phasediff_output import GetSolint
-   for ms_id, ms in enumerate(mslist):
-     scorelist = []
-     for solint in range(10,11): # temporary for loop
-       parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
-       runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,\
+    # Solve and get best solution interval
+    for ms_id, ms in enumerate(mslist):
+        scorelist = []
+        parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
+        runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,\
                    dysco=args['dysco'])
 
-       # GET THE STATISTIC
-       score = get_phasediff_score(parmdb)
-       scorelist.append(score)
-       print('phasediff score', score, ms)
-       logger.info('phasediff score: ' +str(score) + '   ' +  ms)
+        # Get the statistic
+        score = get_phasediff_score(parmdb)
+        scorelist.append(score)
+        print('phasediff score', score, ms)
+        logger.info('phasediff score: ' +str(score) + '   ' +  ms)
 
-       #reference solution interval
-       ref_solint = solint
+        # Reference solution interval
+        ref_solint = solint
 
-       # write to STAT SCORE to original MS DATA-col header mslist_input
-       t = pt.table(mslist_input[ms_id],  readonly=False)
-       t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', score)
-       t.close()
-     print(scorelist)
+        # Write to STAT SCORE to original MS DATA-col header mslist_input
+        t = pt.table(mslist_input[ms_id],  readonly=False)
+        t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', score)
+        t.close()
+
+    print(scorelist)
    
-     #set optimal std score
-     optimal_score = 1.75
+    # Set optimal std score
+    optimal_score = 1.75
 
-     S = GetSolint(parmdb, optimal_score=optimal_score, ref_solint=ref_solint)
-     solint = S.best_solint  # --> THIS IS YOUR BEST SOLUTION INTERVAL
-     #print(solint, S.best_solint, S.ref_solint, S.optimal_score)
+    S = GetSolint(parmdb, optimal_score=optimal_score, ref_solint=ref_solint)
 
-     S.plot_C("T=" + str(round(S.best_solint, 2)) + " min",  ms + '_phasediffscore.png')
+    print(solint, S.best_solint, S.ref_solint, S.optimal_score)
+
+    S.plot_C("T=" + str(round(S.best_solint, 2)) + " min",  ms + '_phasediffscore.png')
    
-   return
+    return
 
 def multiscale_trigger(fitsmask, args):
    # update multiscale cleaning setting if allowed/requested
@@ -9524,6 +9491,7 @@ def main():
    calibrationparser.add_argument('--gainfactorsolint', help='Experts only.', type=float, default=1.0)
    calibrationparser.add_argument('--phasefactorsolint', help='Experts only.', type=float, default=1.0)
    calibrationparser.add_argument('--compute-phasediffstat', help='Experts only.',  action='store_true')
+   calibrationparser.add_argument('--get-diagnostics', help='Experts only: With this functionality you can get a prediction which selfcal cycle gives the highest quality output (works only when >5 selfcal cycle)', action='store_true')
    calibrationparser.add_argument('--QualityBasedWeights', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--QualityBasedWeights-start', help='Experts only.',  type=int, default=5)
    calibrationparser.add_argument('--QualityBasedWeights-dtime', help='QualityBasedWeights timestep in units of minutes (default 5)',  type=float, default=5.0)
@@ -9603,7 +9571,6 @@ def main():
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction.', action='store_true')
    parser.add_argument('--targetcalILT', help="Type of automated target calibration for HBA international baseline data when --auto is used. Options are: 'tec', 'tecandphase', 'scalarphase'. The default is 'tec'.", default='scalarphase', type=str)
    parser.add_argument('--stack', help='Stacking of visibility data for multiple sources to increase S/N - still under construction.', action='store_true')
-   parser.add_argument('--get_diagnostics', help='Experts only: With this functionality you can get a prediction for which selfcal cycle gives the highest quality output (works only when >5 selfcal cycle)', action='store_true')
 
 
    parser.add_argument('ms', nargs='+', help='msfile(s)')
@@ -9756,7 +9723,7 @@ def main():
    # COMPUTE PHASE-DIFF statistic
    if args['compute_phasediffstat']:
       compute_phasediffstat(mslist, args)
-      sys.exit()
+      # sys.exit()
 
    # set once here, preserve original mslist in case --removeinternational was set
    if args['removeinternational'] is not None:
@@ -10162,19 +10129,20 @@ def main():
 
    # Get additional diagnostics about the selfcal quality --> in particular useful for calibrator selection
    if args['get_diagnostics']:
-       logger.info("WARNING: --get_diagnostics is still an experimental option")
+       from source_selection.selfcal_selection import main as quality_check
        if abs(args['stop']-args['start'])>5:
-           mergedh5 = [h5 for h5 in glob.glob('merged_selfcalcyle*.h5') if 'linearfulljones' not in h5]
-           if longbaseline:
-               station = 'international'
+           mergedh5 = [h5 for h5 in glob.glob('merged_selfcal*.h5') if 'linearfulljones' not in h5]
+           if len(mergedh5)>0:
+               if longbaseline:
+                   station = 'international'
+               else:
+                   station = 'alldutch'
+               images = glob.glob("*MFS-I-image.fits")
+               if len(images)==0:
+                   images = glob.glob("*MFS-image.fits")
+               quality_check(mergedh5, images, station)
            else:
-               station = 'alldutch'
-           images = glob.glob("*MFS-I-image.fits")
-           if len(images)==0:
-               images = glob.glob("*MFS-image.fits")
-           os.system('cp ' + args['helperscriptspathh5merge'] + '/source_selection/selfcal_selection.py .')
-           from selfcal_selection import main as quality_check
-           quality_check(mergedh5, images, station)
+               logger.info("Cannot find merged_selfcal*.h5, so cannot perform --get-diagnostics.")
        else:
            logger.info("Need at least 5 selfcal cycles for getting diagnostics")
 
