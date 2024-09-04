@@ -9638,16 +9638,25 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
         t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', score)
         t.close()
 
-    print(scorelist)
-   
-    # Set optimal std score
-    optimal_score = 1.75
+        print(scorelist)
 
-    S = GetSolint(parmdb, optimal_score=optimal_score, ref_solint=ref_solint)
+        # Set optimal std score
+        optimal_score = 1.75
 
-    print(solint, S.best_solint, S.ref_solint, S.optimal_score)
+        if type(ref_solint) == str:
+            if 'min' in ref_solint:
+                ref_solint = float(re.findall(r'-?\d+', ref_solint)[0])
+            elif ref_solint[-1]=='s' or ref_solint[-1]=='sec':
+                ref_solint = float(re.findall(r'-?\d+', ref_solint)[0])//60
+            else:
+                sys.exit("ERROR: ref_solint needs to be a float with solution interval in minutes "
+                         "or string ending on min (minutes) or s/sec (seconds)")
 
-    S.plot_C("T=" + str(round(S.best_solint, 2)) + " min",  ms + '_phasediffscore.png')
+        S = GetSolint(parmdb, optimal_score=optimal_score, ref_solint=ref_solint)
+
+        print(solint, S.best_solint, S.ref_solint, S.optimal_score)
+
+        S.plot_C("T=" + str(round(S.best_solint, 2)) + " min",  ms + '_phasediffscore.png')
    
     return
 
