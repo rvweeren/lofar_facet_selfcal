@@ -10573,6 +10573,8 @@ def main():
                images = glob.glob("*MFS-I-image.fits")
                if len(images)==0:
                    images = glob.glob("*MFS-image.fits")
+               # Remove 1.2arcsectaper
+               images = [im for im in images if 'arcsectaper' not in im]
                quality_check(mergedh5, images, station)
            else:
                logger.info("Cannot find merged_selfcal*.h5, so cannot perform --get-diagnostics.")
