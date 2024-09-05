@@ -16,7 +16,7 @@ import csv
 import sys
 from argparse import ArgumentParser
 from typing import Union
-
+from numpy.random import normal
 
 
 def make_utf8(inp):
@@ -77,7 +77,7 @@ class GetSolint:
         self.cstd = 0
         self.C = None
         self.station = station
-        self.limit = np.pi
+        self.limit = np.pi*np.sqrt(3)
 
     def plot_C(self, title: str = None, saveas: str = None, extrapoints: Union[list, tuple] = None):
         """
@@ -85,13 +85,20 @@ class GetSolint:
         """
 
         plt.figure(figsize=(10, 7), dpi=120)
+        normal_sigmas = [n / 1000 for n in range(1, 10000)]
+        values = [circstd(normal(0, n, 300)) for n in normal_sigmas]
+        x = (self.C * self.limit ** 2) / (np.array(normal_sigmas) ** 2) / 2
+        plt.plot(x, values, alpha=0.5)
+
         bestsolint = self.best_solint
         solints = np.array(range(1, int(max(bestsolint * 200, self.ref_solint * 150)))) / 100
-        plt.plot(solints, [self.theoretical_curve(float(t)) for t in solints],
+        y = [self.theoretical_curve(float(t)) for t in solints if self.theoretical_curve(float(t))]
+        mask = [False if v>np.pi else True for v in y]
+        plt.plot(np.array(solints)[mask], np.array(y)[mask],
                  color='#2ca02c', linewidth=2, label='Theoretical Curve')
         plt.scatter([self.ref_solint], [self.cstd], label=f'Solint={int(round(self.ref_solint, 0))}min',
-                    s=250, marker='X', edgecolor='black', zorder=5, alpha=0.8)
-        plt.scatter([bestsolint], [self.optimal_score], color='#d62728', label='Best Solint',
+                    s=250, marker='X', edgecolor='darkblue', zorder=5, alpha=0.8, color='black')
+        plt.scatter([bestsolint], [self.optimal_score], color='#d62728', label=f'Solint={round(self.best_solint,2)}min',
                     s=250, marker='*', edgecolor='black', zorder=5, alpha=0.9)
         if extrapoints is not None:
             plt.scatter(extrapoints[0], extrapoints[1], color='orange', label='Other Measurements',
@@ -114,17 +121,17 @@ class GetSolint:
 
         return self
 
-    def _circvar_to_normvar(self, circ_var: float = None):
+    def _get_circvar(self, cst: float = None):
         """
-        Convert circular variance to normal variance
+        Get circvar score
 
         return: circular variance
         """
 
-        if circ_var >= self.limit ** 2:
+        if cst >= self.limit ** 2:
             return 999 # replacement for infinity
         else:
-            return -2 * np.log(1 - circ_var / (self.limit ** 2))
+            return -2 * np.log(1 - cst / (self.limit ** 2))
 
     @property
     def _get_C(self):
@@ -136,9 +143,7 @@ class GetSolint:
 
         if self.cstd == 0:
             self.get_phasediff_score(station=self.station)
-        normvar = self._circvar_to_normvar(self.cstd ** 2)
-        print(normvar, type(normvar))
-        return normvar * self.ref_solint
+        return self._get_circvar(self.cstd ** 2) * self.ref_solint
 
     def get_phasediff_score(self, station: str = None):
         """
@@ -204,7 +209,7 @@ class GetSolint:
             self.get_phasediff_score(station=self.station)
         self.C = self._get_C
         optimal_cirvar = self.optimal_score ** 2
-        return self.C / (self._circvar_to_normvar(optimal_cirvar))
+        return self.C / (self._get_circvar(optimal_cirvar))
 
     def theoretical_curve(self, t):
         """
@@ -229,7 +234,7 @@ def parse_args():
     parser.add_argument('--station', help='for one specific station', default=None)
     parser.add_argument('--all_stations', action='store_true', help='for all stations specifically')
     parser.add_argument('--make_plot', action='store_true', help='make phasediff plot')
-    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=2.4, type=float)
+    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.75, type=float)
     return parser.parse_args()
 
 def main():
@@ -274,7 +279,7 @@ def main():
                 from selfcal_selection import parse_source_from_h5
                 writer.writerow([parse_source_from_h5(h5) + station, std, solint, dir[0], dir[1]])
                 if args.make_plot:
-                    S.plot_C("T=" + str(round(solint, 2)) + " min", saveas=h5 + station + '.png')
+                    S.plot_C()
                 H.close()
             # except:
             #     pass
