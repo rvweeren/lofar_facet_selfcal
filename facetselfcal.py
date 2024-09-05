@@ -9499,7 +9499,7 @@ def main():
    calibrationparser.add_argument('--tecfactorsolint', help='Experts only.', type=float, default=1.0)
    calibrationparser.add_argument('--gainfactorsolint', help='Experts only.', type=float, default=1.0)
    calibrationparser.add_argument('--phasefactorsolint', help='Experts only.', type=float, default=1.0)
-   calibrationparser.add_argument('--compute-phasediffstat', help='Experts only.',  action='store_true')
+   calibrationparser.add_argument('--compute-phasediffstat', help='Experts only: Get phasediff statistics for long-baseline calibrator dataset (see de Jong et al. 2024)',  action='store_true')
    calibrationparser.add_argument('--get-diagnostics', help='Experts only: With this functionality you can get a prediction which selfcal cycle gives the highest quality output (works only when >5 selfcal cycle)', action='store_true')
    calibrationparser.add_argument('--QualityBasedWeights', help='Experts only.',  action='store_true')
    calibrationparser.add_argument('--QualityBasedWeights-start', help='Experts only.',  type=int, default=5)
@@ -9731,8 +9731,10 @@ def main():
 
    # COMPUTE PHASE-DIFF statistic
    if args['compute_phasediffstat']:
-      compute_phasediffstat(mslist, args)
-      # sys.exit()
+      if longbaseline:
+          compute_phasediffstat(mslist, args)
+      else:
+          logger.info("--compute-phasediffstat requested but no long-baselines in dataset.")
 
    # set once here, preserve original mslist in case --removeinternational was set
    if args['removeinternational'] is not None:
