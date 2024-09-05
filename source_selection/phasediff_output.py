@@ -87,7 +87,7 @@ class GetSolint:
         plt.figure(figsize=(10, 7), dpi=120)
         normal_sigmas = [n / 1000 for n in range(1, 10000)]
         values = [circstd(normal(0, n, 300)) for n in normal_sigmas]
-        x = (self.C * self.limit ** 2) / (np.array(normal_sigmas) ** 2) / 2
+        x = (self.C * self.limit ** 2) / (np.array(normal_sigmas) ** 2)
         plt.plot(x, values, alpha=0.5)
 
         bestsolint = self.best_solint
@@ -131,7 +131,7 @@ class GetSolint:
         if cst >= self.limit ** 2:
             return 999 # replacement for infinity
         else:
-            return -2 * np.log(1 - cst / (self.limit ** 2))
+            return - np.log(1 - cst / (self.limit ** 2))
 
     @property
     def _get_C(self):
@@ -219,7 +219,7 @@ class GetSolint:
 
         if self.C is None:
             self.C = self._get_C
-        return self.limit * np.sqrt(1 - np.exp(-(self.C / (2 * t))))
+        return self.limit * np.sqrt(1 - np.exp(-(self.C / t)))
 
 
 def parse_args():
@@ -279,7 +279,7 @@ def main():
                 from selfcal_selection import parse_source_from_h5
                 writer.writerow([parse_source_from_h5(h5) + station, std, solint, dir[0], dir[1]])
                 if args.make_plot:
-                    S.plot_C()
+                    S.plot_C(saveas='phasediff.png')
                 H.close()
             # except:
             #     pass

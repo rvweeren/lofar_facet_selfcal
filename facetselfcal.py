@@ -10142,7 +10142,7 @@ def main():
    if args['get_diagnostics']:
        from source_selection.selfcal_selection import main as quality_check
        if abs(args['stop']-args['start'])>5:
-           mergedh5 = [h5 for h5 in glob.glob('merged_selfcal*.h5') if 'linearfulljones' not in h5]
+           mergedh5 = sorted([h5 for h5 in glob.glob('merged_selfcal*.h5') if 'linearfulljones' not in h5])
            if len(mergedh5)>0:
                if longbaseline:
                    station = 'international'
@@ -10152,7 +10152,7 @@ def main():
                if len(images)==0:
                    images = glob.glob("*MFS-image.fits")
                # Remove 1.2arcsectaper
-               images = [im for im in images if 'arcsectaper' not in im]
+               images = sorted([im for im in images if 'arcsectaper' not in im])
                quality_check(mergedh5, images, station)
            else:
                logger.info("Cannot find merged_selfcal*.h5, so cannot perform --get-diagnostics.")
