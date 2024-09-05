@@ -77,7 +77,7 @@ class GetSolint:
         self.cstd = 0
         self.C = None
         self.station = station
-        self.limit = np.pi*np.sqrt(3)
+        self.limit = np.pi*2
 
     def plot_C(self, title: str = None, saveas: str = None, extrapoints: Union[list, tuple] = None):
         """
