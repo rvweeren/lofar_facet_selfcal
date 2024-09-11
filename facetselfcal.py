@@ -7010,26 +7010,28 @@ def normamplitudes_old(parmdb, norm_per_ms=False):
 
 
 def checkforzerocleancomponents(imagenames):
-    '''
-    check if something was cleaned, if not stop de script to avoid more obscure errors later
-    '''
+    """ Check if something was cleaned, if not stop de script to avoid more obscure errors later
+
+    Args:
+        imagenames (list): List of model images to check for clean components.
+
+    Returns:
+        True if all model images are zero, False otherwise.
+    """
     n_images = len(imagenames)
-    n_zeros  = 0
+    n_zeros = 0
     for image_id, image in enumerate(imagenames):
-        print('Check if there are non-zero pixels: ', image)
+        print("Check if there are non-zero pixels: ", image)
         hdul = fits.open(image)
         data = hdul[0].data
-        if not np.any(data): # this checks if all elements are 0.0
-          print('Model image:', image, 'contains only zeros.')
-          #hdul.close()
-          #logger.error('Model image: ' + image + ' contains only zeros. Stopping the selfcal')
-          #raise Exception('One of the model images contains only zeros')
-          n_zeros = n_zeros + 1
+        if not np.any(data):  # this checks if all elements are 0.0
+            print("Model image:", image, "contains only zeros.")
+            n_zeros = n_zeros + 1
         hdul.close()
     if n_zeros == n_images:
-      logger.error('All channel maps models were zero: Stopping the selfcal')
-      raise Exception('All model images contain zeros')  
-    return
+        return True
+    else:
+        return False
 
 
 def get_image_dynamicrange(image):
@@ -7933,9 +7935,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
       # Check is anything was cleaned. If not, stop the selfcal to avoid obscure errors later
       if channelsout > 1: 
-        checkforzerocleancomponents(glob.glob(imageout +'-????-*model*.fits'))  # only Stokes I
+        model_allzero = checkforzerocleancomponents(glob.glob(imageout +'-????-*model*.fits'))  # only Stokes I
       else:
-        checkforzerocleancomponents(glob.glob(imageout + '-*model*.fits'))
+        model_allzero = checkforzerocleancomponents(glob.glob(imageout + '-*model*.fits'))
+      if model_allzero:
+          logger.error("All channel maps models were zero: Stopping the selfcal")
+          print("All channel maps models were zero: Stopping the selfcal")
+          sys.exit(0)
 
       if predict and len(h5list) == 0 and not DDEimaging: 
         # we check for DDEimaging to avoid a predict for image000 in a --DDE run
