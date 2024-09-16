@@ -10,7 +10,7 @@ import tables
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import circstd
+from scipy.stats import circstd, circvar
 from glob import glob
 import csv
 import sys
@@ -77,7 +77,9 @@ class GetSolint:
         self.cstd = 0
         self.C = None
         self.station = station
-        self.limit = np.pi*2
+
+        # updated later in script
+        self.limit = np.pi
 
     def plot_C(self, title: str = None, saveas: str = None, extrapoints: Union[list, tuple] = None):
         """
@@ -86,8 +88,8 @@ class GetSolint:
 
         plt.figure(figsize=(10, 7), dpi=120)
         normal_sigmas = [n / 1000 for n in range(1, 10000)]
-        values = [circstd(normal(0, n, 300)) for n in normal_sigmas]
-        x = (self.C * self.limit ** 2) / (np.array(normal_sigmas) ** 2)
+        values = np.array([np.sqrt(circvar(normal(0, n, 300))) for n in normal_sigmas])*self.limit
+        x = (self.C * 2) / (np.array(normal_sigmas) ** 2)
         plt.plot(x, values, alpha=0.5)
 
         bestsolint = self.best_solint
@@ -103,7 +105,7 @@ class GetSolint:
         if extrapoints is not None:
             plt.scatter(extrapoints[0], extrapoints[1], color='orange', label='Other Measurements',
                 s=80, marker='o', edgecolor='black', zorder=5, alpha=0.7)
-        plt.xlim(min(bestsolint / 1.5, self.ref_solint / 1.5), max(bestsolint * 1.25, self.ref_solint * 1.25))
+        plt.xlim(0, max(bestsolint * 1.25, self.ref_solint * 1.25))
         plt.xlabel("Solint (min)", fontsize=22)
         plt.ylabel("$\sigma_{c}$ (rad)", fontsize=22)
 
@@ -121,18 +123,6 @@ class GetSolint:
 
         return self
 
-    def _get_circvar(self, cst: float = None):
-        """
-        Get circvar score
-
-        return: circular variance
-        """
-
-        if cst >= self.limit ** 2:
-            return 999 # replacement for infinity
-        else:
-            return - np.log(1 - cst / (self.limit ** 2))
-
     @property
     def _get_C(self):
         """
@@ -143,7 +133,7 @@ class GetSolint:
 
         if self.cstd == 0:
             self.get_phasediff_score(station=self.station)
-        return self._get_circvar(self.cstd ** 2) * self.ref_solint
+        return - np.log(1 - self.cstd ** 2 / (self.limit ** 2)) * self.ref_solint
 
     def get_phasediff_score(self, station: str = None):
         """
@@ -161,8 +151,7 @@ class GetSolint:
                             ('RS' not in stion) &
                             ('ST' not in stion) &
                             ('CS' not in stion) &
-                            ('DE' not in stion) &
-                            ('PL' not in stion)]
+                            ('DE' not in stion)]
         else:
             stations_idx = [stations.index(station)]
 
@@ -195,6 +184,8 @@ class GetSolint:
 
         self.cstd = circstd(phasemod, nan_policy='omit')
 
+        self.limit = self.cstd/np.sqrt(circvar(phasemod, nan_policy='omit'))
+
         return circstd(phasemod, nan_policy='omit')
 
     @property
@@ -208,8 +199,7 @@ class GetSolint:
         if self.cstd == 0:
             self.get_phasediff_score(station=self.station)
         self.C = self._get_C
-        optimal_cirvar = self.optimal_score ** 2
-        return self.C / (self._get_circvar(optimal_cirvar))
+        return - self.C / np.log(1 - self.optimal_score ** 2 / (self.limit ** 2))
 
     def theoretical_curve(self, t):
         """
@@ -234,7 +224,7 @@ def parse_args():
     parser.add_argument('--station', help='for one specific station', default=None)
     parser.add_argument('--all_stations', action='store_true', help='for all stations specifically')
     parser.add_argument('--make_plot', action='store_true', help='make phasediff plot')
-    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.75, type=float)
+    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.5, type=float)
     return parser.parse_args()
 
 def main():
