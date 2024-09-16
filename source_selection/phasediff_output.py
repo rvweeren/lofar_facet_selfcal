@@ -97,22 +97,22 @@ class GetSolint:
         plt.plot(np.array(solints)[mask], np.array(y)[mask],
                  color='#2ca02c', linewidth=2, label='Theoretical Curve')
         plt.scatter([self.ref_solint], [self.cstd], label=f'Solint={int(round(self.ref_solint, 0))}min',
-                    s=250, marker='X', edgecolor='darkblue', zorder=5, alpha=0.8, color='black')
+                    s=400, marker='X', edgecolor='darkblue', zorder=5, alpha=0.8, color='black')
         plt.scatter([bestsolint], [self.optimal_score], color='#d62728', label=f'Solint={round(self.best_solint,2)}min',
-                    s=250, marker='*', edgecolor='black', zorder=5, alpha=0.9)
+                    s=400, marker='*', edgecolor='black', zorder=5, alpha=0.9)
         if extrapoints is not None:
             plt.scatter(extrapoints[0], extrapoints[1], color='orange', label='Other Measurements',
                 s=80, marker='o', edgecolor='black', zorder=5, alpha=0.7)
-        plt.xlim(0, max(bestsolint * 1.5, self.ref_solint * 1.5))
-        plt.xlabel("Solint (min)", fontsize=14)
-        plt.ylabel("$\sigma_{c}$ (rad)", fontsize=16)
+        plt.xlim(min(bestsolint / 1.5, self.ref_solint / 1.5), max(bestsolint * 1.25, self.ref_solint * 1.25))
+        plt.xlabel("Solint (min)", fontsize=22)
+        plt.ylabel("$\sigma_{c}$ (rad)", fontsize=22)
 
-        plt.xticks(fontsize=13)  # Setting the font size for x-ticks
-        plt.yticks(fontsize=13)  # Setting the font size for y-ticks
+        plt.xticks(fontsize=18)  # Setting the font size for x-ticks
+        plt.yticks(fontsize=18)  # Setting the font size for y-ticks
 
-        plt.legend(frameon=True, loc='upper right', fontsize=12, fancybox=True, shadow=True)
-        if title is not None:
-            plt.title(title, fontsize=16, fontweight='bold')
+        plt.legend(frameon=True, loc='upper right', fontsize=18, fancybox=True, shadow=True)
+        # if title is not None:
+        #     plt.title(title, fontsize=16, fontweight='bold')
         plt.tight_layout()
         if saveas is not None:
             plt.savefig(saveas)
