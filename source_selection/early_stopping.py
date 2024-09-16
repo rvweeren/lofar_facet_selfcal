@@ -9,7 +9,7 @@ except ImportError:
     sys.exit('ERROR: Missing cortex.predictors --> please install pip install "git+https://github.com/jurjen93/lofar_helpers@inference_script#subdirectory=neural_networks"')
 
 
-def early_stopping(folder='.', ampsolve=True, predictor=None):
+def early_stopping(folder='.', predictor=None):
     """
     Determine if early stopping is allowed and return a self-calibration quality score.
 
@@ -38,20 +38,13 @@ def early_stopping(folder='.', ampsolve=True, predictor=None):
     preds = []
     preds_err = []
 
-    if ampsolve:
-        cycle_min = 4
-    else:
-        cycle_min = 2
 
-    selfcal_score = 1
 
     for n, im in enumerate(ims):
         print(f"Determine early-stopping for {im}")
         minmax = get_minmax(im)
         rms = get_rms(im)
         pred, pred_err = [float(i) for i in predictor.predict(im)]
-
-        print(minmax, rms, pred, pred_err)
 
         minmaxs.append(minmax)
         rmss.append(rms)
@@ -60,6 +53,18 @@ def early_stopping(folder='.', ampsolve=True, predictor=None):
 
         if n>0:
             selfcal_score = rms/rmss[0] * minmax/minmaxs[0] * pred/preds[0]
+            print(selfcal_score)
+        else:
+            signal = get_signal(im)
+
+            if signal>7:
+                cycle_min = 4
+            else:
+                cycle_min = 2
+
+            selfcal_score = 1
+
+        print(minmax, rms, pred, pred_err, signal)
 
         if n>cycle_min:
 
@@ -68,49 +73,77 @@ def early_stopping(folder='.', ampsolve=True, predictor=None):
                 and minmax<minmaxs[0]
                 and pred_err<0.2):
                 print('Early-stopping criteria 1: Converged')
-                return n, selfcal_score
+                return n, selfcal_score, signal, 'converged'
 
             elif (pred<0.25
                 and minmax<minmaxs[0]
                 and pred_err<0.2):
                 print('Early-stopping criteria 2: Converged')
-                return n, selfcal_score
+                return n, selfcal_score, signal, 'converged'
 
             elif (pred<0.4
                 and min(minmaxs)==minmax
                 and pred_err<0.2):
                 print('Early-stopping criteria 3: Converged')
-                return n, selfcal_score
+                return n, selfcal_score, signal, 'converged'
 
             elif (pred<0.4
                 and n>=5
-                and rms<rmss[0]
+                and rms/rmss[0]<1.05
                 and minmax<minmaxs[0]
                 and minmax<minmaxs[1]
                 and minmax<minmaxs[2]
                 and pred_err<0.2):
                 print('Early-stopping criteria 4: Converged')
-                return n, selfcal_score
+                return n, selfcal_score, signal, 'converged'
 
-            if (pred>0.6
-                and n>6):
-                print('Early-stopping criteria 5: Diverged')
+            elif (pred<0.5
+                and n>=5
+                and rms/rmss[0]<1.05
+                and minmax<minmaxs[0]
+                and minmax<minmaxs[n-1]
+                and pred_err<0.1):
+                print('Early-stopping criteria 5: Converged')
+                return n, selfcal_score, signal, 'converged'
 
-            elif (pred>0.7
-                and rms>rmss[0]
-                and n>3):
-                print('Early-stopping criteria 6: Diverged')
-                return n, selfcal_score
+            elif pred<0.15:
+                print('Early-stopping criteria 6: Converged')
+                return n, selfcal_score, signal, 'converged'
 
-            elif (pred>0.5
-                and minmax>minmaxs[0]
-                and n>3):
+            if (pred>0.75
+                and n>7):
                 print('Early-stopping criteria 7: Diverged')
-                return n, selfcal_score
+                return n, selfcal_score, signal, 'diverged'
+
+            elif (pred>0.75
+                and rmss[0]/rms<0.95
+                and n>5):
+                print('Early-stopping criteria 8: Diverged')
+                return n, selfcal_score, signal, 'diverged'
+
+            elif (pred>0.65
+                and minmax>minmaxs[0]
+                and rmss[0]/rms<0.95
+                and n>6):
+                print('Early-stopping criteria 9: Diverged')
+                return n, selfcal_score, signal, 'diverged'
+
+            elif (pred>0.6
+                and rmss[0]/rms<0.7):
+                print('Early-stopping criteria 10: Diverged')
+                return n, selfcal_score, signal, 'diverged'
+
+            elif rmss[0]/rms<0.5:
+                print('Early-stopping criteria 11: Diverged')
+                return n, selfcal_score, signal, 'diverged'
+
+            elif minmaxs[0]/minmax<0.5:
+                print('Early-stopping criteria 12: Diverged')
+                return n, selfcal_score, signal, 'diverged'
+
 
     print(f"No early-stopping reached before cycle {n}")
-
-    return n, selfcal_score
+    return n, selfcal_score, signal, 'none'
 
 
 def parse_args():
@@ -142,7 +175,7 @@ def main():
                               model=args.model,
                               variational_dropout=5)
 
-    best_cycle, selfcal_score = early_stopping(args.folder, args.ampsolve, predictor)
+    best_cycle, selfcal_score, _, _ = early_stopping(args.folder, args.ampsolve, predictor)
 
     print(f"Best cycle: {best_cycle}\nSelfcal score: {selfcal_score}")
 
