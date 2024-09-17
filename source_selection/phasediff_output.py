@@ -75,10 +75,10 @@ class GetSolint:
         self.optimal_score = optimal_score
         self.ref_solint = ref_solint
         self.cstd = 0
+        self.cvar = 0
         self.C = None
         self.station = station
 
-        # updated later in script
         self.limit = np.pi
 
     def plot_C(self, title: str = None, saveas: str = None, extrapoints: Union[list, tuple] = None):
@@ -131,8 +131,9 @@ class GetSolint:
         :return: C
         """
 
-        if self.cstd == 0:
+        if self.cvar == 0 or self.cstd:
             self.get_phasediff_score(station=self.station)
+
         return - np.log(1 - self.cstd ** 2 / (self.limit ** 2)) * self.ref_solint
 
     def get_phasediff_score(self, station: str = None):
@@ -183,8 +184,9 @@ class GetSolint:
         phasemod[phasemod == 0] = np.nan
 
         self.cstd = circstd(phasemod, nan_policy='omit')
+        self.cvar = circvar(phasemod, nan_policy='omit')
 
-        self.limit = self.cstd/np.sqrt(circvar(phasemod, nan_policy='omit'))
+        # self.limit = self.cstd/np.sqrt(self.cvar)
 
         return circstd(phasemod, nan_policy='omit')
 
@@ -224,7 +226,7 @@ def parse_args():
     parser.add_argument('--station', help='for one specific station', default=None)
     parser.add_argument('--all_stations', action='store_true', help='for all stations specifically')
     parser.add_argument('--make_plot', action='store_true', help='make phasediff plot')
-    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.5, type=float)
+    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.75, type=float)
     return parser.parse_args()
 
 def main():
