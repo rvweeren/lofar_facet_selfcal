@@ -2,11 +2,29 @@ import sys
 from glob import glob
 from .selfcal_selection import get_minmax, get_rms
 from argparse import ArgumentParser
+from typing import Union
+import numpy as np
+from astropy.io import fits
 
 try:
     from cortex.predictors import StopPredictor
 except ImportError:
     sys.exit('ERROR: Missing cortex.predictors --> please install pip install "git+https://github.com/jurjen93/lofar_helpers@inference_script#subdirectory=neural_networks"')
+
+
+def get_signal(inp: Union[str, np.ndarray]):
+    """
+    Get signal
+    """
+    if isinstance(inp, str):
+        with fits.open(inp) as hdul:
+            data = hdul[0].data
+    else:
+        data = inp
+
+    signal = np.sum(data)
+
+    return signal
 
 
 def early_stopping(folder='.', predictor=None):
