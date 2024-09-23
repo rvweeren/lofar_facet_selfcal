@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-
-# scalarphasediff vs rotation+diagonal?
+# time splitting for MeerKAT
+# time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
 # compression: blosc2
 # useful? https://learning-python.com/thumbspage.html
@@ -88,6 +88,209 @@ os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 # from astropy.utils.data import clear_download_cache
 # clear_download_cache()
+
+def fix_h5(h5_list):
+    '''
+    Fix for h5_merger that cannot handle multi-dir merges where both h5 with and without pol-axis are included
+    '''
+    import h5_merger
+    for h5file in h5_list:
+        outparmdb = h5file.replace('.h5', '.tmp.h5')
+        if os.path.isfile(outparmdb):
+            os.system('rm -f ' + outparmdb)
+        # copy to get a clean h5 with standard dimensions
+        h5_merger.merge_h5(h5_out=outparmdb,h5_tables=h5file,propagate_flags=True)
+
+        # overwrite original 
+        os.system('cp -f ' + outparmdb + ' ' + h5file )
+        os.system('rm -f ' + outparmdb)
+    return
+
+def MeerKAT_antconstraint(antfile='MeerKATlayout.csv', ctype='all'):
+    if ctype not in ['core','remote','all']:
+        print('Wrong input detected, ctype needs to be in core,remote,or all')
+        sys.exit()
+
+    data = ascii.read(antfile,delimiter=';',header_start=0) 
+    distance = np.sqrt(data['East']**2+ data['North']**2 + data['Up']**2)
+    #print(distance
+    idx_core = np.where(distance <= 1000.)
+    idx_rs   = np.where(distance > 1000.)
+    if ctype == 'core':
+        return data['Antenna'][idx_core].tolist()
+    if ctype == 'remote':
+        return data['Antenna'][idx_rs].tolist()
+    if ctype == 'all':  
+        return data['Antenna'].tolist()
+
+def remove_column_ms(mslist, colname):
+    '''
+    Remove a column from a Measurement Sets
+    mslist (str/list): input ms(list)
+    colname: column that will be removed
+    '''
+    if type(mslist) == list:
+        for ms in mslist:
+            ts = pt.table(ms, readonly=False, ack=False)
+            ts.removecols([colname])
+            ts.close()
+    else:
+        ts = pt.table(mslist, readonly=False, ack=False)
+        ts.removecols([colname])
+        ts.close()
+    return
+
+def update_sourcedirname_h5_dde(h5, modeldatacolumns):
+    '''
+    Replace direction names in h5 with the modeldatacolumns names
+    '''
+    
+    modeldatacolumns_outname = [] 
+    for mm_id, mm in enumerate(modeldatacolumns):
+       modeldatacolumns_outname.append('DIL' + str(mm_id).zfill(2))  # need a name that has only 5 characters because otherwise we cannot copy over the names 
+    
+    H = tables.open_file(h5,mode='a')
+    for direction_id, direction in enumerate(modeldatacolumns):
+       H.root.sol000.source[direction_id] = (modeldatacolumns[direction_id], H.root.sol000.source[direction_id]['dir'])
+       print(H.root.sol000.source[direction_id]['name'], modeldatacolumns[direction_id])
+       
+    try:
+       H.root.sol000.phase000.dir[:] = modeldatacolumns_outname
+       print('Update direction names phase000',modeldatacolumns_outname)
+    except:
+       pass
+    try:
+       H.root.sol000.amplitude000.dir[:] = modeldatacolumns_outname
+       print('Update direction names amplitude000',modeldatacolumns_outname)
+    except:
+       pass
+    try:
+       H.root.sol000.tec000.dir[:] = modeldatacolumns_outname
+       print('Update direction names tec000',modeldatacolumns_outname)
+    except:
+       pass
+    try:
+       H.root.sol000.rotation000.dir[:] = modeldatacolumns_outname
+       print('Update direction names rotation000',modeldatacolumns_outname)
+    except:
+       pass
+                     
+    H.close()
+    print('Done fixing direction names')
+    return
+
+
+def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
+   h5list_sols = []
+   for colid, coln in enumerate(modeldatacolumnsin):
+         h5list_sols.append('Dir' + str(colid).zfill(2) + '.h5')
+   print('These are the h5 that need merging:', h5list_sols)
+   if os.path.isfile(parmdb_out):
+      os.system('rm -f ' + parmdb_out)  
+   
+   f = open('facetdirections.p', 'rb')
+   sourcedir = pickle.load(f) # units are radian
+   f.close()   
+   parmdb_merge_list = []
+   
+   
+   for direction in sourcedir:
+      print(direction)
+      c1 = SkyCoord(direction[0] * units.radian,  direction[1] * units.radian, frame='icrs')
+      distance = 1e9
+      #print(c1)
+      for hsol in h5list_sols:
+         H5 = tables.open_file(hsol, mode='r')
+         dd = H5.root.sol000.source[:][0]
+         H5.close()
+         ra, dec = dd[1]
+         c2 = SkyCoord(ra * units.radian,  dec * units.radian, frame='icrs')
+         angsep = c1.separation(c2).to(units.degree)
+         #print(c2)
+      
+         #print(hsol, angsep.value, '[degree]')
+         if angsep.value < distance:
+            distance = angsep.value
+            matchging_h5 = hsol
+      parmdb_merge_list.append(matchging_h5)
+      print('separation direction entry and h5 entry is:', distance, matchging_h5)   
+      assert abs(distance) < 0.00001 # there should always be a close to perfect match
+      
+   import h5_merger   
+   h5_merger.merge_h5(h5_out=parmdb_out,h5_tables=parmdb_merge_list,propagate_flags=True)   
+   
+   if clean_up:
+      for h5 in h5list_sols:
+         os.system('rm -f ' + h5)
+   return
+   
+def copy_over_solutions_from_skipped_directions(modeldatacolumnsin,id_kept):
+   ''' 
+   modeldatacolumnsin: all modeldatacolumns
+   id_kept: indices of the modeldatacolumns kept in the solve id_kept
+   '''
+   h5list_sols = []
+   h5list_empty = []
+   for colid, coln in enumerate(modeldatacolumnsin):
+      if colid >= len(id_kept):
+         h5list_empty.append('Dir' + str(colid).zfill(2) + '.h5')
+      else:
+         h5list_sols.append('Dir' + str(colid).zfill(2) + '.h5')
+   print('These h5 have solutions:', h5list_sols)
+   print('These h5 are empty:',h5list_empty)
+
+   # fill the empty directions (those that were removed and not solve) with the closest valid solutions
+   for h5 in h5list_empty:
+      hempty = tables.open_file(h5, mode='a')
+      direction = hempty.root.sol000.source[:][0]
+      ra, dec = direction[1]
+      c1 = SkyCoord(ra * units.radian,  dec * units.radian, frame='icrs')
+      #print(c1)
+      
+      distance = 1e9
+      for h5sol in h5list_sols:
+          hsol = tables.open_file(h5sol, mode='r')
+          directionsol = hsol.root.sol000.source[:][0]
+          rasol, decsol = directionsol[1]
+          c2 = SkyCoord(rasol * units.radian,  decsol * units.radian, frame='icrs') 
+          angsep = c1.separation(c2).to(units.degree)
+          #print(h5, h5sol, angsep.value, '[degree]')
+          if angsep.value < distance:
+             distance = angsep.value
+             matchging_h5 = h5sol
+          hsol.close()
+      print(h5 + ' needs solutions copied from ' +  matchging_h5, distance)
+   
+      # copy over the values
+      hmatch = tables.open_file(matchging_h5, mode='r')
+      
+      try:
+         hempty.root.sol000.phase000.val[:] = np.copy(hmatch.root.sol000.phase000.val[:])
+         print('Copied over phase000')
+      except:
+        pass
+      try:
+         hempty.root.sol000.amplitude000.val[:] = np.copy(hmatch.root.sol000.amplitude000.val[:])
+         print('Copied over amplitude000')
+      except:
+        pass
+      try:
+         hempty.root.sol000.tec000.val[:] = np.copy(hmatch.root.sol000.tec000.val[:])
+         print('Copied over tec000')
+      except:
+        pass      
+      try:
+         hempty.root.sol000.rotation000.val[:] = np.copy(hmatch.root.sol000.rotation000.val[:])
+         print('Copied over rotation000')
+      except:
+        pass
+
+      hmatch.close()
+      hempty.flush()
+      hempty.close()
+   return
+ 
+ 
 
 def filter_baseline_str_removestations(stationlist):
   fbaseline = "'"
@@ -2374,8 +2577,38 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns):
     Returns:
         None
     '''
-    for modelcolumn in modeldatacolumns:
-        applycal(ms, h5parm, msincol=modelcolumn, msoutcol=modelcolumn, \
+    
+    # check for special case where direction (.dir) names contain DIL.
+    special_DIL = False
+    H = tables.open_file(h5parm,mode='r')
+    try:
+        dirnames = H.root.sol000.phase000.dir[:]
+    except:
+        pass
+    try:
+        dirnames = H.root.sol000.amplitude000.dir[:]
+    except:
+        pass
+    try:
+        dirnames = H.root.sol000.tec000.dir[:]
+    except:
+        pass      
+    try:
+        dirnames = H.root.sol000.rotation000.dir[:]
+    except:
+        pass      
+    H.close()
+    
+    dirnames = dirnames.tolist()
+    if 'DIL' in dirnames[0].decode("utf-8"):
+        special_DIL = True
+        
+    for m_id, modelcolumn in enumerate(modeldatacolumns):
+        if special_DIL:
+          applycal(ms, h5parm, msincol=modelcolumn, msoutcol=modelcolumn, \
+                 dysco=False, invert=False, direction=dirnames[m_id].decode("utf-8"))
+        else:  
+           applycal(ms, h5parm, msincol=modelcolumn, msoutcol=modelcolumn, \
                  dysco=False, invert=False, direction=modelcolumn)
     return    
 
@@ -3275,7 +3508,7 @@ def makemslist(mslist):
     f.close()
     return
 
-def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False):
+def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, telescope='LOFAR'):
     ''' Formats an anntena constraint string in a DP3-suitable format.
 
     Args:
@@ -3283,6 +3516,7 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False):
         antennasms (list): antennas present in the Measurement Set.
         HBAorLBA (str): indicate HBA or LBA data. Can be HBA or LBA.
         useforresetsols (bool): whether it will be used with reset solution. Removes antennas that are not in antennasms.
+        telescope (str): telescope name, used to check if MeerKAT data is used
     Returns:
         antstr (str): antenna constraint string for DP3.
     '''
@@ -3460,6 +3694,14 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False):
                     'CS302HBA1', 'CS401HBA1', 'CS501HBA1', 'ST001']
             antstr2=['RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',  \
                     'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA']
+
+    if telescope == 'MeerKAT':    
+        if ctype == 'core': 
+            antstr = MeerKAT_antconstraint(ctype='core')
+        if ctype == 'remote':
+            antstr = MeerKAT_antconstraint(ctype='remote')
+        if ctype == 'all':
+            antstr = MeerKAT_antconstraint(ctype='all')
 
     if useforresetsols:
         antstrtmp = list(antstr)
@@ -6866,7 +7108,7 @@ def normamplitudes(parmdb, norm_per_ms=False):
             H = tables.open_file(parmdbi,mode='r')
             ampsfull = H.root.sol000.amplitude000.val[:]
             weightsfull = H.root.sol000.amplitude000.weight[:]
-            idx = np.where(weights != 0.0)
+            idx = np.where(weightsfull != 0.0)
             logger.info(parmdbi + '  Normfactor: '+ str(10**(np.nanmean(np.log10(ampsfull[idx])))))
             if i == 0:
                 amps = np.ndarray.flatten(ampsfull[idx])
@@ -7405,8 +7647,6 @@ def flatten(f):
     """ Flatten a fits file so that it becomes a 2D image. Return new header and data """
 
     naxis=f[0].header['NAXIS']
-    if naxis<2:
-        raise RadioError('Can\'t make map from this')
     if naxis==2:
         return fits.PrimaryHDU(header=f[0].header,data=f[0].data)
 
@@ -8303,6 +8543,11 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
          single_pol_merge = True
        else:  
          single_pol_merge = False
+       
+       # remove this once h5 merger is fixed
+       if not merge_all_in_one: # so only for a DDE solve
+          fix_h5(parmdbmergelist[msnumber])
+       
        print(parmdbmergename,parmdbmergelist[msnumber],ms)
        h5_merger.merge_h5(h5_out=parmdbmergename,h5_tables=parmdbmergelist[msnumber][::-1],ms_files=ms,\
                           convert_tec=True, merge_all_in_one=merge_all_in_one, \
@@ -8417,7 +8662,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
    print(cmd)
    run(cmd)
 
-def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms):
+def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms, dryrun=False):
    modeldatacolumns_solve = []
    modeldatacolumns_notselected = []
    id_kept = []
@@ -8434,7 +8679,7 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
    assert soltypelist_includedir_sel.sum() > 0 # some element must be True
 
    if soltypelist_includedir_sel.sum() == len(modeldatacolumns): # all are True, trivial case
-      return modeldatacolumns
+      return modeldatacolumns, sourcedir, id_kept
     
    # step 1 remove columns from list that should not be solved
    for modelcolumn_id, modelcolumn in enumerate(modeldatacolumns):
@@ -8451,12 +8696,14 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
    #print('Not selected', modeldatacolumns_notselected)
    #print(id_kept)
    #print(id_removed)
-   #print(sourcedir[id_removed][:])
+   print('Removed these directions coordinates')
+   print(sourcedir[id_removed][:])
+   #print(sourcedir)
    #print(sourcedir[id_kept][:])
    #print(sourcedir.shape)
    #sourcedir_kept = sourcedir[id_kept][:]
    #sourcedir_removed = sourcedir[id_removed][:]
-   
+   #sys.exit()
  
    for removed_id in id_removed:  
       c1 = SkyCoord(sourcedir[removed_id,0]*units.radian, sourcedir[removed_id,1]* units.radian, frame='icrs') # removed source
@@ -8483,7 +8730,8 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
          cmddppp = 'DP3 msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. steps=[] ' 
          cmddppp += 'msout.datacolumn=' + modelcol + ' '  
          print(cmddppp)
-         #run(cmddppp)
+         if not dryrun:
+           run(cmddppp)
    
    # taql to fill the missing columns
    for modelcol in modeldatacolumns_solve_newnames:  
@@ -8497,9 +8745,10 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
       #print(colstr)
       
       if '+' in modelcol: # we have a composite column
-         taqlcmd =  "taql" + " 'update " + ms + " set " + modelcol + "=" + colstr + "'"
+         taqlcmd =  "taql" + " 'update " + ms + " set " + modelcol.replace("+", "\\+") + "=" + colstr + "'"
          print(taqlcmd)
-         #run(taqlcmd)
+         if not dryrun:
+           run(taqlcmd)
    
 
    # create new column name MODEL_DATA_DDX+Y+Z with DP3
@@ -8510,7 +8759,7 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
    # return modeldatacolumns_solve
    
    
-   return modeldatacolumns_solve
+   return modeldatacolumns_solve_newnames, sourcedir[id_removed][:],id_kept
 
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
                 SMconstraint=0.0, SMconstraintreffreq=0.0, \
@@ -8696,6 +8945,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     # note there are two things to check before we can use ddecal.datause=single/dual
     # 1 current solve needs to be of the correct type
     # 2 previous solves should not violate the assumptions of the current single/dual solve
+    print(f"soltype_list slice: {soltype_list[0:soltypenumber]}")
+    print(soltype, soltype_list)
     if DP3_dual_single and soltype_list is not None:
       if soltype in ['complexgain', 'amplitudeonly', 'phaseonly'] \
         and 'fulljones' not in soltype_list[0:soltypenumber] \
@@ -8731,21 +8982,6 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
       cmd += 'msout.storagemanager=dysco '
       cmd += 'msout.storagemanager.weightbitrate=16 '
     
-    cmd += 'ddecal.maxiter='+str(int(maxiter)) + ' ddecal.propagatesolutions=True '    
-    # Do list comprehension if solint is a list
-    if type(solint) == list:
-       solints = [int(format_solint(x, ms)) for x in solint]
-       solints = tweak_solints(solints)
-       import math
-       lcm = math.lcm(*solints)
-       divisors = [int(lcm/i) for i in solints]
-       cmd += 'ddecal.solint=' + str(lcm) + ' '
-       cmd += 'ddecal.solutions_per_direction=' + "'"+str(divisors).replace(' ','') + "' "
-    else:
-       cmd += 'ddecal.solint=' + format_solint(solint, ms) + ' '
-    cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
-    cmd += 'ddecal.h5parm=' + parmdb + ' '
-
     if bdaaverager:
       cmd += 'bda.frequencybase= ' + 'bda.minchannels=' + format_nchan(nchan, ms) + ' ' 
       if type(solint) == list:
@@ -8759,9 +8995,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
          raise Exception('DDE_predict with soltypelist_includedir is not supported')
       
       modeldatacolumns_solve = [] # empty
-      if False: # work in progress still
-        if soltypelist_includedir is not None:
-          modeldatacolumns_solve = updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms) 
+      dir_id_kept = [] # empty
+      #if False: # work in progress still
+      if soltypelist_includedir is not None:
+          modeldatacolumns_solve, sourcedir_removed, dir_id_kept = updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms) 
       
       if DDE_predict == 'DP3':
          cmd += 'ddecal.sourcedb=' + dde_skymodel + ' '
@@ -8781,6 +9018,28 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     else:
       cmd += "ddecal.modeldatacolumns='[" + modeldata + "]' " 
       cmd += 'ddecal.solveralgorithm=' + solveralgorithm + ' '
+
+
+    cmd += 'ddecal.maxiter='+str(int(maxiter)) + ' ddecal.propagatesolutions=True '    
+    # Do list comprehension if solint is a list
+    if type(solint) == list:
+       if len(dir_id_kept) > 0:
+         print(solint)
+         print(dir_id_kept)
+         solint = [solint[i] for i in dir_id_kept] # overwrite solint, selecting one the directions kept
+       solints = [int(format_solint(x, ms)) for x in solint]
+       solints = tweak_solints(solints)
+       import math
+       lcm = math.lcm(*solints)
+       divisors = [int(lcm/i) for i in solints]
+       cmd += 'ddecal.solint=' + str(lcm) + ' '
+       cmd += 'ddecal.solutions_per_direction=' + "'"+str(divisors).replace(' ','') + "' "
+    else:
+       cmd += 'ddecal.solint=' + format_solint(solint, ms) + ' '
+    cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
+    cmd += 'ddecal.h5parm=' + parmdb + ' '
+
+
    
     # preapply H5 from previous pertubation for DDE solves with DP3
     if (len(modeldatacolumns) > 1) and (len(preapplyH5_dde) > 0):
@@ -8806,7 +9065,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
          cmd += 'ddecal.uvlambdamax=' + str(uvmax) + ' '
 
     if antennaconstraint is not None:
-        cmd += 'ddecal.antennaconstraint=' + antennaconstraintstr(antennaconstraint, antennasms, HBAorLBA) + ' '
+        cmd += 'ddecal.antennaconstraint=' + antennaconstraintstr(antennaconstraint, antennasms, HBAorLBA, telescope=telescope) + ' '
     if SMconstraint > 0.0 and nchan != 0:
         cmd += 'ddecal.smoothnessconstraint=' + str(SMconstraint*1e6) + ' '
         cmd += 'ddecal.smoothnessreffrequency=' + str(SMconstraintreffreq*1e6) + ' '
@@ -8848,6 +9107,37 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     if selfcalcycle==0 and (soltypein=="scalarphasediffFR" or soltypein=="scalarphasediff"):
         os.system("cp -r " + parmdb + " " + parmdb + ".scbackup")
     # END prepare to remove this at some point
+
+    if (len(modeldatacolumns_solve) >0) and (len(modeldatacolumns) != len(modeldatacolumns_solve)):
+       # fix coordinates otherwise h5merge will merge all directions into one when add_directions is done (as all coordinates are the same up to this point)
+       update_sourcedir_h5_dde(parmdb, 'facetdirections.p', dir_id_kept=dir_id_kept)
+
+       # we need to add back the extra direction into the h5 file  
+       import h5_merger
+       import split_h5
+       outparmdb = 'adddirback' + parmdb
+       if os.path.isfile(outparmdb):
+          os.system('rm -f ' + outparmdb)
+       h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist())
+
+       # now we split them all into separate h5 per direction so we can reorder and fill them
+       split_h5.split_multidir(outparmdb)
+       
+       #fill the added emtpy directions with the closest ones that were solved for
+       copy_over_solutions_from_skipped_directions(modeldatacolumns,dir_id_kept)
+   
+       # create backup of parmdb and remove orginal and cleanup
+       os.system('cp ' + parmdb + ' ' + parmdb + '.backup')
+       os.system('rm -f ' + parmdb)
+       os.system('rm -f ' + outparmdb)
+    
+       # merge h5 files in order of the directions in facetdirections.p and recreate parmdb
+       # clean up previously splitted directions inside this function
+       merge_splitted_h5_ordered(modeldatacolumns, parmdb, clean_up=True)
+       
+       # fix direction names
+       update_sourcedirname_h5_dde(parmdb, modeldatacolumns)
+       #sys.exit()
 
     if len(modeldatacolumns) > 1: # and DDE_predict == 'WSCLEAN':
        update_sourcedir_h5_dde(parmdb, 'facetdirections.p')
@@ -8917,7 +9207,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
          force_close(parmdb)
       else:
          refant = None
-      resetsolsforstations(parmdb, antennaconstraintstr(resetsols, antennasms, HBAorLBA, useforresetsols=True), refant=refant)
+      resetsolsforstations(parmdb, antennaconstraintstr(resetsols, antennasms, HBAorLBA, useforresetsols=True, telescope=telescope), refant=refant)
 
     if resetdir is not None:
       if soltype in ['phaseonly','scalarphase','tecandphase','tec','rotation','fulljones',\
@@ -9087,10 +9377,17 @@ def rotationmeasure_to_phase(H5filein, H5fileout, dejump=False):
     H5in.close()
     return
 
-def update_sourcedir_h5_dde(h5, sourcedirpickle):
+def update_sourcedir_h5_dde(h5, sourcedirpickle, dir_id_kept=None):
     f = open(sourcedirpickle, 'rb')
     sourcedir = pickle.load(f)
     f.close()
+    
+    if dir_id_kept is not None:
+       print('Before directions')
+       print(sourcedir)
+       sourcedir =  np.copy(sourcedir[dir_id_kept][:])
+       print('After directions')
+       print(sourcedir)
     
     H = tables.open_file(h5,mode='a')
     for direction_id, direction in enumerate(np.copy(H.root.sol000.source[:])):
@@ -9951,8 +10248,6 @@ def main():
    flaggingparser.add_argument('--flagtimesmeared', help='Flag data that is severely time smeared. Warning: expert only', action='store_true')
    flaggingparser.add_argument('--removeinternational', help='Remove the international stations if present', action='store_true')
    flaggingparser.add_argument('--removemostlyflaggedstations', help='Remove the staions that have a flaging percentage above 85 percent', action='store_true')
-   return_antennas_highflaggingpercentage
-   
       
    startmodelparser = parser.add_argument_group("-------------------------Starting model Settings-------------------------")
    # Startmodel
@@ -9990,7 +10285,7 @@ def main():
    parser.add_argument('--configpath', help = 'Path to user config file which will overwrite command line arguments', default = 'facetselfcal_config.txt', type = str)
    parser.add_argument('--auto', help='Trigger fully automated processing (HBA only for now).', action='store_true')
    parser.add_argument('--delaycal', help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction.', action='store_true')
-   parser.add_argument('--targetcalILT', help="Type of automated target calibration for HBA international baseline data when --auto is used. Options are: 'tec', 'tecandphase', 'scalarphase'. The default is 'tec'.", default='scalarphase', type=str)
+   parser.add_argument('--targetcalILT', help="Type of automated target calibration for HBA international baseline data when --auto is used. Options are: 'tec', 'tecandphase', 'scalarphase'. The default is 'scalarphase'.", default='scalarphase', type=str)
    parser.add_argument('--stack', help='Stacking of visibility data for multiple sources to increase S/N - still under construction.', action='store_true')
 
 
@@ -10029,17 +10324,22 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '9.11.0'
+   version = '10.0.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
    if args['helperscriptspathh5merge'] is not None:
      os.system('cp ' + args['helperscriptspathh5merge'] + '/h5_merger.py .')
      os.system('cp ' + args['helperscriptspathh5merge'] + '/h5_helpers/overwrite_table.py .')
+     os.system('cp ' + args['helperscriptspathh5merge'] + '/h5_helpers/split_h5.py .')
+     os.system('mkdir h5_helpers && cp ' + args['helperscriptspathh5merge'] + '/h5_helpers/make_template_h5.py  h5_helpers/')
      sys.path.append(os.path.abspath(args['helperscriptspathh5merge']))
    else:
      os.system('cp ' + args['helperscriptspath'] + '/h5_merger.py .')
      os.system('cp ' + args['helperscriptspath'] + '/overwrite_table.py .')
+     os.system('cp ' + args['helperscriptspath'] + '/split_h5.py .')
+     os.system('mkdir h5_helpers && cp ' + args['helperscriptspath'] + '/make_template_h5.py h5_helpers/')
+     
 
    global h5_merger
    import h5_merger
@@ -10052,6 +10352,7 @@ def main():
    os.system('cp ' + args['helperscriptspath'] + '/ds9facetgenerator.py .')
    os.system('cp ' + args['helperscriptspath'] + '/default_StokesV.lua .')
    os.system('cp ' + args['helperscriptspath'] + '/LBAdefaultwideband.lua .')
+   os.system('cp ' + args['helperscriptspath'] + '/MeerKATlayout.csv .')
    
    if args['helperscriptspathh5merge'] is None:  
       check_code_is_uptodate()
@@ -10093,11 +10394,19 @@ def main():
 
    # TEST ONLY REMOVE
    if False:
-     modeldatacolumns = ['MODEL_DATA_DD0','MODEL_DATA_DD1','MODEL_DATA_DD2','MODEL_DATA_DD3','MODEL_DATA_DD4']
+     modeldatacolumnsin = ['MODEL_DATA_DD0','MODEL_DATA_DD1','MODEL_DATA_DD2','MODEL_DATA_DD3','MODEL_DATA_DD4']
      soltypenumber = 0
      dirs, solints, soltypelist_includedir = parse_facetdirections(args['facetdirections'],0, args=args)
-     updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, mslist[0])
-     sys.exit() 
+     modeldatacolumns, sourcedir_removed, id_kept = updatemodelcols_includedir(modeldatacolumnsin, soltypenumber, soltypelist_includedir, mslist[0], dryrun=True)
+     #print(len(sourcedir_removed))
+     #for ddir in sourcedir_removed:
+     sourcedir_removed = sourcedir_removed.tolist()
+     print(sourcedir_removed[0])
+     print(modeldatacolumns)
+     
+     copy_over_solutions_from_skipped_directions(modeldatacolumnsin,id_kept)
+     merge_splitted_h5_ordered(modeldatacolumnsin, 'test.h5', clean_up=False)
+     sys.exit()
 
 
    # cut ms if there are flagged times at the start or end of the ms
