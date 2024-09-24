@@ -8988,15 +8988,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm/np.max(divisors)) + ' ' 
       else:
         cmd += 'bda.timebase= ' + 'bda.maxinterval=' + format_solint(solint, ms) + ' ' 
-
+      
+    modeldatacolumns_solve = [] # empty, will be filled below if applicable
+    dir_id_kept = [] # empty, will be filled below if applicable		
     if len(modeldatacolumns) > 0:
       if DDE_predict == 'DP3' and soltypelist_includedir is not None:
          print('DDE_predict with soltypelist_includedir is not supported')
          raise Exception('DDE_predict with soltypelist_includedir is not supported')
       
-      modeldatacolumns_solve = [] # empty
-      dir_id_kept = [] # empty
-      #if False: # work in progress still
       if soltypelist_includedir is not None:
           modeldatacolumns_solve, sourcedir_removed, dir_id_kept = updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms) 
       
