@@ -339,7 +339,7 @@ def main(args):
 
 if __name__ == "__main__":
    parser = argparse.ArgumentParser(description='Make DS9 Voroni region tesselation region file for WSClean')
-   parser.add_argument('--ms', help='boxfile', type=str, required=True)
+   parser.add_argument('--ms', help='Measurement Set', type=str, required=True)
    parser.add_argument('--h5', help='Multi-dir solution file with directions', type=str, required=True)
    parser.add_argument('--DS9regionout', help='Output DS9 region file name (default=facets.reg)', type=str, default='facets.reg')
    parser.add_argument('--imsize', help='image size, required if boxfile is not used', type=int, default=8192)
