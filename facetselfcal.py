@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# time splitting for MeerKAT
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
 # compression: blosc2
@@ -891,8 +890,28 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True):
       run(cmd, log=False)
    return   
 
+def fix_equidistant_times(mslist, dryrun, dysco=True): 
+    t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
+    telescope = t.getcol('TELESCOPE_NAME')[0] 
+    t.close()
+    mslist_return = []
+    if telescope != 'LOFAR':
+        import split_irregular_timeaxis  
+    for ms in mslist:
+        if telescope != 'LOFAR':
+           if check_equidistant_times([ms], stop=False, return_result=True):
+              print(ms + ' has a regular time axis')
+              mslist_return.append(ms)
+           else:
+              ms_path = split_irregular_timeaxis.regularize_ms(ms, overwrite=True, dryrun=dryrun)
+              # Do the splitting
+              mslist_return = mslist_return + split_irregular_timeaxis.split_ms(ms_path, overwrite=True, prefix=ms_path, return_mslist=True, dryrun=dryrun, dysco=dysco)
+        else:
+           mslist_return.append(ms)
+    return sorted(mslist_return)       
  
-def check_equidistant_times(mslist):
+ 
+def check_equidistant_times(mslist, stop=True, return_result=False):
     ''' Check if times in mslist are equidistant
 
     Args:
@@ -918,11 +937,18 @@ def check_equidistant_times(mslist):
             print(diff_times[idx_deviating])
             print(ms, 'Time axis is not equidistant, this might cause DP3 errors and segmentation faults (check how your data was averaged')
             #raise Exception(ms +': Time axis is not equidistant')
-            print('Avoid averaging your data with CASA or CARACal, insted average with DP3, this usually solves the issue')
-            print('If you want to take the risk comment out the sys.exit() in the code below here')
+            print('Avoid averaging your data with CASA or CARACal, instead average with DP3, this usually solves the issue')
+            
             # comment line out below if you are willing to take the risk
-            sys.exit()
+            if stop:
+                print('If you want to take the risk comment out the sys.exit() in the Python code')
+                sys.exit()
         t.close()
+    if return_result:
+        if len(idx_deviating) > 0:
+            return False # so irregular time axis
+        else:
+            return True # so normal time axis
     return
  
 def check_equidistant_freqs(mslist):
@@ -2781,8 +2807,8 @@ def inputchecker(args, mslist):
     t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
     telescope = t.getcol('TELESCOPE_NAME')[0] 
     t.close()
-    if telescope != 'LOFAR':
-        check_equidistant_times(mslist)  
+    #if telescope != 'LOFAR':
+    #    check_equidistant_times(mslist)  
 
     if True in args['BLsmooth_list']:
         if len(args['soltypecycles_list']) != len(args['BLsmooth_list']):
@@ -4033,7 +4059,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
     hasrotation = True
     hastec = True
 
-    H=tables.open_file(h5parm, mode='a')
+    H=tables.open_file(h5parm)
 
     # figure of we have phase and/or amplitude solutions
     try:
@@ -4056,7 +4082,30 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
      axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
     except:
      hasrotation = False
+    H.close()
 
+    # in case refant is None but h5 still has phase
+    # this can happen with a scalaramplitude and soltypelist_includedir is used
+    # in this case we have pertubative direction
+    # in this case h5_merger has already been run which created a phase000 entry
+    if refant is None and hasphase: 
+       refant=findrefant_core(h5parm)
+       force_close(h5parm)
+
+    # should not be needed as h5_merger does not create rotation000
+    # keep this code in case of future h5_merger updates so we are safe
+    if refant is None and hasrotation: 
+       refant=findrefant_core(h5parm)
+       force_close(h5parm)
+
+    # should not be needed as h5_merger does not create tec000
+    # keep this code in case of future h5_merger updates so we are safe
+    if refant is None and hastec:
+       refant=findrefant_core(h5parm)
+       force_close(h5parm)       
+  
+    
+    H=tables.open_file(h5parm, mode='a')
     if hasamps:
      amp = H.root.sol000.amplitude000.val[:]
     if hasphase: # also phasereference
@@ -4240,7 +4289,7 @@ def resetsolsfordir(h5parm, dirlist, refant=None):
     hasrotation = True
     hastec = True
 
-    H=tables.open_file(h5parm, mode='a')
+    H=tables.open_file(h5parm)
 
     # figure of we have phase and/or amplitude solutions
     try:
@@ -4263,7 +4312,29 @@ def resetsolsfordir(h5parm, dirlist, refant=None):
      axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
     except:
      hasrotation = False
+    H.close()
 
+    # in case refant is None but h5 still has phase
+    # this can happen with a scalaramplitude and soltypelist_includedir is used
+    # in this case we have pertubative direction
+    # in this case h5_merger has already been run which created a phase000 entry
+    if refant is None and hasphase: 
+       refant=findrefant_core(h5parm)
+       force_close(h5parm)
+
+    # should not be needed as h5_merger does not create rotation000
+    # keep this code in case of future h5_merger updates so we are safe
+    if refant is None and hasrotation: 
+       refant=findrefant_core(h5parm)
+       force_close(h5parm)
+
+    # should not be needed as h5_merger does not create tec000
+    # keep this code in case of future h5_merger updates so we are safe
+    if refant is None and hastec:
+       refant=findrefant_core(h5parm)
+       force_close(h5parm)       
+
+    H=tables.open_file(h5parm, mode='a')
     if hasamps:
      amp = H.root.sol000.amplitude000.val[:]
     if hasphase: # also phasereference
@@ -8988,9 +9059,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm/np.max(divisors)) + ' ' 
       else:
         cmd += 'bda.timebase= ' + 'bda.maxinterval=' + format_solint(solint, ms) + ' ' 
-      
+
     modeldatacolumns_solve = [] # empty, will be filled below if applicable
-    dir_id_kept = [] # empty, will be filled below if applicable		
+    dir_id_kept = [] # empty, will be filled below if applicable
     if len(modeldatacolumns) > 0:
       if DDE_predict == 'DP3' and soltypelist_includedir is not None:
          print('DDE_predict with soltypelist_includedir is not supported')
@@ -9269,6 +9340,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         flaglowamps(parmdb, lowampval=clipsollow, flagging=True, setweightsphases=True)
         flaghighamps(parmdb, highampval=clipsolhigh, flagging=True, setweightsphases=True)
 
+    # ---------------------------------
+    # ---------------------------------
     # makes plots and do LOSOTO flagging
     if soltype in ['rotation','rotation+diagonal','rotation+diagonalamplitude',\
                    'rotation+scalar','rotation+scalaramplitude',\
@@ -10267,7 +10340,7 @@ def main():
    parser.add_argument('--docircular', help='Convert linear to circular correlations.', action='store_true')
    parser.add_argument('--dolinear', help='Convert circular to linear correlations.', action='store_true')
    parser.add_argument('--forwidefield', help='Keep solutions such that they can be used for widefield imaging/screens.', action='store_true')
-   parser.add_argument('--remove-outside-center', help='Subtract sources that are outside the central parts of the image, square box is used (experimental)', action='store_true')
+   parser.add_argument('--remove-outside-center', help='Subtract sources that are outside the central parts of the FoV, square box is used with sizes of 3.0, 2.0, 1.5 degr for MeerKAT UHF, L, and S-band, repspectively. In case you want something else set --remove-outside-center-box', action='store_true')
    parser.add_argument('--remove-outside-center-box', help='User defined box to subtract sources that are outside this part of the image. If not set boxsize is set automatically. If "keepall" is set then no subtract is done and everything is kept, this is mainly useful if you are already working on box-extracted data', type=str, default=None)
    parser.add_argument('--single-dual-speedup', help='Speed up calibration and imaging if possible using datause=single/dual in DP3 and -scalar/diagonal-visibilities in WSClean. Requires a recent (mid July 2024) DP3 and WSClean versions. Default is True. Set to --single-dual-speedup=False to disable to speed-up', type=ast.literal_eval, default=True)
    parser.add_argument('--dysco', help='Use Dysco compression. The default is True.', type=ast.literal_eval, default=True)
@@ -10323,7 +10396,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '10.0.0'
+   version = '10.1.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -10344,6 +10417,7 @@ def main():
    import h5_merger
    os.system('cp ' + args['helperscriptspath'] + '/plot_tecandphase.py .')
    os.system('cp ' + args['helperscriptspath'] + '/lin2circ.py .')
+   os.system('cp ' + args['helperscriptspath'] + '/split_irregular_timeaxis.py .')
    os.system('cp ' + args['helperscriptspath'] + '/BLsmooth.py .')
    os.system('cp ' + args['helperscriptspath'] + '/polconv.py .')
    os.system('cp ' + args['helperscriptspath'] + '/vlass_search.py .')
@@ -10388,6 +10462,11 @@ def main():
    # check if ms channels are equidistant in freuqency (to confirm DP3 concat was used properly)
    check_equidistant_freqs(mslist)
 
+   # fix irregular time axes if needed 
+   #mslist =fix_equidistant_times(mslist, args['start']!=0)
+   #print(mslist)
+   #sys.exit()
+   
    # do some input checking 
    inputchecker(args, mslist)
 
@@ -10425,6 +10504,9 @@ def main():
    if args['start'] == 0 and args['useaoflagger'] and args['useaoflaggerbeforeavg']:
      runaoflagger(mslist, strategy=args['aoflagger_strategy'])
 
+   # fix irregular time axes if needed (do this after flaging)
+   mslist =fix_equidistant_times(mslist, args['start']!=0, dysco=args['dysco'])
+   
    # reset weights if requested
    if args['resetweights']:
      for ms in mslist:
