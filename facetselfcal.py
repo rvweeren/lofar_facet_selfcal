@@ -10847,6 +10847,14 @@ def main():
 
      if args['stopafterskysolve']:
        print('Stopping as requested via --stopafterskysolve')
+       if args['DDE']:
+         print('Clean up MODEL_DATA_DD columns')  
+         t = pt.table(mslist[0])
+         colnames = t.colnames()
+         t.close()
+         collist_del = [xdel for xdel in colnames if re.match('MODEL_DATA*', xdel)]
+         for colname_remove in collist_del:
+           remove_column_ms(mslist, colname_remove)
        return
 
      # REDETERMINE SOLINTS IF REQUESTED
