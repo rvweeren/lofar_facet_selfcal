@@ -9016,33 +9016,34 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     # note there are two things to check before we can use ddecal.datause=single/dual
     # 1 current solve needs to be of the correct type
     # 2 previous solves should not violate the assumptions of the current single/dual solve
-    print(f"soltype_list slice: {soltype_list[0:soltypenumber]}")
-    print(soltype, soltype_list)
-    if DP3_dual_single and soltype_list is not None:
-      if soltype in ['complexgain', 'amplitudeonly', 'phaseonly'] \
-        and 'fulljones' not in soltype_list[0:soltypenumber] \
-        and 'rotation' not in soltype_list[0:soltypenumber] \
-        and 'rotation+diagonalphase' not in soltype_list[0:soltypenumber] \
-        and 'rotation+diagonalamplitude' not in soltype_list[0:soltypenumber] \
-        and 'rotation+scalar' not in soltype_list[0:soltypenumber] \
-        and 'rotation+scalaramplitude' not in soltype_list[0:soltypenumber] \
-        and 'rotation+scalarphase' not in soltype_list[0:soltypenumber] \
-        and 'rotation+diagonal' not in soltype_list[0:soltypenumber]:
-          cmd += 'ddecal.datause=dual '
-      if soltype in ['scalarcomplexgain', 'scalaramplitude', \
+    if soltype_list is not None:
+      print(f"soltype_list slice: {soltype_list[0:soltypenumber]}")
+      print(soltype, soltype_list)
+      if DP3_dual_single:
+        if soltype in ['complexgain', 'amplitudeonly', 'phaseonly'] \
+          and 'fulljones' not in soltype_list[0:soltypenumber] \
+          and 'rotation' not in soltype_list[0:soltypenumber] \
+          and 'rotation+diagonalphase' not in soltype_list[0:soltypenumber] \
+          and 'rotation+diagonalamplitude' not in soltype_list[0:soltypenumber] \
+          and 'rotation+scalar' not in soltype_list[0:soltypenumber] \
+          and 'rotation+scalaramplitude' not in soltype_list[0:soltypenumber] \
+          and 'rotation+scalarphase' not in soltype_list[0:soltypenumber] \
+          and 'rotation+diagonal' not in soltype_list[0:soltypenumber]:
+            cmd += 'ddecal.datause=dual '
+        if soltype in ['scalarcomplexgain', 'scalaramplitude', \
                      'tec', 'tecandphase', 'scalarphase'] \
-        and 'fulljones' not in soltype_list[0:soltypenumber] \
-        and 'rotation' not in soltype_list[0:soltypenumber] \
-        and 'rotation+diagonalphase' not in soltype_list[0:soltypenumber] \
-        and 'rotation+diagonalamplitude' not in soltype_list[0:soltypenumber] \
-        and 'rotation+scalar' not in soltype_list[0:soltypenumber] \
-        and 'rotation+scalaramplitude' not in soltype_list[0:soltypenumber] \
-        and 'rotation+scalarphase' not in soltype_list[0:soltypenumber] \
-        and 'rotation+diagonal' not in soltype_list[0:soltypenumber] \
-        and 'complexgain' not in soltype_list[0:soltypenumber] \
-        and 'amplitudeonly' not in soltype_list[0:soltypenumber] \
-        and 'phaseonly' not in soltype_list[0:soltypenumber]: \
-          cmd += 'ddecal.datause=single '
+          and 'fulljones' not in soltype_list[0:soltypenumber] \
+          and 'rotation' not in soltype_list[0:soltypenumber] \
+          and 'rotation+diagonalphase' not in soltype_list[0:soltypenumber] \
+          and 'rotation+diagonalamplitude' not in soltype_list[0:soltypenumber] \
+          and 'rotation+scalar' not in soltype_list[0:soltypenumber] \
+          and 'rotation+scalaramplitude' not in soltype_list[0:soltypenumber] \
+          and 'rotation+scalarphase' not in soltype_list[0:soltypenumber] \
+          and 'rotation+diagonal' not in soltype_list[0:soltypenumber] \
+          and 'complexgain' not in soltype_list[0:soltypenumber] \
+          and 'amplitudeonly' not in soltype_list[0:soltypenumber] \
+          and 'phaseonly' not in soltype_list[0:soltypenumber]: \
+            cmd += 'ddecal.datause=single '
 
     cmd += 'msin.weightcolumn=' + weight_spectrum + ' '
     if bdaaverager:
@@ -9056,7 +9057,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     if bdaaverager:
       cmd += 'bda.frequencybase= ' + 'bda.minchannels=' + format_nchan(nchan, ms) + ' ' 
       if type(solint) == list:
-        cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm/np.max(divisors)) + ' ' 
+        cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm/np.max(divisors)) + ' ' #TODO: Comment from Jurjen: lcm and divisors are non-existing variables --> need fix
       else:
         cmd += 'bda.timebase= ' + 'bda.maxinterval=' + format_solint(solint, ms) + ' ' 
 
