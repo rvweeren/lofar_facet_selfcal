@@ -29,7 +29,7 @@ from scipy.ndimage import gaussian_filter1d as gfilter
 
 import casacore.tables as pt
 
-from lib_multiproc import multiprocManager
+from lofar_facet_selfcal.old_functions.lib_multiproc import multiprocManager
 
 
 
