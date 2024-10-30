@@ -9753,7 +9753,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     
        # merge h5 files in order of the directions in facetdirections.p and recreate parmdb
        # clean up previously splitted directions inside this function
-       print('<erge h5 files in correct order and recreate parmdb')
+       print('Merge h5 files in correct order and recreate parmdb')
        merge_splitted_h5_ordered(modeldatacolumns, parmdb, clean_up=True)
        
        # fix direction names
