@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# deal with nasty runding for long solints, gives bad amplitudes which causes ripples and affect normamps step
+
 #h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_flags=False) Needs to be propagate_flags to be fully correct, this is a h5_merger issue
 # check that MODEL_DATA_DD etc XY,YX are set to zero/or clean if wsclean predicts are used for Stokes I/dual 
 # time, timefreq, freq med/avg steps (via losoto)
@@ -557,9 +557,10 @@ def check_for_BDPbug_longsolint(mslist, facetdirections, args=None):
          solints_cycle = solint_reformat[:,solintcyle_id]
          solints = [int(format_solint(x, ms)) for x in solints_cycle]
          print('Solint unmodified per direction', solints) 
-         solints = tweak_solints(solints)
+         solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
          print('Solint tweaked per direction   ', solints) 
-        
+         #print('Here')
+         #sys.exit()
          lcm = math.lcm(*solints)
          divisors = [int(lcm/i) for i in solints]
          print('Solint passed to DP3 would be:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
@@ -706,7 +707,7 @@ def tweak_solintsold(solints, solval=20):
         solints_return.append((soltmp)) 
     return solints_return
 
-def tweak_solints(solints, solvalthresh=11):
+def tweak_solints(solints, solvalthresh=11, ms_ntimes=None):
     """
     Returns modified solints that can be factorized by 2 or 3 if input contains number >= solvalthresh
     """
@@ -714,11 +715,39 @@ def tweak_solints(solints, solvalthresh=11):
     if np.max(solints) < solvalthresh:
         return solints  
     possible_solints = listof2and3prime(startval=2, stopval=10000)
+    if ms_ntimes is not None:
+       possible_solints= remove_bad_endrounding(possible_solints,ms_ntimes)
+
     for sol in solints:
         solints_return.append(find_nearest(possible_solints, sol)) 
     return solints_return
 
+def tweak_solints_single(solint, ms_ntimes, solvalthresh=11, ):
+    """
+    Returns modified solint that avoids a short number of left over timeslots near the end of the ms
+    """
+    if np.max(solint) < solvalthresh:
+        return solint  
+   
+    possible_solints = np.arange(1,2*solint)
+    possible_solints= remove_bad_endrounding(possible_solints,ms_ntimes)
 
+    return find_nearest(possible_solints, solint)
+
+
+
+def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
+   '''
+   list of possible solints to start with
+   ms_ntimes: number of timeslots in the MS
+   if ignorelessthan then do not use this extra option
+   '''
+   solints_out = []
+   for solint in solints:
+      if (float(ms_ntimes)/float(solint)) - (np.floor(float(ms_ntimes)/float(solint))) > 0.5 or solint<ignorelessthan:
+         solints_out.append(solint)
+   return solints_out
+ 
 def listof2and3prime(startval=2, stopval=10000):
    solint=[1]
    for i in np.arange(startval,stopval):
@@ -9500,6 +9529,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     t = pt.table(ms + '/ANTENNA',ack=False)
     antennasms = t.getcol('NAME')
     t.close()
+
+    t = pt.table(ms, readonly=True, ack=False)
+    ms_ntimes = len(np.unique(t.getcol('TIME')))
+    t.close()
     
     
     if telescope == 'LOFAR':
@@ -9644,16 +9677,17 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
        if len(dir_id_kept) > 0:
          print(solint)
          print(dir_id_kept)
-         solint = [solint[i] for i in dir_id_kept] # overwrite solint, selecting one the directions kept
+         solint = [solint[i] for i in dir_id_kept] # overwrite solint, selecting on the directions kept
        solints = [int(format_solint(x, ms)) for x in solint]
-       solints = tweak_solints(solints)
+       solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
        import math
        lcm = math.lcm(*solints)
        divisors = [int(lcm/i) for i in solints]
        cmd += 'ddecal.solint=' + str(lcm) + ' '
        cmd += 'ddecal.solutions_per_direction=' + "'"+str(divisors).replace(' ','') + "' "
     else:
-       cmd += 'ddecal.solint=' + format_solint(solint, ms) + ' '
+       solint_integer = format_solint(solint, ms) # create the integer number for DP3
+       cmd += 'ddecal.solint=' + str(tweak_solints_single(solint_integer, ms_ntimes)) + ' '
     cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
 
