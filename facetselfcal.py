@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+#h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_flags=False) Needs to be propagate_flags to be fully correct, this is a h5_merger issue
+# check that MODEL_DATA_DD etc XY,YX are set to zero/or clean if wsclean predicts are used for Stokes I/dual 
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
 # compression: blosc2
@@ -555,9 +557,10 @@ def check_for_BDPbug_longsolint(mslist, facetdirections, args=None):
          solints_cycle = solint_reformat[:,solintcyle_id]
          solints = [int(format_solint(x, ms)) for x in solints_cycle]
          print('Solint unmodified per direction', solints) 
-         solints = tweak_solints(solints)
+         solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
          print('Solint tweaked per direction   ', solints) 
-        
+         #print('Here')
+         #sys.exit()
          lcm = math.lcm(*solints)
          divisors = [int(lcm/i) for i in solints]
          print('Solint passed to DP3 would be:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
@@ -704,7 +707,7 @@ def tweak_solintsold(solints, solval=20):
         solints_return.append((soltmp)) 
     return solints_return
 
-def tweak_solints(solints, solvalthresh=11):
+def tweak_solints(solints, solvalthresh=11, ms_ntimes=None):
     """
     Returns modified solints that can be factorized by 2 or 3 if input contains number >= solvalthresh
     """
@@ -712,11 +715,39 @@ def tweak_solints(solints, solvalthresh=11):
     if np.max(solints) < solvalthresh:
         return solints  
     possible_solints = listof2and3prime(startval=2, stopval=10000)
+    if ms_ntimes is not None:
+       possible_solints= remove_bad_endrounding(possible_solints,ms_ntimes)
+
     for sol in solints:
         solints_return.append(find_nearest(possible_solints, sol)) 
     return solints_return
 
+def tweak_solints_single(solint, ms_ntimes, solvalthresh=11, ):
+    """
+    Returns modified solint that avoids a short number of left over timeslots near the end of the ms
+    """
+    if np.max(solint) < solvalthresh:
+        return solint  
+   
+    possible_solints = np.arange(1,2*solint)
+    possible_solints= remove_bad_endrounding(possible_solints,ms_ntimes)
 
+    return find_nearest(possible_solints, solint)
+
+
+
+def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
+   '''
+   list of possible solints to start with
+   ms_ntimes: number of timeslots in the MS
+   if ignorelessthan then do not use this extra option
+   '''
+   solints_out = []
+   for solint in solints:
+      if (float(ms_ntimes)/float(solint)) - (np.floor(float(ms_ntimes)/float(solint))) > 0.5 or solint<ignorelessthan:
+         solints_out.append(solint)
+   return solints_out
+ 
 def listof2and3prime(startval=2, stopval=10000):
    solint=[1]
    for i in np.arange(startval,stopval):
@@ -2999,6 +3030,11 @@ def inputchecker(args, mslist):
         print('DDE-predict is not DP3 or WSCLEAN')
         raise Exception('DDE-predict is not DP3 or WSCLEAN')
 
+    for nrtmp in args['normamps_list']:
+        if nrtmp not in ['normamps_per_ant', 'normslope', 'normamps','normslope+normamps','normslope+normamps_per_ant'] and nrtmp is not None:
+            print('Invalid input: --normamps_list can only contain "normamps", "normslope", "normamps_per_ant", "normslope+normamps", "normslope+normamps_per_ant" or None')
+            raise Exception('Invalid input: --normamps_list can only contain "normamps", "normslope", "normamps_per_ant", "normslope+normamps", "normslope+normamps_per_ant" or None')  
+
     for antennaconstraint in args['antennaconstraint_list']:
         if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
                                      'all', 'international', 'alldutch', 'core-remote',
@@ -5128,6 +5164,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    antennaconstraint_list = [] # nested list with len(options.soltype_list), inner list is for ms
    resetsols_list = [] # nested list with len(options.soltype_list), inner list is for ms
    resetdir_list = [] # nested list with len(options.soltype_list), inner list is for ms
+   normamps_list = [] #  # nested list with len(options.soltype_list), inner list is for ms
    soltypecycles_list = []  # nested list with len(options.soltype_list), inner list is for ms
    uvmin_list = []  # nested list with len(options.soltype_list), inner list is for ms
    uvmax_list = []  # nested list with len(options.soltype_list), inner list is for ms
@@ -5158,6 +5195,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
      antennaconstraint_list_ms   = [] # list with len(mslist)
      resetsols_list_ms = [] # list with len(mslist)
      resetdir_list_ms = [] # list with len(mslist)
+     normamps_list_ms = [] # list with len(mslist)
      smoothnessconstraint_list_ms  = [] # list with len(mslist)
      smoothnessreffrequency_list_ms  = [] # list with len(mslist)
      smoothnessspectralexponent_list_ms = [] # list with len(mslist)
@@ -5232,6 +5270,13 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
        except:
          resetdir = None
 
+       # normamps
+       try:
+         normamps = options.normamps_list[soltype_id]
+       except:
+         normamps = 'normamps'
+
+
        # uvmin
        try:
          uvmin = options.uvmin[soltype_id]
@@ -5275,6 +5320,8 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
        antennaconstraint_list_ms.append(antennaconstraint)
        resetsols_list_ms.append(resetsols)
        resetdir_list_ms.append(resetdir)
+       normamps_list_ms.append(normamps)
+       
        soltypecycles_list_ms.append(soltypecycles)
        uvmin_list_ms.append(uvmin)
        uvmax_list_ms.append(uvmax)
@@ -5287,6 +5334,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
      antennaconstraint_list.append(antennaconstraint_list_ms)   # list of lists
      resetsols_list.append(resetsols_list_ms) # list of lists
      resetdir_list.append(resetdir_list_ms) # list of lists
+     normamps_list.append(normamps_list_ms) # list of lists
      BLsmooth_list.append(BLsmooth_list_ms) # list of lists
      smoothnessconstraint_list.append(smoothnessconstraint_list_ms) # list of lists
      smoothnessreffrequency_list.append(smoothnessreffrequency_list_ms) # list of lists
@@ -5299,41 +5347,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
 
      soltypecycles_list.append(soltypecycles_list_ms)
 
-      #f = open('nchan.p', 'wb')
-      #pickle.dump(nchan_list,f)
-      #f.close()
-
-      #f = open('solint.p', 'wb')
-      #pickle.dump(solint_list,f)
-      #f.close()
-
-      #f = open('smoothnessconstraint.p', 'wb')
-      #pickle.dump(smoothnessconstraint_list,f)
-      #f.close()
-
-      #f = open('smoothnessreffrequency.p', 'wb')
-      #pickle.dump(smoothnessreffrequency_list,f)
-      #f.close()
-
-      #f = open('smoothnessspectralexponent.p', 'wb')
-      #pickle.dump(smoothnessspectralexponent_list,f)
-      #f.close()
-
-      #f = open('smoothnessrefdistance.p', 'wb')
-      #pickle.dump(smoothnessrefdistance_list,f)
-      #f.close()
-
-      #f = open('antennaconstraint.p', 'wb')
-      #pickle.dump(antennaconstraint_list,f)
-      #f.close()
-
-      #f = open('resetsols.p', 'wb')
-      #pickle.dump(resetsols_list,f)
-      #f.close()
-
-      #f = open('soltypecycles.p', 'wb')
-      #pickle.dump(soltypecycles_list,f)
-      #f.close()
+    
 
 
    print('soltype:',options.soltype_list, mslist)
@@ -5347,6 +5361,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    print('antennaconstraint:',antennaconstraint_list)
    print('resetsols:',resetsols_list)
    print('resetdir:', resetdir_list)
+   print('normamps:', normamps_list)
    print('soltypecycles:',soltypecycles_list)
    print('uvmin:',uvmin_list)
    print('uvmax:',uvmax_list)
@@ -5364,6 +5379,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    logger.info('antennaconstraint: ' + str(options.antennaconstraint_list))
    logger.info('resetsols: ' + str(options.resetsols_list))
    logger.info('resetdir: ' + str(options.resetdir_list))
+   logger.info('normamps: ' + str(options.normamps_list))
    logger.info('soltypecycles: ' + str(options.soltypecycles_list))
    logger.info('uvmin: ' + str(options.uvmin))
    logger.info('uvmax: ' + str(options.uvmax))
@@ -5371,7 +5387,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
    logger.info('uvmaxim: ' + str(options.uvmaxim))
 
 
-   return nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list
+   return nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list
 
 def getms_amp_stats(ms, datacolumn='DATA',uvcutfraction=0.666, robustsigma=True):
    uvdismod = get_uvwmax(ms)*uvcutfraction  
@@ -5516,7 +5532,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
                           insmoothnessconstraint_list=None, insmoothnessreffrequency_list=None, \
                           insmoothnessspectralexponent_list=None,\
                           insmoothnessrefdistance_list=None,\
-                          inantennaconstraint_list=None, inresetsols_list=None, inresetdir_list=None,\
+                          inantennaconstraint_list=None, inresetsols_list=None, inresetdir_list=None, innormamps_list=None,\
                           insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0,\
                           phasefactorsolint=1.0, delaycal=False):
    """
@@ -5813,6 +5829,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    print('antennaconstraint:',inantennaconstraint_list)
    print('resetsols:',inresetsols_list)
    print('resetdir:',inresetdir_list)
+   print('normamps:',innormamps_list)
    print('soltypecycles:',insoltypecycles_list)
 
    logger.info('soltype: '+ str(soltype_list) + ' ' + str(mslist))
@@ -5826,10 +5843,11 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    logger.info('antennaconstraint: ' + str(inantennaconstraint_list))
    logger.info('resetsols: ' + str(inresetsols_list))
    logger.info('resetdir: ' + str(inresetdir_list))
+   logger.info('normamps: ' + str(innormamps_list))
    logger.info('soltypecycles: ' + str(insoltypecycles_list))
 
 
-   return innchan_list, insolint_list, inBLsmooth_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, insmoothnessrefdistance_list, inantennaconstraint_list, inresetsols_list, inresetdir_list, insoltypecycles_list
+   return innchan_list, insolint_list, inBLsmooth_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, insmoothnessrefdistance_list, inantennaconstraint_list, inresetsols_list, inresetdir_list, insoltypecycles_list, normamps_list
 
 
 
@@ -7103,8 +7121,532 @@ def medianamp(h5):
     logger.info('Median Stokes I amplitude of ' + h5 + ': ' + str(medamps))
     return medamps
 
+def get_double_slice(values, idx: list = None, axes: list = None):
+    """
+    Get double slices
+    
+    :param values: numpy array
+    :param idx: list of indices
+    :param axes: list of axes corresponding to indices
+    
+    return slice
+    """
+    
+    ax1, ax2 = axes
+    id1, id2 = idx
+    l = list([slice(None)] * ax1 + [id1] + [slice(None)] * (len(values.shape) - ax1 - 1))
+    l[ax2] = id2
+    return tuple(l)
 
-def normamplitudes(parmdb, norm_per_ms=False):
+
+def get_double_slice_len(values, idx: list = None, axes: list = None):
+    """
+    Get double slices
+    
+    :param values: numpy array
+    :param idx: list of indices
+    :param axes: list of axes corresponding to indices
+    
+    return slice
+    """
+    
+    ax1, ax2 = axes
+    id1, id2 = idx
+    l = list([slice(None)] * ax1 + [id1] + [slice(None)] * (len(values) - ax1 - 1))
+    l[ax2] = id2
+    return tuple(l)
+
+
+def getallantennafromh5list(h5list):
+    '''
+    get all unique antenna names in a list of h5 files
+    '''
+    hasphase = True
+    hasamps = True
+    hasrotation = True
+    hastec = True
+
+    H = tables.open_file(h5list[0], mode='a')
+    # Figure out if we what solutions there are
+    
+    try:
+        antennas = H.root.sol000.amplitude000.ant[:]
+    except: 
+        hasamps = False
+    try:
+        antennas = H.root.sol000.phase000.ant[:]
+    except:
+        hasphase = False
+    try:
+        antennas = H.root.sol000.tec000.ant[:]
+    except:
+        hastec = False
+    try:
+        antennas = H.root.sol000.rotation000.ant[:]
+    except:
+        hasrotation = False     
+    print('Reading:', h5list[0], ' -- Number of anntena:', len(antennas))
+    H.close()
+
+    if len(h5list) > 0: # if there is only 1 we are already done given the code above
+        for h5 in h5list[1::]:
+            H = tables.open_file(h5, mode='a')
+            if hasphase:
+                ants = H.root.sol000.phase000.ant[:]
+            elif hasamps:  
+                ants = H.root.sol000.amplitude000.ant[:]
+            elif hastec:
+                ants = H.root.sol000.tec000.ant[:]
+            elif hasrotation:
+                ants = H.root.sol000.rotation000.ant[:]
+            print('Reading:', h5, ' -- Number of anntena:', len(ants))
+            H.close()    
+            antennas = np.concatenate((antennas, np.ndarray.flatten(ants)),axis=0)
+    return np.unique(antennas)
+
+
+def get_matrix_forslopenorm(parmdblist):
+    assert type(parmdblist) == list, 'input is not list' # use only lists as input
+    #allantenna =  getallantennafromh5list(parmdblist)
+    H = tables.open_file(parmdblist[0])
+    directions = H.root.sol000.amplitude000.dir[:] # should be the same for all parmdblist in the list
+    H.close()
+
+    N_h5  = len(parmdblist)
+    #N_ant = len(allantenna)
+    N_direction = len(directions)
+    
+    
+    #matrix_amps = np.zeros((N_h5,N_direction)) # sum of log10 of amps
+    matrix_weights = np.zeros((N_h5,N_direction)) # number if input values
+    matrix_slope = np.zeros((N_h5,N_direction)) # of mean slope log10 amps
+    
+    for h5_id, h5 in enumerate(parmdblist):
+        H = tables.open_file(h5)
+        ampsfull =H.root.sol000.amplitude000.val[:]
+        #weightsfull = H.root.sol000.amplitude000.weight[:]
+        ants_inh5 = H.root.sol000.amplitude000.ant[:]
+        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+        diraxis = axisn.index('dir')
+        freqaxis = axisn.index('freq')
+        H.close()
+
+        for dir_id, direction in enumerate(directions):
+            slice_obj = [slice(None)] * diraxis + [dir_id] + [slice(None)] * (ampsfull.ndim - diraxis - 1)
+            amps = ampsfull[tuple(slice_obj)]
+            #weights = weightsfull[tuple(slice_obj)]
+    
+            matrix_slope[h5_id,dir_id] = np.mean(np.diff(np.log10(amps),axis=freqaxis))
+            matrix_weights[h5_id,dir_id] = amps.size/N_direction
+            print('Direction:', dir_id, 'Slope:', matrix_slope[h5_id,dir_id])
+    return matrix_slope, matrix_weights
+
+
+def normslope_withmatrix(parmdblist):
+    '''
+    Global slope normalization per direction
+    input: list of h5 solution files
+    '''
+    assert type(parmdblist) == list, 'input is not list' # use only lists as input
+    H = tables.open_file(parmdblist[0])
+    directions = H.root.sol000.amplitude000.dir[:] # should be the same for all parmdb in the list
+    H.close()
+
+    #allantenna =  getallantennafromh5list(parmdblist)
+    matrix_slope, matrix_weights = get_matrix_forslopenorm(parmdblist)
+    #print(matrix_slope.shape)
+    
+    #create norm factors
+    norm_array = np.zeros((matrix_slope.shape[1]))
+    #matrix_weights[h5_id,ant_id,dir_id]
+    for dir_id, direction in enumerate(directions):
+        norm_array[dir_id] = np.average(matrix_slope[:,dir_id], weights=matrix_weights[:,dir_id])
+   
+    # write result
+    for h5_id, h5 in enumerate(parmdblist):
+        H = tables.open_file(h5, mode='a')
+        ampsfull =H.root.sol000.amplitude000.val[:]
+        weightsfull = H.root.sol000.amplitude000.weight[:]
+        ants_inh5 = H.root.sol000.amplitude000.ant[:]
+        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+        diraxis = axisn.index('dir')
+        freqaxis = axisn.index('freq')
+        frequencies = H.root.sol000.amplitude000.freq[:]
+ 
+        for dir_id, direction in enumerate(directions):
+          print(h5, dir_id, norm_array[dir_id])
+          for freq_id, frequency in enumerate(frequencies):    
+            slice_obj = get_double_slice(ampsfull, [freq_id, dir_id], [freqaxis, diraxis])
+          
+            amps = ampsfull[slice_obj]
+            ampsfull[slice_obj] = 10**( np.log10(amps) - (norm_array[dir_id]*float(freq_id)))
+            
+      
+        H.root.sol000.amplitude000.val[:] = ampsfull
+        H.flush()
+        H.close()
+    return  
+
+
+
+def get_matrix_forampnorm(parmdblist):
+    assert type(parmdblist) == list, 'input is not list' # use only lists as input
+    allantenna =  getallantennafromh5list(parmdblist)
+    H = tables.open_file(parmdblist[0])
+    directions = H.root.sol000.amplitude000.dir[:] # should be the same for all parmdblist in the list
+    H.close()
+
+
+    N_h5  = len(parmdblist)
+    N_ant = len(allantenna)
+    N_direction = len(directions)
+    
+    
+    matrix_amps = np.zeros((N_h5,N_ant,N_direction)) # sum of log10 of amps
+    matrix_weights = np.zeros((N_h5,N_ant,N_direction)) # number if input values
+    #matrix_slope = np.zeros((N_h5,N_ant,N_direction)) # of mean slope log10 amps
+    
+    for h5_id, h5 in enumerate(parmdblist):
+        H = tables.open_file(h5)
+        amps =H.root.sol000.amplitude000.val[:]
+        weights = H.root.sol000.amplitude000.weight[:]
+        ants_inh5 = H.root.sol000.amplitude000.ant[:]
+        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+        diraxis = axisn.index('dir')
+        antaxis = axisn.index('ant')
+        H.close()
+
+        for antenna in allantenna:
+            ant_id = np.where(ants_inh5 == antenna)[0]
+            print(h5, antenna)
+            if len(ant_id) > 0:
+                ant_id = ant_id[0]
+                for dir_id, direction in enumerate(directions):
+                    #print(str(antenna) + ' ' +'Normalizing direction', direction)
+                    slice_obj = get_double_slice(amps, [ant_id, dir_id], [antaxis, diraxis])
+                    amps_sel = amps[slice_obj]
+                    weights_sel = weights[slice_obj]
+                    idx = np.where(weights_sel != 0.0)
+                    weights_sel[idx] = 1.0
+                    
+                    matrix_amps[h5_id,ant_id,dir_id] = np.sum(np.log10(amps_sel[idx]))
+                    matrix_weights[h5_id,ant_id,dir_id] = np.sum(weights_sel[idx])
+                    #print(np.sum(weights_sel[idx]))
+                    #matrix_slope[h5_id,ant_id,dir_id] = np.mean(np.diff(np.log10(amps_sel[idx])))
+    return matrix_amps, matrix_weights
+
+def normamplitudes_withmatrix(parmdblist):
+    '''
+    Normalize global amplitues per direction and per antenna
+    '''
+    H = tables.open_file(parmdblist[0])
+    directions = H.root.sol000.amplitude000.dir[:] # should be the same for all parmdb in the list
+    H.close()
+
+    allantenna =  getallantennafromh5list(parmdblist)
+    matrix_amps, matrix_weights = get_matrix_forampnorm(parmdblist)
+    print(matrix_amps.shape)
+    #sys.exit()
+    #create norm factors
+    norm_array = np.zeros((matrix_amps.shape[1],matrix_amps.shape[2]))
+    #matrix_weights[h5_id,ant_id,dir_id]
+    for ant_id, antenna in enumerate(allantenna):
+         for dir_id, direction in enumerate(directions):
+             norm_array[ant_id,dir_id] = np.sum(matrix_amps[:,ant_id,dir_id])/np.sum(matrix_weights[:,ant_id,dir_id])
+    
+   
+    # write result
+    for h5_id, h5 in enumerate(parmdblist):
+        H = tables.open_file(h5, mode='a')
+        amps =H.root.sol000.amplitude000.val[:]
+        weights = H.root.sol000.amplitude000.weight[:]
+        ants_inh5 = H.root.sol000.amplitude000.ant[:]
+        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+        diraxis = axisn.index('dir')
+        antaxis = axisn.index('ant')
+ 
+        #matrix_weights[h5_id,ant_id,dir_id]
+        for antenna in allantenna:
+            ant_id = np.where(ants_inh5 == antenna)[0]
+            print(h5, antenna)
+            if len(ant_id) > 0:
+                ant_id = ant_id[0]
+                for dir_id, direction in enumerate(directions):
+                    print(ant_id, dir_id,  norm_array[ant_id,dir_id])
+                    slice_obj = get_double_slice(amps, [ant_id, dir_id], [antaxis, diraxis])
+                    amps[slice_obj] = 10**(np.log10(amps[slice_obj]) - norm_array[ant_id,dir_id])
+        H.root.sol000.amplitude000.val[:] = amps
+        H.flush()
+        H.close()
+    return        
+     
+
+def normamplitudes(parmdb, norm_per_ms=False, norm_per_ant=False):
+    """
+    Normalize H5 amplitudes
+  
+    :param paramdb: list of h5 files
+    :param norm_per_ms : boolean 
+    :param norm_per_ant : boolean
+    
+    return None
+    """
+    has_dir = h5_has_dir(parmdb[0])
+    H = tables.open_file(parmdb[0])
+    axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+    if has_dir:
+        directions = H.root.sol000.amplitude000.dir[:] # should be the same for all parmdb in the list
+    H.close()
+   
+   
+    # ---------------------- THIS IS FOR norm_per_ant=False ----------
+    # ----------------------------------------------------------------
+    # ----------------------------------------------------------------
+    if norm_per_ms and not norm_per_ant:
+        for parmdbi in parmdb:
+            H = tables.open_file(parmdbi,mode='a')
+            if not has_dir:        
+                amps =H.root.sol000.amplitude000.val[:]
+                weights = H.root.sol000.amplitude000.weight[:]
+                idx = np.where(weights != 0.0)
+                amps = np.log10(amps)
+                logger.info(parmdbi + ' Mean amplitudes before normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                amps = amps - (np.nanmean(amps[idx]))
+                logger.info(parmdbi + ' Mean amplitudes after normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                amps = 10**(amps)
+                H.root.sol000.amplitude000.val[:] = amps
+                H.flush()
+                H.close()
+            else:    
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                diraxis = axisn.index('dir')
+                ampsfull =H.root.sol000.amplitude000.val[:]
+                weightsfull = H.root.sol000.amplitude000.weight[:]
+                for dir_id, direction in enumerate(directions):
+                    print('Normalizing direction', direction, 'Axis entry number', axisn.index('dir'))
+                    slice_obj = [slice(None)] * diraxis + [dir_id] + [slice(None)] * (ampsfull.ndim - diraxis - 1)
+                    amps = ampsfull[tuple(slice_obj)]
+                    weights = weightsfull[tuple(slice_obj)]
+    
+                    idx = np.where(weights != 0.0)
+                    amps = np.log10(amps)
+                    logger.info('Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                    print('Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                    amps = amps - (np.nanmean(amps[idx]))
+                    logger.info('Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes after normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                    amps = 10**(amps)    
+                    # put back vales in ampsfull
+                    ampsfull[tuple(slice_obj)] = amps
+                    
+                H.root.sol000.amplitude000.val[:] = ampsfull
+                H.flush()
+                H.close()        
+        print('Return with norm_per_ant=False')
+        return  # norm_per_ms
+
+    if not has_dir and not norm_per_ant:      
+        for i, parmdbi in enumerate(parmdb):
+            H = tables.open_file(parmdbi,mode='r')
+            ampsfull = H.root.sol000.amplitude000.val[:]
+            weightsfull = H.root.sol000.amplitude000.weight[:]
+            idx = np.where(weightsfull != 0.0)
+            logger.info(parmdbi + '  Normfactor: '+ str(10**(np.nanmean(np.log10(ampsfull[idx])))))
+            if i == 0:
+                amps = np.ndarray.flatten(ampsfull[idx])
+            else:
+                amps = np.concatenate((amps, np.ndarray.flatten(ampsfull[idx])),axis=0)
+
+            H.close()
+        normmin = (np.nanmean(np.log10(amps)))
+        logger.info('Global normfactor: ' + str(10**normmin))
+        # now write the new H5 files
+        for parmdbi in parmdb:
+            H = tables.open_file(parmdbi,mode='a')
+            ampsfull = H.root.sol000.amplitude000.val[:]
+            ampsfull = (np.log10(ampsfull)) - normmin
+            ampsfull = 10**ampsfull
+            H.root.sol000.amplitude000.val[:] = ampsfull
+            H.flush()
+            H.close()
+    elif not norm_per_ant:    
+        for dir_id, direction in enumerate(directions):  
+            for i, parmdbi in enumerate(parmdb):
+                H = tables.open_file(parmdbi,mode='r')
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                ampsfull = H.root.sol000.amplitude000.val[:]
+                weightsfull = H.root.sol000.amplitude000.weight[:]
+                diraxis = axisn.index('dir')  
+                H.close() 
+                
+                slice_obj = [slice(None)] * diraxis + [dir_id] + [slice(None)] * (ampsfull.ndim - diraxis - 1)
+                ampsi = ampsfull[tuple(slice_obj)]
+                weights = weightsfull[tuple(slice_obj)]
+                
+                idx = np.where(weights != 0.0)
+                if i == 0:
+                    amps = np.ndarray.flatten(ampsi[idx])
+                else:
+                    amps = np.concatenate((amps, np.ndarray.flatten(ampsi[idx])),axis=0)
+            normmin = (np.nanmean(np.log10(amps)))
+            logger.info('Global normfactor directon:' +  str(dir_id) + ' ' + str(10**normmin))
+            print('Global normfactor directon:' +  str(dir_id) + ' ' + str(10**normmin))
+            for parmdbi in parmdb:
+                H = tables.open_file(parmdbi,mode='a')
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                ampsfull = H.root.sol000.amplitude000.val[:]
+                diraxis = axisn.index('dir')
+                # put back vales in ampsfull
+                slices = tuple(slice(None) if i != diraxis else dir_id for i in range(diraxis + 1))
+                ampsfull[slices] = np.log10(ampsfull[slices]) - normmin
+                ampsfull[slices] = 10**ampsfull[slices]
+                H.root.sol000.amplitude000.val[:] = ampsfull
+                H.flush()
+                H.close()
+        print('Return with norm_per_ant=False')
+        return # return because we do not need to go to the norm_per_an=True part
+
+
+    # ---------------------- THIS IS FOR norm_per_ant=True ----------
+    # ----------------------------------------------------------------
+    # ----------------------------------------------------------------
+    allantenna =  getallantennafromh5list(parmdb)
+
+    if norm_per_ms and norm_per_ant:
+        for parmdbi in parmdb:
+            H = tables.open_file(parmdbi,mode='a')
+            ants_inh5 = H.root.sol000.amplitude000.ant[:]
+            antaxis = axisn.index('ant')
+            if not has_dir:        
+                ampsfull =H.root.sol000.amplitude000.val[:]
+                weightsfull = H.root.sol000.amplitude000.weight[:]
+                
+                for antenna in allantenna:
+                    ant_id = np.where(ants_inh5 == antenna)[0]
+                    if len(ant_id) > 0:
+                        ant_id = ant_id[0]
+                        print('Doing:',antenna) 
+                        print('antenna index: ', )
+                        slice_obj = [slice(None)] * antaxis + [ant_id] + [slice(None)] * (ampsfull.ndim - diraxis - 1)
+                        amps = ampsfull[tuple(slice_obj)]
+                        weights = weightsfull[tuple(slice_obj)] 
+                
+                        idx = np.where(weights != 0.0)
+                        amps = np.log10(amps)
+                        logger.info(str(antenna) + ' ' + parmdbi + ' Mean amplitudes before normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                        amps = amps - (np.nanmean(amps[idx]))
+                        logger.info(str(antenna) + ' ' + parmdbi + ' Mean amplitudes after normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                        amps = 10**(amps)
+          
+                        ampsfull[tuple(slice_obj)] = amps
+                    else:
+                        print('Skipping this antenna as it is not present in the h5', antenna)
+                 
+                H.root.sol000.amplitude000.val[:] = ampsfull
+                H.flush()
+                H.close()
+            else:    
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                diraxis = axisn.index('dir')
+                antaxis = axisn.index('ant')
+                ampsfull =H.root.sol000.amplitude000.val[:]
+                weightsfull = H.root.sol000.amplitude000.weight[:]
+                
+                for antenna in allantenna:
+                    ant_id = np.where(ants_inh5 == antenna)[0]
+                    if len(ant_id) > 0:
+                        for dir_id, direction in enumerate(directions):
+                            print(str(antenna) + ' ' +'Normalizing direction', direction)
+                            
+                            slice_obj = get_double_slice(ampsfull, [ant_id, dir_id], [antaxis, diraxis])
+                           
+                            amps = ampsfull[slice_obj]
+                            weights = weightsfull[slice_obj]
+            
+                            idx = np.where(weights != 0.0)
+                            amps = np.log10(amps)
+                            logger.info(str(antenna) + ' ' +'Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                            print('Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                            amps = amps - (np.nanmean(amps[idx]))
+                            logger.info(str(antenna) + ' ' +'Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes after normalization: ' + str(10**(np.nanmean(amps[idx]))))
+                            amps = 10**(amps)    
+                            # put back vales in ampsfull
+                            ampsfull[slice_obj] = amps
+                    else:
+                        print('Skipping this antenna as it is not present in the h5', antenna)
+                
+                H.root.sol000.amplitude000.val[:] = ampsfull
+                H.flush()
+                H.close()        
+        print('Return with norm_per_ant=True')
+        return  # norm_per_ms
+
+    if not has_dir and norm_per_ant:      
+        print('Not implemented  "if not has_dir and norm_per_ant" ')
+        sys.exit()
+
+    elif norm_per_ant:    
+        for antenna in allantenna:        
+                for dir_id, direction in enumerate(directions):  
+                    try:
+                        del(amps) # delete variable at the start
+                    except:
+                        pass
+                    for i, parmdbi in enumerate(parmdb):
+                        H = tables.open_file(parmdbi,mode='r')
+                        ants_inh5 = H.root.sol000.amplitude000.ant[:]
+                        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                        #ampsfull = H.root.sol000.amplitude000.val[:]
+                        #weightsfull = H.root.sol000.amplitude000.weight[:]
+                        diraxis = axisn.index('dir')  
+                        antaxis = axisn.index('ant')  
+                        
+                        
+                        ant_id = np.where(ants_inh5 == antenna)[0]
+                        if len(ant_id) > 0:
+                            slice_obj = get_double_slice_len(axisn, [ant_id, dir_id], [antaxis, diraxis])
+                            ampsi = H.root.sol000.amplitude000.val[slice_obj]
+                            weights = H.root.sol000.amplitude000.weight[slice_obj]
+                        
+                            idx = np.where(weights != 0.0)
+                            if 'amps' in locals(): # in this case amps was already made
+                                amps = np.concatenate((amps, np.ndarray.flatten(ampsi[idx])),axis=0)
+                            else: # create amps
+                                amps = np.ndarray.flatten(ampsi[idx])
+                        H.close() 
+                        
+                    normmin = (np.nanmean(np.log10(amps)))
+                    
+                    logger.info(str(antenna) + ' Global normfactor directon:' +  str(dir_id) + ' ' + str(10**normmin))
+                    print(str(antenna) + ' Global normfactor directon:' +  str(dir_id) + ' ' + str(10**normmin))
+                    for parmdbi in parmdb:
+                        print('Write to:', parmdbi)
+                        H = tables.open_file(parmdbi,mode='a')
+                        ants_inh5 = H.root.sol000.amplitude000.ant[:]
+                        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                        #ampsfull = H.root.sol000.amplitude000.val[:]
+                        diraxis = axisn.index('dir')
+                        antaxis = axisn.index('ant')
+                        
+                        # put back vales in ampsfull
+                        ant_id = np.where(ants_inh5 == antenna)[0]
+                        if len(ant_id) > 0:
+                            slice_obj = get_double_slice_len(axisn, [ant_id, dir_id], [antaxis, diraxis])
+                            ampsfull = H.root.sol000.amplitude000.val[slice_obj]
+                        
+                            ampsfull = 10**(np.log10(ampsfull) - normmin)
+                            #ampsfull = 10**ampsfull
+                            H.root.sol000.amplitude000.val[slice_obj] = ampsfull
+                        H.flush()
+                        H.close()
+            #else:
+            #    print('Skipping this antenna as it is not present in the h5', antenna)
+    
+    print('Return with norm_per_ant=True')
+    return           
+
+
+
+def normamplitudes_old2(parmdb, norm_per_ms=False, norm_per_ant=False):
     has_dir = h5_has_dir(parmdb[0])
     H = tables.open_file(parmdb[0])
     axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
@@ -7149,7 +7691,10 @@ def normamplitudes(parmdb, norm_per_ms=False):
                     if diraxis == 4:
                         amps = ampsfull[:, :, :, :, dir_id, ...]
                         weights = weightsfull[:, :, :, :, dir_id, ...]
-                        
+                   
+                   
+                    #amp[get_double_slice(amp, [antennaid, dirid], [antennaxis, diraxis])
+                   
                     idx = np.where(weights != 0.0)
                     amps = np.log10(amps)
                     logger.info('Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(10**(np.nanmean(amps[idx]))))
@@ -7894,7 +8439,11 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     '''
     forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
     '''
-    
+    if '-model-column' in subprocess.check_output(['wsclean'], text=True):    
+      predict_inmodelcol = True
+    else:
+      predict_inmodelcol = False
+
     
     fitspectrallogpol = False # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
@@ -8028,6 +8577,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         
         # step 3 predict with wsclean
         cmd = 'wsclean -predict '
+        if predict_inmodelcol: # directly predict the right column name
+          cmd += '-model-column MODEL_DATA_DD' + str(facet_id) + ' '
         #if not usewgridder and not idg:
         #  cmd += '-padding 1.8 '
         if channelsout > 1:
@@ -8076,7 +8627,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         for ms in mslist:
           cmddppp = 'DP3 msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. steps=[] '
           cmddppp += 'msout.datacolumn=MODEL_DATA_DD' +str(facet_id)  
-          if DDE_predict == 'WSCLEAN':
+          if DDE_predict == 'WSCLEAN' and not predict_inmodelcol:
             run(cmddppp)
         modeldatacolumns_list.append('MODEL_DATA_DD' +str(facet_id))
       
@@ -8386,7 +8937,8 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
               soltype_list, soltypecycles_list, smoothnessconstraint_list, \
               smoothnessreffrequency_list, smoothnessspectralexponent_list, \
               smoothnessrefdistance_list, \
-              antennaconstraint_list, resetsols_list, resetdir_list, BLsmooth_list, uvmin=0, \
+              antennaconstraint_list, resetsols_list, resetdir_list, normamps_list, \
+              BLsmooth_list, uvmin=0, \
               normamps=False, normamps_per_ms=False, skymodel=None, \
               predictskywithbeam=False, restoreflags=False, flagging=False, \
               longbaseline=False, flagslowphases=True, \
@@ -8556,9 +9108,33 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
      if normamps and (soltype in ['complexgain','scalarcomplexgain','rotation+diagonal',\
                                   'rotation+diagonalamplitude','rotation+scalar',\
                                   'rotation+scalaramplitude','amplitudeonly','scalaramplitude']) and len(parmdbmslist) > 0:
-       print('Doing global gain normalization')
-       normamplitudes(parmdbmslist, norm_per_ms=normamps_per_ms) # list of h5 for different ms, all same soltype
+       print('Doing global amplitude-type normalization')
+       
+       #[soltypenumber][msnumber] msnumber=0 is ok because we  do all ms at once
+       if normamps_list[soltypenumber][0] == 'normamps':  # 
+          print('Performing global amplitude normalization')
+          normamplitudes(parmdbmslist, norm_per_ms=normamps_per_ms) # list of h5 for different ms, all same soltype
 
+       if normamps_list[soltypenumber][0] == 'normamps_per_ant':
+          print('Performing global amplitude normalization per antenna')
+          normamplitudes_withmatrix(parmdbmslist)
+     
+       if normamps_list[soltypenumber][0] == 'normslope':
+          print('Performing global slope normalization')
+          normslope_withmatrix(parmdbmslist)
+          
+       if normamps_list[soltypenumber][0] == 'normslope+normamps':
+          print('Performing global slope normalization')
+          normslope_withmatrix(parmdbmslist) # first do the slope
+          normamplitudes(parmdbmslist, norm_per_ms=normamps_per_ms)
+          
+       if normamps_list[soltypenumber][0] == 'normslope+normamps_per_ant':
+          print('Performing global slope normalization')
+          normslope_withmatrix(parmdbmslist) # first do the slope
+          normamplitudes_withmatrix(parmdbmslist)        
+        
+         
+       
      # APPLYCAL or PRE-APPLYCAL or CORRUPT
      count = 0
      for msnumber, ms in enumerate(mslist):
@@ -8798,7 +9374,7 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
       colnames = t.colnames()
       t.close()
       if modelcol not in colnames:
-         cmddppp = 'DP3 msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. steps=[] ' 
+         cmddppp = 'DP3 msin=' + ms + ' msin.datacolumn=MODEL_DATA_DD0 msout=. steps=[] ' # pick MODEL_DATA_DD0 because it always exists (note MODEL_DATA is not there anymore as a template with the new WSClean -model-column option
          cmddppp += 'msout.datacolumn=' + modelcol + ' '  
          print(cmddppp)
          if not dryrun:
@@ -8953,6 +9529,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     t = pt.table(ms + '/ANTENNA',ack=False)
     antennasms = t.getcol('NAME')
     t.close()
+
+    t = pt.table(ms, readonly=True, ack=False)
+    ms_ntimes = len(np.unique(t.getcol('TIME')))
+    t.close()
     
     
     if telescope == 'LOFAR':
@@ -9097,16 +9677,17 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
        if len(dir_id_kept) > 0:
          print(solint)
          print(dir_id_kept)
-         solint = [solint[i] for i in dir_id_kept] # overwrite solint, selecting one the directions kept
+         solint = [solint[i] for i in dir_id_kept] # overwrite solint, selecting on the directions kept
        solints = [int(format_solint(x, ms)) for x in solint]
-       solints = tweak_solints(solints)
+       solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
        import math
        lcm = math.lcm(*solints)
        divisors = [int(lcm/i) for i in solints]
        cmd += 'ddecal.solint=' + str(lcm) + ' '
        cmd += 'ddecal.solutions_per_direction=' + "'"+str(divisors).replace(' ','') + "' "
     else:
-       cmd += 'ddecal.solint=' + format_solint(solint, ms) + ' '
+       solint_integer = format_solint(solint, ms) # create the integer number for DP3
+       cmd += 'ddecal.solint=' + str(tweak_solints_single(solint_integer, ms_ntimes)) + ' '
     cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
 
@@ -9189,12 +9770,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
        outparmdb = 'adddirback' + parmdb
        if os.path.isfile(outparmdb):
           os.system('rm -f ' + outparmdb)
-       h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist())
+       h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_flags=False)
 
        # now we split them all into separate h5 per direction so we can reorder and fill them
+       print('Splitting directions into separate h5')
        split_h5.split_multidir(outparmdb)
        
        #fill the added emtpy directions with the closest ones that were solved for
+       print('Copy over solutions from skipped directions')
        copy_over_solutions_from_skipped_directions(modeldatacolumns,dir_id_kept)
    
        # create backup of parmdb and remove orginal and cleanup
@@ -9204,6 +9787,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     
        # merge h5 files in order of the directions in facetdirections.p and recreate parmdb
        # clean up previously splitted directions inside this function
+       print('Merge h5 files in correct order and recreate parmdb')
        merge_splitted_h5_ordered(modeldatacolumns, parmdb, clean_up=True)
        
        # fix direction names
@@ -10271,9 +10855,11 @@ def main():
    calibrationparser.add_argument('--dejumpFR', help='Dejump Faraday solutions when using scalarphasediffFR.', action='store_true')
    calibrationparser.add_argument('--usemodeldataforsolints', help='Determine solints from MODEL_DATA.', action='store_true')
    calibrationparser.add_argument("--preapplyH5-list", type=arg_as_list, default=[None], help="Update April 2024: Avoid usage because of corrupt vs correct. List of H5 files to preapply (one for each MS). The default is [None].")
-   calibrationparser.add_argument('--normamps', help='Normalize global amplitudes to 1.0. The default is True (False if fulljones is used).', type=ast.literal_eval, default=True)
-   calibrationparser.add_argument('--normampsskymodel', help='Normalize global amplitudes to 1.0 when solving against an external skymodel. The default is False (turned off if fulljones is used).', type=ast.literal_eval, default=False)
-   calibrationparser.add_argument('--normamps-per-ms', help='Normalize amplitudes to 1.0 for each MS separately, by default this is not done', action='store_true')
+   calibrationparser.add_argument('--normamps', help='Normalize global amplitudes to 1.0. The default is True (False if fulljones is used). Note that if set to False --normamps-list is ignored.', type=ast.literal_eval, default=True)
+   calibrationparser.add_argument('--normampsskymodel', help='Normalize global amplitudes to 1.0 when solving against an external skymodel. The default is False (turned off if fulljones is used). Note that this parameter is False (the default) --normamps-list is ignored for the solve against the skymodel', type=ast.literal_eval, default=False)
+   #calibrationparser.add_argument('--normamps-per-ms', help='Normalize amplitudes to 1.0 for each MS separately, by default this is not done', action='store_true')
+
+   calibrationparser.add_argument("--normamps-list", type=arg_as_list, default=['normamps','normamps','normamps'], help="List with amplitude normalization options. Possible input: 'normamps', 'normslope', 'normamps_per_ant, 'normslope+normamps', 'normslope+normamps_per_ant', or None. The default is [normamps,normamps,normamps,etc]. Only has an effect if the corresponding soltype outputs and amplitude000 table (and is not fulljones).")
    
    # calibrationparser.add_argument("--applydelaycalH5-list", type=arg_as_list, default=[None], help="List of H5 files from the delay calibrator, one per ms")
    # calibrationparser.add_argument("--applydelaytype", type=str, default='circular', help="Options: circular or linear. If --docircular was used for finding the delay solutions use circular (the default)")
@@ -10397,7 +10983,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '10.1.0'
+   version = '11.0.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -10462,15 +11048,10 @@ def main():
 
    # check if ms channels are equidistant in freuqency (to confirm DP3 concat was used properly)
    check_equidistant_freqs(mslist)
-
-   # fix irregular time axes if needed 
-   #mslist =fix_equidistant_times(mslist, args['start']!=0)
-   #print(mslist)
-   #sys.exit()
    
    # do some input checking 
    inputchecker(args, mslist)
-
+   
    # TEST ONLY REMOVE
    if False:
      modeldatacolumnsin = ['MODEL_DATA_DD0','MODEL_DATA_DD1','MODEL_DATA_DD2','MODEL_DATA_DD3','MODEL_DATA_DD4']
@@ -10584,7 +11165,7 @@ def main():
    nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
    smoothnessspectralexponent_list, smoothnessrefdistance_list, \
    antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, \
-   uvmin_list, uvmax_list, uvminim_list, uvmaxim_list  = \
+   uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list  = \
                                               setinitial_solint(mslist, longbaseline, LBA, options)
 
 
@@ -10695,9 +11276,9 @@ def main():
         wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
                              soltypecycles_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
                              smoothnessspectralexponent_list, smoothnessrefdistance_list, \
-                             antennaconstraint_list, resetsols_list, resetdir_list, BLsmooth_list,\
+                             antennaconstraint_list, resetsols_list, resetdir_list, \
+                             normamps_list, BLsmooth_list,\
                              uvmin=args['uvmin'], normamps=args['normampsskymodel'], \
-                             normamps_per_ms=args['normamps_per_ms'],\
                              skymodel=args['skymodel'], \
                              predictskywithbeam=args['predictskywithbeam'], \
                              restoreflags=args['restoreflags'], flagging=args['doflagging'], \
@@ -10864,7 +11445,7 @@ def main():
        nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list,smoothnessreffrequency_list,\
                               smoothnessspectralexponent_list, smoothnessrefdistance_list, \
                               antennaconstraint_list, resetsols_list, resetdir_list, \
-                              soltypecycles_list  = \
+                              soltypecycles_list, normamps_list  = \
                               auto_determinesolints(mslist, args['soltype_list'], \
                               longbaseline, LBA, \
                               innchan_list=nchan_list, insolint_list=solint_list, \
@@ -10875,6 +11456,7 @@ def main():
                               inantennaconstraint_list=antennaconstraint_list, \
                               inresetsols_list=resetsols_list, \
                               inresetdir_list=resetdir_list,\
+                              innormamps_list=normamps_list,\
                               inBLsmooth_list=BLsmooth_list,\
                               insoltypecycles_list=soltypecycles_list, redo=True, \
                               tecfactorsolint=args['tecfactorsolint'], \
@@ -10887,8 +11469,8 @@ def main():
                            smoothnessconstraint_list, smoothnessreffrequency_list,\
                            smoothnessspectralexponent_list, smoothnessrefdistance_list,\
                            antennaconstraint_list, resetsols_list, resetdir_list, \
-                           BLsmooth_list, uvmin=args['uvmin'], \
-                           normamps=args['normamps'], normamps_per_ms=args['normamps_per_ms'],\
+                           normamps_list, BLsmooth_list, uvmin=args['uvmin'], \
+                           normamps=args['normamps'], \
                            restoreflags=args['restoreflags'], \
                            flagging=args['doflagging'], longbaseline=longbaseline, \
                            flagslowphases=args['doflagslowphases'], \
