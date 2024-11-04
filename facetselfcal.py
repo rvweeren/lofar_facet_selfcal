@@ -19,7 +19,6 @@
 # log command into the FITS header
 # BLsmooth constant smooth for gain solves
 # stop selfcal  based on some metrics
-# make Ateam plot
 # use scalarphasediff sols stats for solints? test amplitude stats as well
 # parallel solving with DP3, given that DP3 often does not use all cores?
 # uvmin, uvmax, uvminim, uvmaxim per ms per soltype
@@ -9687,7 +9686,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
        cmd += 'ddecal.solutions_per_direction=' + "'"+str(divisors).replace(' ','') + "' "
     else:
        solint_integer = format_solint(solint, ms) # create the integer number for DP3
-       cmd += 'ddecal.solint=' + str(tweak_solints_single(solint_integer, ms_ntimes)) + ' '
+       cmd += 'ddecal.solint=' + str(tweak_solints_single(int(solint_integer), ms_ntimes)) + ' '
     cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
 
@@ -10365,7 +10364,14 @@ def basicsetup(mslist, args):
         else:
             args['uvmin'] = 350.
 
-   if args['pixelscale'] is None:
+   if type(args['uvminim']) is not list: 
+      if args['uvminim'] is None:
+         if telescope == 'LOFAR':
+            args['uvminim'] = 80.  
+         else:
+            args['uvminim'] = 10. # MeerKAt for example 
+
+   if args['pixelscale'] is None and telescope != 'MeerKAT':
      if LBA:
        if longbaseline:
          args['pixelscale'] = 0.08
@@ -10376,7 +10382,14 @@ def basicsetup(mslist, args):
          args['pixelscale'] = 0.04
        else:
          args['pixelscale'] = 1.5
-
+   elif telescope == 'MeerKAT':
+      if freq < 1e9: # UHF-band
+         args['pixelscale'] = pixelscale = 1.8  
+      elif freq < 2e9: # L-band
+         args['pixelscale'] = pixelscale = 1.
+      elif freq < 4e9: # S-band   
+         args['pixelscale'] = pixelscale = 0.5
+ 
    if (args['delaycal'] or args['auto']) and  longbaseline and not LBA:
      if args['imsize'] is None:
        args['imsize'] = 2048
@@ -10711,6 +10724,19 @@ def set_fitsmask_restart(args, i, mslist):
       fitsmask_list.append(fitsmask)
    return fitsmask, fitsmask_list
 
+def create_Ateam_seperation_plots(mslist, start=0):
+   '''
+   Create Ateam and Sun, Moon, Jupiter seperation plots
+   input: mslist (list), list of MS
+   '''
+   if start != 0:
+      return  
+   for ms in mslist:
+      outputname = 'Ateam_' + ms + '.png'
+      run('check_Ateam_separation.py --outputimage=' + outputname + ' ' + ms)
+   return
+   
+   
 
 def nested_mslistforimaging(mslist, stack=False):
    if not stack:
@@ -10798,9 +10824,9 @@ def main():
    imagingparser.add_argument('--robust', help='Briggs robust parameter for imagaging. The default is -0.5. Also allowed are the strings uniform or naturual which will override Briggs weighting.', default=-0.5, type=str_or_float)
    imagingparser.add_argument('--multiscale-start', help='Start multiscale deconvolution at this selfcal cycle. This is by default 1.', default=1, type=int)
 
-   imagingparser.add_argument('--uvminim', help='Inner uv-cut for imaging in lambda. The default is 80.', default=80., type=floatlist_or_float)
+   imagingparser.add_argument('--uvminim', help='Inner uv-cut for imaging in lambda. The default is 80 for LOFAR and 10 for all other', type=floatlist_or_float)
    imagingparser.add_argument('--uvmaxim', help='Outer uv-cut for imaging in lambda. The default is None', default=None, type=floatlist_or_float)
-   imagingparser.add_argument('--pixelscale','--pixelsize', help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations (these are also the default values).', type=float)
+   imagingparser.add_argument('--pixelscale','--pixelsize', help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations (these are also the default values). For MeerKAT the defaults are 1.8, 1.0, 0.5 for UHF-, L-, and S-band, repspectively.', type=float)
    imagingparser.add_argument('--channelsout', help='Number of channels out during imaging (see WSClean documentation). This is by default 6.', default=6, type=int)
    imagingparser.add_argument('--multiscale', help='Use multiscale deconvolution (see WSClean documentation).', action='store_true')
    imagingparser.add_argument('--multiscalescalebias', help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.75.', default=0.75, type=float)
@@ -10983,7 +11009,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '11.0.0'
+   version = '11.1.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -11085,6 +11111,9 @@ def main():
    # extra flagging if requested
    if args['start'] == 0 and args['useaoflagger'] and args['useaoflaggerbeforeavg']:
      runaoflagger(mslist, strategy=args['aoflagger_strategy'])
+
+   # create Ateam plots
+   create_Ateam_seperation_plots(mslist, start=args['start'])
 
    # fix irregular time axes if needed (do this after flaging)
    mslist =fix_equidistant_times(mslist, args['start']!=0, dysco=args['dysco'])
