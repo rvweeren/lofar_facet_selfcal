@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+# auto update channels out and fitspectralpol for high dynamic range
+# in case of restart check update-multiscale
+# in case of restart check update-uvmin
+# --wscleanskymodel, allow different number of channelsout at start==0
 #h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_flags=False) Needs to be propagate_flags to be fully correct, this is a h5_merger issue
 # check that MODEL_DATA_DD etc XY,YX are set to zero/or clean if wsclean predicts are used for Stokes I/dual 
 # time, timefreq, freq med/avg steps (via losoto)
@@ -105,6 +109,63 @@ def fix_h5(h5_list):
         os.system('cp -f ' + outparmdb + ' ' + h5file )
         os.system('rm -f ' + outparmdb)
     return
+
+def round_up_to_even(number):
+    return int(np.ceil(number / 2.) * 2)
+
+def set_channelsout(mslist):
+    t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
+    telescope = t.getcol('TELESCOPE_NAME')[0] 
+    t.close()
+    f_bw = get_fractional_bandwidth(mslist)
+
+    if telescope == 'LOFAR':
+        channelsout = round_up_to_even(f_bw*12)
+    elif telescope == 'MeerKAT':   
+        channelsout = round_up_to_even(f_bw*16)
+    else:    
+        channelsout = round_up_to_even(f_bw*12)
+    return channelsout
+  
+def set_fitspectralpol(channelsout):
+    if channelsout == 1:
+        fitspectralpol = 1  
+    elif channelsout == 2:  
+        fitspectralpol = 2 
+    elif channelsout <= 6:  
+        fitspectralpol = 3 
+    elif channelsout <= 8:  
+        fitspectralpol = 5 
+    elif channelsout <= 12:  
+        fitspectralpol = 7 
+    elif channelsout > 12 :  
+        fitspectralpol = 9 
+    else:
+       print('channelsout', channelsout)
+       raise Exception('channelsout has an invalid value')  
+    return fitspectralpol
+  
+def get_fractional_bandwidth(mslist):
+    '''
+    Compute fractional bandwidth of a list of MS
+    input mslist: list of ms
+    return fractional bandwidth
+    '''
+    freqaxis = [] 
+    for ms in mslist:        
+        t = pt.table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False)
+        freq = t.getcol('CHAN_FREQ')[0]
+        t.close()
+        freqaxis.append(freq)
+    freqaxis = np.hstack(freqaxis) 
+    f_bw = (np.max(freqaxis) - np.min(freqaxis))/np.min(freqaxis)
+    
+    if f_bw == 0.0: # single channel data
+       t = pt.table(mslist[0] + '/SPECTRAL_WINDOW', readonly=True, ack=False) # just take the first and assume this is ok
+       f_bw =  t.getcol('TOTAL_BANDWIDTH')[0]/np.min(freqaxis)
+       t.close()
+    return f_bw
+  
 
 def MeerKAT_antconstraint(antfile='MeerKATlayout.csv', ctype='all'):
     if ctype not in ['core','remote','all']:
@@ -2943,7 +3004,8 @@ def inputchecker(args, mslist):
             print('--groupms-h5facetspeedup can only be used with --DDE')
             raise Exception('--groupms-h5facetspeedup can only be used with --DDE')
     if args['DDE_predict'] == 'DP3':
-        if args['fitspectralpol'] < 1:  
+        if type(args['fitspectralpol']) is not str:
+          if args['fitspectralpol'] < 1:  
             print('--fitspectralpol needs to be turned on, otherwise no skymodel is produced by WSClean and we cannot predict these components with DP3. Put --DDE-predict=WSCLEAN or fitspectralpol>0')
             raise Exception('--Invalid combination of --fitspectralpol and --DDE-predict') 
 
@@ -3126,20 +3188,19 @@ def inputchecker(args, mslist):
        if args['wscleanskymodel'] is not None and args['Nfacets'] > 0:
           print('If --DDE and --wscleanskymodel are set you cannot use Nfacets')
           raise Exception('If --DDE and --wscleanskymodel are set you cannot use Nfacets')
-       if args['wscleanskymodel'] is not None:
-          nonpblist = glob.glob(args['wscleanskymodel'] + '-????-model.fits')
-          pblist = glob.glob(args['wscleanskymodel'] + '-????-model-pb.fits')
+       #if (args['wscleanskymodel'] is not None) and (not args['disable_primary_beam')] \
+       #     and (telescope == 'LOFAR'):
+          #nonpblist = glob.glob(args['wscleanskymodel'] + '-????-model.fits')
+          #pblist = glob.glob(args['wscleanskymodel'] + '-????-model-pb.fits')
           
+          #if len(pblist) != len(nonpblist)
+          #    print('Number of model-pb.fits and  model.fits images are not the same')
+          #    raise Exception('Number of model-pb.fits and  model.fits images are not the same')
           #check number of model-pb images matches channelsout
-          if not args['disable_primary_beam'] and telescope == 'LOFAR':
-             if len(pblist) != args['channelsout']:
-                 print('Number of model-pb.fits images does not match channelsout')
-                 raise Exception('Number of model-pb.fits images does not match channelsout')
-          #for image in nonpblist+pblist
-          #    hdu = flatten( fits.open(image))
-          #    if hdu.shape()[0] != args['imsize'] 
-          #    findrms(np.ndarray.flatten(hdu[0].data))
-          #    hdu.close()
+          #if not args['disable_primary_beam'] and telescope == 'LOFAR':
+          #   if len(pblist) != args['channelsout']:
+          #       print('Number of model-pb.fits images does not match channelsout')
+          #       raise Exception('Number of model-pb.fits images does not match channelsout')
          
 
     for ms in mslist:
@@ -3298,9 +3359,9 @@ def inputchecker(args, mslist):
             print('Not enough WSClean channel model images found')
             print(glob.glob(args['wscleanskymodel'] + '-????-model.fits'))
             raise Exception('Not enough WSClean channel model images found')
-        if len(glob.glob(args['wscleanskymodel'] + '-????-model.fits')) != args['channelsout']:
-            print('Number of model images provided needs to match channelsout')
-            raise Exception('Number of model images provided needs to match channelsout')
+        #if len(glob.glob(args['wscleanskymodel'] + '-????-model.fits')) != args['channelsout']:
+        #    print('Number of model images provided needs to match channelsout')
+        #    raise Exception('Number of model images provided needs to match channelsout')
         if (args['wscleanskymodel'].find('/') != -1):
             print('wscleanskymodel contains a slash, not allowed, needs to be in pwd')
             raise Exception('wscleanskymodel contains a slash, not allowed, needs to be in pwd')
@@ -5846,8 +5907,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,\
    logger.info('soltypecycles: ' + str(insoltypecycles_list))
 
 
-   return innchan_list, insolint_list, inBLsmooth_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, insmoothnessrefdistance_list, inantennaconstraint_list, inresetsols_list, inresetdir_list, insoltypecycles_list, normamps_list
-
+   return innchan_list, insolint_list, inBLsmooth_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, insmoothnessrefdistance_list, inantennaconstraint_list, inresetsols_list, inresetdir_list, insoltypecycles_list, innormamps_list
 
 
 def create_beamcortemplate(ms):
@@ -6724,7 +6784,11 @@ def calculate_solintnchan(compactflux):
 
 
 def determine_compactsource_flux(fitsimage):
-
+    '''
+    return total flux in compect sources in the fitsimage
+    input: a fits image
+    output: flux density in Jy
+    '''
     hdul = fits.open(fitsimage)
     bmaj = hdul[0].header['BMAJ']
     bmin = hdul[0].header['BMIN']
@@ -7285,6 +7349,8 @@ def normslope_withmatrix(parmdblist):
         H.flush()
         H.close()
     return  
+
+
 
 
 
@@ -8089,8 +8155,17 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
          dde_skymodel = 'dummy.skymodel' # no model exists if spectralpol is turned off
    
    elif wscleanskymodel is not None: # DDE wscleanskymodel solve at the start
+      
+      nonpblist = glob.glob(wscleanskymodel + '-????-model.fits')
+      pblist = glob.glob(wscleanskymodel + '-????-model-pb.fits')
+      
+      if len(pblist) > 0 :
+        channelsout_forpredict = len(pblist)
+      else:   
+        channelsout_forpredict = len(nonpblist)
+        
       modeldatacolumns = makeimage(mslist, wscleanskymodel, \
-                                pixelscale, imsize, channelsout, predict=True, \
+                                pixelscale, imsize, channelsout_forpredict, predict=True, \
                                 onlypredict=True, facetregionfile='facets.reg', \
                                 DDE_predict='WSCLEAN', idg=idg, \
                                 disable_primarybeam_image=disable_primary_beam, \
@@ -8807,12 +8882,12 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
       if predict and len(h5list) == 0 and not DDEimaging: 
         # we check for DDEimaging to avoid a predict for image000 in a --DDE run
         # because at that moment there is no h5list yet and this avoids an unnecessary DI-type predict 
-        cmd = 'wsclean -size '
-        cmd += str(int(imsize)) + ' ' + str(int(imsize)) +  ' -predict '
+        cmd = 'wsclean -predict ' #-size '
+        #cmd += str(int(imsize)) + ' ' + str(int(imsize)) +  ' -predict '
         #if not usewgridder and not idg:
         #   cmd += '-padding 1.8 ' 
         if channelsout > 1:
-          cmd += ' -channels-out ' + str(channelsout) + ' '
+          cmd += '-channels-out ' + str(channelsout) + ' '
           if gapchanneldivision:
             cmd += '-gap-channel-division '
         if idg:
@@ -10504,6 +10579,23 @@ def basicsetup(mslist, args):
    t.close()
    #idgin = args['idg'] # store here as we update args['idg'] at some point to made image000 for selfcalcycle 0 in when --DDE is enabled
 
+   if type(args['channelsout']) is str:
+     if args['channelsout'] == 'auto':
+        args['channelsout'] = set_channelsout(mslist)
+     else: 
+        raise Exception("channelsout needs to be an integer or 'auto'") 
+   else:
+     if args['channelsout'] < 1:
+        print('channelsout',  args['channelsout'])
+        raise Exception("channelsout needs to be a positive integer") 
+   
+   if type(args['fitspectralpol']) is str:
+     if args['fitspectralpol'] == 'auto':
+        args['fitspectralpol'] = set_fitspectralpol(args['channelsout'])
+     else: 
+        raise Exception("channelsout needs to be an integer or 'auto'") 
+        
+        
    return longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, \
           maskthreshold_selfcalcycle, outtarname, telescope, args
 
@@ -10827,16 +10919,19 @@ def main():
    imagingparser.add_argument('--uvminim', help='Inner uv-cut for imaging in lambda. The default is 80 for LOFAR and 10 for all other', type=floatlist_or_float)
    imagingparser.add_argument('--uvmaxim', help='Outer uv-cut for imaging in lambda. The default is None', default=None, type=floatlist_or_float)
    imagingparser.add_argument('--pixelscale','--pixelsize', help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations (these are also the default values). For MeerKAT the defaults are 1.8, 1.0, 0.5 for UHF-, L-, and S-band, repspectively.', type=float)
-   imagingparser.add_argument('--channelsout', help='Number of channels out during imaging (see WSClean documentation). This is by default 6.', default=6, type=int)
+   imagingparser.add_argument('--channelsout', help='Number of channels out during imaging (see WSClean documentation). The default is to set it automatically.', default='auto', type=str_or_int)
    imagingparser.add_argument('--multiscale', help='Use multiscale deconvolution (see WSClean documentation).', action='store_true')
    imagingparser.add_argument('--multiscalescalebias', help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.75.', default=0.75, type=float)
    imagingparser.add_argument('--multiscalemaxscales', help='Multiscalescale max scale parameter for WSClean (see WSClean documentation). Default 0 (means set automatically).', default=0, type=int)
 
+   imagingparser.add_argument("--update-channelsout", help='Change --channelsout automatically if there is high peak flux.', action='store_false')
+   imagingparser.add_argument("--update-fitspectralpol", help='Change --fitspectralpol automatically if there is high peak flux.', action='store_false')
+   
    imagingparser.add_argument('--paralleldeconvolution', help="Parallel-deconvolution size for WSCLean (see WSClean documentation). This is by default 0 (no parallel deconvolution). Suggested value for very large images is about 2000.", default=0, type=int)
    imagingparser.add_argument('--parallelgridding', help="Parallel-gridding for WSClean (see WSClean documentation). This is by default 1.", default=1, type=int)
    imagingparser.add_argument('--deconvolutionchannels', help="Deconvolution channels value for WSClean (see WSClean documentation). This is by default 0 (means deconvolution-channels equals channels-out).", default=0, type=int)
    imagingparser.add_argument('--idg', help="Use the Image Domain gridder (see WSClean documentation).", action='store_true')
-   imagingparser.add_argument('--fitspectralpol', help="Use fit-spectral-pol in WSClean (see WSClean documentation) with this order. The default is 3. fit-spectral-pol can be disabled by setting it to a value less than 1", default=3, type=int)
+   imagingparser.add_argument('--fitspectralpol', help="Use fit-spectral-pol in WSClean (see WSClean documentation) with this order. The default is to set it automatically. fit-spectral-pol can be disabled by setting it to a value less than 1", default='auto', type=str_or_int)
    imagingparser.add_argument('--ddpsfgrid', help="Value for option -dd-psf-grid with WSClean (integer, by default this value is not set and the option is not used", type=int)
    
 
@@ -11009,7 +11104,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '11.1.0'
+   version = '11.2.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
