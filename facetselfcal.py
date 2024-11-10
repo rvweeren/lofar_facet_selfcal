@@ -3,7 +3,6 @@
 # auto update channels out and fitspectralpol for high dynamic range
 # in case of restart check update-multiscale
 # in case of restart check update-uvmin
-# --wscleanskymodel, allow different number of channelsout at start==0
 #h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_flags=False) Needs to be propagate_flags to be fully correct, this is a h5_merger issue
 # check that MODEL_DATA_DD etc XY,YX are set to zero/or clean if wsclean predicts are used for Stokes I/dual 
 # time, timefreq, freq med/avg steps (via losoto)
@@ -10919,13 +10918,13 @@ def main():
    imagingparser.add_argument('--uvminim', help='Inner uv-cut for imaging in lambda. The default is 80 for LOFAR and 10 for all other', type=floatlist_or_float)
    imagingparser.add_argument('--uvmaxim', help='Outer uv-cut for imaging in lambda. The default is None', default=None, type=floatlist_or_float)
    imagingparser.add_argument('--pixelscale','--pixelsize', help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations (these are also the default values). For MeerKAT the defaults are 1.8, 1.0, 0.5 for UHF-, L-, and S-band, repspectively.', type=float)
-   imagingparser.add_argument('--channelsout', help='Number of channels out during imaging (see WSClean documentation). The default is to set it automatically.', default='auto', type=str_or_int)
+   imagingparser.add_argument('--channelsout', help='Number of channelsout during imaging (see WSClean documentation). The default is to set it automatically.', default='auto', type=str_or_int)
    imagingparser.add_argument('--multiscale', help='Use multiscale deconvolution (see WSClean documentation).', action='store_true')
    imagingparser.add_argument('--multiscalescalebias', help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.75.', default=0.75, type=float)
    imagingparser.add_argument('--multiscalemaxscales', help='Multiscalescale max scale parameter for WSClean (see WSClean documentation). Default 0 (means set automatically).', default=0, type=int)
 
-   imagingparser.add_argument("--update-channelsout", help='Change --channelsout automatically if there is high peak flux.', action='store_false')
-   imagingparser.add_argument("--update-fitspectralpol", help='Change --fitspectralpol automatically if there is high peak flux.', action='store_false')
+   #imagingparser.add_argument("--update-channelsout", help='Change --channelsout automatically if there is high peak flux.', action='store_false')
+   #imagingparser.add_argument("--update-fitspectralpol", help='Change --fitspectralpol automatically if there is high peak flux.', action='store_false')
    
    imagingparser.add_argument('--paralleldeconvolution', help="Parallel-deconvolution size for WSCLean (see WSClean documentation). This is by default 0 (no parallel deconvolution). Suggested value for very large images is about 2000.", default=0, type=int)
    imagingparser.add_argument('--parallelgridding', help="Parallel-gridding for WSClean (see WSClean documentation). This is by default 1.", default=1, type=int)
