@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lofar_facet_selfcal"
+version = "0.1.0"
+description = "LOFAR facet selfcal"
+
+[tool.setuptools.packages.find]
+include = ["lofar_facet_selfcal", "lofar_facet_selfcal.*"]
+
+[project.scripts]
+facetselfcal = "lofar_facet_selfcal.facetselfcal:main"
+h5_merger = "lofar_facet_selfcal.h5_helpers.h5_merger:main"

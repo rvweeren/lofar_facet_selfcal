@@ -2,9 +2,9 @@ import os
 from ..h5_merger import merge_h5
 
 def fix_h5(h5_list):
-    '''
+    """
     Fix for h5_merger that cannot handle multi-dir merges where both h5 with and without pol-axis are included
-    '''
+    """
     for h5file in h5_list:
         outparmdb = h5file.replace('.h5', '.tmp.h5')
         if os.path.isfile(outparmdb):
