@@ -1,5 +1,10 @@
 #!/usr/bin/env python
 
+# auto update channels out and fitspectralpol for high dynamic range
+# in case of restart check update-multiscale
+# in case of restart check update-uvmin
+# h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_flags=False) Needs to be propagate_flags to be fully correct, this is a h5_merger issue
+# check that MODEL_DATA_DD etc XY,YX are set to zero/or clean if wsclean predicts are used for Stokes I/dual
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
 # compression: blosc2
@@ -17,13 +22,12 @@
 # log command into the FITS header
 # BLsmooth constant smooth for gain solves
 # stop selfcal  based on some metrics
-# make Ateam plot
 # use scalarphasediff sols stats for solints? test amplitude stats as well
 # parallel solving with DP3, given that DP3 often does not use all cores?
 # uvmin, uvmax, uvminim, uvmaxim per ms per soltype
 
 # antidx = 0
-# pt.taql("select ANTENNA1,ANTENNA2,gntrue(FLAG)/(gntrue(FLAG)+gnfalse(FLAG)) as NFLAG from L656064_129_164MHz_uv_pre-cal.concat.ms WHERE (ANTENNA1=={:d} OR ANTENNA2=={:d}) AND ANTENNA1!=ANTENNA2".format(antidx, antidx)).getcol('NFLAG')
+# taql("select ANTENNA1,ANTENNA2,gntrue(FLAG)/(gntrue(FLAG)+gnfalse(FLAG)) as NFLAG from L656064_129_164MHz_uv_pre-cal.concat.ms WHERE (ANTENNA1=={:d} OR ANTENNA2=={:d}) AND ANTENNA1!=ANTENNA2".format(antidx, antidx)).getcol('NFLAG')
 
 # example:
 # python facetselfal.py -b box_18.reg --forwidefield --avgfreqstep=2 --avgtimestep=2 --smoothnessconstraint-list="[0.0,0.0,5.0]" --antennaconstraint-list="['core']" --solint-list=[1,20,120] --soltypecycles-list="[0,1,3]" --soltype-list="['tecandphase','tecandphase','scalarcomplexgain']" test.ms
@@ -61,6 +65,7 @@ import numpy as np
 import pyregion
 import tables
 import scipy.special
+import math
 
 from astropy.io import fits
 from astropy.wcs import WCS
@@ -70,14 +75,13 @@ from astropy.time import Time
 from astroquery.skyview import SkyView
 from losoto import h5parm
 
-#modules
+# modules
 from source_selection.selfcal_selection import main as quality_check
 from lofar_facet_selfcal.h5_helpers.utils.overwrite_table import overwrite_table
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
 from h5_helpers.utils.file_structure import fix_h5
 from h5_helpers.h5_merger import merge_h5
 from h5_helpers.utils.split_h5 import split_multidir
-
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='selfcal.log',
@@ -95,6 +99,84 @@ os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
 def MeerKAT_antconstraint(antfile=f'{scriptpath}/data/MeerKATlayout.csv', ctype='all'):
+    if ctype not in ['core', 'remote', 'all']:
+        print('Wrong input detected, ctype needs to be in core,remote,or all')
+        sys.exit()
+
+    data = ascii.read(antfile, delimiter=';', header_start=0)
+    distance = np.sqrt(data['East'] ** 2 + data['North'] ** 2 + data['Up'] ** 2)
+    # print(distance
+    idx_core = np.where(distance <= 1000.)
+    idx_rs = np.where(distance > 1000.)
+    if ctype == 'core':
+        return data['Antenna'][idx_core].tolist()
+    if ctype == 'remote':
+        return data['Antenna'][idx_rs].tolist()
+    if ctype == 'all':
+        return data['Antenna'].tolist()
+
+
+def round_up_to_even(number):
+    return int(np.ceil(number / 2.) * 2)
+
+
+def set_channelsout(mslist):
+    t = table(mslist[0] + '/OBSERVATION', ack=False)
+    telescope = t.getcol('TELESCOPE_NAME')[0]
+    t.close()
+    f_bw = get_fractional_bandwidth(mslist)
+
+    if telescope == 'LOFAR':
+        channelsout = round_up_to_even(f_bw * 12)
+    elif telescope == 'MeerKAT':
+        channelsout = round_up_to_even(f_bw * 16)
+    else:
+        channelsout = round_up_to_even(f_bw * 12)
+    return channelsout
+
+
+def set_fitspectralpol(channelsout):
+    if channelsout == 1:
+        fitspectralpol = 1
+    elif channelsout == 2:
+        fitspectralpol = 2
+    elif channelsout <= 6:
+        fitspectralpol = 3
+    elif channelsout <= 8:
+        fitspectralpol = 5
+    elif channelsout <= 12:
+        fitspectralpol = 7
+    elif channelsout > 12:
+        fitspectralpol = 9
+    else:
+        print('channelsout', channelsout)
+        raise Exception('channelsout has an invalid value')
+    return fitspectralpol
+
+
+def get_fractional_bandwidth(mslist):
+    '''
+    Compute fractional bandwidth of a list of MS
+    input mslist: list of ms
+    return fractional bandwidth
+    '''
+    freqaxis = []
+    for ms in mslist:
+        t = table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False)
+        freq = t.getcol('CHAN_FREQ')[0]
+        t.close()
+        freqaxis.append(freq)
+    freqaxis = np.hstack(freqaxis)
+    f_bw = (np.max(freqaxis) - np.min(freqaxis)) / np.min(freqaxis)
+
+    if f_bw == 0.0:  # single channel data
+        t = table(mslist[0] + '/SPECTRAL_WINDOW', readonly=True, ack=False)  # just take the first and assume this is ok
+        f_bw = t.getcol('TOTAL_BANDWIDTH')[0] / np.min(freqaxis)
+        t.close()
+    return f_bw
+
+
+def MeerKAT_antconstraint(antfile='MeerKATlayout.csv', ctype='all'):
     if ctype not in ['core', 'remote', 'all']:
         print('Wrong input detected, ctype needs to be in core,remote,or all')
         sys.exit()
@@ -141,7 +223,7 @@ def update_sourcedirname_h5_dde(h5, modeldatacolumns):
         # Update source directions
         for direction_id, direction in enumerate(modeldatacolumns):
             H.root.sol000.source[direction_id] = (
-            modeldatacolumns[direction_id], H.root.sol000.source[direction_id]['dir'])
+                modeldatacolumns[direction_id], H.root.sol000.source[direction_id]['dir'])
             print(H.root.sol000.source[direction_id]['name'], modeldatacolumns[direction_id])
 
         # Update directions in various sol sets
@@ -474,8 +556,7 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
             print('------------------------------')
             if os.path.isfile(f'wsclean_concat_{g}.h5'):
                 os.system(f'rm -rf wsclean_concat_{g}.h5')
-            merge_h5(h5_out=f'wsclean_concat_{g}.h5', h5_tables=h5group, \
-                               propagate_flags=True, time_concat=True)
+            merge_h5(h5_out=f'wsclean_concat_{g}.h5', h5_tables=h5group, propagate_flags=True, time_concat=True)
             H5s_files_clean.append(f'wsclean_concat_{g}.h5')
         if concatms:
             print(f'taql select from {group} giving wsclean_concat_{g}.ms as plain')
@@ -491,22 +572,13 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
 
 
 def check_for_BDPbug_longsolint(mslist, facetdirections, args=None):
-    # try:
+
     dirs, solints, soltypelist_includedir = parse_facetdirections(facetdirections, 1000, args=args)
-    # except:
-    #    try:
-    #      f = open(facetdirections, 'rb')
-    #      PatchPositions_array = pickle.load(f)
-    #      f.close()
-    #      solints = None
-    #    except:
-    #      raise Exception('Trouble read file format:' + facetdirections)
 
     if solints is None:
         return
 
     solint_reformat = np.array(solints)
-    import math
     for ms in mslist:
         t = table(ms, readonly=True, ack=False)
         time = np.unique(t.getcol('TIME'))
@@ -524,6 +596,7 @@ def check_for_BDPbug_longsolint(mslist, facetdirections, args=None):
 
             lcm = math.lcm(*solints)
             divisors = [int(lcm / i) for i in solints]
+
             print('Solint passed to DP3 would be:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
             if lcm > ms_ntimes:
                 print('Bad divisor for solutions_per_direction DDE solve. DP3 Solint > number of timeslots in the MS')
@@ -669,7 +742,7 @@ def tweak_solintsold(solints, solval=20):
     return solints_return
 
 
-def tweak_solints(solints, solvalthresh=11):
+def tweak_solints(solints, solvalthresh=11, ms_ntimes=None):
     """
     Returns modified solints that can be factorized by 2 or 3 if input contains number >= solvalthresh
     """
@@ -677,9 +750,39 @@ def tweak_solints(solints, solvalthresh=11):
     if np.max(solints) < solvalthresh:
         return solints
     possible_solints = listof2and3prime(startval=2, stopval=10000)
+    if ms_ntimes is not None:
+        possible_solints = remove_bad_endrounding(possible_solints, ms_ntimes)
+
     for sol in solints:
         solints_return.append(find_nearest(possible_solints, sol))
     return solints_return
+
+
+def tweak_solints_single(solint, ms_ntimes, solvalthresh=11, ):
+    """
+    Returns modified solint that avoids a short number of left over timeslots near the end of the ms
+    """
+    if np.max(solint) < solvalthresh:
+        return solint
+
+    possible_solints = np.arange(1, 2 * solint)
+    possible_solints = remove_bad_endrounding(possible_solints, ms_ntimes)
+
+    return find_nearest(possible_solints, solint)
+
+
+def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
+    '''
+    list of possible solints to start with
+    ms_ntimes: number of timeslots in the MS
+    if ignorelessthan then do not use this extra option
+    '''
+    solints_out = []
+    for solint in solints:
+        if (float(ms_ntimes) / float(solint)) - (
+        np.floor(float(ms_ntimes) / float(solint))) > 0.5 or solint < ignorelessthan:
+            solints_out.append(solint)
+    return solints_out
 
 
 def listof2and3prime(startval=2, stopval=10000):
@@ -877,8 +980,8 @@ def fix_equidistant_times(mslist, dryrun, dysco=True):
                 ms_path = regularize_ms(ms, overwrite=True, dryrun=dryrun)
                 # Do the splitting
                 mslist_return = mslist_return + split_ms(ms_path, overwrite=True,
-                                                                  prefix=ms_path, return_mslist=True,
-                                                                  dryrun=dryrun, dysco=dysco)
+                                                         prefix=ms_path, return_mslist=True,
+                                                         dryrun=dryrun, dysco=dysco)
         else:
             mslist_return.append(ms)
     return sorted(mslist_return)
@@ -1264,7 +1367,6 @@ def create_mergeparmdbname(mslist, selfcalcycle):
     return parmdblist
 
 
-
 def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
     ''' Pre-apply a given set of corrections to a list of measurement sets.
 
@@ -1414,7 +1516,7 @@ def getlargestislandsize(fitsmask):
     return max_area
 
 
-def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE', \
+def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE',
                        ampnorm=False, dysco=False, testscfactor=1., crosshandtozero=True):
     ''' Creates a new column to solve for a phase slope from.
 
@@ -1482,10 +1584,10 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
         raise TypeError('Incorrect input type for inmslist')
     print('Adding weight spectrum to stack')
     # create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True,\
-    create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True, \
+    create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True,
                            updateweights_from_thiscolumn='MODEL_DATA')
     print('Attempting to normalise data to point source')
-    normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol=column_to_normalise, \
+    normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol=column_to_normalise,
                            modelcol='MODEL_DATA')
     print('Stacking datasets')
     import time
@@ -1496,7 +1598,7 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
     print(f'Stacking took {now - start} seconds')
 
 
-def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=False, \
+def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=False,
                                       originalmodel='MODEL_DATA', newmodel='MODEL_DATA_PHASE_SLOPE', backup=True):
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
@@ -1543,8 +1645,7 @@ def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=Fals
         del weight, model_orig, model_new
 
 
-def create_weight_spectrum(inmslist, outweightcol, updateweights=False, \
-                           updateweights_from_thiscolumn='MODEL_DATA', backup=True):
+def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA', backup=True):
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     stepsize = 1000000
@@ -1585,8 +1686,7 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False, \
         del weight, model
 
 
-def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, \
-                                updateweights_from_thiscolumn='MODEL_DATA'):
+def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA'):
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
@@ -1611,8 +1711,7 @@ def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, \
         print()
 
 
-def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', \
-                           modelcol='MODEL_DATA', stepsize=1000000):
+def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol='MODEL_DATA', stepsize=1000000):
     """
     Normalize visibility data by model data.
 
@@ -1739,8 +1838,7 @@ def stackMS_taql(inmslist: list, outputms: str = 'stack.MS', incol: str = 'DATA_
     taql(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
 
 
-def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', \
-                            dysco=True, stepsize=1000000):
+def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True, stepsize=1000000):
     ''' Creates a new column for the phase difference solve.
 
     Args:
@@ -2207,10 +2305,10 @@ def checklongbaseline(ms):
     return haslongbaselines
 
 
-def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartchan=0., \
-            phaseshiftbox=None, msinntimes=None, makecopy=False, \
-            makesubtract=False, delaycal=False, freqresolution='195.3125kHz', \
-            dysco=True, cmakephasediffstat=False, dataincolumn='DATA', \
+def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartchan=0.,
+            phaseshiftbox=None, msinntimes=None, makecopy=False,
+            makesubtract=False, delaycal=False, freqresolution='195.3125kHz',
+            dysco=True, cmakephasediffstat=False, dataincolumn='DATA',
             removeinternational=False, removemostlyflaggedstations=False):
     ''' Average and/or phase-shift a list of Measurement Sets.
 
@@ -2520,15 +2618,15 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns):
 
     for m_id, modelcolumn in enumerate(modeldatacolumns):
         if special_DIL:
-            applycal(ms, h5parm, msincol=modelcolumn, msoutcol=modelcolumn, \
+            applycal(ms, h5parm, msincol=modelcolumn, msoutcol=modelcolumn,
                      dysco=False, invert=False, direction=dirnames[m_id].decode("utf-8"))
         else:
-            applycal(ms, h5parm, msincol=modelcolumn, msoutcol=modelcolumn, \
+            applycal(ms, h5parm, msincol=modelcolumn, msoutcol=modelcolumn,
                      dysco=False, invert=False, direction=modelcolumn)
     return
 
 
-def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA', \
+def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None, find_closestdir=False):
     ''' Apply an H5parm to a Measurement Set.
 
@@ -2817,6 +2915,11 @@ def inputchecker(args, mslist):
             print(
                 '--fitspectralpol needs to be turned on, otherwise no skymodel is produced by WSClean and we cannot predict these components with DP3. Put --DDE-predict=WSCLEAN or fitspectralpol>0')
             raise Exception('--Invalid combination of --fitspectralpol and --DDE-predict')
+        if type(args['fitspectralpol']) is not str:
+            if args['fitspectralpol'] < 1:
+                print(
+                    '--fitspectralpol needs to be turned on, otherwise no skymodel is produced by WSClean and we cannot predict these components with DP3. Put --DDE-predict=WSCLEAN or fitspectralpol>0')
+                raise Exception('--Invalid combination of --fitspectralpol and --DDE-predict')
 
     if args['uvmin'] is not None and type(args['uvmin']) is not list:
         if args['uvmin'] < 0.0:
@@ -2869,10 +2972,18 @@ def inputchecker(args, mslist):
         print('DDE-predict is not DP3 or WSCLEAN')
         raise Exception('DDE-predict is not DP3 or WSCLEAN')
 
+    for nrtmp in args['normamps_list']:
+        if nrtmp not in ['normamps_per_ant', 'normslope', 'normamps', 'normslope+normamps',
+                         'normslope+normamps_per_ant'] and nrtmp is not None:
+            print(
+                'Invalid input: --normamps_list can only contain "normamps", "normslope", "normamps_per_ant", "normslope+normamps", "normslope+normamps_per_ant" or None')
+            raise Exception(
+                'Invalid input: --normamps_list can only contain "normamps", "normslope", "normamps_per_ant", "normslope+normamps", "normslope+normamps_per_ant" or None')
+
     for antennaconstraint in args['antennaconstraint_list']:
-        if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
+        if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote',
                                      'all', 'international', 'alldutch', 'core-remote',
-                                     'coreandallbutmostdistantremotes', 'alldutchbutnoST001', \
+                                     'coreandallbutmostdistantremotes', 'alldutchbutnoST001',
                                      'distantremote', 'alldutchandclosegerman'] \
                 and antennaconstraint is not None:
             print(
@@ -2881,7 +2992,7 @@ def inputchecker(args, mslist):
                 'Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, alldutchandclosegerman, or all')
 
     for resetsols in args['resetsols_list']:
-        if resetsols not in ['superterp', 'coreandfirstremotes', 'core', 'remote', \
+        if resetsols not in ['superterp', 'coreandfirstremotes', 'core', 'remote',
                              'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes',
                              'alldutchbutnoST001', 'distantremote', 'alldutchandclosegerman'] \
                 and resetsols is not None:
@@ -2897,14 +3008,14 @@ def inputchecker(args, mslist):
     #        raise Exception('Invalid soltype input in combination with DDE type solve')
 
     for soltype in args['soltype_list']:
-        if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', \
-                           'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', \
-                           'rotation+diagonal', 'rotation+diagonalphase', \
-                           'rotation+diagonalamplitude', 'rotation+scalar', \
-                           'rotation+scalaramplitude', 'rotation+scalarphase', 'tec', \
-                           'tecandphase', 'scalarphase', \
-                           'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', \
-                           'rotation_phmin', 'tec_phmin', \
+        if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude',
+                           'amplitudeonly', 'phaseonly', 'fulljones', 'rotation',
+                           'rotation+diagonal', 'rotation+diagonalphase',
+                           'rotation+diagonalamplitude', 'rotation+scalar',
+                           'rotation+scalaramplitude', 'rotation+scalarphase', 'tec',
+                           'tecandphase', 'scalarphase',
+                           'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin',
+                           'rotation_phmin', 'tec_phmin',
                            'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
             print('Invalid soltype input')
             raise Exception('Invalid soltype input')
@@ -2960,27 +3071,13 @@ def inputchecker(args, mslist):
         if args['wscleanskymodel'] is not None and args['Nfacets'] > 0:
             print('If --DDE and --wscleanskymodel are set you cannot use Nfacets')
             raise Exception('If --DDE and --wscleanskymodel are set you cannot use Nfacets')
-        if args['wscleanskymodel'] is not None:
-            nonpblist = glob.glob(args['wscleanskymodel'] + '-????-model.fits')
-            pblist = glob.glob(args['wscleanskymodel'] + '-????-model-pb.fits')
-
-            # check number of model-pb images matches channelsout
-            if not args['disable_primary_beam'] and telescope == 'LOFAR':
-                if len(pblist) != args['channelsout']:
-                    print('Number of model-pb.fits images does not match channelsout')
-                    raise Exception('Number of model-pb.fits images does not match channelsout')
-            # for image in nonpblist+pblist
-            #    hdu = flatten( fits.open(image))
-            #    if hdu.shape()[0] != args['imsize']
-            #    findrms(np.ndarray.flatten(hdu[0].data))
-            #    hdu.close()
 
     for ms in mslist:
         if not check_phaseup_station(ms):
             for soltype_id, soltype in enumerate(args['soltype_list']):
                 if soltype in ['scalarphasediff', 'scalarphasediff']:
                     if args['antennaconstraint_list'][soltype_id] not in ['superterp', 'coreandfirstremotes', 'core',
-                                                                          'remote', 'distantremote', \
+                                                                          'remote', 'distantremote',
                                                                           'all', 'international', 'alldutch',
                                                                           'core-remote',
                                                                           'coreandallbutmostdistantremotes',
@@ -3140,9 +3237,9 @@ def inputchecker(args, mslist):
             print('Not enough WSClean channel model images found')
             print(glob.glob(args['wscleanskymodel'] + '-????-model.fits'))
             raise Exception('Not enough WSClean channel model images found')
-        if len(glob.glob(args['wscleanskymodel'] + '-????-model.fits')) != args['channelsout']:
-            print('Number of model images provided needs to match channelsout')
-            raise Exception('Number of model images provided needs to match channelsout')
+        # if len(glob.glob(args['wscleanskymodel'] + '-????-model.fits')) != args['channelsout']:
+        #    print('Number of model images provided needs to match channelsout')
+        #    raise Exception('Number of model images provided needs to match channelsout')
         if (args['wscleanskymodel'].find('/') != -1):
             print('wscleanskymodel contains a slash, not allowed, needs to be in pwd')
             raise Exception('wscleanskymodel contains a slash, not allowed, needs to be in pwd')
@@ -3179,16 +3276,15 @@ def get_uvwmax(ms):
 
 
 def makeBBSmodelforVLASS(filename, extrastrname=''):
-    img = bdsf.process_image(filename, mean_map='zero', rms_map=True, rms_box=(100, 10))  # , \
+    img = bdsf.process_image(filename, mean_map='zero', rms_map=True, rms_box=(100, 10))
     # frequency=150e6, beam=(25./3600,25./3600,0.0) )
-    img.write_catalog(format='bbs', bbs_patches='source', \
-                      outfile='vlass' + extrastrname + '.skymodel', clobber=True)
+    img.write_catalog(format='bbs', bbs_patches='source', outfile='vlass' + extrastrname + '.skymodel', clobber=True)
     # bbsmodel = 'bla.skymodel'
     del img
     return 'vlass' + extrastrname + '.skymodel'
 
 
-def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=None, \
+def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=None,
                         ms=None, extrastrname=''):
     ''' Creates a TGSS skymodel in DP3-readable format.
 
@@ -3244,10 +3340,8 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     else:
         filename = fitsimage
 
-    img = bdsf.process_image(filename, mean_map='zero', rms_map=True, rms_box=(100, 10), \
-                             frequency=150e6, beam=(25. / 3600, 25. / 3600, 0.0))
-    img.write_catalog(format='bbs', bbs_patches='source', \
-                      outfile='tgss' + extrastrname + '.skymodel', clobber=True)
+    img = bdsf.process_image(filename, mean_map='zero', rms_map=True, rms_box=(100, 10), frequency=150e6, beam=(25. / 3600, 25. / 3600, 0.0))
+    img.write_catalog(format='bbs', bbs_patches='source', outfile='tgss' + extrastrname + '.skymodel', clobber=True)
     # bbsmodel = 'bla.skymodel'
     del img
     print(filename)
@@ -3374,22 +3468,22 @@ def print_title(version):
              |  |     |  |  |  | |   __|  /  /_\  \   |      /     
              |  `----.|  `--'  | |  |    /  _____  \  |  |\  \----.
              |_______| \______/  |__|   /__/     \__\ | _| `._____|
-                                                                   
+
                _______    ___       ______  _______ .___________.
               |   ____|  /   \     /      ||   ____||           |
               |  |__    /  ^  \   |  ,----'|  |__   `---|  |----`
               |   __|  /  /_\  \  |  |     |   __|      |  |     
               |  |    /  _____  \ |  `----.|  |____     |  |     
               |__|   /__/     \__\ \______||_______|    |__|     
-                                                                 
+
          _______. _______  __       _______   ______      ___       __      
         /       ||   ____||  |     |   ____| /      |    /   \     |  |     
        |   (----`|  |__   |  |     |  |__   |  ,----'   /  ^  \    |  |     
         \   \    |   __|  |  |     |   __|  |  |       /  /_\  \   |  |     
     .----)   |   |  |____ |  `----.|  |     |  `----. /  _____  \  |  `----.
     |_______/    |_______||_______||__|      \______|/__/     \__\ |_______|
-                                                                              
-    
+
+
                       Reinout van Weeren (2021, A&A, 651, 115)
 
                               Starting.........
@@ -3440,168 +3534,168 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
         if ctype == 'superterp':
             antstr = ['CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', 'ST001']
         if ctype == 'core':
-            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', \
-                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA', \
-                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA', \
+            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
+                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
+                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',
                       'CS302LBA', 'CS401LBA', 'CS501LBA', 'ST001']
         if ctype == 'coreandfirstremotes':
-            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', \
-                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA', \
-                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA', \
-                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', \
+            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
+                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
+                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',
+                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA',
                       'RS106LBA', 'ST001']
         if ctype == 'coreandallbutmostdistantremotes':
-            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', \
-                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA', \
-                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA', \
-                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', \
+            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
+                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
+                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',
+                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA',
                       'RS106LBA', 'RS307LBA', 'RS406LBA', 'RS407LBA', 'ST001']
         if ctype == 'remote':
-            antstr = ['RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', 'RS310LBA', 'RS406LBA', 'RS407LBA', \
+            antstr = ['RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', 'RS310LBA', 'RS406LBA', 'RS407LBA',
                       'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA', 'RS409LBA', 'RS508LBA', 'RS509LBA']
         if ctype == 'distantremote':
             antstr = ['RS310LBA', 'RS407LBA', 'RS208LBA', 'RS210LBA', 'RS409LBA', 'RS508LBA', 'RS509LBA']
         if ctype == 'alldutch':
-            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', \
-                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA', \
-                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA', \
-                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', \
-                      'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA', \
+            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
+                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
+                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',
+                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA',
+                      'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA',
                       'RS409LBA', 'RS508LBA', 'RS509LBA', 'ST001']
         if ctype == 'alldutchbutnoST001':
-            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', \
-                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA', \
-                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA', \
-                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', \
-                      'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA', \
+            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
+                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
+                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',
+                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA',
+                      'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA',
                       'RS409LBA', 'RS508LBA', 'RS509LBA']
 
         if ctype == 'all':
-            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', \
-                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA', \
-                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA', \
-                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', \
-                      'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA', \
-                      'RS409LBA', 'RS508LBA', 'RS509LBA', \
-                      'DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA', \
+            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
+                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
+                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',
+                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA',
+                      'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA',
+                      'RS409LBA', 'RS508LBA', 'RS509LBA',
+                      'DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA',
                       'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'ST001']
         if ctype == 'international':
-            antstr = ['DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA', \
+            antstr = ['DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA',
                       'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA']
         if ctype == 'core-remote':
-            antstr1 = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', \
-                       'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA', \
-                       'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA', \
+            antstr1 = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
+                       'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
+                       'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',
                        'CS302LBA', 'CS401LBA', 'CS501LBA', 'ST001']
-            antstr2 = ['RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', 'RS310LBA', 'RS406LBA', 'RS407LBA', \
+            antstr2 = ['RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', 'RS310LBA', 'RS406LBA', 'RS407LBA',
                        'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA', 'RS409LBA', 'RS508LBA', 'RS509LBA']
         if ctype == 'alldutchandclosegerman':
-            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', \
-                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA', \
-                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA', \
-                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', \
-                      'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA', \
+            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
+                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
+                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',
+                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA',
+                      'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA',
                       'RS409LBA', 'RS508LBA', 'RS509LBA', 'ST001', 'DE601LBA', 'DE605LBA']
 
     if HBAorLBA == 'HBA':
         if ctype == 'superterp':
-            antstr = ['CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0', \
+            antstr = ['CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
                       'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1', 'ST001']
         if ctype == 'remote':
-            antstr = ['RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA', \
+            antstr = ['RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',
                       'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA']
         if ctype == 'distantremote':
             antstr = ['RS310HBA', 'RS407HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA']
         if ctype == 'core':
-            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0', \
-                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0', \
-                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0', \
-                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0', \
-                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1', \
-                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1', \
-                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1', \
+            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
+                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
+                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0',
+                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0',
+                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1',
+                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',
+                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',
                       'CS302HBA1', 'CS401HBA1', 'CS501HBA1', 'ST001']
         if ctype == 'coreandfirstremotes':
-            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0', \
-                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0', \
-                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0', \
-                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0', \
-                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1', \
-                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1', \
-                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1', \
-                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1', 'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', \
+            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
+                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
+                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0',
+                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0',
+                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1',
+                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',
+                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',
+                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1', 'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA',
                       'RS106HBA', 'ST001']
         if ctype == 'coreandallbutmostdistantremotes':
-            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0', \
-                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0', \
-                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0', \
-                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0', \
-                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1', \
-                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1', \
-                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1', \
-                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1', 'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', \
+            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
+                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
+                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0',
+                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0',
+                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1',
+                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',
+                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',
+                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1', 'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA',
                       'RS106HBA', 'RS307HBA', 'RS406HBA', 'RS407HBA', 'ST001']
         if ctype == 'alldutch':
-            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0', \
-                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0', \
-                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0', \
-                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0', \
-                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1', \
-                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1', \
-                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1', \
-                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1', \
-                      'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA', \
+            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
+                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
+                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0',
+                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0',
+                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1',
+                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',
+                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',
+                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1',
+                      'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',
                       'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA', 'ST001']
         if ctype == 'alldutchandclosegerman':
-            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0', \
-                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0', \
-                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0', \
-                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0', \
-                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1', \
-                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1', \
-                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1', \
-                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1', \
-                      'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA', \
+            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
+                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
+                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0',
+                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0',
+                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1',
+                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',
+                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',
+                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1',
+                      'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',
                       'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA', 'ST001',
                       'DE601HBA', 'DE605HBA']
 
         if ctype == 'alldutchbutnoST001':
-            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0', \
-                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0', \
-                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0', \
-                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0', \
-                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1', \
-                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1', \
-                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1', \
-                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1', \
-                      'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA', \
+            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
+                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
+                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0',
+                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0',
+                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1',
+                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',
+                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',
+                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1',
+                      'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',
                       'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA']
         if ctype == 'all':
-            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0', \
-                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0', \
-                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0', \
-                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0', \
-                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1', \
-                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1', \
-                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1', \
-                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1', \
-                      'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA', \
-                      'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA', \
-                      'DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA', \
+            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
+                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
+                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0',
+                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0',
+                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1',
+                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',
+                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',
+                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1',
+                      'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',
+                      'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA',
+                      'DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA',
                       'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'ST001']
         if ctype == 'international':
-            antstr = ['DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA', \
+            antstr = ['DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA',
                       'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA']
         if ctype == 'core-remote':
-            antstr1 = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0', \
-                       'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0', \
-                       'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0', \
-                       'CS302HBA0', 'CS401HBA0', 'CS501HBA0', \
-                       'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1', \
-                       'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1', \
-                       'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1', \
+            antstr1 = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
+                       'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
+                       'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0',
+                       'CS302HBA0', 'CS401HBA0', 'CS501HBA0',
+                       'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1',
+                       'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',
+                       'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',
                        'CS302HBA1', 'CS401HBA1', 'CS501HBA1', 'ST001']
-            antstr2 = ['RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA', \
+            antstr2 = ['RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',
                        'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA']
 
     if telescope == 'MeerKAT':
@@ -3717,9 +3811,7 @@ def makephaseCDFh5_h5merger(phaseh5, ms, modeldatacolumns, backup=True, testscfa
         os.system('rm -f ' + phaseh5 + '.in')
     os.system('mv ' + phaseh5 + ' ' + phaseh5 + '.in')
 
-    merge_h5(h5_out=phaseh5, h5_tables=phaseh5 + '.in', ms_files=ms, \
-                       merge_all_in_one=merge_all_in_one, \
-                       propagate_flags=True)
+    merge_h5(h5_out=phaseh5, h5_tables=phaseh5 + '.in', ms_files=ms, merge_all_in_one=merge_all_in_one, propagate_flags=True)
     H5 = tables.open_file(phaseh5, mode='a')
 
     phaseCDF = H5.root.sol000.phase000.val[:]  # time, freq, ant, dir, pol
@@ -5025,6 +5117,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
     antennaconstraint_list = []  # nested list with len(options.soltype_list), inner list is for ms
     resetsols_list = []  # nested list with len(options.soltype_list), inner list is for ms
     resetdir_list = []  # nested list with len(options.soltype_list), inner list is for ms
+    normamps_list = []  # # nested list with len(options.soltype_list), inner list is for ms
     soltypecycles_list = []  # nested list with len(options.soltype_list), inner list is for ms
     uvmin_list = []  # nested list with len(options.soltype_list), inner list is for ms
     uvmax_list = []  # nested list with len(options.soltype_list), inner list is for ms
@@ -5052,6 +5145,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
         antennaconstraint_list_ms = []  # list with len(mslist)
         resetsols_list_ms = []  # list with len(mslist)
         resetdir_list_ms = []  # list with len(mslist)
+        normamps_list_ms = []  # list with len(mslist)
         smoothnessconstraint_list_ms = []  # list with len(mslist)
         smoothnessreffrequency_list_ms = []  # list with len(mslist)
         smoothnessspectralexponent_list_ms = []  # list with len(mslist)
@@ -5060,172 +5154,134 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
         soltypecycles_list_ms = []  # list with len(mslist)
         uvmin_list_ms = []  # list with len(mslist)
         uvmax_list_ms = []  # list with len(mslist)
-        # uvminim_list_ms = []  # list with len(mslist)
-        # uvmaxim_list_ms = []  # list with len(mslist)
 
-        for ms in mslist:
-            # use try statement in case the user did not provide all the info for certain soltypes
+    for _ in mslist:
+        # use try statement in case the user did not provide all the info for certain soltypes
 
-            # solint
-            try:
-                solint = options.solint_list[soltype_id]
-            except:
-                solint = 1
+        # solint
+        try:
+            solint = options.solint_list[soltype_id]
+        except:
+            solint = 1
 
-            # nchan
-            try:
-                nchan = options.nchan_list[soltype_id]
-            except:
-                nchan = 1  # if nothing is set use 1
+        # nchan
+        try:
+            nchan = options.nchan_list[soltype_id]
+        except:
+            nchan = 1  # if nothing is set use 1
 
-            # smoothnessconstraint
-            try:
-                smoothnessconstraint = options.smoothnessconstraint_list[soltype_id]
-            except:
-                smoothnessconstraint = 0.0
+        # smoothnessconstraint
+        try:
+            smoothnessconstraint = options.smoothnessconstraint_list[soltype_id]
+        except:
+            smoothnessconstraint = 0.0
 
-            # BLsmooth
-            try:
-                BLsmooth = options.BLsmooth_list[soltype_id]
-            except:
-                BLsmooth = False
+        # BLsmooth
+        try:
+            BLsmooth = options.BLsmooth_list[soltype_id]
+        except:
+            BLsmooth = False
 
-            # smoothnessreffrequency
-            try:
-                smoothnessreffrequency = options.smoothnessreffrequency_list[soltype_id]
-            except:
-                smoothnessreffrequency = 0.0
+        # smoothnessreffrequency
+        try:
+            smoothnessreffrequency = options.smoothnessreffrequency_list[soltype_id]
+        except:
+            smoothnessreffrequency = 0.0
 
-            # smoothnessspectralexponent
-            try:
-                smoothnessspectralexponent = options.smoothnessspectralexponent_list[soltype_id]
-            except:
-                smoothnessspectralexponent = -1.0
+        # smoothnessspectralexponent
+        try:
+            smoothnessspectralexponent = options.smoothnessspectralexponent_list[soltype_id]
+        except:
+            smoothnessspectralexponent = -1.0
 
-            # smoothnessrefdistance
-            try:
-                smoothnessrefdistance = options.smoothnessrefdistance_list[soltype_id]
-            except:
-                smoothnessrefdistance = 0.0
+        # smoothnessrefdistance
+        try:
+            smoothnessrefdistance = options.smoothnessrefdistance_list[soltype_id]
+        except:
+            smoothnessrefdistance = 0.0
 
-            # antennaconstraint
-            try:
-                antennaconstraint = options.antennaconstraint_list[soltype_id]
-            except:
-                antennaconstraint = None
+        # antennaconstraint
+        try:
+            antennaconstraint = options.antennaconstraint_list[soltype_id]
+        except:
+            antennaconstraint = None
 
-            # resetsols
-            try:
-                resetsols = options.resetsols_list[soltype_id]
-            except:
-                resetsols = None
+        # resetsols
+        try:
+            resetsols = options.resetsols_list[soltype_id]
+        except:
+            resetsols = None
 
-            # resetdir
-            try:
-                resetdir = options.resetdir_list[soltype_id]
-            except:
-                resetdir = None
+        # resetdir
+        try:
+            resetdir = options.resetdir_list[soltype_id]
+        except:
+            resetdir = None
 
-            # uvmin
-            try:
-                uvmin = options.uvmin[soltype_id]
-            except:
-                uvmin = None
+        # normamps
+        try:
+            normamps = options.normamps_list[soltype_id]
+        except:
+            normamps = 'normamps'
 
-            # uvmax
-            try:
-                uvmax = options.uvmax[soltype_id]
-            except:
-                uvmax = None
+        # uvmin
+        try:
+            uvmin = options.uvmin[soltype_id]
+        except:
+            uvmin = None
 
-            # uvminim
-            # try:
-            #  uvminim = options.uvminim[soltype_id]
-            # except:
-            #  uvminim = 80.
+        # uvmin
+        try:
+            uvmin = options.uvmin[soltype_id]
+        except:
+            uvmin = None
 
-            # uvmaxim
-            # try:
-            #  uvmaxim = options.uvmaxim[soltype_id]
-            # except:
-            #  uvmaxim = None
+        # uvmax
+        try:
+            uvmax = options.uvmax[soltype_id]
+        except:
+            uvmax = None
 
-            # soltypecycles
-            soltypecycles = options.soltypecycles_list[soltype_id]
+        # soltypecycles
+        soltypecycles = options.soltypecycles_list[soltype_id]
 
-            # force nchan 1 for tec(andphase) solve and in case smoothnessconstraint is invoked
-            # if soltype == 'tec' or  soltype == 'tecandphase' or smoothnessconstraint > 0.0:
-            if soltype == 'tec' or soltype == 'tecandphase':
-                nchan = 1
+        # force nchan 1 for tec(andphase) solve and in case smoothnessconstraint is invoked
+        if soltype == 'tec' or soltype == 'tecandphase':
+            nchan = 1
 
-            nchan_ms.append(nchan)
-            solint_ms.append(solint)
-            smoothnessconstraint_list_ms.append(smoothnessconstraint)
-            BLsmooth_list_ms.append(BLsmooth)
-            smoothnessreffrequency_list_ms.append(smoothnessreffrequency)
-            smoothnessspectralexponent_list_ms.append(smoothnessspectralexponent)
-            smoothnessrefdistance_list_ms.append(smoothnessrefdistance)
-            antennaconstraint_list_ms.append(antennaconstraint)
-            resetsols_list_ms.append(resetsols)
-            resetdir_list_ms.append(resetdir)
-            soltypecycles_list_ms.append(soltypecycles)
-            uvmin_list_ms.append(uvmin)
-            uvmax_list_ms.append(uvmax)
-            # uvminim_list_ms.append(uvminim)
-            # uvmaxim_list_ms.append(uvmaxim)
+        nchan_ms.append(nchan)
+        solint_ms.append(solint)
+        smoothnessconstraint_list_ms.append(smoothnessconstraint)
+        BLsmooth_list_ms.append(BLsmooth)
+        smoothnessreffrequency_list_ms.append(smoothnessreffrequency)
+        smoothnessspectralexponent_list_ms.append(smoothnessspectralexponent)
+        smoothnessrefdistance_list_ms.append(smoothnessrefdistance)
+        antennaconstraint_list_ms.append(antennaconstraint)
+        resetsols_list_ms.append(resetsols)
+        resetdir_list_ms.append(resetdir)
+        normamps_list_ms.append(normamps)
 
-        nchan_list.append(nchan_ms)  # list of lists
-        solint_list.append(solint_ms)  # list of lists
-        antennaconstraint_list.append(antennaconstraint_list_ms)  # list of lists
-        resetsols_list.append(resetsols_list_ms)  # list of lists
-        resetdir_list.append(resetdir_list_ms)  # list of lists
-        BLsmooth_list.append(BLsmooth_list_ms)  # list of lists
-        smoothnessconstraint_list.append(smoothnessconstraint_list_ms)  # list of lists
-        smoothnessreffrequency_list.append(smoothnessreffrequency_list_ms)  # list of lists
-        smoothnessspectralexponent_list.append(smoothnessspectralexponent_list_ms)  # list of lists
-        smoothnessrefdistance_list.append(smoothnessrefdistance_list_ms)
-        uvmin_list.append(uvmin_list_ms)  # list of lists
-        uvmax_list.append(uvmax_list_ms)  # list of lists
-        # uvminim_list.append(uvminim_list_ms) # list of lists
-        # uvmaxim_list.append(uvmaxim_list_ms)      # list of lists
+        soltypecycles_list_ms.append(soltypecycles)
+        uvmin_list_ms.append(uvmin)
+        uvmax_list_ms.append(uvmax)
 
-        soltypecycles_list.append(soltypecycles_list_ms)
+    nchan_list.append(nchan_ms)  # list of lists
+    solint_list.append(solint_ms)  # list of lists
+    antennaconstraint_list.append(antennaconstraint_list_ms)  # list of lists
+    resetsols_list.append(resetsols_list_ms)  # list of lists
+    resetdir_list.append(resetdir_list_ms)  # list of lists
+    normamps_list.append(normamps_list_ms)  # list of lists
+    BLsmooth_list.append(BLsmooth_list_ms)  # list of lists
+    smoothnessconstraint_list.append(smoothnessconstraint_list_ms)  # list of lists
+    smoothnessreffrequency_list.append(smoothnessreffrequency_list_ms)  # list of lists
+    smoothnessspectralexponent_list.append(smoothnessspectralexponent_list_ms)  # list of lists
+    smoothnessrefdistance_list.append(smoothnessrefdistance_list_ms)
+    uvmin_list.append(uvmin_list_ms)  # list of lists
+    uvmax_list.append(uvmax_list_ms)  # list of lists
+    # uvminim_list.append(uvminim_list_ms) # list of lists
+    # uvmaxim_list.append(uvmaxim_list_ms)      # list of lists
 
-        # f = open('nchan.p', 'wb')
-        # pickle.dump(nchan_list,f)
-        # f.close()
-
-        # f = open('solint.p', 'wb')
-        # pickle.dump(solint_list,f)
-        # f.close()
-
-        # f = open('smoothnessconstraint.p', 'wb')
-        # pickle.dump(smoothnessconstraint_list,f)
-        # f.close()
-
-        # f = open('smoothnessreffrequency.p', 'wb')
-        # pickle.dump(smoothnessreffrequency_list,f)
-        # f.close()
-
-        # f = open('smoothnessspectralexponent.p', 'wb')
-        # pickle.dump(smoothnessspectralexponent_list,f)
-        # f.close()
-
-        # f = open('smoothnessrefdistance.p', 'wb')
-        # pickle.dump(smoothnessrefdistance_list,f)
-        # f.close()
-
-        # f = open('antennaconstraint.p', 'wb')
-        # pickle.dump(antennaconstraint_list,f)
-        # f.close()
-
-        # f = open('resetsols.p', 'wb')
-        # pickle.dump(resetsols_list,f)
-        # f.close()
-
-        # f = open('soltypecycles.p', 'wb')
-        # pickle.dump(soltypecycles_list,f)
-        # f.close()
+    soltypecycles_list.append(soltypecycles_list_ms)
 
     print('soltype:', options.soltype_list, mslist)
     print('nchan:', nchan_list)
@@ -5238,6 +5294,7 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
     print('antennaconstraint:', antennaconstraint_list)
     print('resetsols:', resetsols_list)
     print('resetdir:', resetdir_list)
+    print('normamps:', normamps_list)
     print('soltypecycles:', soltypecycles_list)
     print('uvmin:', uvmin_list)
     print('uvmax:', uvmax_list)
@@ -5255,13 +5312,14 @@ def setinitial_solint(mslist, longbaseline, LBA, options):
     logger.info('antennaconstraint: ' + str(options.antennaconstraint_list))
     logger.info('resetsols: ' + str(options.resetsols_list))
     logger.info('resetdir: ' + str(options.resetdir_list))
+    logger.info('normamps: ' + str(options.normamps_list))
     logger.info('soltypecycles: ' + str(options.soltypecycles_list))
     logger.info('uvmin: ' + str(options.uvmin))
     logger.info('uvmax: ' + str(options.uvmax))
     logger.info('uvminim: ' + str(options.uvminim))
     logger.info('uvmaxim: ' + str(options.uvmaxim))
 
-    return nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list
+    return nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list
 
 
 def getms_amp_stats(ms, datacolumn='DATA', uvcutfraction=0.666, robustsigma=True):
@@ -5347,19 +5405,19 @@ def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
     if fastrms:  # take only every fifth element of the array to speed up the computation
         if freq > freqct:  # HBA
             noise = astropy.stats.sigma_clipping.sigma_clipped_stats(
-                data[0:data.shape[0]:5, int(np.floor(float(nfreq) * HBA_upfreqsel)):-1, 1:3], \
+                data[0:data.shape[0]:5, int(np.floor(float(nfreq) * HBA_upfreqsel)):-1, 1:3],
                 mask=flags[0:data.shape[0]:5, int(np.floor(float(nfreq) * HBA_upfreqsel)):-1, 1:3])[2]  # use XY and YX
         else:
-            noise = astropy.stats.sigma_clipping.sigma_clipped_stats(data[0:data.shape[0]:5, :, 1:3], \
+            noise = astropy.stats.sigma_clipping.sigma_clipped_stats(data[0:data.shape[0]:5, :, 1:3],
                                                                      mask=flags[0:data.shape[0]:5, :, 1:3])[
                 2]  # use XY and YX
     else:
         if freq > freqct:  # HBA
             noise = astropy.stats.sigma_clipping.sigma_clipped_stats(
-                data[:, int(np.floor(float(nfreq) * HBA_upfreqsel)):-1, 1:3], \
+                data[:, int(np.floor(float(nfreq) * HBA_upfreqsel)):-1, 1:3],
                 mask=flags[:, int(np.floor(float(nfreq) * HBA_upfreqsel)):-1, 1:3])[2]  # use XY and YX
         else:
-            noise = astropy.stats.sigma_clipping.sigma_clipped_stats(data[:, :, 1:3], \
+            noise = astropy.stats.sigma_clipping.sigma_clipped_stats(data[:, :, 1:3],
                                                                      mask=flags[:, :, 1:3])[2]  # use XY and YX
 
     model = np.ma.masked_array(model, flags)
@@ -5406,15 +5464,16 @@ def return_soltype_index(soltype_list, soltype, occurence=1, onetectypeoccurence
     return sol_index
 
 
-def auto_determinesolints(mslist, soltype_list, longbaseline, LBA, \
-                          innchan_list=None, insolint_list=None, \
-                          uvdismod=None, modelcolumn='MODEL_DATA', redo=False, \
-                          inBLsmooth_list=None, \
-                          insmoothnessconstraint_list=None, insmoothnessreffrequency_list=None, \
-                          insmoothnessspectralexponent_list=None, \
-                          insmoothnessrefdistance_list=None, \
-                          inantennaconstraint_list=None, inresetsols_list=None, inresetdir_list=None, \
-                          insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0, \
+def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
+                          innchan_list=None, insolint_list=None,
+                          uvdismod=None, modelcolumn='MODEL_DATA', redo=False,
+                          inBLsmooth_list=None,
+                          insmoothnessconstraint_list=None, insmoothnessreffrequency_list=None,
+                          insmoothnessspectralexponent_list=None,
+                          insmoothnessrefdistance_list=None,
+                          inantennaconstraint_list=None, inresetsols_list=None, inresetdir_list=None,
+                          innormamps_list=None,
+                          insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0,
                           phasefactorsolint=1.0, delaycal=False):
     """
    determine the solution time and frequency intervals based on the amount of compact source flux and noise
@@ -5508,7 +5567,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA, \
 
                 print(solint_sf * ((noise / flux) ** 2) * (chanw / 390.625e3), 'Using tec(andphase) solint:', solint)
                 logger.info(str(solint_sf * ((noise / flux) ** 2) * (
-                            chanw / 390.625e3)) + '-- Using tec(andphase) solint:' + str(solint))
+                        chanw / 390.625e3)) + '-- Using tec(andphase) solint:' + str(solint))
                 print('Using tec(andphase) solint [s]:', float(solint) * tint)
                 logger.info('Using tec(andphase) solint [s]: ' + str(float(solint) * tint))
 
@@ -5586,7 +5645,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA, \
 
                 print(solint_sf * ((noise / flux) ** 2) * (chanw / 390.625e3), 'Using (scalar)phase solint:', solint)
                 logger.info(str(solint_sf * ((noise / flux) ** 2) * (
-                            chanw / 390.625e3)) + '-- Using (scalar)phase solint:' + str(solint))
+                        chanw / 390.625e3)) + '-- Using (scalar)phase solint:' + str(solint))
                 print('Using (scalar)phase solint [s]:', float(solint) * tint)
                 logger.info('Using (scalar)phase solint [s]: ' + str(float(solint) * tint))
 
@@ -5729,6 +5788,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA, \
     print('antennaconstraint:', inantennaconstraint_list)
     print('resetsols:', inresetsols_list)
     print('resetdir:', inresetdir_list)
+    print('normamps:', innormamps_list)
     print('soltypecycles:', insoltypecycles_list)
 
     logger.info('soltype: ' + str(soltype_list) + ' ' + str(mslist))
@@ -5744,13 +5804,13 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA, \
     logger.info('resetdir: ' + str(inresetdir_list))
     logger.info('soltypecycles: ' + str(insoltypecycles_list))
 
-    return innchan_list, insolint_list, inBLsmooth_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, insmoothnessrefdistance_list, inantennaconstraint_list, inresetsols_list, inresetdir_list, insoltypecycles_list
+    return innchan_list, insolint_list, inBLsmooth_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, insmoothnessrefdistance_list, inantennaconstraint_list, inresetsols_list, inresetdir_list, insoltypecycles_list, innormamps_list
 
 
 def create_beamcortemplate(ms):
     """
-  create a DPPP gain H5 template solutution file that can be filled with losoto
-  """
+    create a DPPP gain H5 template solutution file that can be filled with losoto
+    """
     H5name = ms + '_templatejones.h5'
 
     cmd = "DP3 numthreads=" + str(
@@ -5848,8 +5908,7 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', marke
     return parset
 
 
-def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, \
-                                 outplotname='rotation', markersize=2):
+def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outplotname='rotation', markersize=2):
     parset = 'losoto_plotrotation.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
@@ -5919,8 +5978,8 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     return parset
 
 
-def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7.0, includesphase=True, \
-                                    refant='CS003HBA0', onechannel=False, medamp=2.5, flagphases=True, \
+def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
+                                    refant='CS003HBA0', onechannel=False, medamp=2.5, flagphases=True,
                                     onepol=False, outplotname='slowamp', fulljones=False):
     parset = 'losoto_flag_apgrid.parset'
     os.system('rm -f ' + parset)
@@ -6057,7 +6116,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     return parset
 
 
-def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=True, refant='CS003HBA0', \
+def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=True, refant='CS003HBA0',
                                      onechannel=False, outplotname='runningmedian'):
     parset = 'losoto_mediansmooth.parset'
     os.system('rm -f ' + parset)
@@ -6199,7 +6258,7 @@ def fixbeam_ST001(H5name):
     return ST001
 
 
-def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False, \
+def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
                          circ2lin=False, losotobeamlib='stationresponse', update_poltable=True, idg=False):
     """
     correct a ms for the beam in the phase center (array_factor only)
@@ -6598,6 +6657,12 @@ def calculate_solintnchan(compactflux):
 
 
 def determine_compactsource_flux(fitsimage):
+    '''
+    return total flux in compect sources in the fitsimage
+    input: a fits image
+    output: flux density in Jy
+    '''
+
     hdul = fits.open(fitsimage)
     bmaj = hdul[0].header['BMAJ']
     bmin = hdul[0].header['BMIN']
@@ -6995,7 +7060,537 @@ def medianamp(h5):
     return medamps
 
 
-def normamplitudes(parmdb, norm_per_ms=False):
+def get_double_slice(values, idx: list = None, axes: list = None):
+    """
+    Get double slices
+
+    :param values: numpy array
+    :param idx: list of indices
+    :param axes: list of axes corresponding to indices
+
+    return slice
+    """
+
+    ax1, ax2 = axes
+    id1, id2 = idx
+    l = list([slice(None)] * ax1 + [id1] + [slice(None)] * (len(values.shape) - ax1 - 1))
+    l[ax2] = id2
+    return tuple(l)
+
+
+def get_double_slice_len(values, idx: list = None, axes: list = None):
+    """
+    Get double slices
+
+    :param values: numpy array
+    :param idx: list of indices
+    :param axes: list of axes corresponding to indices
+
+    return slice
+    """
+
+    ax1, ax2 = axes
+    id1, id2 = idx
+    l = list([slice(None)] * ax1 + [id1] + [slice(None)] * (len(values) - ax1 - 1))
+    l[ax2] = id2
+    return tuple(l)
+
+
+def getallantennafromh5list(h5list):
+    '''
+    get all unique antenna names in a list of h5 files
+    '''
+    hasphase = True
+    hasamps = True
+    hasrotation = True
+    hastec = True
+
+    H = tables.open_file(h5list[0], mode='a')
+    # Figure out if we what solutions there are
+
+    try:
+        antennas = H.root.sol000.amplitude000.ant[:]
+    except:
+        hasamps = False
+    try:
+        antennas = H.root.sol000.phase000.ant[:]
+    except:
+        hasphase = False
+    try:
+        antennas = H.root.sol000.tec000.ant[:]
+    except:
+        hastec = False
+    try:
+        antennas = H.root.sol000.rotation000.ant[:]
+    except:
+        hasrotation = False
+    print('Reading:', h5list[0], ' -- Number of anntena:', len(antennas))
+    H.close()
+
+    if len(h5list) > 0:  # if there is only 1 we are already done given the code above
+        for h5 in h5list[1::]:
+            H = tables.open_file(h5, mode='a')
+            if hasphase:
+                ants = H.root.sol000.phase000.ant[:]
+            elif hasamps:
+                ants = H.root.sol000.amplitude000.ant[:]
+            elif hastec:
+                ants = H.root.sol000.tec000.ant[:]
+            elif hasrotation:
+                ants = H.root.sol000.rotation000.ant[:]
+            print('Reading:', h5, ' -- Number of anntena:', len(ants))
+            H.close()
+            antennas = np.concatenate((antennas, np.ndarray.flatten(ants)), axis=0)
+    return np.unique(antennas)
+
+
+def get_matrix_forslopenorm(parmdblist):
+    assert type(parmdblist) == list, 'input is not list'  # use only lists as input
+    # allantenna =  getallantennafromh5list(parmdblist)
+    H = tables.open_file(parmdblist[0])
+    directions = H.root.sol000.amplitude000.dir[:]  # should be the same for all parmdblist in the list
+    H.close()
+
+    N_h5 = len(parmdblist)
+    # N_ant = len(allantenna)
+    N_direction = len(directions)
+
+    # matrix_amps = np.zeros((N_h5,N_direction)) # sum of log10 of amps
+    matrix_weights = np.zeros((N_h5, N_direction))  # number if input values
+    matrix_slope = np.zeros((N_h5, N_direction))  # of mean slope log10 amps
+
+    for h5_id, h5 in enumerate(parmdblist):
+        H = tables.open_file(h5)
+        ampsfull = H.root.sol000.amplitude000.val[:]
+        # weightsfull = H.root.sol000.amplitude000.weight[:]
+        ants_inh5 = H.root.sol000.amplitude000.ant[:]
+        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+        diraxis = axisn.index('dir')
+        freqaxis = axisn.index('freq')
+        H.close()
+
+        for dir_id, direction in enumerate(directions):
+            slice_obj = [slice(None)] * diraxis + [dir_id] + [slice(None)] * (ampsfull.ndim - diraxis - 1)
+            amps = ampsfull[tuple(slice_obj)]
+            # weights = weightsfull[tuple(slice_obj)]
+
+            matrix_slope[h5_id, dir_id] = np.mean(np.diff(np.log10(amps), axis=freqaxis))
+            matrix_weights[h5_id, dir_id] = amps.size / N_direction
+            print('Direction:', dir_id, 'Slope:', matrix_slope[h5_id, dir_id])
+    return matrix_slope, matrix_weights
+
+
+def normslope_withmatrix(parmdblist):
+    '''
+    Global slope normalization per direction
+    input: list of h5 solution files
+    '''
+    assert type(parmdblist) == list, 'input is not list'  # use only lists as input
+    H = tables.open_file(parmdblist[0])
+    directions = H.root.sol000.amplitude000.dir[:]  # should be the same for all parmdb in the list
+    H.close()
+
+    # allantenna =  getallantennafromh5list(parmdblist)
+    matrix_slope, matrix_weights = get_matrix_forslopenorm(parmdblist)
+    # print(matrix_slope.shape)
+
+    # create norm factors
+    norm_array = np.zeros((matrix_slope.shape[1]))
+    # matrix_weights[h5_id,ant_id,dir_id]
+    for dir_id, direction in enumerate(directions):
+        norm_array[dir_id] = np.average(matrix_slope[:, dir_id], weights=matrix_weights[:, dir_id])
+
+    # write result
+    for h5_id, h5 in enumerate(parmdblist):
+        H = tables.open_file(h5, mode='a')
+        ampsfull = H.root.sol000.amplitude000.val[:]
+        weightsfull = H.root.sol000.amplitude000.weight[:]
+        ants_inh5 = H.root.sol000.amplitude000.ant[:]
+        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+        diraxis = axisn.index('dir')
+        freqaxis = axisn.index('freq')
+        frequencies = H.root.sol000.amplitude000.freq[:]
+
+        for dir_id, direction in enumerate(directions):
+            print(h5, dir_id, norm_array[dir_id])
+            for freq_id, frequency in enumerate(frequencies):
+                slice_obj = get_double_slice(ampsfull, [freq_id, dir_id], [freqaxis, diraxis])
+
+                amps = ampsfull[slice_obj]
+                ampsfull[slice_obj] = 10 ** (np.log10(amps) - (norm_array[dir_id] * float(freq_id)))
+
+        H.root.sol000.amplitude000.val[:] = ampsfull
+        H.flush()
+        H.close()
+    return
+
+
+def get_matrix_forampnorm(parmdblist):
+    assert type(parmdblist) == list, 'input is not list'  # use only lists as input
+    allantenna = getallantennafromh5list(parmdblist)
+    H = tables.open_file(parmdblist[0])
+    directions = H.root.sol000.amplitude000.dir[:]  # should be the same for all parmdblist in the list
+    H.close()
+
+    N_h5 = len(parmdblist)
+    N_ant = len(allantenna)
+    N_direction = len(directions)
+
+    matrix_amps = np.zeros((N_h5, N_ant, N_direction))  # sum of log10 of amps
+    matrix_weights = np.zeros((N_h5, N_ant, N_direction))  # number if input values
+    # matrix_slope = np.zeros((N_h5,N_ant,N_direction)) # of mean slope log10 amps
+
+    for h5_id, h5 in enumerate(parmdblist):
+        H = tables.open_file(h5)
+        amps = H.root.sol000.amplitude000.val[:]
+        weights = H.root.sol000.amplitude000.weight[:]
+        ants_inh5 = H.root.sol000.amplitude000.ant[:]
+        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+        diraxis = axisn.index('dir')
+        antaxis = axisn.index('ant')
+        H.close()
+
+        for antenna in allantenna:
+            ant_id = np.where(ants_inh5 == antenna)[0]
+            print(h5, antenna)
+            if len(ant_id) > 0:
+                ant_id = ant_id[0]
+                for dir_id, direction in enumerate(directions):
+                    # print(str(antenna) + ' ' +'Normalizing direction', direction)
+                    slice_obj = get_double_slice(amps, [ant_id, dir_id], [antaxis, diraxis])
+                    amps_sel = amps[slice_obj]
+                    weights_sel = weights[slice_obj]
+                    idx = np.where(weights_sel != 0.0)
+                    weights_sel[idx] = 1.0
+
+                    matrix_amps[h5_id, ant_id, dir_id] = np.sum(np.log10(amps_sel[idx]))
+                    matrix_weights[h5_id, ant_id, dir_id] = np.sum(weights_sel[idx])
+                    # print(np.sum(weights_sel[idx]))
+                    # matrix_slope[h5_id,ant_id,dir_id] = np.mean(np.diff(np.log10(amps_sel[idx])))
+    return matrix_amps, matrix_weights
+
+
+def normamplitudes_withmatrix(parmdblist):
+    '''
+    Normalize global amplitues per direction and per antenna
+    '''
+    H = tables.open_file(parmdblist[0])
+    directions = H.root.sol000.amplitude000.dir[:]  # should be the same for all parmdb in the list
+    H.close()
+
+    allantenna = getallantennafromh5list(parmdblist)
+    matrix_amps, matrix_weights = get_matrix_forampnorm(parmdblist)
+    print(matrix_amps.shape)
+    # sys.exit()
+    # create norm factors
+    norm_array = np.zeros((matrix_amps.shape[1], matrix_amps.shape[2]))
+    # matrix_weights[h5_id,ant_id,dir_id]
+    for ant_id, antenna in enumerate(allantenna):
+        for dir_id, direction in enumerate(directions):
+            norm_array[ant_id, dir_id] = np.sum(matrix_amps[:, ant_id, dir_id]) / np.sum(
+                matrix_weights[:, ant_id, dir_id])
+
+    # write result
+    for h5_id, h5 in enumerate(parmdblist):
+        H = tables.open_file(h5, mode='a')
+        amps = H.root.sol000.amplitude000.val[:]
+        weights = H.root.sol000.amplitude000.weight[:]
+        ants_inh5 = H.root.sol000.amplitude000.ant[:]
+        axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+        diraxis = axisn.index('dir')
+        antaxis = axisn.index('ant')
+
+        # matrix_weights[h5_id,ant_id,dir_id]
+        for antenna in allantenna:
+            ant_id = np.where(ants_inh5 == antenna)[0]
+            print(h5, antenna)
+            if len(ant_id) > 0:
+                ant_id = ant_id[0]
+                for dir_id, direction in enumerate(directions):
+                    print(ant_id, dir_id, norm_array[ant_id, dir_id])
+                    slice_obj = get_double_slice(amps, [ant_id, dir_id], [antaxis, diraxis])
+                    amps[slice_obj] = 10 ** (np.log10(amps[slice_obj]) - norm_array[ant_id, dir_id])
+        H.root.sol000.amplitude000.val[:] = amps
+        H.flush()
+        H.close()
+    return
+
+
+def normamplitudes(parmdb, norm_per_ms=False, norm_per_ant=False):
+    """
+    Normalize H5 amplitudes
+
+    :param paramdb: list of h5 files
+    :param norm_per_ms : boolean
+    :param norm_per_ant : boolean
+
+    return None
+    """
+    has_dir = h5_has_dir(parmdb[0])
+    H = tables.open_file(parmdb[0])
+    axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+    if has_dir:
+        directions = H.root.sol000.amplitude000.dir[:]  # should be the same for all parmdb in the list
+    H.close()
+
+    # ---------------------- THIS IS FOR norm_per_ant=False ----------
+    # ----------------------------------------------------------------
+    # ----------------------------------------------------------------
+    if norm_per_ms and not norm_per_ant:
+        for parmdbi in parmdb:
+            H = tables.open_file(parmdbi, mode='a')
+            if not has_dir:
+                amps = H.root.sol000.amplitude000.val[:]
+                weights = H.root.sol000.amplitude000.weight[:]
+                idx = np.where(weights != 0.0)
+                amps = np.log10(amps)
+                logger.info(parmdbi + ' Mean amplitudes before normalization: ' + str(10 ** (np.nanmean(amps[idx]))))
+                amps = amps - (np.nanmean(amps[idx]))
+                logger.info(parmdbi + ' Mean amplitudes after normalization: ' + str(10 ** (np.nanmean(amps[idx]))))
+                amps = 10 ** (amps)
+                H.root.sol000.amplitude000.val[:] = amps
+                H.flush()
+                H.close()
+            else:
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                diraxis = axisn.index('dir')
+                ampsfull = H.root.sol000.amplitude000.val[:]
+                weightsfull = H.root.sol000.amplitude000.weight[:]
+                for dir_id, direction in enumerate(directions):
+                    print('Normalizing direction', direction, 'Axis entry number', axisn.index('dir'))
+                    slice_obj = [slice(None)] * diraxis + [dir_id] + [slice(None)] * (ampsfull.ndim - diraxis - 1)
+                    amps = ampsfull[tuple(slice_obj)]
+                    weights = weightsfull[tuple(slice_obj)]
+
+                    idx = np.where(weights != 0.0)
+                    amps = np.log10(amps)
+                    logger.info(
+                        'Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(
+                            10 ** (np.nanmean(amps[idx]))))
+                    print('Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(
+                        10 ** (np.nanmean(amps[idx]))))
+                    amps = amps - (np.nanmean(amps[idx]))
+                    logger.info(
+                        'Direction:' + str(dir_id) + '  ' + parmdbi + ' Mean amplitudes after normalization: ' + str(
+                            10 ** (np.nanmean(amps[idx]))))
+                    amps = 10 ** (amps)
+                    # put back vales in ampsfull
+                    ampsfull[tuple(slice_obj)] = amps
+
+                H.root.sol000.amplitude000.val[:] = ampsfull
+                H.flush()
+                H.close()
+        print('Return with norm_per_ant=False')
+        return  # norm_per_ms
+
+    if not has_dir and not norm_per_ant:
+        for i, parmdbi in enumerate(parmdb):
+            H = tables.open_file(parmdbi, mode='r')
+            ampsfull = H.root.sol000.amplitude000.val[:]
+            weightsfull = H.root.sol000.amplitude000.weight[:]
+            idx = np.where(weightsfull != 0.0)
+            logger.info(parmdbi + '  Normfactor: ' + str(10 ** (np.nanmean(np.log10(ampsfull[idx])))))
+            if i == 0:
+                amps = np.ndarray.flatten(ampsfull[idx])
+            else:
+                amps = np.concatenate((amps, np.ndarray.flatten(ampsfull[idx])), axis=0)
+
+            H.close()
+        normmin = (np.nanmean(np.log10(amps)))
+        logger.info('Global normfactor: ' + str(10 ** normmin))
+        # now write the new H5 files
+        for parmdbi in parmdb:
+            H = tables.open_file(parmdbi, mode='a')
+            ampsfull = H.root.sol000.amplitude000.val[:]
+            ampsfull = (np.log10(ampsfull)) - normmin
+            ampsfull = 10 ** ampsfull
+            H.root.sol000.amplitude000.val[:] = ampsfull
+            H.flush()
+            H.close()
+    elif not norm_per_ant:
+        for dir_id, direction in enumerate(directions):
+            for i, parmdbi in enumerate(parmdb):
+                H = tables.open_file(parmdbi, mode='r')
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                ampsfull = H.root.sol000.amplitude000.val[:]
+                weightsfull = H.root.sol000.amplitude000.weight[:]
+                diraxis = axisn.index('dir')
+                H.close()
+
+                slice_obj = [slice(None)] * diraxis + [dir_id] + [slice(None)] * (ampsfull.ndim - diraxis - 1)
+                ampsi = ampsfull[tuple(slice_obj)]
+                weights = weightsfull[tuple(slice_obj)]
+
+                idx = np.where(weights != 0.0)
+                if i == 0:
+                    amps = np.ndarray.flatten(ampsi[idx])
+                else:
+                    amps = np.concatenate((amps, np.ndarray.flatten(ampsi[idx])), axis=0)
+            normmin = (np.nanmean(np.log10(amps)))
+            logger.info('Global normfactor directon:' + str(dir_id) + ' ' + str(10 ** normmin))
+            print('Global normfactor directon:' + str(dir_id) + ' ' + str(10 ** normmin))
+            for parmdbi in parmdb:
+                H = tables.open_file(parmdbi, mode='a')
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                ampsfull = H.root.sol000.amplitude000.val[:]
+                diraxis = axisn.index('dir')
+                # put back vales in ampsfull
+                slices = tuple(slice(None) if i != diraxis else dir_id for i in range(diraxis + 1))
+                ampsfull[slices] = np.log10(ampsfull[slices]) - normmin
+                ampsfull[slices] = 10 ** ampsfull[slices]
+                H.root.sol000.amplitude000.val[:] = ampsfull
+                H.flush()
+                H.close()
+        print('Return with norm_per_ant=False')
+        return  # return because we do not need to go to the norm_per_an=True part
+
+    # ---------------------- THIS IS FOR norm_per_ant=True ----------
+    # ----------------------------------------------------------------
+    # ----------------------------------------------------------------
+    allantenna = getallantennafromh5list(parmdb)
+
+    if norm_per_ms and norm_per_ant:
+        for parmdbi in parmdb:
+            H = tables.open_file(parmdbi, mode='a')
+            ants_inh5 = H.root.sol000.amplitude000.ant[:]
+            antaxis = axisn.index('ant')
+            if not has_dir:
+                ampsfull = H.root.sol000.amplitude000.val[:]
+                weightsfull = H.root.sol000.amplitude000.weight[:]
+
+                for antenna in allantenna:
+                    ant_id = np.where(ants_inh5 == antenna)[0]
+                    if len(ant_id) > 0:
+                        ant_id = ant_id[0]
+                        print('Doing:', antenna)
+                        print('antenna index: ', )
+                        slice_obj = [slice(None)] * antaxis + [ant_id] + [slice(None)] * (ampsfull.ndim - diraxis - 1)
+                        amps = ampsfull[tuple(slice_obj)]
+                        weights = weightsfull[tuple(slice_obj)]
+
+                        idx = np.where(weights != 0.0)
+                        amps = np.log10(amps)
+                        logger.info(str(antenna) + ' ' + parmdbi + ' Mean amplitudes before normalization: ' + str(
+                            10 ** (np.nanmean(amps[idx]))))
+                        amps = amps - (np.nanmean(amps[idx]))
+                        logger.info(str(antenna) + ' ' + parmdbi + ' Mean amplitudes after normalization: ' + str(
+                            10 ** (np.nanmean(amps[idx]))))
+                        amps = 10 ** (amps)
+
+                        ampsfull[tuple(slice_obj)] = amps
+                    else:
+                        print('Skipping this antenna as it is not present in the h5', antenna)
+
+                H.root.sol000.amplitude000.val[:] = ampsfull
+                H.flush()
+                H.close()
+            else:
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                diraxis = axisn.index('dir')
+                antaxis = axisn.index('ant')
+                ampsfull = H.root.sol000.amplitude000.val[:]
+                weightsfull = H.root.sol000.amplitude000.weight[:]
+
+                for antenna in allantenna:
+                    ant_id = np.where(ants_inh5 == antenna)[0]
+                    if len(ant_id) > 0:
+                        for dir_id, direction in enumerate(directions):
+                            print(str(antenna) + ' ' + 'Normalizing direction', direction)
+
+                            slice_obj = get_double_slice(ampsfull, [ant_id, dir_id], [antaxis, diraxis])
+
+                            amps = ampsfull[slice_obj]
+                            weights = weightsfull[slice_obj]
+
+                            idx = np.where(weights != 0.0)
+                            amps = np.log10(amps)
+                            logger.info(str(antenna) + ' ' + 'Direction:' + str(
+                                dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(
+                                10 ** (np.nanmean(amps[idx]))))
+                            print('Direction:' + str(
+                                dir_id) + '  ' + parmdbi + ' Mean amplitudes before normalization: ' + str(
+                                10 ** (np.nanmean(amps[idx]))))
+                            amps = amps - (np.nanmean(amps[idx]))
+                            logger.info(str(antenna) + ' ' + 'Direction:' + str(
+                                dir_id) + '  ' + parmdbi + ' Mean amplitudes after normalization: ' + str(
+                                10 ** (np.nanmean(amps[idx]))))
+                            amps = 10 ** (amps)
+                            # put back vales in ampsfull
+                            ampsfull[slice_obj] = amps
+                    else:
+                        print('Skipping this antenna as it is not present in the h5', antenna)
+
+                H.root.sol000.amplitude000.val[:] = ampsfull
+                H.flush()
+                H.close()
+        print('Return with norm_per_ant=True')
+        return  # norm_per_ms
+
+    if not has_dir and norm_per_ant:
+        print('Not implemented  "if not has_dir and norm_per_ant" ')
+        sys.exit()
+
+    elif norm_per_ant:
+        for antenna in allantenna:
+            for dir_id, direction in enumerate(directions):
+                try:
+                    del (amps)  # delete variable at the start
+                except:
+                    pass
+                for i, parmdbi in enumerate(parmdb):
+                    H = tables.open_file(parmdbi, mode='r')
+                    ants_inh5 = H.root.sol000.amplitude000.ant[:]
+                    axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                    # ampsfull = H.root.sol000.amplitude000.val[:]
+                    # weightsfull = H.root.sol000.amplitude000.weight[:]
+                    diraxis = axisn.index('dir')
+                    antaxis = axisn.index('ant')
+
+                    ant_id = np.where(ants_inh5 == antenna)[0]
+                    if len(ant_id) > 0:
+                        slice_obj = get_double_slice_len(axisn, [ant_id, dir_id], [antaxis, diraxis])
+                        ampsi = H.root.sol000.amplitude000.val[slice_obj]
+                        weights = H.root.sol000.amplitude000.weight[slice_obj]
+
+                        idx = np.where(weights != 0.0)
+                        if 'amps' in locals():  # in this case amps was already made
+                            amps = np.concatenate((amps, np.ndarray.flatten(ampsi[idx])), axis=0)
+                        else:  # create amps
+                            amps = np.ndarray.flatten(ampsi[idx])
+                    H.close()
+
+                normmin = (np.nanmean(np.log10(amps)))
+
+                logger.info(str(antenna) + ' Global normfactor directon:' + str(dir_id) + ' ' + str(10 ** normmin))
+                print(str(antenna) + ' Global normfactor directon:' + str(dir_id) + ' ' + str(10 ** normmin))
+                for parmdbi in parmdb:
+                    print('Write to:', parmdbi)
+                    H = tables.open_file(parmdbi, mode='a')
+                    ants_inh5 = H.root.sol000.amplitude000.ant[:]
+                    axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                    # ampsfull = H.root.sol000.amplitude000.val[:]
+                    diraxis = axisn.index('dir')
+                    antaxis = axisn.index('ant')
+
+                    # put back vales in ampsfull
+                    ant_id = np.where(ants_inh5 == antenna)[0]
+                    if len(ant_id) > 0:
+                        slice_obj = get_double_slice_len(axisn, [ant_id, dir_id], [antaxis, diraxis])
+                        ampsfull = H.root.sol000.amplitude000.val[slice_obj]
+
+                        ampsfull = 10 ** (np.log10(ampsfull) - normmin)
+                        # ampsfull = 10**ampsfull
+                        H.root.sol000.amplitude000.val[slice_obj] = ampsfull
+                    H.flush()
+                    H.close()
+        # else:
+        #    print('Skipping this antenna as it is not present in the h5', antenna)
+
+    print('Return with norm_per_ant=True')
+    return
+
+
+def normamplitudes_old2(parmdb, norm_per_ms=False, norm_per_ant=False):
     has_dir = h5_has_dir(parmdb[0])
     H = tables.open_file(parmdb[0])
     axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
@@ -7040,6 +7635,8 @@ def normamplitudes(parmdb, norm_per_ms=False):
                     if diraxis == 4:
                         amps = ampsfull[:, :, :, :, dir_id, ...]
                         weights = weightsfull[:, :, :, :, dir_id, ...]
+
+                    # amp[get_double_slice(amp, [antennaid, dirid], [antennaxis, diraxis])
 
                     idx = np.where(weights != 0.0)
                     amps = np.log10(amps)
@@ -7355,20 +7952,20 @@ def parse_facetdirections(facetdirections, selfcalcycle, args=None):
             return PatchPositions_array, None, None
 
 
-def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
-                channelsout, args, numClusters=0, facetdirections=None, \
-                DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=True, \
-                telescope='LOFAR', targetFlux=2.0, skyview=None, \
-                fitspectralpol=3, disable_primary_beam=False, wscleanskymodel=None, \
+def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
+                channelsout, args, numClusters=0, facetdirections=None,
+                DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=True,
+                telescope='LOFAR', targetFlux=2.0, skyview=None,
+                fitspectralpol=3, disable_primary_beam=False, wscleanskymodel=None,
                 skymodel=None):
     if telescope == 'LOFAR' and not disable_IDG_DDE_predict:
         idg = True  # predict WSCLEAN with beam using IDG (wsclean facet mode with h5 is not efficient here)
     else:
         idg = False
 
-    solints, soltypelist_includedir = create_facet_directions(imagebasename, selfcalcycle, \
-                                                              targetFlux=targetFlux, ms=mslist[0], imsize=imsize, \
-                                                              pixelscale=pixelscale, numClusters=numClusters, \
+    solints, soltypelist_includedir = create_facet_directions(imagebasename, selfcalcycle,
+                                                              targetFlux=targetFlux, ms=mslist[0], imsize=imsize,
+                                                              pixelscale=pixelscale, numClusters=numClusters,
                                                               facetdirections=facetdirections, restart=restart,
                                                               args=args)
 
@@ -7414,26 +8011,25 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
     if restart:
         # restart with DDE_predict=DP3 because then only the variable modeldatacolumns is made
         # So the wsclean predict step is skipped in makeimage but modeldatacolumns is created
-        modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
-                                     pixelscale, imsize, channelsout, predict=True, \
-                                     onlypredict=True, facetregionfile='facets.reg', \
-                                     DDE_predict='DP3', \
-                                     disable_primarybeam_image=disable_primary_beam, \
-                                     disable_primarybeam_predict=disable_primary_beam, \
+        modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3),
+                                     pixelscale, imsize, channelsout, predict=True,
+                                     onlypredict=True, facetregionfile='facets.reg',
+                                     DDE_predict='DP3',
+                                     disable_primarybeam_image=disable_primary_beam,
+                                     disable_primarybeam_predict=disable_primary_beam,
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'])
         # selfcalcycle-1 because makeimage has not yet produced an image at this point
         if fitspectralpol > 0 and DDE_predict == 'DP3':
-            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle - 1).zfill(3) + \
-                                         '-sources.txt', 'facets.fits')
+            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle - 1).zfill(3) + '-sources.txt', 'facets.fits')
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
     elif skyview is not None:
-        modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
-                                     pixelscale, imsize, channelsout, predict=True, \
-                                     onlypredict=True, facetregionfile='facets.reg', \
-                                     DDE_predict=DDE_predict, \
-                                     disable_primarybeam_image=disable_primary_beam, \
-                                     disable_primarybeam_predict=disable_primary_beam, \
+        modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3),
+                                     pixelscale, imsize, channelsout, predict=True,
+                                     onlypredict=True, facetregionfile='facets.reg',
+                                     DDE_predict=DDE_predict,
+                                     disable_primarybeam_image=disable_primary_beam,
+                                     disable_primarybeam_predict=disable_primary_beam,
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'])
         if fitspectralpol > 0:
             dde_skymodel = groupskymodel(imagebasename, 'facets.fits')  # imagebasename
@@ -7441,38 +8037,44 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale, \
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
     elif wscleanskymodel is not None:  # DDE wscleanskymodel solve at the start
-        modeldatacolumns = makeimage(mslist, wscleanskymodel, \
-                                     pixelscale, imsize, channelsout, predict=True, \
-                                     onlypredict=True, facetregionfile='facets.reg', \
-                                     DDE_predict='WSCLEAN', idg=idg, \
-                                     disable_primarybeam_image=disable_primary_beam, \
-                                     disable_primarybeam_predict=disable_primary_beam, \
+
+        nonpblist = glob.glob(wscleanskymodel + '-????-model.fits')
+        pblist = glob.glob(wscleanskymodel + '-????-model-pb.fits')
+
+        if len(pblist) > 0:
+            channelsout_forpredict = len(pblist)
+        else:
+            channelsout_forpredict = len(nonpblist)
+
+        modeldatacolumns = makeimage(mslist, wscleanskymodel,
+                                     pixelscale, imsize, channelsout_forpredict, predict=True,
+                                     onlypredict=True, facetregionfile='facets.reg',
+                                     DDE_predict='WSCLEAN', idg=idg,
+                                     disable_primarybeam_image=disable_primary_beam,
+                                     disable_primarybeam_predict=disable_primary_beam,
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'])
         # assume there is no model for DDE wscleanskymodel solve at the start
         # since we are making image000 afterwards anyway setting a dummy now is ok
         dde_skymodel = 'dummy.skymodel'
         print(modeldatacolumns)
     else:
-        modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3), \
-                                     pixelscale, imsize, channelsout, predict=True, \
-                                     onlypredict=True, facetregionfile='facets.reg', \
-                                     DDE_predict=DDE_predict, idg=idg, \
-                                     disable_primarybeam_image=disable_primary_beam, \
-                                     disable_primarybeam_predict=disable_primary_beam, \
+        modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3),
+                                     pixelscale, imsize, channelsout, predict=True,
+                                     onlypredict=True, facetregionfile='facets.reg',
+                                     DDE_predict=DDE_predict, idg=idg,
+                                     disable_primarybeam_image=disable_primary_beam,
+                                     disable_primarybeam_predict=disable_primary_beam,
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'])
         if fitspectralpol > 0 and DDE_predict == 'DP3':
-            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + \
-                                         '-sources.txt', 'facets.fits')
+            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'facets.fits')
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
     # check if -pb version of source list exists
     # needed because image000 does not have a pb version as no facet imaging is used, however, if IDG is used it does exist and hence the following does also handfle that
     if telescope == 'LOFAR' and wscleanskymodel is None:  # not for MeerKAT because WSCclean still has a bug if no primary beam is used, for now assume we do not use a primary beam for MeerKAT
-        if os.path.isfile(imagebasename + str(selfcalcycle).zfill(3) + \
-                          '-sources-pb.txt'):
+        if os.path.isfile(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt'):
             if fitspectralpol > 0:
-                dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + \
-                                             '-sources-pb.txt', 'facets.fits')
+                dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt', 'facets.fits')
             else:
                 dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
@@ -7492,9 +8094,9 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
         return 'grouped_' + skymodelin
 
 
-def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, imsize=None, \
-                            pixelscale=None, numClusters=0, weightBySize=False, \
-                            facetdirections=None, imsizemargin=100, restart=False, \
+def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, imsize=None,
+                            pixelscale=None, numClusters=0, weightBySize=False,
+                            facetdirections=None, imsizemargin=100, restart=False,
                             args=None):
     '''
    create a facet region file based on an input image or file provided by the user
@@ -7649,10 +8251,10 @@ def flatten(f):
     return hdu
 
 
-def remove_outside_box(mslist, imagebasename, pixsize, imsize, \
-                       channelsout, single_dual_speedup=True, \
-                       outcol='SUBTRACTED_DATA', dysco=True, userbox=None, \
-                       idg=False, h5list=[], facetregionfile=None, \
+def remove_outside_box(mslist, imagebasename, pixsize, imsize,
+                       channelsout, single_dual_speedup=True,
+                       outcol='SUBTRACTED_DATA', dysco=True, userbox=None,
+                       idg=False, h5list=[], facetregionfile=None,
                        disable_primary_beam=False):
     # get imageheader to check frequency
     hdul = fits.open(imagebasename + '-MFS-image.fits')
@@ -7691,34 +8293,34 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize, \
     # predict the model non-DDE case
     if len(h5list) == 0:
         if userbox is None:
-            makeimage(mslist, imagebasename, pixsize, imsize, \
-                      channelsout, onlypredict=True, squarebox='templatebox.reg', \
-                      idg=idg, disable_primarybeam_predict=disable_primary_beam, \
+            makeimage(mslist, imagebasename, pixsize, imsize,
+                      channelsout, onlypredict=True, squarebox='templatebox.reg',
+                      idg=idg, disable_primarybeam_predict=disable_primary_beam,
                       fulljones_h5_facetbeam=not single_dual_speedup)
             phaseshiftbox = 'templatebox.reg'
         else:
             if userbox != 'keepall':
-                makeimage(mslist, imagebasename, pixsize, imsize, \
-                          channelsout, onlypredict=True, squarebox=userbox, \
-                          idg=idg, disable_primarybeam_predict=disable_primary_beam, \
+                makeimage(mslist, imagebasename, pixsize, imsize,
+                          channelsout, onlypredict=True, squarebox=userbox,
+                          idg=idg, disable_primarybeam_predict=disable_primary_beam,
                           fulljones_h5_facetbeam=not single_dual_speedup)
                 phaseshiftbox = userbox
             else:
                 phaseshiftbox = None  # so option keepall was set by the user
     else:  # so this we are in DDE mode as h5list is not empty
         if userbox is None:
-            makeimage(mslist, imagebasename, pixsize, imsize, \
-                      channelsout, onlypredict=True, squarebox='templatebox.reg', \
-                      idg=idg, h5list=h5list, facetregionfile=facetregionfile, \
-                      disable_primarybeam_predict=disable_primary_beam, \
+            makeimage(mslist, imagebasename, pixsize, imsize,
+                      channelsout, onlypredict=True, squarebox='templatebox.reg',
+                      idg=idg, h5list=h5list, facetregionfile=facetregionfile,
+                      disable_primarybeam_predict=disable_primary_beam,
                       fulljones_h5_facetbeam=not single_dual_speedup)
             phaseshiftbox = 'templatebox.reg'
         else:
             if userbox != 'keepall':
-                makeimage(mslist, imagebasename, pixsize, imsize, \
-                          channelsout, onlypredict=True, squarebox=userbox, \
-                          idg=idg, h5list=h5list, facetregionfile=facetregionfile, \
-                          disable_primarybeam_predict=disable_primary_beam, \
+                makeimage(mslist, imagebasename, pixsize, imsize,
+                          channelsout, onlypredict=True, squarebox=userbox,
+                          idg=idg, h5list=h5list, facetregionfile=facetregionfile,
+                          disable_primarybeam_predict=disable_primary_beam,
                           fulljones_h5_facetbeam=not single_dual_speedup)
                 phaseshiftbox = userbox
             else:
@@ -7746,12 +8348,12 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize, \
                 model = t.getcol('MODEL_DATA', startrow=row, nrow=stepsize, rowincr=1)
                 t.putcol(outcol, data - model, startrow=row, nrow=stepsize, rowincr=1)
             t.close()
-        average(mslist, freqstep=[1] * len(mslist), timestep=1, \
-                phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True, \
+        average(mslist, freqstep=[1] * len(mslist), timestep=1,
+                phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True,
                 dataincolumn=outcol)
     else:  # so have have "keepall", no subtract, just a copy
-        average(mslist, freqstep=[1] * len(mslist), timestep=1, \
-                phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True, \
+        average(mslist, freqstep=[1] * len(mslist), timestep=1,
+                phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True,
                 dataincolumn=datacolumn)
 
     return
@@ -7773,23 +8375,27 @@ def is_scalar_array_for_wsclean(h5list):
     return is_scalar
 
 
-def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robust=-0.5, \
-              uvtaper=None, multiscale=False, predict=True, onlypredict=False, fitsmask=None, \
-              idg=False, uvminim=80, fitspectralpol=3, \
-              imager='WSCLEAN', restoringbeam=15, automask=2.5, \
-              removenegativecc=True, usewgridder=True, paralleldeconvolution=0, \
-              deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8, \
-              fullpol=False, taperinnertukey=None, gapchanneldivision=False, \
-              uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None, \
-              DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False, \
-              wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0, \
-              stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False, \
-              facet_beam_update_time=120, groupms_h5facetspeedup=False, \
-              singlefacetpredictspeedup=True, forceimagingwithfacets=True, ddpsfgrid=None, \
+def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robust=-0.5,
+              uvtaper=None, multiscale=False, predict=True, onlypredict=False, fitsmask=None,
+              idg=False, uvminim=80, fitspectralpol=3,
+              imager='WSCLEAN', restoringbeam=15, automask=2.5,
+              removenegativecc=True, usewgridder=True, paralleldeconvolution=0,
+              deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8,
+              fullpol=False, taperinnertukey=None, gapchanneldivision=False,
+              uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None,
+              DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False,
+              wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0,
+              stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False,
+              facet_beam_update_time=120, groupms_h5facetspeedup=False,
+              singlefacetpredictspeedup=True, forceimagingwithfacets=True, ddpsfgrid=None,
               fulljones_h5_facetbeam=False):
     '''
     forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
     '''
+    if '-model-column' in subprocess.check_output(['wsclean'], text=True):
+        predict_inmodelcol = True
+    else:
+        predict_inmodelcol = False
 
     fitspectrallogpol = False  # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
@@ -7883,7 +8489,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
 
         if not fulljones_h5_facetbeam:
-            if not is_scallar_array_forwsclean(h5list):
+            if not is_scalar_array_for_wsclean(h5list):
                 cmd += '-diagonal-visibilities '  # different XX and YY solutions
             else:
                 cmd += '-scalar-visibilities '  # scalar solutions
@@ -7919,6 +8525,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
             # step 3 predict with wsclean
             cmd = 'wsclean -predict '
+            if predict_inmodelcol:  # directly predict the right column name
+                cmd += '-model-column MODEL_DATA_DD' + str(facet_id) + ' '
             # if not usewgridder and not idg:
             #  cmd += '-padding 1.8 '
             if channelsout > 1:
@@ -7966,7 +8574,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             for ms in mslist:
                 cmddppp = 'DP3 msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. steps=[] '
                 cmddppp += 'msout.datacolumn=MODEL_DATA_DD' + str(facet_id)
-                if DDE_predict == 'WSCLEAN':
+                if DDE_predict == 'WSCLEAN' and not predict_inmodelcol:
                     run(cmddppp)
             modeldatacolumns_list.append('MODEL_DATA_DD' + str(facet_id))
 
@@ -8085,7 +8693,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
 
             if not fulljones_h5_facetbeam:
-                if not is_scallar_array_forwsclean(h5list):
+                if not is_scalar_array_for_wsclean(h5list):
                     cmd += '-diagonal-visibilities '  # different XX and YY solutions
                 else:
                     cmd += '-scalar-visibilities '  # scalar solutions
@@ -8143,14 +8751,14 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             sys.exit(0)
 
         if predict and len(h5list) == 0 and not DDEimaging:
-            # we check for DDEimaging to avoid a predict for image000 in a --DDE run
-            # because at that moment there is no h5list yet and this avoids an unnecessary DI-type predict
-            cmd = 'wsclean -size '
-            cmd += str(int(imsize)) + ' ' + str(int(imsize)) + ' -predict '
+            # We check for DDEimaging to avoid a predict for image000 in a --DDE run
+            # because at that moment there is no h5list yet, avoiding an unnecessary DI-type predict
+            cmd = 'wsclean -predict '  # -size '
+            # cmd += str(int(imsize)) + ' ' + str(int(imsize)) +  ' -predict '
             # if not usewgridder and not idg:
-            #   cmd += '-padding 1.8 '
+            #     cmd += '-padding 1.8 '
             if channelsout > 1:
-                cmd += ' -channels-out ' + str(channelsout) + ' '
+                cmd += '-channels-out ' + str(channelsout) + ' '
                 if gapchanneldivision:
                     cmd += '-gap-channel-division '
             if idg:
@@ -8171,40 +8779,40 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 if parallelgridding > 1:
                     cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
 
-            # needs multi-col predict
-            # if h5 is not None:
-            #   cmd += '-facet-regions ' + facetregionfile  + ' '
-            #   cmd += '-apply-facet-solutions ' + h5 + ' amplitude000,phase000 '
-            #   if telescope == 'LOFAR':
-            #      cmd += '-apply-facet-beam -facet-beam-update 600 -use-differential-lofar-beam '
-            #      cmd += '-diagonal-solutions '
+                # Needs multi-col predict
+                # if h5 is not None:
+                #     cmd += '-facet-regions ' + facetregionfile + ' '
+                #     cmd += '-apply-facet-solutions ' + h5 + ' amplitude000,phase000 '
+                #     if telescope == 'LOFAR':
+                #         cmd += '-apply-facet-beam -facet-beam-update 600 -use-differential-lofar-beam '
+                #         cmd += '-diagonal-solutions '
 
-            cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' + msliststring
-            print('PREDICT STEP: ', cmd)
+                cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' + msliststring
+                print('PREDICT STEP: ', cmd)
+                run(cmd)
+
+        if imager == 'DDFACET':
+            makemslist(mslist)
+            # restoringbeam = '15'
+            cmd = 'DDF.py --Data-MS=mslist.txt --Deconv-PeakFactor=0.001 --Data-ColName=' + imcol + ' ' + \
+                  '--Parallel-NCPU=32 --Output-Mode=Clean --Deconv-CycleFactor=0 ' + \
+                  '--Deconv-MaxMinorIter=' + str(niter) + ' --Deconv-MaxMajorIter=5 ' + \
+                  '--Deconv-Mode=SSD --Weight-Robust=' + str(robust) + ' --Image-NPix=' + str(int(imsize)) + ' ' + \
+                  '--CF-wmax=50000 --CF-Nw=100 --Beam-Model=None --Beam-LOFARBeamMode=A --Beam-NBand=1 ' + \
+                  '--Output-Also=onNeds --Image-Cell=' + str(pixsize) + ' --Facets-NFacets=1 --Freq-NDegridBand=1 ' + \
+                  '--Deconv-RMSFactor=3.0 --Deconv-FluxThreshold=0.0 --Data-Sort=1 --Cache-Dir=. --Freq-NBand=2 ' + \
+                  '--GAClean-MinSizeInit=10 --Facets-DiamMax=1.5 --Facets-DiamMin=0.1 ' + \
+                  '--Cache-Dirty=auto --Weight-ColName=WEIGHT_SPECTRUM --Output-Name=' + imageout + ' ' + \
+                  '--Comp-BDAMode=1 --DDESolutions-DDModeGrid=AP --DDESolutions-DDModeDeGrid=AP --Cache-Reset=1 ' + \
+                  '--RIME-ForwardMode=BDA-degrid --Predict-ColName=MODEL_DATA --Selection-UVRange=[0.1,2000.] ' + \
+                  '--Output-RestoringBeam=' + str(restoringbeam) + ' --Mask-SigTh=5.0 '
+            if fitsmask is not None and fitsmask != 'nofitsmask':
+                cmd += '--Mask-External=' + fitsmask + ' --Mask-Auto=0 '
+            else:
+                cmd += '--Mask-Auto=1 '
+
+            print(cmd)
             run(cmd)
-
-    if imager == 'DDFACET':
-        makemslist(mslist)
-        # restoringbeam = '15'
-        cmd = 'DDF.py --Data-MS=mslist.txt --Deconv-PeakFactor=0.001 --Data-ColName=' + imcol + ' ' + \
-              '--Parallel-NCPU=32 --Output-Mode=Clean --Deconv-CycleFactor=0 ' + \
-              '--Deconv-MaxMinorIter=' + str(niter) + ' --Deconv-MaxMajorIter=5 ' + \
-              '--Deconv-Mode=SSD --Weight-Robust=' + str(robust) + ' --Image-NPix=' + str(int(imsize)) + ' ' + \
-              '--CF-wmax=50000 --CF-Nw=100 --Beam-Model=None --Beam-LOFARBeamMode=A --Beam-NBand=1 ' + \
-              '--Output-Also=onNeds --Image-Cell=' + str(pixsize) + ' --Facets-NFacets=1 --Freq-NDegridBand=1 ' + \
-              '--Deconv-RMSFactor=3.0 --Deconv-FluxThreshold=0.0 --Data-Sort=1 --Cache-Dir=. --Freq-NBand=2 ' + \
-              '--GAClean-MinSizeInit=10 --Facets-DiamMax=1.5 --Facets-DiamMin=0.1 ' + \
-              '--Cache-Dirty=auto --Weight-ColName=WEIGHT_SPECTRUM --Output-Name=' + imageout + ' ' + \
-              '--Comp-BDAMode=1 --DDESolutions-DDModeGrid=AP --DDESolutions-DDModeDeGrid=AP --Cache-Reset=1 ' + \
-              '--RIME-ForwardMode=BDA-degrid --Predict-ColName=MODEL_DATA --Selection-UVRange=[0.1,2000.] ' + \
-              '--Output-RestoringBeam=' + str(restoringbeam) + ' --Mask-SigTh=5.0 '
-        if fitsmask is not None and fitsmask != 'nofitsmask':
-            cmd += '--Mask-External=' + fitsmask + ' --Mask-Auto=0 '
-        else:
-            cmd += '--Mask-Auto=1 '
-
-        print(cmd)
-        run(cmd)
 
 
 def smearing_bandwidth(r, th, nu, dnu):
@@ -8270,27 +8878,28 @@ def flag_smeared_data(msin):
 
 
 # this version corrupts the MODEL_DATA column
-def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
-                         soltype_list, soltypecycles_list, smoothnessconstraint_list, \
-                         smoothnessreffrequency_list, smoothnessspectralexponent_list, \
-                         smoothnessrefdistance_list, \
-                         antennaconstraint_list, resetsols_list, resetdir_list, BLsmooth_list, uvmin=0, \
-                         normamps=False, normamps_per_ms=False, skymodel=None, \
-                         predictskywithbeam=False, restoreflags=False, flagging=False, \
-                         longbaseline=False, flagslowphases=True, \
-                         flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None, \
-                         skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, \
-                         ionfreqfactor=1.0, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, \
-                         docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8, \
-                         gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None, \
-                         DDE_predict='WSCLEAN', QualityBasedWeights=False, QualityBasedWeights_start=5, \
-                         QualityBasedWeights_dtime=10., QualityBasedWeights_dfreq=5., telescope='LOFAR', \
+def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
+                         soltype_list, soltypecycles_list, smoothnessconstraint_list,
+                         smoothnessreffrequency_list, smoothnessspectralexponent_list,
+                         smoothnessrefdistance_list,
+                         antennaconstraint_list, resetsols_list, resetdir_list, normamps_list,
+                         BLsmooth_list, uvmin=0,
+                         normamps=False, normamps_per_ms=False, skymodel=None,
+                         predictskywithbeam=False, restoreflags=False, flagging=False,
+                         longbaseline=False, flagslowphases=True,
+                         flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None,
+                         skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01,
+                         ionfreqfactor=1.0, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,
+                         docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8,
+                         gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None,
+                         DDE_predict='WSCLEAN', QualityBasedWeights=False, QualityBasedWeights_start=5,
+                         QualityBasedWeights_dtime=10., QualityBasedWeights_dfreq=5., telescope='LOFAR',
                          ncpu_max=24, mslist_beforeremoveinternational=None, soltypelist_includedir=None):
     ## --- start STACK code ---
     if args['stack']:
         # create MODEL_DATA because in case it does not exist, happens under these conditions
         # only for first (=0) selfcalcycle cycle and if user provides a model
-        if ((skymodel is not None) or (skymodelpointsource is not None) \
+        if ((skymodel is not None) or (skymodelpointsource is not None)
             or (wscleanskymodel is not None)) and selfcalcycle == 0:
             for ms_id, ms in enumerate(mslist):  # do the predicts (only used for stacking)
                 print('Doing sky predict for stacking...')
@@ -8301,16 +8910,16 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                     predictsky(ms, skymodel[ms_id], modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam,
                                sources=skymodelsource)
                 if wscleanskymodel is not None and type(wscleanskymodel) is str:
-                    makeimage([ms], wscleanskymodel, 1., 1., \
-                              len(glob.glob(wscleanskymodel + '-????-model.fits')), \
-                              0, 0.0, onlypredict=True, idg=False, \
-                              gapchanneldivision=gapchanneldivision, \
+                    makeimage([ms], wscleanskymodel, 1., 1.,
+                              len(glob.glob(wscleanskymodel + '-????-model.fits')),
+                              0, 0.0, onlypredict=True, idg=False,
+                              gapchanneldivision=gapchanneldivision,
                               fulljones_h5_facetbeam=not args['single_dual_speedup'])
                 if wscleanskymodel is not None and type(wscleanskymodel) is list:
-                    makeimage([ms], wscleanskymodel[ms_id], 1., 1., \
-                              len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')), \
-                              0, 0.0, onlypredict=True, idg=False, \
-                              gapchanneldivision=gapchanneldivision, \
+                    makeimage([ms], wscleanskymodel[ms_id], 1., 1.,
+                              len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),
+                              0, 0.0, onlypredict=True, idg=False,
+                              gapchanneldivision=gapchanneldivision,
                               fulljones_h5_facetbeam=not args['single_dual_speedup'])
 
                 if skymodelpointsource is not None and type(skymodelpointsource) is float:
@@ -8414,42 +9023,34 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                 if soltypenumber >= 1:
                     create_modeldata = False
 
-                    # for tmpsoltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude',\
-                    #                   'amplitudeonly', 'phaseonly', \
-                    #                   'fulljones', 'rotation', 'rotation+diagonal', 'tec', 'tecandphase', 'scalarphase', \
-                    #                   'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', \
-                    #                   'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
-                    #   if tmpsoltype in soltype_list[0:soltypenumber]:
-                    #      print('Previous solve already predicted MODEL_DATA, will skip that step', soltype, soltypenumber)
-                    #      create_modeldata = False
                 print(ms)
                 print(solint_list)
                 print(soltypenumber)
                 print(msnumber)
                 print(modeldatacolumns)
                 runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb,
-                            soltype, \
-                            uvmin=uvmin, \
-                            SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber], \
-                            SMconstraintreffreq=smoothnessreffrequency_list[soltypenumber][msnumber], \
-                            SMconstraintspectralexponent=smoothnessspectralexponent_list[soltypenumber][msnumber], \
-                            SMconstraintrefdistance=smoothnessrefdistance_list[soltypenumber][msnumber], \
-                            antennaconstraint=antennaconstraint_list[soltypenumber][msnumber], \
-                            resetsols=resetsols_list[soltypenumber][msnumber], \
-                            resetsols_list=resetsols_list, \
-                            resetdir=resetdir_list[soltypenumber][msnumber], \
-                            restoreflags=restoreflags, flagging=flagging, skymodel=skymodel, \
-                            flagslowphases=flagslowphases, flagslowamprms=flagslowamprms, \
-                            flagslowphaserms=flagslowphaserms, \
+                            soltype,
+                            uvmin=uvmin,
+                            SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber],
+                            SMconstraintreffreq=smoothnessreffrequency_list[soltypenumber][msnumber],
+                            SMconstraintspectralexponent=smoothnessspectralexponent_list[soltypenumber][msnumber],
+                            SMconstraintrefdistance=smoothnessrefdistance_list[soltypenumber][msnumber],
+                            antennaconstraint=antennaconstraint_list[soltypenumber][msnumber],
+                            resetsols=resetsols_list[soltypenumber][msnumber],
+                            resetsols_list=resetsols_list,
+                            resetdir=resetdir_list[soltypenumber][msnumber],
+                            restoreflags=restoreflags, flagging=flagging, skymodel=skymodel,
+                            flagslowphases=flagslowphases, flagslowamprms=flagslowamprms,
+                            flagslowphaserms=flagslowphaserms,
                             predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth_list[soltypenumber][msnumber],
-                            skymodelsource=skymodelsource, \
-                            skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel, \
+                            skymodelsource=skymodelsource,
+                            skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,
                             iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor,
                             dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,
-                            create_modeldata=create_modeldata, \
+                            create_modeldata=create_modeldata,
                             selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size,
-                            gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber, \
-                            clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'], \
+                            gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,
+                            clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],
                             clipsollow=args['clipsollow'], uvmax=args['uvmax'], modeldatacolumns=modeldatacolumns,
                             preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel,
                             DDE_predict=DDE_predict, telescope=telescope, ncpu_max=ncpu_max, soltype_list=soltype_list,
@@ -8460,36 +9061,61 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                 parmdbmergelist[msnumber].append(parmdb)  # for h5_merge
 
         # NORMALIZE amplitudes
-        if normamps and (soltype in ['complexgain', 'scalarcomplexgain', 'rotation+diagonal', \
-                                     'rotation+diagonalamplitude', 'rotation+scalar', \
+        if normamps and (soltype in ['complexgain', 'scalarcomplexgain', 'rotation+diagonal',
+                                     'rotation+diagonalamplitude', 'rotation+scalar',
                                      'rotation+scalaramplitude', 'amplitudeonly', 'scalaramplitude']) and len(
             parmdbmslist) > 0:
-            print('Doing global gain normalization')
-            normamplitudes(parmdbmslist, norm_per_ms=normamps_per_ms)  # list of h5 for different ms, all same soltype
+            print('Doing global amplitude-type normalization')
+
+            # [soltypenumber][msnumber] msnumber=0 is ok because we  do all ms at once
+            if normamps_list[soltypenumber][0] == 'normamps':  #
+                print('Performing global amplitude normalization')
+                normamplitudes(parmdbmslist,
+                               norm_per_ms=normamps_per_ms)  # list of h5 for different ms, all same soltype
+
+            if normamps_list[soltypenumber][0] == 'normamps_per_ant':
+                print('Performing global amplitude normalization per antenna')
+                normamplitudes_withmatrix(parmdbmslist)
+
+            if normamps_list[soltypenumber][0] == 'normslope':
+                print('Performing global slope normalization')
+                normslope_withmatrix(parmdbmslist)
+
+            if normamps_list[soltypenumber][0] == 'normslope+normamps':
+                print('Performing global slope normalization')
+                normslope_withmatrix(parmdbmslist)  # first do the slope
+                normamplitudes(parmdbmslist, norm_per_ms=normamps_per_ms)
+
+            if normamps_list[soltypenumber][0] == 'normslope+normamps_per_ant':
+                print('Performing global slope normalization')
+                normslope_withmatrix(parmdbmslist)  # first do the slope
+                normamplitudes_withmatrix(parmdbmslist)
 
         # APPLYCAL or PRE-APPLYCAL or CORRUPT
         count = 0
         for msnumber, ms in enumerate(mslist):
-            if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]:  #
+            if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]:  # Check cycle condition
                 print(pertubation[msnumber], parmdbmslist[count], msnumber, count)
-                if pertubation[msnumber]:  # so another solve follows after this
-                    if soltypenumber == 0:
-                        if len(modeldatacolumns) > 1:
-                            if DDE_predict == 'WSCLEAN':
-                                corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns)  # for DDE
-                        else:
-                            corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'])  # saves disk space
+
+            if pertubation[msnumber]:  # Indicates another solve follows after this
+                if soltypenumber == 0:
+                    if len(modeldatacolumns) > 1:
+                        if DDE_predict == 'WSCLEAN':
+                            corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns)  # For DDE
                     else:
-                        if len(modeldatacolumns) > 1:
-                            if DDE_predict == 'WSCLEAN':
-                                corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns)  # for DDE
-                        else:
-                            corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'])  # saves disk space
-                else:  # so this is the last solve, no other pertubation
-                    # note we reverse ([::-1]) the solution tables here because we switch from a corrupt approach to a correct. This is important as fulljones and diagonal solutions do not commute
-                    applycal(ms, parmdbmergelist[msnumber][::-1], msincol='DATA', msoutcol='CORRECTED_DATA', \
-                             dysco=dysco, modeldatacolumns=modeldatacolumns)  # saves disks space
-                count = count + 1  # extra counter because parmdbmslist can have less length than mslist as soltypecycles_list goes per ms
+                        corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'])  # Saves disk space
+                else:
+                    if len(modeldatacolumns) > 1:
+                        if DDE_predict == 'WSCLEAN':
+                            corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns)  # For DDE
+                    else:
+                        corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'])  # Saves disk space
+            else:  # This is the last solve; no other perturbation
+                # Reverse solution tables ([::-1]) to switch from corrupt to correct; essential as fulljones and diagonal solutions do not commute
+                applycal(ms, parmdbmergelist[msnumber][::-1], msincol='DATA', msoutcol='CORRECTED_DATA',
+                         dysco=dysco, modeldatacolumns=modeldatacolumns)  # Saves disk space
+
+            count += 1  # Extra counter because parmdbmslist can be shorter than mslist as soltypecycles_list goes per ms
 
     wsclean_h5list = []
 
@@ -8529,9 +9155,9 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                 fix_h5(parmdbmergelist[msnumber])
 
             print(parmdbmergename, parmdbmergelist[msnumber], ms)
-            merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1], ms_files=ms, \
-                               convert_tec=True, merge_all_in_one=merge_all_in_one, \
-                               propagate_flags=True, single_pol=single_pol_merge)
+            merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1], ms_files=ms,
+                     convert_tec=True, merge_all_in_one=merge_all_in_one,
+                     propagate_flags=True, single_pol=single_pol_merge)
             # add CS stations back for superstation
             if mslist_beforephaseup is not None:
                 print('mslist_beforephaseup: ' + mslist_beforephaseup[msnumber])
@@ -8539,35 +9165,35 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list, \
                     single_pol_merge = True
                 else:
                     single_pol_merge = False
-                merge_h5(h5_out=parmdbmergename.replace("selfcalcyle", \
-                                                                  "addCS_selfcalcyle"), h5_tables=parmdbmergename, \
-                                   ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
-                                   merge_all_in_one=merge_all_in_one, single_pol=single_pol_merge, \
-                                   propagate_flags=True, add_cs=True)
+                merge_h5(h5_out=parmdbmergename.replace("selfcalcyle",
+                                                        "addCS_selfcalcyle"), h5_tables=parmdbmergename,
+                         ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
+                         merge_all_in_one=merge_all_in_one, single_pol=single_pol_merge,
+                         propagate_flags=True, add_cs=True)
 
             # make LINEAR solutions from CIRCULAR (never do a single_pol merge here!)
             if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or docircular:
                 merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True,
-                                   propagate_flags=True)
+                         propagate_flags=True)
                 # add CS stations back for superstation
                 if mslist_beforephaseup is not None:
-                    merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcyle", \
-                                                                         "addCS_selfcalcyle"),
-                                       h5_tables=parmdbmergename_pc, \
-                                       ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
-                                       merge_all_in_one=merge_all_in_one, \
-                                       propagate_flags=True, add_cs=True)
+                    merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcyle",
+                                                               "addCS_selfcalcyle"),
+                             h5_tables=parmdbmergename_pc,
+                             ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
+                             merge_all_in_one=merge_all_in_one,
+                             propagate_flags=True, add_cs=True)
 
             if False:
                 # testing only to check if merged H5 file is correct and makes a good image
                 applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
 
             # plot merged solution file
-            losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, \
-                                                           medamp=medianamp(parmdbmergename), \
+            losotoparset = create_losoto_flag_apgridparset(ms, flagging=False,
+                                                           medamp=medianamp(parmdbmergename),
                                                            outplotname=
-                                                           parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0], \
-                                                           refant=findrefant_core(parmdbmergename), \
+                                                           parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0],
+                                                           refant=findrefant_core(parmdbmergename),
                                                            fulljones=fulljonesparmdb(parmdbmergename),
                                                            onepol=single_pol_merge)
             run('losoto ' + parmdbmergename + ' ' + losotoparset)
@@ -8613,7 +9239,7 @@ def is_binary(file_name):
     return 'text' not in mime
 
 
-def predictsky_wscleanfits(ms, imagebasename, usewgridder=True, \
+def predictsky_wscleanfits(ms, imagebasename, usewgridder=True,
                            wgridderaccuracy=1e-4, nosmallinversion=False):
     '''
     Predict the sky from model channels fits images (from a previous run, so frequencies need to overlap)
@@ -8705,8 +9331,8 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
         print('Removed', modeldatacolumns[removed_id], 'Closest kept is:', closest_kept_modelcol)
 
         modeldatacolumns_solve_newnames[modeldatacolumns_solve.index(closest_kept_modelcol)] = \
-        modeldatacolumns_solve_newnames[modeldatacolumns_solve.index(closest_kept_modelcol)] + '+' + \
-        modeldatacolumns[removed_id].split('MODEL_DATA_DD')[1]
+            modeldatacolumns_solve_newnames[modeldatacolumns_solve.index(closest_kept_modelcol)] + '+' + \
+            modeldatacolumns[removed_id].split('MODEL_DATA_DD')[1]
 
     # print(modeldatacolumns_solve_newnames)
     # DP3 to create the missing columns
@@ -8748,22 +9374,22 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
     return modeldatacolumns_solve_newnames, sourcedir[id_removed][:], id_kept
 
 
-def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
-                SMconstraint=0.0, SMconstraintreffreq=0.0, \
-                SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None, \
-                resetsols=None, resetsols_list=[None], resetdir=None, \
-                resetdir_list=[None], restoreflags=False, \
-                maxiter=100, tolerance=1e-4, flagging=False, skymodel=None, flagslowphases=True, \
-                flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA', \
-                predictskywithbeam=False, BLsmooth=False, skymodelsource=None, \
-                skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0, \
+def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
+                SMconstraint=0.0, SMconstraintreffreq=0.0,
+                SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None,
+                resetsols=None, resetsols_list=[None], resetdir=None,
+                resetdir_list=[None], restoreflags=False,
+                maxiter=100, tolerance=1e-4, flagging=False, skymodel=None, flagslowphases=True,
+                flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA',
+                predictskywithbeam=False, BLsmooth=False, skymodelsource=None,
+                skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,
                 blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, selfcalcycle=0, dysco=True,
-                blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, create_modeldata=True, \
-                clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667, \
-                ampresetvalfactor=10., uvmax=None, \
+                blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, create_modeldata=True,
+                clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667,
+                ampresetvalfactor=10., uvmax=None,
                 modeldatacolumns=[], solveralgorithm='directioniterative', solveralgorithm_dde='directioniterative',
-                preapplyH5_dde=[], \
-                dde_skymodel=None, DDE_predict='WSCLEAN', telescope='LOFAR', beamproximitylimit=240., \
+                preapplyH5_dde=[],
+                dde_skymodel=None, DDE_predict='WSCLEAN', telescope='LOFAR', beamproximitylimit=240.,
                 ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None,
                 normamps=True):
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
@@ -8791,9 +9417,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
 
     # if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if wscleanskymodel is not None and create_modeldata and len(modeldatacolumns) == 0:
-        makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')), \
-                  0, 0.0, onlypredict=True, idg=False, \
-                  gapchanneldivision=gapchanneldivision)
+        makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')),
+                  0, 0.0, onlypredict=True, idg=False, gapchanneldivision=gapchanneldivision)
 
     # if skymodelpointsource is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if skymodelpointsource is not None and create_modeldata:
@@ -8839,27 +9464,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         incol = 'DATA_PHASE_SLOPE'
         modeldata = 'MODEL_DATA_PHASE_SLOPE'
         # udpate weights according to weights * (MODEL_DATA/MODEL_DATA_PHASE_SLOPE)**2
-        create_weight_spectrum_modelratio(ms, 'WEIGHT_SPECTRUM_PM', \
-                                          updateweights=True, originalmodel='MODEL_DATA', \
+        create_weight_spectrum_modelratio(ms, 'WEIGHT_SPECTRUM_PM',
+                                          updateweights=True, originalmodel='MODEL_DATA',
                                           newmodel='MODEL_DATA_PHASE_SLOPE', backup=True)
 
-    # if soltype in ['fulljones']:
-    #  print('Setting XY and YX to 0+0i')
-    #  if len(modeldatacolumns) > 1:
-    #    if DDE_predict == 'WSCLEAN':
-    #      for mcol in modeldatacolumns:
-    #        run("taql" + " 'update " + ms + " set " + mcol + "[,1]=(0+0i)'")
-    #        run("taql" + " 'update " + ms + " set " + mcol + "[,2]=(0+0i)'")
-    #  else:
-    #    run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
-    #    run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
-
-    if soltype in ['phaseonly', 'complexgain', 'fulljones', 'rotation+diagonal', \
-                   'amplitudeonly', 'rotation+diagonalamplitude', \
+    if soltype in ['phaseonly', 'complexgain', 'fulljones', 'rotation+diagonal', 'amplitudeonly', 'rotation+diagonalamplitude',
                    'rotation+diagonalphase']:  # for 1D plotting
         onepol = False
-    if soltype in ['scalarphase', 'tecandphase', 'tec', 'scalaramplitude', \
-                   'scalarcomplexgain', 'rotation', 'rotation+scalar', \
+    if soltype in ['scalarphase', 'tecandphase', 'tec', 'scalaramplitude',
+                   'scalarcomplexgain', 'rotation', 'rotation+scalar',
                    'rotation+scalarphase', 'rotation+scalaramplitude']:
         onepol = True
 
@@ -8874,6 +9487,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
 
     t = table(ms + '/ANTENNA', ack=False)
     antennasms = t.getcol('NAME')
+    t.close()
+
+    t = table(ms, readonly=True, ack=False)
+    ms_ntimes = len(np.unique(t.getcol('TIME')))
     t.close()
 
     if telescope == 'LOFAR':
@@ -8978,8 +9595,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     if bdaaverager:
         cmd += 'bda.frequencybase= ' + 'bda.minchannels=' + format_nchan(nchan, ms) + ' '
         if type(solint) == list:
-            cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm / np.max(
-                divisors)) + ' '  # TODO: Comment from Jurjen: lcm and divisors are non-existing variables --> need fix
+            lcm = math.lcm(*solint)
+            divisors = [int(lcm / i) for i in solint]
+            cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm / np.max(divisors)) + ' '
         else:
             cmd += 'bda.timebase= ' + 'bda.maxinterval=' + format_solint(solint, ms) + ' '
 
@@ -9021,16 +9639,16 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         if len(dir_id_kept) > 0:
             print(solint)
             print(dir_id_kept)
-            solint = [solint[i] for i in dir_id_kept]  # overwrite solint, selecting one the directions kept
+            solint = [solint[i] for i in dir_id_kept]  # overwrite solint, selecting on the directions kept
         solints = [int(format_solint(x, ms)) for x in solint]
-        solints = tweak_solints(solints)
-        import math
+        solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
         lcm = math.lcm(*solints)
         divisors = [int(lcm / i) for i in solints]
         cmd += 'ddecal.solint=' + str(lcm) + ' '
         cmd += 'ddecal.solutions_per_direction=' + "'" + str(divisors).replace(' ', '') + "' "
     else:
-        cmd += 'ddecal.solint=' + format_solint(solint, ms) + ' '
+        solint_integer = format_solint(solint, ms)  # create the integer number for DP3
+        cmd += 'ddecal.solint=' + str(tweak_solints_single(int(solint_integer), ms_ntimes)) + ' '
     cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
 
@@ -9065,7 +9683,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         cmd += 'ddecal.smoothnessspectralexponent=' + str(SMconstraintspectralexponent) + ' '
         cmd += 'ddecal.smoothnessrefdistance=' + str(SMconstraintrefdistance * 1e3) + ' '  # input units in km
 
-    if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', \
+    if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation',
                    'rotation+scalarphase', 'rotation+diagonalphase']:
         cmd += 'ddecal.tolerance=' + str(tolerance) + ' '
         if soltype in ['tecandphase', 'tec']:
@@ -9073,8 +9691,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
             cmd += 'ddecal.stepsize=0.2 '
             cmd += 'ddecal.maxapproxiter=45 '
             cmd += 'ddecal.approxtolerance=6e-3 '
-    if soltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', \
-                   'rotation+diagonal', 'fulljones', 'rotation+scalar', \
+    if soltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly',
+                   'rotation+diagonal', 'fulljones', 'rotation+scalar',
                    'rotation+diagonalamplitude', 'rotation+scalaramplitude']:
         cmd += 'ddecal.tolerance=' + str(tolerance) + ' '  # for now the same as phase soltypes
     # cmd += 'ddecal.detectstalling=False '
@@ -9137,7 +9755,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         logger.warning('Direction coordinates are zero in: ' + parmdb)
 
     # Roation checking
-    if soltype in ['rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', \
+    if soltype in ['rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude',
                    'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase']:
         removenans(parmdb, 'rotation000')
         fix_weights_rotationh5(parmdb)
@@ -9153,9 +9771,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         force_close(parmdb)
 
     # phase checking
-    if soltype in ['rotation+diagonal', 'rotation+diagonalphase', \
-                   'rotation+scalar', 'rotation+scalarphase', \
-                   'scalarcomplexgain', 'complexgain', 'scalarphase', \
+    if soltype in ['rotation+diagonal', 'rotation+diagonalphase',
+                   'rotation+scalar', 'rotation+scalarphase',
+                   'scalarcomplexgain', 'complexgain', 'scalarphase',
                    'phaseonly']:
         removenans(parmdb, 'phase000')
         refant = findrefant_core(parmdb)
@@ -9175,7 +9793,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         makephasediffh5(parmdb, refant)
     if incol == 'DATA_CIRCULAR_PHASEDIFF' and soltypein == 'scalarphasediffFR':
         print('Fiting for Faraday Rotation with losoto on the phase differences')
-        # work with copies H5 because losoto changes the format splitting off the length 1 direction axis creating issues with H5merge (also add additional solution talbes which we do not want)
+        # work with copies H5 because losoto changes the format splitting off the length 1 direction axis creating issues
+        # with H5merge (also add additional solution talbes which we do not want)
         os.system('cp -f ' + parmdb + ' ' + 'FRcopy' + parmdb)
         losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb), outplotname=outplotname,
                                                  dejump=dejumpFR)
@@ -9191,9 +9810,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         makephaseCDFh5_h5merger(parmdb, ms, modeldatacolumns)
 
     if resetsols is not None:
-        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones', \
-                       'complexgain', 'scalarcomplexgain', 'rotation+diagonal', \
-                       'rotation+diagonalamplitude', 'rotation+diagonalphase', \
+        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
+                       'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
+                       'rotation+diagonalamplitude', 'rotation+diagonalphase',
                        'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude']:
             refant = findrefant_core(parmdb)
             force_close(parmdb)
@@ -9203,9 +9822,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
                                                           telescope=telescope), refant=refant)
 
     if resetdir is not None:
-        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones', \
-                       'complexgain', 'scalarcomplexgain', 'rotation+diagonal', \
-                       'rotation+diagonalamplitude', 'rotation+diagonalphase', \
+        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
+                       'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
+                       'rotation+diagonalamplitude', 'rotation+diagonalphase',
                        'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude']:
             refant = findrefant_core(parmdb)
             force_close(parmdb)
@@ -9220,8 +9839,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         onechannel = True
 
     # Check for bad values (amplitudes/fulljones)
-    if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude', \
-                   'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude', \
+    if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude',
+                   'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude',
                    'rotation+scalar', 'rotation+scalaramplitude']:
         if resetdir is not None or resetsols is not None:
             flagbadamps(parmdb, setweightsphases=includesphase, flagamp1=False,
@@ -9263,8 +9882,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
     # ---------------------------------
     # ---------------------------------
     # makes plots and do LOSOTO flagging
-    if soltype in ['rotation', 'rotation+diagonal', 'rotation+diagonalamplitude', \
-                   'rotation+scalar', 'rotation+scalaramplitude', \
+    if soltype in ['rotation', 'rotation+diagonal', 'rotation+diagonalamplitude',
+                   'rotation+scalar', 'rotation+scalaramplitude',
                    'rotation+scalarphase', 'rotation+diagonalphase']:
 
         losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname + 'ROT',
@@ -9300,7 +9919,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
                            outplotname=outplotname)  # use own plotter because losoto cannot add tec and phase
 
     if soltype in ['tec']:
-        losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname, \
+        losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname,
                                                    refant=findrefant_core(parmdb),
                                                    markersize=compute_markersize(parmdb))
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_tec
@@ -9309,8 +9928,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
         run(cmdlosoto)
         force_close(parmdb)
 
-    if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude', \
-                   'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude', \
+    if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude',
+                   'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude',
                    'rotation+scalar', 'rotation+scalaramplitude'] and (
             ntimesH5(parmdb) > 1):  # plotting/flagging fails if only 1 timeslot
         print('Do flagging?:', flagging)
@@ -9319,16 +9938,16 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1, \
                 print('Fulljones and flagging not implemtened')
                 raise Exception('Fulljones and flagging not implemtened')
             else:
-                losotoparset = create_losoto_flag_apgridparset(ms, flagging=True, maxrms=flagslowamprms, \
-                                                               maxrmsphase=flagslowphaserms, \
-                                                               includesphase=includesphase, onechannel=onechannel, \
-                                                               medamp=medamp, flagphases=flagslowphases, onepol=onepol, \
+                losotoparset = create_losoto_flag_apgridparset(ms, flagging=True, maxrms=flagslowamprms,
+                                                               maxrmsphase=flagslowphaserms,
+                                                               includesphase=includesphase, onechannel=onechannel,
+                                                               medamp=medamp, flagphases=flagslowphases, onepol=onepol,
                                                                outplotname=outplotname, refant=findrefant_core(parmdb))
                 force_close(parmdb)
         else:
-            losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase, \
+            losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase,
                                                            onechannel=onechannel, medamp=medamp, onepol=onepol,
-                                                           outplotname=outplotname, \
+                                                           outplotname=outplotname,
                                                            refant=findrefant_core(parmdb),
                                                            fulljones=fulljonesparmdb(parmdb))
             force_close(parmdb)
@@ -9393,7 +10012,7 @@ def update_sourcedir_h5_dde(h5, sourcedirpickle, dir_id_kept=None):
     H = tables.open_file(h5, mode='a')
     for direction_id, direction in enumerate(np.copy(H.root.sol000.source[:])):
         H.root.sol000.source[direction_id] = (
-        direction['name'], [sourcedir[direction_id, 0], sourcedir[direction_id, 1]])
+            direction['name'], [sourcedir[direction_id, 0], sourcedir[direction_id, 1]])
     H.close()
 
     return
@@ -9603,7 +10222,7 @@ def removenonms(mslist):
 # check is there are enough timesteps in the ms
 # for example this will remove an observations of length 600s
 # in that case a lot of assumptions break, for example amplitude flagging in losoto
-# also if a "ms" does not open iwht pt.table it means wrong input was provided
+# also if a "ms" does not open iwht table it means wrong input was provided
 def check_valid_ms(mslist):
     for ms in mslist:
         if not os.path.isdir(ms):
@@ -9653,7 +10272,6 @@ def arg_as_float_or_list(s):
         if isinstance(v, list):
             return v
         raise argparse.ArgumentTypeError(f'Argument "{s}" is not a float or list')
-
 
 
 def makemaskthresholdlist(maskthresholdlist, stop):
@@ -9717,7 +10335,14 @@ def basicsetup(mslist, args):
             else:
                 args['uvmin'] = 350.
 
-    if args['pixelscale'] is None:
+    if type(args['uvminim']) is not list:
+        if args['uvminim'] is None:
+            if telescope == 'LOFAR':
+                args['uvminim'] = 80.
+            else:
+                args['uvminim'] = 10.  # MeerKAt for example
+
+    if args['pixelscale'] is None and telescope != 'MeerKAT':
         if LBA:
             if longbaseline:
                 args['pixelscale'] = 0.08
@@ -9728,6 +10353,13 @@ def basicsetup(mslist, args):
                 args['pixelscale'] = 0.04
             else:
                 args['pixelscale'] = 1.5
+    elif telescope == 'MeerKAT':
+        if freq < 1e9:  # UHF-band
+            args['pixelscale'] = pixelscale = 1.8
+        elif freq < 2e9:  # L-band
+            args['pixelscale'] = pixelscale = 1.
+        elif freq < 4e9:  # S-band
+            args['pixelscale'] = pixelscale = 0.5
 
     if (args['delaycal'] or args['auto']) and longbaseline and not LBA:
         if args['imsize'] is None:
@@ -9842,6 +10474,22 @@ def basicsetup(mslist, args):
     t.close()
     # idgin = args['idg'] # store here as we update args['idg'] at some point to made image000 for selfcalcycle 0 in when --DDE is enabled
 
+    if type(args['channelsout']) is str:
+        if args['channelsout'] == 'auto':
+            args['channelsout'] = set_channelsout(mslist)
+        else:
+            raise Exception("channelsout needs to be an integer or 'auto'")
+    else:
+        if args['channelsout'] < 1:
+            print('channelsout', args['channelsout'])
+            raise Exception("channelsout needs to be a positive integer")
+
+    if type(args['fitspectralpol']) is str:
+        if args['fitspectralpol'] == 'auto':
+            args['fitspectralpol'] = set_fitspectralpol(args['channelsout'])
+        else:
+            raise Exception("channelsout needs to be an integer or 'auto'")
+
     return longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, \
         maskthreshold_selfcalcycle, outtarname, telescope, args
 
@@ -9912,21 +10560,20 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
 
     # Verify if we are in circular pol basis and do beam correction
     for ms in mslist:
-        beamcor_and_lin2circ(ms, dysco=args['dysco'], \
-                             beam=set_beamcor(ms, args['beamcor']), \
+        beamcor_and_lin2circ(ms, dysco=args['dysco'],
+                             beam=set_beamcor(ms, args['beamcor']),
                              lin2circ=True,
                              losotobeamlib=args['losotobeamcor_beamlib'])
 
     # Phaseup if needed
     if args['phaseupstations']:
-        mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'], \
-                         dysco=args['dysco'])
+        mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'], dysco=args['dysco'])
 
     # Solve and get best solution interval
     for ms_id, ms in enumerate(mslist):
         scorelist = []
         parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
-        runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0, \
+        runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,
                     dysco=args['dysco'])
 
         # Get the statistic
@@ -10066,6 +10713,19 @@ def set_fitsmask_restart(args, i, mslist):
     return fitsmask, fitsmask_list
 
 
+def create_Ateam_seperation_plots(mslist, start=0):
+    '''
+    Create Ateam and Sun, Moon, Jupiter seperation plots
+    input: mslist (list), list of MS
+    '''
+    if start != 0:
+        return
+    for ms in mslist:
+        outputname = 'Ateam_' + ms + '.png'
+        run('check_Ateam_separation.py --outputimage=' + outputname + ' ' + ms)
+    return
+
+
 def nested_mslistforimaging(mslist, stack=False):
     if not stack:
         return [mslist]  # has format [[ms1.ms,ms2.ms,....]]
@@ -10091,9 +10751,9 @@ def set_skymodels_external_surveys(args, mslist):
     for mstmp_id, mstmp in enumerate(mslist_return_stack(mslist, args['stack'])):
         if args['startfromtgss'] and args['start'] == 0:
             if args['skymodel'] is None:
-                tmpskymodel, tgssfitsfile = makeBBSmodelforTGSS(args['boxfile'], \
-                                                                fitsimage=args['tgssfitsimage'], \
-                                                                pixelscale=args['pixelscale'], \
+                tmpskymodel, tgssfitsfile = makeBBSmodelforTGSS(args['boxfile'],
+                                                                fitsimage=args['tgssfitsimage'],
+                                                                pixelscale=args['pixelscale'],
                                                                 imsize=args['imsize'], ms=mstmp,
                                                                 extrastrname=str(mstmp_id))
                 skymodel_list.append(tmpskymodel)
@@ -10313,6 +10973,8 @@ def main():
     calibrationparser.add_argument('--normamps-per-ms',
                                    help='Normalize amplitudes to 1.0 for each MS separately, by default this is not done',
                                    action='store_true')
+    calibrationparser.add_argument("--normamps-list", type=arg_as_list, default=['normamps', 'normamps', 'normamps'],
+                                   help="List with amplitude normalization options. Possible input: 'normamps', 'normslope', 'normamps_per_ant, 'normslope+normamps', 'normslope+normamps_per_ant', or None. The default is [normamps,normamps,normamps,etc]. Only has an effect if the corresponding soltype outputs and amplitude000 table (and is not fulljones).")
 
     # calibrationparser.add_argument("--applydelaycalH5-list", type=arg_as_list, default=[None], help="List of H5 files from the delay calibrator, one per ms")
     # calibrationparser.add_argument("--applydelaytype", type=str, default='circular', help="Options: circular or linear. If --docircular was used for finding the delay solutions use circular (the default)")
@@ -10532,7 +11194,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression
         args['noarchive'] = True
 
-    version = '10.1.0'
+    version = '11.2.0'
     print_title(version)
 
     scriptpath = args['helperscriptspath']
@@ -10569,11 +11231,6 @@ def main():
     # check if ms channels are equidistant in freuqency (to confirm DP3 concat was used properly)
     check_equidistant_freqs(mslist)
 
-    # fix irregular time axes if needed
-    # mslist =fix_equidistant_times(mslist, args['start']!=0)
-    # print(mslist)
-    # sys.exit()
-
     # do some input checking
     inputchecker(args, mslist)
 
@@ -10601,8 +11258,7 @@ def main():
 
     if not args['skipbackup']:  # work on copy of input data as a backup
         print('Creating a copy of the data and work on that....')
-        mslist = average(mslist, freqstep=[0] * len(mslist), timestep=1, start=args['start'], \
-                         makecopy=True, dysco=args['dysco'])
+        mslist = average(mslist, freqstep=[0] * len(mslist), timestep=1, start=args['start'], makecopy=True, dysco=args['dysco'])
 
     # take out bad WEIGHT_SPECTRUM values if weightspectrum_clipvalue is set
     if args['weightspectrum_clipvalue'] is not None:
@@ -10610,7 +11266,10 @@ def main():
 
     # extra flagging if requested
     if args['start'] == 0 and args['useaoflagger'] and args['useaoflaggerbeforeavg']:
-        runaoflagger(mslist, strategy='flagging_strategies/'+args['aoflagger_strategy'])
+        runaoflagger(mslist, strategy='flagging_strategies/' + args['aoflagger_strategy'])
+
+    # create Ateam plots
+    create_Ateam_seperation_plots(mslist, start=args['start'])
 
     # fix irregular time axes if needed (do this after flaging)
     mslist = fix_equidistant_times(mslist, args['start'] != 0, dysco=args['dysco'])
@@ -10624,10 +11283,6 @@ def main():
     # SETUP VARIOUS PARAMETERS
     longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, maskthreshold_selfcalcycle, \
         outtarname, telescope, args = basicsetup(mslist, args)
-
-    # PRE-APPLY SOLUTIONS (from a nearby direction for example)
-    # if (args['applydelaycalH5_list'][0]) is not None and  args['start'] == 0:
-    #      preapplydelay(args['applydelaycalH5_list'], mslist, args['applydelaytype'], dysco=args['dysco'])
 
     # check if we could average more
     avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
@@ -10656,10 +11311,10 @@ def main():
         mslist_beforeremoveinternational = None
 
     # AVERAGE if requested/possible
-    mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'], \
-                     start=args['start'], msinnchan=args['msinnchan'], msinstartchan=['msinstartchan'], \
-                     phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'], \
-                     dysco=args['dysco'], removeinternational=args['removeinternational'], \
+    mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'],
+                     start=args['start'], msinnchan=args['msinnchan'], msinstartchan=['msinstartchan'],
+                     phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'],
+                     dysco=args['dysco'], removeinternational=args['removeinternational'],
                      removemostlyflaggedstations=args['removemostlyflaggedstations'])
 
     for ms in mslist:
@@ -10667,7 +11322,7 @@ def main():
 
     # extra flagging if requested
     if args['start'] == 0 and args['useaoflagger'] and not args['useaoflaggerbeforeavg']:
-        runaoflagger(mslist, strategy='flagging_strategies/'+args['aoflagger_strategy'])
+        runaoflagger(mslist, strategy='flagging_strategies/' + args['aoflagger_strategy'])
 
     # compute bandwidth smearing
     t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
@@ -10684,12 +11339,13 @@ def main():
     logbasicinfo(args, fitsmask, mslist, version, sys.argv)
 
     # Make starting skymodel from TGSS or VLASS survey if requested
+
     args, tgssfitsfile = set_skymodels_external_surveys(args, mslist)
 
     nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
         smoothnessspectralexponent_list, smoothnessrefdistance_list, \
         antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, \
-        uvmin_list, uvmax_list, uvminim_list, uvmaxim_list = \
+        uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list = \
         setinitial_solint(mslist, longbaseline, LBA, options)
 
     # Get restoring beam for DDFACET in case it is needed
@@ -10745,10 +11401,10 @@ def main():
         # BEAM CORRECTION AND/OR CONVERT TO CIRCULAR/LINEAR CORRELATIONS
         for ms in mslist:
             if ((args['docircular'] or args['dolinear']) or (set_beamcor(ms, args['beamcor']))) and (i == 0):
-                beamcor_and_lin2circ(ms, dysco=args['dysco'], \
-                                     beam=set_beamcor(ms, args['beamcor']), \
-                                     lin2circ=args['docircular'], \
-                                     circ2lin=args['dolinear'], \
+                beamcor_and_lin2circ(ms, dysco=args['dysco'],
+                                     beam=set_beamcor(ms, args['beamcor']),
+                                     lin2circ=args['docircular'],
+                                     circ2lin=args['dolinear'],
                                      losotobeamlib=args['losotobeamcor_beamlib'], idg=args['idg'])
 
         # TMP AVERAGE TO SPEED UP CALIBRATION
@@ -10766,7 +11422,7 @@ def main():
         # PHASE-UP if requested
         if args['phaseupstations'] is not None:
             if (i == 0) or (i == args['start']):
-                mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'], \
+                mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'],
                                  start=i, dysco=args['dysco'])
         # PRE-APPLY SOLUTIONS (from a nearby direction for example)
         if (args['preapplyH5_list'][0]) is not None and i == 0:
@@ -10777,61 +11433,61 @@ def main():
             return
 
         # CALIBRATE AGAINST THE INITAL SKYMODEL (selfcalcycle 0) IF REQUESTED
-        if (args['skymodel'] is not None or args['skymodelpointsource'] is not None \
+        if (args['skymodel'] is not None or args['skymodelpointsource'] is not None
             or args['wscleanskymodel'] is not None) and (i == 0):
             # Function that
             # add patches for DDE predict
             # also do prepare_DDE
             if args['DDE']:
-                modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = prepare_DDE(
-                    args['skymodel'], i, \
-                    mslist, args['imsize'], args['pixelscale'], \
-                    args['channelsout'], args, numClusters=args['Nfacets'], \
-                    facetdirections=args['facetdirections'], \
-                    DDE_predict='DP3', restart=False, skyview=tgssfitsfile, \
-                    targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'], \
-                    disable_primary_beam=args['disable_primary_beam'], \
-                    wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel'])
+                modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
+                    prepare_DDE(args['skymodel'], i,
+                                mslist, args['imsize'], args['pixelscale'],
+                                args['channelsout'], args, numClusters=args['Nfacets'],
+                                facetdirections=args['facetdirections'],
+                                DDE_predict='DP3', restart=False, skyview=tgssfitsfile,
+                                targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
+                                disable_primary_beam=args['disable_primary_beam'],
+                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel']))
 
                 if candidate_solints is not None:
                     candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
                     solint_list = candidate_solints
             else:
                 dde_skymodel = None
-            wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'], \
+            wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'],
                                                   soltypecycles_list, smoothnessconstraint_list,
-                                                  smoothnessreffrequency_list, \
-                                                  smoothnessspectralexponent_list, smoothnessrefdistance_list, \
-                                                  antennaconstraint_list, resetsols_list, resetdir_list, BLsmooth_list, \
-                                                  uvmin=args['uvmin'], normamps=args['normampsskymodel'], \
-                                                  normamps_per_ms=args['normamps_per_ms'], \
-                                                  skymodel=args['skymodel'], \
-                                                  predictskywithbeam=args['predictskywithbeam'], \
-                                                  restoreflags=args['restoreflags'], flagging=args['doflagging'], \
-                                                  longbaseline=longbaseline, \
-                                                  flagslowphases=args['doflagslowphases'], \
+                                                  smoothnessreffrequency_list,
+                                                  smoothnessspectralexponent_list, smoothnessrefdistance_list,
+                                                  antennaconstraint_list, resetsols_list, resetdir_list,
+                                                  normamps_list, BLsmooth_list,
+                                                  uvmin=args['uvmin'], normamps=args['normampsskymodel'],
+                                                  skymodel=args['skymodel'],
+                                                  predictskywithbeam=args['predictskywithbeam'],
+                                                  restoreflags=args['restoreflags'], flagging=args['doflagging'],
+                                                  longbaseline=longbaseline,
+                                                  flagslowphases=args['doflagslowphases'],
                                                   flagslowamprms=args['flagslowamprms'],
-                                                  flagslowphaserms=args['flagslowphaserms'], \
+                                                  flagslowphaserms=args['flagslowphaserms'],
                                                   skymodelsource=args['skymodelsource'],
-                                                  skymodelpointsource=args['skymodelpointsource'], \
+                                                  skymodelpointsource=args['skymodelpointsource'],
                                                   wscleanskymodel=args['wscleanskymodel'],
-                                                  iontimefactor=args['iontimefactor'], \
-                                                  ionfreqfactor=args['ionfreqfactor'], \
-                                                  blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'], \
-                                                  uvminscalarphasediff=args['uvminscalarphasediff'], \
+                                                  iontimefactor=args['iontimefactor'],
+                                                  ionfreqfactor=args['ionfreqfactor'],
+                                                  blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'],
+                                                  uvminscalarphasediff=args['uvminscalarphasediff'],
                                                   docircular=args['docircular'],
                                                   mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],
-                                                  telescope=telescope, \
-                                                  blsmooth_chunking_size=args['blsmooth_chunking_size'], \
+                                                  telescope=telescope,
+                                                  blsmooth_chunking_size=args['blsmooth_chunking_size'],
                                                   gapchanneldivision=args['gapchanneldivision'],
-                                                  modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel, \
-                                                  DDE_predict=set_DDE_predict_skymodel_solve(args['wscleanskymodel']), \
+                                                  modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
+                                                  DDE_predict=set_DDE_predict_skymodel_solve(args['wscleanskymodel']),
                                                   QualityBasedWeights=args['QualityBasedWeights'],
-                                                  QualityBasedWeights_start=args['QualityBasedWeights_start'], \
-                                                  QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'], \
-                                                  QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'], \
-                                                  ncpu_max=args['ncpu_max_DP3solve'], \
-                                                  mslist_beforeremoveinternational=mslist_beforeremoveinternational, \
+                                                  QualityBasedWeights_start=args['QualityBasedWeights_start'],
+                                                  QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],
+                                                  QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],
+                                                  ncpu_max=args['ncpu_max_DP3solve'],
+                                                  mslist_beforeremoveinternational=mslist_beforeremoveinternational,
                                                   soltypelist_includedir=soltypelist_includedir)
 
         if args['phasediff_only']:
@@ -10845,29 +11501,12 @@ def main():
 
         # RESTART FOR A DDE RUN, set modeldatacolumns and dde_skymodel
         if args['DDE'] and args['start'] != 0 and i == args['start']:
-            modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = prepare_DDE(args['imagename'],
-                                                                                                    i, \
-                                                                                                    mslist,
-                                                                                                    args['imsize'],
-                                                                                                    args['pixelscale'], \
-                                                                                                    args['channelsout'],
-                                                                                                    args,
-                                                                                                    numClusters=args[
-                                                                                                        'Nfacets'], \
-                                                                                                    facetdirections=
-                                                                                                    args[
-                                                                                                        'facetdirections'], \
-                                                                                                    DDE_predict=args[
-                                                                                                        'DDE_predict'],
-                                                                                                    restart=True, \
-                                                                                                    telescope=telescope, \
-                                                                                                    targetFlux=args[
-                                                                                                        'targetFlux'],
-                                                                                                    fitspectralpol=args[
-                                                                                                        'fitspectralpol'], \
-                                                                                                    disable_primary_beam=
-                                                                                                    args[
-                                                                                                        'disable_primary_beam'])
+            modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
+                prepare_DDE(args['imagename'], i, mslist, args['imsize'], args['pixelscale'], args['channelsout'],
+                            args, numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
+                            DDE_predict=args['DDE_predict'], restart=True, telescope=telescope,
+                            targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
+                            disable_primary_beam=args['disable_primary_beam']))
             wsclean_h5list = list(np.load('wsclean_h5list.npy'))
 
         #  --- start imaging part ---
@@ -10882,22 +11521,22 @@ def main():
             # if args['DDE'] and i == 0: # we are making image000 without having DDE solutions yet
             # if telescope == 'LOFAR' and not args['disable_IDG_DDE_predict']: # so image000 has model-pb
             #    args['idg'] = True
-            makeimage(mslistim, args['imagename'] + str(i).zfill(3) + stackstr, \
-                      args['pixelscale'], args['imsize'], \
-                      args['channelsout'], args['niter'], args['robust'], \
-                      multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id], \
-                      uvminim=args['uvminim'], predict=not args['stopafterskysolve'], \
-                      fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
-                      imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
-                      removenegativecc=args['removenegativefrommodel'], \
-                      paralleldeconvolution=args['paralleldeconvolution'], \
-                      deconvolutionchannels=args['deconvolutionchannels'], \
-                      parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'], \
+            makeimage(mslistim, args['imagename'] + str(i).zfill(3) + stackstr,
+                      args['pixelscale'], args['imsize'],
+                      args['channelsout'], args['niter'], args['robust'],
+                      multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id],
+                      uvminim=args['uvminim'], predict=not args['stopafterskysolve'],
+                      fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'],
+                      imager=args['imager'], restoringbeam=restoringbeam, automask=automask,
+                      removenegativecc=args['removenegativefrommodel'],
+                      paralleldeconvolution=args['paralleldeconvolution'],
+                      deconvolutionchannels=args['deconvolutionchannels'],
+                      parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
                       taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
-                      h5list=wsclean_h5list, localrmswindow=args['localrmswindow'], \
-                      facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
-                      multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'], \
-                      disable_primarybeam_image=args['disable_primary_beam'], \
+                      h5list=wsclean_h5list, localrmswindow=args['localrmswindow'],
+                      facetregionfile=facetregionfile, DDEimaging=args['DDE'],
+                      multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
+                      disable_primarybeam_image=args['disable_primary_beam'],
                       disable_primarybeam_predict=args['disable_primary_beam'],
                       groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
                       fulljones_h5_facetbeam=not args['single_dual_speedup'])
@@ -10907,40 +11546,40 @@ def main():
                     briggslowres = -1.5
                 else:
                     briggslowres = -0.5
-                makeimage(mslistim, args['imagename'] + '1.2arcsectaper' + str(i).zfill(3) + stackstr, \
-                          args['pixelscale'], args['imsize'], \
-                          args['channelsout'], args['niter'], briggslowres, uvtaper='1.2arcsec', \
-                          multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id], \
-                          uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=args['fitspectralpol'], \
-                          automask=automask, removenegativecc=False, \
-                          predict=False, \
-                          paralleldeconvolution=args['paralleldeconvolution'], \
-                          deconvolutionchannels=args['deconvolutionchannels'], \
-                          parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'], \
+                makeimage(mslistim, args['imagename'] + '1.2arcsectaper' + str(i).zfill(3) + stackstr,
+                          args['pixelscale'], args['imsize'],
+                          args['channelsout'], args['niter'], briggslowres, uvtaper='1.2arcsec',
+                          multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id],
+                          uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=args['fitspectralpol'],
+                          automask=automask, removenegativecc=False,
+                          predict=False,
+                          paralleldeconvolution=args['paralleldeconvolution'],
+                          deconvolutionchannels=args['deconvolutionchannels'],
+                          parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
                           taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
-                          h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'], \
-                          disable_primarybeam_image=args['disable_primary_beam'], \
-                          disable_primarybeam_predict=args['disable_primary_beam'], \
-                          groupms_h5facetspeedup=args['groupms_h5facetspeedup'], \
-                          ddpsfgrid=args['ddpsfgrid'], \
+                          h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
+                          disable_primarybeam_image=args['disable_primary_beam'],
+                          disable_primarybeam_predict=args['disable_primary_beam'],
+                          groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
+                          ddpsfgrid=args['ddpsfgrid'],
                           fulljones_h5_facetbeam=not args['single_dual_speedup'])
             if args['makeimage_fullpol']:
-                makeimage(mslistim, args['imagename'] + 'fullpol' + str(i).zfill(3) + stackstr, \
-                          args['pixelscale'], args['imsize'], \
-                          args['channelsout'], args['niter'], args['robust'], \
-                          multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id], \
-                          uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=0, \
-                          automask=automask, removenegativecc=False, predict=False, \
-                          paralleldeconvolution=args['paralleldeconvolution'], \
-                          deconvolutionchannels=args['deconvolutionchannels'], \
-                          parallelgridding=args['parallelgridding'], \
-                          multiscalescalebias=args['multiscalescalebias'], fullpol=True, \
+                makeimage(mslistim, args['imagename'] + 'fullpol' + str(i).zfill(3) + stackstr,
+                          args['pixelscale'], args['imsize'],
+                          args['channelsout'], args['niter'], args['robust'],
+                          multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id],
+                          uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=0,
+                          automask=automask, removenegativecc=False, predict=False,
+                          paralleldeconvolution=args['paralleldeconvolution'],
+                          deconvolutionchannels=args['deconvolutionchannels'],
+                          parallelgridding=args['parallelgridding'],
+                          multiscalescalebias=args['multiscalescalebias'], fullpol=True,
                           taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
                           facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'],
-                          multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'], \
-                          disable_primarybeam_image=args['disable_primary_beam'], \
-                          disable_primarybeam_predict=args['disable_primary_beam'], \
-                          groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'], \
+                          multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
+                          disable_primarybeam_image=args['disable_primary_beam'],
+                          disable_primarybeam_predict=args['disable_primary_beam'],
+                          groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
                           fulljones_h5_facetbeam=not args['single_dual_speedup'])
 
             # make figure
@@ -10965,24 +11604,24 @@ def main():
         modeldatacolumns = []
         if args['DDE']:
             modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = prepare_DDE(args['imagename'],
-                                                                                                    i, \
+                                                                                                    i,
                                                                                                     mslist,
                                                                                                     args['imsize'],
-                                                                                                    args['pixelscale'], \
+                                                                                                    args['pixelscale'],
                                                                                                     args['channelsout'],
                                                                                                     args,
                                                                                                     numClusters=args[
-                                                                                                        'Nfacets'], \
+                                                                                                        'Nfacets'],
                                                                                                     facetdirections=
                                                                                                     args[
                                                                                                         'facetdirections'],
                                                                                                     DDE_predict=args[
-                                                                                                        'DDE_predict'], \
-                                                                                                    telescope=telescope, \
+                                                                                                        'DDE_predict'],
+                                                                                                    telescope=telescope,
                                                                                                     targetFlux=args[
                                                                                                         'targetFlux'],
                                                                                                     fitspectralpol=args[
-                                                                                                        'fitspectralpol'], \
+                                                                                                        'fitspectralpol'],
                                                                                                     disable_primary_beam=
                                                                                                     args[
                                                                                                         'disable_primary_beam'])
@@ -11010,44 +11649,45 @@ def main():
             nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
                 smoothnessspectralexponent_list, smoothnessrefdistance_list, \
                 antennaconstraint_list, resetsols_list, resetdir_list, \
-                soltypecycles_list = \
-                auto_determinesolints(mslist, args['soltype_list'], \
-                                      longbaseline, LBA, \
-                                      innchan_list=nchan_list, insolint_list=solint_list, \
-                                      insmoothnessconstraint_list=smoothnessconstraint_list, \
-                                      insmoothnessreffrequency_list=smoothnessreffrequency_list, \
-                                      insmoothnessspectralexponent_list=smoothnessspectralexponent_list, \
-                                      insmoothnessrefdistance_list=smoothnessrefdistance_list, \
-                                      inantennaconstraint_list=antennaconstraint_list, \
-                                      inresetsols_list=resetsols_list, \
-                                      inresetdir_list=resetdir_list, \
-                                      inBLsmooth_list=BLsmooth_list, \
-                                      insoltypecycles_list=soltypecycles_list, redo=True, \
-                                      tecfactorsolint=args['tecfactorsolint'], \
-                                      gainfactorsolint=args['gainfactorsolint'], \
-                                      phasefactorsolint=args['phasefactorsolint'], \
+                soltypecycles_list, normamps_list = \
+                auto_determinesolints(mslist, args['soltype_list'],
+                                      longbaseline, LBA,
+                                      innchan_list=nchan_list, insolint_list=solint_list,
+                                      insmoothnessconstraint_list=smoothnessconstraint_list,
+                                      insmoothnessreffrequency_list=smoothnessreffrequency_list,
+                                      insmoothnessspectralexponent_list=smoothnessspectralexponent_list,
+                                      insmoothnessrefdistance_list=smoothnessrefdistance_list,
+                                      inantennaconstraint_list=antennaconstraint_list,
+                                      inresetsols_list=resetsols_list,
+                                      inresetdir_list=resetdir_list,
+                                      innormamps_list=normamps_list,
+                                      inBLsmooth_list=BLsmooth_list,
+                                      insoltypecycles_list=soltypecycles_list, redo=True,
+                                      tecfactorsolint=args['tecfactorsolint'],
+                                      gainfactorsolint=args['gainfactorsolint'],
+                                      phasefactorsolint=args['phasefactorsolint'],
                                       delaycal=args['delaycal'])
 
         # CALIBRATE AND APPLYCAL
         wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'],
-                                              soltypecycles_list, \
-                                              smoothnessconstraint_list, smoothnessreffrequency_list, \
-                                              smoothnessspectralexponent_list, smoothnessrefdistance_list, \
-                                              antennaconstraint_list, resetsols_list, resetdir_list, \
-                                              BLsmooth_list, uvmin=args['uvmin'], \
-                                              normamps=args['normamps'], normamps_per_ms=args['normamps_per_ms'], \
-                                              restoreflags=args['restoreflags'], \
-                                              flagging=args['doflagging'], longbaseline=longbaseline, \
-                                              flagslowphases=args['doflagslowphases'], \
+                                              soltypecycles_list,
+                                              smoothnessconstraint_list, smoothnessreffrequency_list,
+                                              smoothnessspectralexponent_list, smoothnessrefdistance_list,
+                                              antennaconstraint_list, resetsols_list, resetdir_list,
+                                              normamps_list, BLsmooth_list, uvmin=args['uvmin'],
+                                              normamps=args['normamps'],
+                                              restoreflags=args['restoreflags'],
+                                              flagging=args['doflagging'], longbaseline=longbaseline,
+                                              flagslowphases=args['doflagslowphases'],
                                               flagslowamprms=args['flagslowamprms'],
-                                              flagslowphaserms=args['flagslowphaserms'], \
+                                              flagslowphaserms=args['flagslowphaserms'],
                                               iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'],
-                                              blscalefactor=args['blscalefactor'], \
+                                              blscalefactor=args['blscalefactor'],
                                               dejumpFR=args['dejumpFR'],
-                                              uvminscalarphasediff=args['uvminscalarphasediff'], \
+                                              uvminscalarphasediff=args['uvminscalarphasediff'],
                                               docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup,
-                                              dysco=args['dysco'], \
-                                              blsmooth_chunking_size=args['blsmooth_chunking_size'], \
+                                              dysco=args['dysco'],
+                                              blsmooth_chunking_size=args['blsmooth_chunking_size'],
                                               gapchanneldivision=args['gapchanneldivision'],
                                               modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                               DDE_predict=args['DDE_predict'],
@@ -11068,42 +11708,35 @@ def main():
         # update to multiscale cleaning if large island is present
         args['multiscale'] = multiscale_trigger(fitsmask, args)
 
-        # CUT FLAGGED DATA FROM MS AT START&END to win some compute time if possible
-        # if TEC and not args['forwidefield']: # does not work for phaseonly sols
-        #  if (i == 0) or (i == args['phasecycles']) or (i == args['phasecycles'] + 1) or (i == args['phasecycles'] + 2) \
-        #    or (i == args['phasecycles'] + 3) or (i == args['phasecycles'] + 4):
-        #     for msnumber, ms in enumerate(mslist):
-        #         flagms_startend(ms, 'phaseonly' + ms + parmdb + str(i) + '.h5', int(solint_phase[msnumber]))
-
     # remove sources outside central region after selfcal (to prepare for DDE solves)
     if args['remove_outside_center']:
         # make image after calibration so the calibration and images match
         # normally we would finish with calirbation and not have the subsequent image, make this i+1 image here
-        makeimage(mslistim, args['imagename'] + str(i + 1).zfill(3), \
-                  args['pixelscale'], args['imsize'], \
-                  args['channelsout'], args['niter'], args['robust'], \
-                  multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask, \
-                  uvminim=args['uvminim'], predict=False, \
-                  fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'], \
-                  imager=args['imager'], restoringbeam=restoringbeam, automask=automask, \
-                  removenegativecc=args['removenegativefrommodel'], \
-                  paralleldeconvolution=args['paralleldeconvolution'], \
-                  deconvolutionchannels=args['deconvolutionchannels'], \
-                  parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'], \
+        makeimage(mslistim, args['imagename'] + str(i + 1).zfill(3),
+                  args['pixelscale'], args['imsize'],
+                  args['channelsout'], args['niter'], args['robust'],
+                  multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask,
+                  uvminim=args['uvminim'], predict=False,
+                  fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'],
+                  imager=args['imager'], restoringbeam=restoringbeam, automask=automask,
+                  removenegativecc=args['removenegativefrommodel'],
+                  paralleldeconvolution=args['paralleldeconvolution'],
+                  deconvolutionchannels=args['deconvolutionchannels'],
+                  parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
                   taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
-                  h5list=wsclean_h5list, localrmswindow=args['localrmswindow'], \
-                  facetregionfile=facetregionfile, DDEimaging=args['DDE'], \
-                  multiscalemaxscales=args['multiscalemaxscales'], \
-                  disable_primarybeam_image=args['disable_primary_beam'], \
+                  h5list=wsclean_h5list, localrmswindow=args['localrmswindow'],
+                  facetregionfile=facetregionfile, DDEimaging=args['DDE'],
+                  multiscalemaxscales=args['multiscalemaxscales'],
+                  disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
-                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'], \
+                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
                   ddpsfgrid=args['ddpsfgrid'], fulljones_h5_facetbeam=not args['single_dual_speedup'])
 
-        remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), args['pixelscale'], \
+        remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), args['pixelscale'],
                            args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
-                           dysco=args['dysco'], \
-                           userbox=args['remove_outside_center_box'], idg=args['idg'], \
-                           h5list=wsclean_h5list, facetregionfile=facetregionfile, \
+                           dysco=args['dysco'],
+                           userbox=args['remove_outside_center_box'], idg=args['idg'],
+                           h5list=wsclean_h5list, facetregionfile=facetregionfile,
                            disable_primary_beam=args['disable_primary_beam'])
 
     # ARCHIVE DATA AFTER SELFCAL if requested
@@ -11111,8 +11744,8 @@ def main():
         if not LBA:
             if args['DDE']:
                 mergedh5_i = glob.glob('merged_selfcalcyle' + str(i).zfill(3) + '*.h5')
-                archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, \
-                        dysco=args['dysco'], mergedh5_i=mergedh5_i, facetregionfile=facetregionfile)
+                archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'],
+                        mergedh5_i=mergedh5_i, facetregionfile=facetregionfile)
             else:
                 archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
             cleanup(mslist)
