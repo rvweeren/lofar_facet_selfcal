@@ -1,3 +1,8 @@
 .vscode
 .pylintrc
 .idea
+__pycache__
+
+#astro data
+*.ms
+*.fits

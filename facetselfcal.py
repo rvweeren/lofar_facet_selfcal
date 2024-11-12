@@ -55,6 +55,13 @@ from itertools import groupby
 import astropy
 import astropy.stats
 import astropy.units as units
+from astropy.io import fits
+from astropy.wcs import WCS
+from astropy.io import ascii
+from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
+from astropy.time import Time
+from astroquery.skyview import SkyView
+from losoto import h5parm
 import bdsf
 from casacore.tables import taql, table, makecoldesc
 import losoto
@@ -67,21 +74,13 @@ import tables
 import scipy.special
 import math
 
-from astropy.io import fits
-from astropy.wcs import WCS
-from astropy.io import ascii
-from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
-from astropy.time import Time
-from astroquery.skyview import SkyView
-from losoto import h5parm
-
 # modules
 from source_selection.selfcal_selection import main as quality_check
-from lofar_facet_selfcal.h5_helpers.utils.overwrite_table import overwrite_table
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
 from h5_helpers.utils.file_structure import fix_h5
 from h5_helpers.h5_merger import merge_h5
 from h5_helpers.utils.split_h5 import split_multidir
+from h5_helpers.utils.overwrite_table import overwrite_table
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='selfcal.log',
@@ -98,7 +97,10 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
-def MeerKAT_antconstraint(antfile=f'{scriptpath}/data/MeerKATlayout.csv', ctype='all'):
+def MeerKAT_antconstraint(antfile=None, ctype='all'):
+    if antfile is None:
+        antfile = f'{scriptpath}/data/MeerKATlayout.csv'
+
     if ctype not in ['core', 'remote', 'all']:
         print('Wrong input detected, ctype needs to be in core,remote,or all')
         sys.exit()
@@ -2591,26 +2593,16 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns):
         None
     '''
 
-    # check for special case where direction (.dir) names contain DIL.
+
     special_DIL = False
-    H = tables.open_file(h5parm, mode='r')
-    try:
-        dirnames = H.root.sol000.phase000.dir[:]
-    except:
-        pass
-    try:
-        dirnames = H.root.sol000.amplitude000.dir[:]
-    except:
-        pass
-    try:
-        dirnames = H.root.sol000.tec000.dir[:]
-    except:
-        pass
-    try:
-        dirnames = H.root.sol000.rotation000.dir[:]
-    except:
-        pass
-    H.close()
+    with tables.open_file(h5parm, mode='r') as H:
+        dirnames = None
+        for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000']:
+            try:
+                dirnames = getattr(H.root.sol000, sol_type).dir[:]
+                break  # Stop if dirnames is found
+            except tables.NoSuchNodeError:
+                continue  # Move to the next soltype if the current one is missing
 
     dirnames = dirnames.tolist()
     if 'DIL' in dirnames[0].decode("utf-8"):
@@ -5476,8 +5468,8 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
                           insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0,
                           phasefactorsolint=1.0, delaycal=False):
     """
-   determine the solution time and frequency intervals based on the amount of compact source flux and noise
-   """
+    determine the solution time and frequency intervals based on the amount of compact source flux and noise
+    """
     # 1 find the first tec/tecandphase in the soltype_list
     # set the solints there based on this code
     # update antennaconstraint if needed
@@ -5579,7 +5571,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
             if soltype in ['scalarphase', 'phaseonly'] and \
                     (insmoothnessconstraint_list[soltype_id][ms_id] > 0.0) and \
                     ((soltype_id == return_soltype_index(soltype_list, 'scalarphase', occurence=1,
-                                                         onetectypeoccurence=True)) or \
+                                                         onetectypeoccurence=True)) or
                      (soltype_id == return_soltype_index(soltype_list, 'phaseonly', occurence=1,
                                                          onetectypeoccurence=True))):
 
@@ -5628,13 +5620,6 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
                 solint = np.rint(solint_sf * ((noise / flux) ** 2) * (chanw / 390.625e3))
                 # frequency scaling is needed because if we avearge in freqeuncy the solint should not change for a (scalar)phase solve with smoothnessconstraint
 
-                # if (longbaseline) and (not LBA) and (soltype == 'tec') \
-                #   and (soltype_list[1] == 'tecandphase'):
-                #   if solint < 0.5 and (solint*tint < 16.): # so less then 16 sec
-                #      print('Longbaselines bright source detected: changing from tec to tecandphase solve')
-                #      insoltypecycles_list[soltype_id][ms_id] = 999
-                #      insoltypecycles_list[1][ms_id] = 0
-
                 if solint < 1:
                     solint = 1
                 if (float(solint) * tint / 3600.) > 0.5:  # so check if larger than 30 min
@@ -5655,9 +5640,10 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
             ######## COMPLEXGAIN or SCALARCOMPLEXGAIN or AMPLITUDEONLY or SCALARAMPLITUDE ######
             # requires smoothnessconstraint
             # for first occurence of (scalar)complexgain
+            print(insmoothnessconstraint_list, soltype_id, ms_id)
             if soltype in ['complexgain', 'scalarcomplexgain'] and (
                     insmoothnessconstraint_list[soltype_id][ms_id] > 0.0) and \
-                    ((soltype_id == return_soltype_index(soltype_list, 'complexgain', occurence=1)) or \
+                    ((soltype_id == return_soltype_index(soltype_list, 'complexgain', occurence=1)) or
                      (soltype_id == return_soltype_index(soltype_list, 'scalarcomplexgain', occurence=1))):
 
                 if longbaseline:
@@ -10722,7 +10708,10 @@ def create_Ateam_seperation_plots(mslist, start=0):
         return
     for ms in mslist:
         outputname = 'Ateam_' + ms + '.png'
-        run('check_Ateam_separation.py --outputimage=' + outputname + ' ' + ms)
+        try:
+            run(f'{scriptpath}/check_Ateam_separation.py --outputimage=' + outputname + ' ' + ms)
+        except Exception:
+            print(f"{scriptpath}/check_Ateam_separation.py does not exist")
     return
 
 
@@ -11142,9 +11131,6 @@ def main():
     parser.add_argument('--phasediff_only',
                         help='For finding only the phase difference, we want to stop after calibrating and before imaging',
                         action='store_true')
-    parser.add_argument('--helperscriptspath',
-                        help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.',
-                        default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
     parser.add_argument('--configpath', help='Path to user config file which will overwrite command line arguments',
                         default='facetselfcal_config.txt', type=str)
     parser.add_argument('--auto', help='Trigger fully automated processing (HBA only for now).', action='store_true')
@@ -11197,9 +11183,9 @@ def main():
     version = '11.2.0'
     print_title(version)
 
-    scriptpath = args['helperscriptspath']
-    os.system(f'cp {scriptpath}/submods/polconv.py .')
     global scriptpath
+    scriptpath = os.path.dirname(os.path.abspath(__file__))
+    os.system(f'cp {scriptpath}/submods/polconv.py .')
 
     # copy h5s locally
     for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):

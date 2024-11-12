@@ -38,9 +38,9 @@ from losoto.h5parm import h5parm
 from losoto.lib_operations import reorderAxes
 
 # Sub-modules
-from polchange import PolChange, overwrite_table
-from utils.slicing import get_slices
-from utils.general_functions import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
+from .polchange import PolChange, overwrite_table
+from .utils.slicing import get_slices
+from .utils.general_functions import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
 
 warnings.filterwarnings('ignore')
 
