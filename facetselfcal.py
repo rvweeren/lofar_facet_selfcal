@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
 # auto update channels out and fitspectralpol for high dynamic range
-# in case of restart check update-multiscale
-# in case of restart check update-uvmin
 # h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_flags=False) Needs to be propagate_flags to be fully correct, this is a h5_merger issue
 # check that MODEL_DATA_DD etc XY,YX are set to zero/or clean if wsclean predicts are used for Stokes I/dual
 # time, timefreq, freq med/avg steps (via losoto)
@@ -76,7 +74,7 @@ import time
 
 # modules
 try:
-    # Absolute import (works when running the script directly)
+    # Absolute import (works when running the script as part of the package)
     from submods.source_selection.selfcal_selection import main as quality_check
     from submods.split_irregular_timeaxis import regularize_ms, split_ms
     from h5_helpers.utils.reset_structure import fix_h5
@@ -92,7 +90,7 @@ try:
     from h5_helpers.utils.general import make_utf8
     from arguments import option_parser
 except ModuleNotFoundError:
-    # Relative import (works when running as part of the package)
+    # Relative import (works when running the script directly)
     from .submods.source_selection.selfcal_selection import main as quality_check
     from .submods.split_irregular_timeaxis import regularize_ms, split_ms
     from .h5_helpers.utils.reset_structure import fix_h5
@@ -108,16 +106,15 @@ except ModuleNotFoundError:
     from .h5_helpers.utils.general import make_utf8
     from .arguments import option_parser
 
+try:
+    import everybeam
+except ImportError:
+    logger.warning('Failed to import EveryBeam, functionality will not be available.')
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='selfcal.log',
                     format='%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 logger.setLevel(logging.DEBUG)
-
-try:
-    import everybeam
-except ImportError:
-    logger.warning('Failed to import EveryBeam, functionality will not be available.')
 
 matplotlib.use('Agg')
 # For NFS mounted disks
