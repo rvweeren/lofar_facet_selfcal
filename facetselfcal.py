@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
 # auto update channels out and fitspectralpol for high dynamic range
-# in case of restart check update-multiscale
-# in case of restart check update-uvmin
 #h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_flags=False) Needs to be propagate_flags to be fully correct, this is a h5_merger issue
 # check that MODEL_DATA_DD etc XY,YX are set to zero/or clean if wsclean predicts are used for Stokes I/dual 
 # time, timefreq, freq med/avg steps (via losoto)
@@ -109,21 +107,69 @@ def fix_h5(h5_list):
         os.system('rm -f ' + outparmdb)
     return
 
+
+def update_fitspectralpol(args):
+    if args['update_fitspectralpol']:
+         args['fitspectralpol'] = set_fitspectralpol(args['channelsout'])
+    return args['fitspectralpol']
+
+def update_channelsout(args, selfcalcycle, mslist):
+   
+    if args['update_channelsout']:
+        t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
+        telescope = t.getcol('TELESCOPE_NAME')[0] 
+        t.close()
+        # set stackstr
+        for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
+            if args['stack']:
+                stackstr= '_stack' + str(msim_id).zfill(2)
+            else:
+                stackstr='' # empty string
+  
+        # set imagename
+        if args['imager'] == 'WSCLEAN':
+            if args['idg']:
+              imagename  = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '-MFS-image.fits'
+            else:
+              imagename  = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '-MFS-image.fits'
+        if args['imager'] == 'DDFACET':
+            imagename  = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.app.restored.fits'
+        if args['channelsout'] == 1: # strip MFS from name if no channels images present
+            imagename = imagename.replace('-MFS', '').replace('-I','')
+
+        dr = get_image_dynamicrange(imagename)
+        
+        if dr > 1500 and telescope == 'LOFAR':
+          args['channelsout'] =  set_channelsout(mslist, factor=2) 
+        if dr > 3000 and telescope == 'LOFAR':
+          args['channelsout'] =  set_channelsout(mslist, factor=3) 
+        if dr > 6000 and telescope == 'LOFAR':
+          args['channelsout'] =  set_channelsout(mslist, factor=4) 
+
+        if dr > 30000 and telescope == 'MeerKAT':
+          args['channelsout'] =  set_channelsout(mslist, factor=1.5) 
+        if dr > 60000 and telescope == 'MeerKAT':
+          args['channelsout'] =  set_channelsout(mslist, factor=2) 
+        if dr > 90000 and telescope == 'MeerKAT':
+          args['channelsout'] =  set_channelsout(mslist, factor=3) 
+
+    return args['channelsout']
+
 def round_up_to_even(number):
     return int(np.ceil(number / 2.) * 2)
 
-def set_channelsout(mslist):
+def set_channelsout(mslist, factor=1):
     t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
     telescope = t.getcol('TELESCOPE_NAME')[0] 
     t.close()
     f_bw = get_fractional_bandwidth(mslist)
 
     if telescope == 'LOFAR':
-        channelsout = round_up_to_even(f_bw*12)
+        channelsout = round_up_to_even(f_bw*12*factor)
     elif telescope == 'MeerKAT':   
-        channelsout = round_up_to_even(f_bw*16)
+        channelsout = round_up_to_even(f_bw*16*factor)
     else:    
-        channelsout = round_up_to_even(f_bw*12)
+        channelsout = round_up_to_even(f_bw*12*factor)
     return channelsout
   
 def set_fitspectralpol(channelsout):
@@ -10923,8 +10969,8 @@ def main():
    imagingparser.add_argument('--multiscalescalebias', help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.75.', default=0.75, type=float)
    imagingparser.add_argument('--multiscalemaxscales', help='Multiscalescale max scale parameter for WSClean (see WSClean documentation). Default 0 (means set automatically).', default=0, type=int)
 
-   #imagingparser.add_argument("--update-channelsout", help='Change --channelsout automatically if there is high peak flux.', action='store_false')
-   #imagingparser.add_argument("--update-fitspectralpol", help='Change --fitspectralpol automatically if there is high peak flux.', action='store_false')
+   imagingparser.add_argument("--update-channelsout", help='Change --channelsout automatically if there is high peak flux.', action='store_true')
+   imagingparser.add_argument("--update-fitspectralpol", help='Change --fitspectralpol automatically if there is high peak flux.', action='store_true')
    
    imagingparser.add_argument('--paralleldeconvolution', help="Parallel-deconvolution size for WSCLean (see WSClean documentation). This is by default 0 (no parallel deconvolution). Suggested value for very large images is about 2000.", default=0, type=int)
    imagingparser.add_argument('--parallelgridding', help="Parallel-gridding for WSClean (see WSClean documentation). This is by default 1.", default=1, type=int)
@@ -11103,7 +11149,7 @@ def main():
       args['dysco'] = False # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression    
       args['noarchive'] = True
 
-   version = '11.2.0'
+   version = '11.3.0'
    print_title(version)
 
    os.system('cp ' + args['helperscriptspath'] + '/lib_multiproc.py .')
@@ -11337,9 +11383,18 @@ def main():
      if args['autoupdate_removenegativefrommodel'] and args['DDE']: # never remove negative clean components for a DDE solve
         args['removenegativefrommodel'] = False
         
-     # AUTOMATICALLY PICKUP PREVIOUS MASK (in case of a restart)
+     # AUTOMATICALLY PICKUP PREVIOUS MASK (in case of a restart) and trigger multiscale
      if (i > 0) and (args['fitsmask'] is None):
        fitsmask, fitsmask_list = set_fitsmask_restart(args, i, mslist)
+       # update to multiscale cleaning if large island is present
+       args['multiscale'] = multiscale_trigger(fitsmask, args)
+       # update uvmin if allowed/requested
+       args['uvmin'] = update_uvmin(fitsmask, longbaseline, args, LBA)
+       # update channelsout
+       args['channelsout'] = update_channelsout(args, i-1, mslist)
+       # update fitspectralpol
+       args['fitspectralpol'] = update_fitspectralpol(args)
+       
        
      # BEAM CORRECTION AND/OR CONVERT TO CIRCULAR/LINEAR CORRELATIONS
      for ms in mslist:
@@ -11427,7 +11482,7 @@ def main():
      if args['phasediff_only']:
        return
      
-     # TRIGGER MULTISCALE
+     # SET MULTISCALE
      if args['multiscale'] and i >= args['multiscale_start']:
        multiscale = True
      else:
@@ -11612,6 +11667,12 @@ def main():
   
      # update to multiscale cleaning if large island is present
      args['multiscale'] = multiscale_trigger(fitsmask, args)
+
+     # update channelsout
+     args['channelsout'] = update_channelsout(args, i, mslist)
+
+     # update fitspectralpol
+     args['fitspectralpol'] = update_fitspectralpol(args)
 
      # CUT FLAGGED DATA FROM MS AT START&END to win some compute time if possible
      # if TEC and not args['forwidefield']: # does not work for phaseonly sols
