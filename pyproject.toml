@@ -10,6 +10,7 @@ description = "LOFAR facet selfcal"
 [project.scripts]
 h5_merger = "h5_helpers.h5_merger:main"
 facetselfcal = "install.wrapper:main"
+sub_sources_outside_region = "subtract.sub_sources_outside_region:main"
 
 [tool.setuptools]
-packages = ["h5_helpers", "install"]
+packages = ["h5_helpers", "install", "subtract"]
