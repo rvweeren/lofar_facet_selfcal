@@ -1686,7 +1686,7 @@ class MergeH5:
                                 elif weight_out.shape[dirind] != newvals.shape[dirind]:
                                     sys.exit(
                                         'ERROR: Upsampling of weights because same direction exists multiple times in input h5 '
-                                        '(verify and update directions or remove --propagate_flags)')
+                                        '(verify and/or update directions or add --no_weight_prop)')
                                 else:
                                     weight_out *= newvals
 
@@ -2148,7 +2148,7 @@ def check_overlap(h5_tables, check_type='freq'):
 def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, convert_tec=True, merge_all_in_one=False,
              lin2circ=False, circ2lin=False, add_directions=None, single_pol=None, no_pol=None, use_solset='sol000',
              filtered_dir=None, add_cs=None, add_ms_stations=None, check_output=None, freq_av=None, time_av=None,
-             propagate_flags=True, freq_concat=None, time_concat=None, no_antenna_crash=None,
+             propagate_weights=True, freq_concat=None, time_concat=None, no_antenna_crash=None,
              output_summary=None, min_distance=0.):
     """
     Main function that uses the class MergeH5 to merge h5 tables.
@@ -2171,7 +2171,7 @@ def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, conv
     :param add_cs: use MS to replace super station with core station
     :param add_ms_stations: return only stations from Measurement set
     :param check_output: check if output has all correct output information
-    :param propagate_flags: interpolate weights and return in output file
+    :param propagate_weights: interpolate weights and return in output file
     :param freq_concat: concat freq blocks
     :param time_concat: concat time blocks
     :param no_antenna_crash: do not crash if antenna tables are not the same between h5s
@@ -2304,7 +2304,7 @@ def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, conv
     merge.format_tables()
 
     # Propagate weight flags from input into output
-    if propagate_flags:
+    if propagate_weights:
         merge.add_weights()
 
     # Add antennas
@@ -2417,7 +2417,6 @@ def parse_input():
     parser.add_argument('--filter_directions', type=str, default=None, help='Filter out a list of indexed directions from your output solution file. Only lists allowed (example: --filter_directions [2, 3]).')
     parser.add_argument('--add_cs', action='store_true', default=None, help='Add core stations to antenna output from MS (needs --ms).')
     parser.add_argument('--add_ms_stations', action='store_true', default=None, help='Use only antenna stations from measurement set (needs --ms). Note that this is different from --add_cs, as it does not keep the international stations if these are not in the MS.')
-    parser.add_argument('--propagate_flags', action='store_true', default=None, help='(NOT USED ANYMORE) Interpolate weights and return in output file.')
     parser.add_argument('--no_weight_prop', action='store_true', default=None, help='No interpolation of weights.')
     parser.add_argument('--no_antenna_crash', action='store_true', default=None, help='Do not check if antennas are in h5.')
     parser.add_argument('--output_summary', action='store_true', default=None, help='Give output summary.')
@@ -2454,8 +2453,15 @@ def parse_input():
     elif ' ' in args.h5_tables:
         args.h5_tables = args.h5_tables[0].split()
 
-    if type(args.h5_tables) == str:
-        args.h5_tables = glob(args.h5_tables)
+    if type(args.h5_tables) == str or len(args.h5_tables) == 1:
+        if len(args.h5_tables) == 1:
+            args.h5_tables = args.h5_tables[0]
+        if ' ' not in args.h5_tables:
+            args.h5_tables = glob(args.h5_tables)
+        else:
+            args.h5_tables = args.h5_tables.split()
+        if len(args.h5_tables) == 0:
+            sys.exit(f"ERROR: parsing of input h5s failed")
     elif type(args.h5_tables) == list and len(args.h5_tables) == 1:
         args.h5_tables = glob(args.h5_tables[0])
     elif type(args.h5_tables) == list:
@@ -2487,10 +2493,6 @@ def main():
     if args.merge_diff_freq:
         print('WARNING: --merge_diff_freq given, please use --freq_concat.')
 
-    if args.propagate_flags:
-        print('--propagate_flags does not have a function anymore, as this is now done by default. '
-              'If you want to turn this off, you can use --no_weight_prop')
-
     merge_h5(h5_out=args.h5_out,
              h5_tables=args.h5_tables,
              ms_files=args.ms,
@@ -2509,7 +2511,7 @@ def main():
              check_output=args.check_output,
              time_av=args.time_av,
              freq_av=args.freq_av,
-             propagate_flags=not args.no_weight_prop,
+             propagate_weights=not args.no_weight_prop,
              freq_concat=args.merge_diff_freq or args.freq_concat,
              time_concat=args.time_concat,
              no_antenna_crash=args.no_antenna_crash,

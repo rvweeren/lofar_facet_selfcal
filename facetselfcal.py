@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # auto update channels out and fitspectralpol for high dynamic range
-# h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_flags=False) Needs to be propagate_flags to be fully correct, this is a h5_merger issue
+# h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_weights=False) Needs to be propagate_weights to be fully correct, this is a h5_merger issue
 # check that MODEL_DATA_DD etc XY,YX are set to zero/or clean if wsclean predicts are used for Stokes I/dual
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
@@ -296,7 +296,7 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
         print('separation direction entry and h5 entry is:', distance, matchging_h5)
         assert abs(distance) < 0.00001  # there should always be a close to perfect match
 
-    merge_h5(h5_out=parmdb_out, h5_tables=parmdb_merge_list, propagate_flags=True)
+    merge_h5(h5_out=parmdb_out, h5_tables=parmdb_merge_list, propagate_weights=True)
 
     if clean_up:
         for h5 in h5list_sols:
@@ -569,7 +569,7 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
             print('------------------------------')
             if os.path.isfile(f'wsclean_concat_{g}.h5'):
                 os.system(f'rm -rf wsclean_concat_{g}.h5')
-            merge_h5(h5_out=f'wsclean_concat_{g}.h5', h5_tables=h5group, propagate_flags=True, time_concat=True)
+            merge_h5(h5_out=f'wsclean_concat_{g}.h5', h5_tables=h5group, propagate_weights=True, time_concat=True)
             H5s_files_clean.append(f'wsclean_concat_{g}.h5')
         if concatms:
             print(f'taql select from {group} giving wsclean_concat_{g}.ms as plain')
@@ -3715,7 +3715,7 @@ def makephaseCDFh5_h5merger(phaseh5, ms, modeldatacolumns, backup=True, testscfa
         os.system('rm -f ' + phaseh5 + '.in')
     os.system('mv ' + phaseh5 + ' ' + phaseh5 + '.in')
 
-    merge_h5(h5_out=phaseh5, h5_tables=phaseh5 + '.in', ms_files=ms, merge_all_in_one=merge_all_in_one, propagate_flags=True)
+    merge_h5(h5_out=phaseh5, h5_tables=phaseh5 + '.in', ms_files=ms, merge_all_in_one=merge_all_in_one, propagate_weights=True)
     H5 = tables.open_file(phaseh5, mode='a')
 
     phaseCDF = H5.root.sol000.phase000.val[:]  # time, freq, ant, dir, pol
@@ -6344,7 +6344,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
             print(parmdbmergename, parmdbmergelist[msnumber], ms)
             merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1], ms_files=ms,
                      convert_tec=True, merge_all_in_one=merge_all_in_one,
-                     propagate_flags=True, single_pol=single_pol_merge)
+                     propagate_weights=True, single_pol=single_pol_merge)
             # add CS stations back for superstation
             if mslist_beforephaseup is not None:
                 print('mslist_beforephaseup: ' + mslist_beforephaseup[msnumber])
@@ -6356,12 +6356,12 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                                                         "addCS_selfcalcyle"), h5_tables=parmdbmergename,
                          ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
                          merge_all_in_one=merge_all_in_one, single_pol=single_pol_merge,
-                         propagate_flags=True, add_cs=True)
+                         propagate_weights=True, add_cs=True)
 
             # make LINEAR solutions from CIRCULAR (never do a single_pol merge here!)
             if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or docircular:
                 merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True,
-                         propagate_flags=True)
+                         propagate_weights=True)
                 # add CS stations back for superstation
                 if mslist_beforephaseup is not None:
                     merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcyle",
@@ -6369,7 +6369,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                              h5_tables=parmdbmergename_pc,
                              ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
                              merge_all_in_one=merge_all_in_one,
-                             propagate_flags=True, add_cs=True)
+                             propagate_weights=True, add_cs=True)
 
             if False:
                 # testing only to check if merged H5 file is correct and makes a good image
