@@ -15,7 +15,6 @@ __author__ = "Jurjen de Jong (jurjendejong@strw.leidenuniv.nl)"
 # Standard library imports
 import os
 import sys
-import re
 import warnings
 from glob import glob
 from argparse import ArgumentParser
@@ -26,7 +25,7 @@ import ast
 from numpy import (
     zeros, ones, round, unique, array_equal, append, isfinite, complex128,
     expand_dims, pi, array, all, exp, angle, sort, sum, take,
-    diff, transpose, cumsum, insert, abs, cos, sin, float32)
+    diff, transpose, abs, cos, sin, float32)
 from scipy.interpolate import interp1d
 import tables
 from astropy.coordinates import SkyCoord
@@ -40,14 +39,15 @@ from losoto.lib_operations import reorderAxes
 # Sub-modules
 try:
     # Absolute import (works when running the script directly)
-    from polchange import PolChange, overwrite_table
-    from utils.slicing import get_slices
-    from utils.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
+    from h5_helpers.polchange import PolChange, overwrite_table
+    from h5_helpers.slicing import get_slices
+    from h5_helpers.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
 except ModuleNotFoundError:
     # Relative import (works when running as part of the package)
-    from .polchange import PolChange, overwrite_table
-    from .utils.slicing import get_slices
-    from .utils.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
+    from .h5_helpers.polchange import PolChange, overwrite_table
+    from .h5_helpers.slicing import get_slices
+    from .h5_helpers.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
+
 
 warnings.filterwarnings('ignore')
 

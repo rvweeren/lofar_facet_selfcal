@@ -77,39 +77,34 @@ try:
     # Absolute import (works when running the script as part of the package)
     from submods.source_selection.selfcal_selection import main as quality_check
     from submods.split_irregular_timeaxis import regularize_ms, split_ms
-    from h5_helpers.utils.reset_structure import fix_h5
-    from h5_helpers.h5_merger import merge_h5
-    from h5_helpers.utils.split_h5 import split_multidir
-    from h5_helpers.utils.overwrite_table import copy_over_source_direction_h5
-    from h5_helpers.utils.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes, normslope_withmatrix,
-                                                  normamplitudes_withmatrix, flaglowamps, flaghighamps, flaghighamps_fulljones)
-    from h5_helpers.utils.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, fix_rotationreference
-    from h5_helpers.utils.modify_tec import fix_tecreference
-    from h5_helpers.utils.nan_values import remove_nans, removenans_fulljones
-    from h5_helpers.utils.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
-    from h5_helpers.utils.general import make_utf8
+    from submods.h5_helpers import fix_h5
+    from submods.h5_helpers import merge_h5
+    from submods.h5_helpers import split_multidir
+    from submods.h5_helpers import copy_over_source_direction_h5
+    from submods.h5_helpers import (flag_bad_amps, get_median_amp, normamplitudes, normslope_withmatrix,
+                                                        normamplitudes_withmatrix, flaglowamps, flaghighamps, flaghighamps_fulljones)
+    from submods.h5_helpers import rotationmeasure_to_phase, fix_weights_rotationh5, fix_rotationreference
+    from submods.h5_helpers import fix_tecreference
+    from submods.h5_helpers import remove_nans, removenans_fulljones
+    from submods.h5_helpers import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
+    from submods.h5_helpers import make_utf8
     from arguments import option_parser
 except ModuleNotFoundError:
     # Relative import (works when running the script directly)
     from .submods.source_selection.selfcal_selection import main as quality_check
     from .submods.split_irregular_timeaxis import regularize_ms, split_ms
-    from .h5_helpers.utils.reset_structure import fix_h5
-    from .h5_helpers.h5_merger import merge_h5
-    from .h5_helpers.utils.split_h5 import split_multidir
-    from .h5_helpers.utils.overwrite_table import copy_over_source_direction_h5
-    from .h5_helpers.utils.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes, normslope_withmatrix,
-                                                  normamplitudes_withmatrix, flaglowamps, flaghighamps, flaghighamps_fulljones)
-    from .h5_helpers.utils.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, fix_rotationreference
-    from .h5_helpers.utils.modify_tec import fix_tecreference
-    from .h5_helpers.utils.nan_values import remove_nans, removenans_fulljones
-    from .h5_helpers.utils.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
-    from .h5_helpers.utils.general import make_utf8
+    from lofar_facet_selfcal.submods.h5_helpers.reset_structure import fix_h5
+    from lofar_facet_selfcal.submods.h5_merger import merge_h5
+    from lofar_facet_selfcal.submods.h5_helpers.split_h5 import split_multidir
+    from lofar_facet_selfcal.submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
+    from lofar_facet_selfcal.submods.h5_helpers.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes, normslope_withmatrix,
+                                                                         normamplitudes_withmatrix, flaglowamps, flaghighamps, flaghighamps_fulljones)
+    from lofar_facet_selfcal.submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, fix_rotationreference
+    from lofar_facet_selfcal.submods.h5_helpers.modify_tec import fix_tecreference
+    from lofar_facet_selfcal.submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
+    from lofar_facet_selfcal.submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
+    from lofar_facet_selfcal.submods.h5_helpers.general import make_utf8
     from .arguments import option_parser
-
-try:
-    import everybeam
-except ImportError:
-    logger.warning('Failed to import EveryBeam, functionality will not be available.')
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='selfcal.log',
@@ -143,10 +138,17 @@ def MeerKAT_antconstraint(antfile=None, ctype='all'):
 
 
 def round_up_to_even(number):
+    """
+    Round up to even number
+    """
     return int(np.ceil(number / 2.) * 2)
 
 
 def set_channelsout(mslist, factor=1):
+    """
+    Set channels out for different telescopes
+    """
+
     t = table(mslist[0] + '/OBSERVATION', ack=False)
     telescope = t.getcol('TELESCOPE_NAME')[0]
     t.close()
@@ -162,14 +164,31 @@ def set_channelsout(mslist, factor=1):
 
 
 def update_fitspectralpol(args):
+    """
+    Update fit spectral pol in arguments
+    """
+
     if args['update_fitspectralpol']:
         args['fitspectralpol'] = set_fitspectralpol(args['channelsout'])
     return args['fitspectralpol']
 
 
+def get_image_dynamicrange(image):
+    """
+    Get dynamic range of an image (peak over rms)
+    """
+
+    print('Compute image dynamic range (peak over rms): ', image)
+    hdul = fits.open(image)
+    image_rms = findrms(np.ndarray.flatten(hdul[0].data))
+    DR = np.nanmax(np.ndarray.flatten(hdul[0].data))/image_rms
+    hdul.close()
+    return DR
+
+
 def update_channelsout(args, selfcalcycle, mslist):
     if args['update_channelsout']:
-        t = pt.table(mslist[0] + '/OBSERVATION', ack=False)
+        t = table(mslist[0] + '/OBSERVATION', ack=False)
         telescope = t.getcol('TELESCOPE_NAME')[0]
         t.close()
         # set stackstr
@@ -204,6 +223,7 @@ def update_channelsout(args, selfcalcycle, mslist):
         if dr > 90000 and telescope == 'MeerKAT':
             args['channelsout'] = set_channelsout(mslist, factor=3)
     return args['channelsout']
+
 
 def set_fitspectralpol(channelsout):
     if channelsout == 1:
