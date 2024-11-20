@@ -37,9 +37,11 @@ from losoto.h5parm import h5parm
 from losoto.lib_operations import reorderAxes
 
 # Required for running python package with relative imports
-# if __package__:
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(current_dir)
+if __package__:
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(current_dir)
+    sys.path.append(current_dir)
+    sys.path.append(parent_dir)
 
 from h5_helpers.polchange import PolChange, overwrite_table
 from h5_helpers.slicing import get_slices
