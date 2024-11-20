@@ -10,22 +10,22 @@ Installation:
 \
 `pip install git+https://github.com/rvweeren/lofar_facet_selfcal.git`
 \
-Usage:\
 \
-HBA Dutch baselines for extracted LoTSS data from the ddf-pipeline:
-
+(with pip install, you install ```facetselfcal```, ```h5_merger```, ```ds9facetgenerator```, ```sub_sources_outside_region```
+as command line functionalities)
+\
+\
+Usage examples:
+- HBA Dutch baselines for extracted LoTSS data from the ddf-pipeline:\
 `python /<path>/lofar_facet_selfcal/facetselfcal.py -b yourDS9extractbox.reg --auto -i yourimagename yourextracted.ms`
 
-or 
+- Standard auto settings:\
+`python /<path>/lofar_facet_selfcal/facetselfcal.py --imsize=1600 --auto -i yourimagename yourextracted.ms` 
 
-`python /<path>/lofar_facet_selfcal/facetselfcal.py --imsize=1600 --auto -i yourimagename yourextracted.ms`
-
-or with a config file (see an example in data/example_config.txt))
-
+- With a config file (see an example in data/example_config.txt)):\
 `python /<path>/lofar_facet_selfcal/facetselfcal.py --config=yourconfig.txt yourextracted.ms` \
 
 HBA international baselines
-
 - delaycalibrator
 - target source
 

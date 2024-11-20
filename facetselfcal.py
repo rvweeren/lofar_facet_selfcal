@@ -74,44 +74,29 @@ import scipy
 import scipy.stats
 import time
 
-# modules
+# Required for running python package with relative imports
 if __package__:
-    # Relative import (works when running as part of the package)
-    from .submods.source_selection.selfcal_selection import main as quality_check
-    from .submods.split_irregular_timeaxis import regularize_ms, split_ms
-    from .submods.h5_helpers.reset_structure import fix_h5
-    from .submods.h5_merger import merge_h5
-    from .submods.h5_helpers.split_h5 import split_multidir
-    from .submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
-    from .submods.h5_helpers.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes,
-                                                     normslope_withmatrix,
-                                                     normamplitudes_withmatrix, flaglowamps, flaghighamps,
-                                                     flaghighamps_fulljones)
-    from .submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, fix_rotationreference
-    from .submods.h5_helpers.modify_tec import fix_tecreference
-    from .submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
-    from .submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
-    from .submods.h5_helpers.general import make_utf8
-    from .arguments import option_parser
-else:
-    # Absolute import (works when running the script directly)
-    from submods.source_selection.selfcal_selection import main as quality_check
-    from submods.split_irregular_timeaxis import regularize_ms, split_ms
-    from submods.h5_helpers.reset_structure import fix_h5
-    from submods.h5_merger import merge_h5
-    from submods.h5_helpers.split_h5 import split_multidir
-    from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
-    from submods.h5_helpers.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes,
-                                                     normslope_withmatrix,
-                                                     normamplitudes_withmatrix, flaglowamps, flaghighamps,
-                                                     flaghighamps_fulljones)
-    from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, \
-        fix_rotationreference
-    from submods.h5_helpers.modify_tec import fix_tecreference
-    from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
-    from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
-    from submods.h5_helpers.general import make_utf8
-    from arguments import option_parser
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.append(current_dir)
+
+# modules
+from submods.source_selection.selfcal_selection import main as quality_check
+from submods.split_irregular_timeaxis import regularize_ms, split_ms
+from submods.h5_helpers.reset_structure import fix_h5
+from submods.h5_merger import merge_h5
+from submods.h5_helpers.split_h5 import split_multidir
+from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
+from submods.h5_helpers.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes,
+                                                 normslope_withmatrix,
+                                                 normamplitudes_withmatrix, flaglowamps, flaghighamps,
+                                                 flaghighamps_fulljones)
+from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, \
+    fix_rotationreference
+from submods.h5_helpers.modify_tec import fix_tecreference
+from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
+from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
+from submods.h5_helpers.general import make_utf8
+from arguments import option_parser
 
 
 logger = logging.getLogger(__name__)

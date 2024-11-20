@@ -29,8 +29,7 @@ except ImportError:
     from urllib2 import urlopen
 
 # Settings to potentially tweak
-summary_file_location = '/'.join(
-    os.path.dirname(os.path.abspath(__file__)).split('/')[0:-1]) + '/data/VLASS_dyn_summary.php'
+summary_file_location = '/'.join(os.path.dirname(os.path.abspath(__file__)).split('/')[0:-1]) + '/data/VLASS_dyn_summary.php'
 crop = True
 crop_scale = 256
 consider_QA_rejected = True

@@ -267,7 +267,22 @@ def write_ds9(fname, polygons):
         f.write("\n".join(polygon_strings))
 
 
-def main(args):
+def argparser():
+    parser = argparse.ArgumentParser(description='Make DS9 Voroni region tesselation region file for WSClean')
+    parser.add_argument('--ms', help='Measurement Set', type=str, required=True)
+    parser.add_argument('--h5', help='Multi-dir solution file with directions', type=str, required=True)
+    parser.add_argument('--DS9regionout', help='Output DS9 region file name (default=facets.reg)', type=str,
+                        default='facets.reg')
+    parser.add_argument('--imsize', help='image size, required if boxfile is not used', type=int, default=8192)
+    parser.add_argument('--pixelscale', help='pixels size in arcsec, default=1.5', type=float, default=1.5)
+    parser.add_argument('--plottesselation', help='Plot tesselation', action='store_true')
+    return parser.parse_args()
+
+
+def main():
+
+    args = argparser()
+
     # get phase centre from the ms in units of degrees
     t = pt.table(args.ms + '::FIELD', ack=False)
     phasedir = t.getcol('PHASE_DIR').squeeze()
@@ -337,15 +352,5 @@ def main(args):
     write_ds9(args.DS9regionout, facets_out)
     # write_ds9(args.DS9regionout, facets)
 
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Make DS9 Voroni region tesselation region file for WSClean')
-    parser.add_argument('--ms', help='Measurement Set', type=str, required=True)
-    parser.add_argument('--h5', help='Multi-dir solution file with directions', type=str, required=True)
-    parser.add_argument('--DS9regionout', help='Output DS9 region file name (default=facets.reg)', type=str,
-                        default='facets.reg')
-    parser.add_argument('--imsize', help='image size, required if boxfile is not used', type=int, default=8192)
-    parser.add_argument('--pixelscale', help='pixels size in arcsec, default=1.5', type=float, default=1.5)
-    parser.add_argument('--plottesselation', help='Plot tesselation', action='store_true')
-    args = parser.parse_args()
-    main(args)
+    main()

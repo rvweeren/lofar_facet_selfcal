@@ -11,6 +11,7 @@ description = "LOFAR facet selfcal"
 h5_merger = "submods.h5_merger:main"
 facetselfcal = "install.wrapper:main"
 sub_sources_outside_region = "submods.sub_sources_outside_region:main"
+ds9facetgenerator = "submods.ds9facetgenerator:main"
 
 [tool.setuptools]
 packages = ["install", "submods"]
