@@ -79,6 +79,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
 # modules
+from arguments import option_parser
 from submods.source_selection.selfcal_selection import main as quality_check
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
 from submods.h5_helpers.reset_structure import fix_h5
@@ -95,7 +96,8 @@ from submods.h5_helpers.modify_tec import fix_tecreference
 from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
 from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
 from submods.h5_helpers.general import make_utf8
-from arguments import option_parser
+from submods.source_selection.phasediff_output import GetSolint
+
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='selfcal.log',
@@ -8957,8 +8959,6 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
     :param nchan: n channels
     :param solint: solution interval
     """
-
-    from submods.source_selection.phasediff_output import GetSolint
 
     mslist_input = mslist[:]  # make a copy
 
