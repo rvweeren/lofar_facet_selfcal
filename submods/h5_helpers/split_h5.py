@@ -18,11 +18,11 @@ def split_h5_idx(multi_dir_h5, h5_out_name, idx):
     :param idx: index of direction to split
     """
 
-    shutil.copy(multi_dir_h5, h5_out_name+'.tmp')  # Make a separate copy for each direction
+    shutil.copy(multi_dir_h5, h5_out_name + '.tmp')  # Make a separate copy for each direction
 
     try:
         # open both input and output h5parms
-        with tables.open_file(multi_dir_h5, 'r') as h5_in, tables.open_file(h5_out_name+'.tmp', 'r+') as h5_out:
+        with tables.open_file(multi_dir_h5, 'r') as h5_in, tables.open_file(h5_out_name + '.tmp', 'r+') as h5_out:
 
             # iterate over solution sets (e.g., sol000, sol001, etc.)
             for solset in h5_out.root._v_groups.keys():

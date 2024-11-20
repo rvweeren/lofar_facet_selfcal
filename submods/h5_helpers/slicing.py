@@ -15,6 +15,7 @@ def get_double_slice(values, idx: list = None, axes: list = None):
     l[ax2] = id2
     return tuple(l)
 
+
 def get_slices(values, id: int = None, axis: int = None):
     """
     Get slice
@@ -26,6 +27,7 @@ def get_slices(values, id: int = None, axis: int = None):
     :return: slice
     """
     return tuple([slice(None)] * axis + [id] + [slice(None)] * (len(values.shape) - axis - 1))
+
 
 def get_double_slice_len(values, idx: list = None, axes: list = None):
     """

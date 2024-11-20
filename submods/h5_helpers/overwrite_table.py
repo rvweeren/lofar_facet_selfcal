@@ -2,6 +2,7 @@ import numpy as np
 import tables
 import sys
 
+
 def copy_over_source_direction_h5(h5ref, h5):
     """
     Replace source direction in h5 with the one in h5ref
@@ -11,6 +12,7 @@ def copy_over_source_direction_h5(h5ref, h5):
 
     overwrite_table(h5, 'source', refsource)
     return
+
 
 def overwrite_table(h5, table, new_arr):
     """

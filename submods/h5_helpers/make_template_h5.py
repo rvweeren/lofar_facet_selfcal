@@ -9,15 +9,16 @@ class Template:
     """
     Find closest h5 direction in merged h5
     """
+
     def __init__(self, h5_in, template_name):
 
-        os.system(' '.join(['cp', h5_in, template_name+'.tmp']))
+        os.system(' '.join(['cp', h5_in, template_name + '.tmp']))
 
         print(f'Created {template_name}')
 
-        self.name_out = template_name+'.tmp'
+        self.name_out = template_name + '.tmp'
 
-    def make_template(self, coord = [0., 0.]):
+    def make_template(self, coord=[0., 0.]):
         """
         Make template h5 with 1 direction
         """
@@ -71,10 +72,11 @@ class Template:
                         st._f_get_child('dir')._f_remove()
                         self.h5.create_array(st, 'dir', np.array([b'Dir00']).astype('|S5'))
                     else:
-                        print(f"WARNING: {soltab} to template? --> Script is not advanced enough to add {soltab} to template")
+                        print(
+                            f"WARNING: {soltab} to template? --> Script is not advanced enough to add {soltab} to template")
 
-        print(f'Repack {self.name_out} -> {self.name_out.replace(".tmp","")}')
-        os.system(f'h5repack {self.name_out} {self.name_out.replace(".tmp","")} && rm {self.name_out}')
+        print(f'Repack {self.name_out} -> {self.name_out.replace(".tmp", "")}')
+        os.system(f'h5repack {self.name_out} {self.name_out.replace(".tmp", "")} && rm {self.name_out}')
 
         return self
 

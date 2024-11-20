@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 import re
 
+
 def option_parser():
     parser = argparse.ArgumentParser(description='Self-Calibrate a facet from a LOFAR observation')
 
@@ -395,7 +396,8 @@ def option_parser():
                                 help='Remove the staions that have a flaging percentage above 85 percent',
                                 action='store_true')
 
-    startmodelparser = parser.add_argument_group("-------------------------Starting model Settings-------------------------")
+    startmodelparser = parser.add_argument_group(
+        "-------------------------Starting model Settings-------------------------")
     # Startmodel
     startmodelparser.add_argument('--skymodel',
                                   help='Skymodel for first selfcalcycle. The default is None.',
@@ -526,6 +528,7 @@ def arg_as_list(s):
         raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (s))
     return v
 
+
 def arg_as_str_or_list(s):
     if "[" not in s and "]" not in s:
         return str(s)
@@ -536,6 +539,7 @@ def arg_as_str_or_list(s):
 
     raise argparse.ArgumentTypeError(f'Argument "{s}" is not a string or list')
 
+
 def arg_as_float_or_list(s):
     try:
         return float(s)
@@ -544,6 +548,7 @@ def arg_as_float_or_list(s):
         if isinstance(v, list):
             return v
         raise argparse.ArgumentTypeError(f'Argument "{s}" is not a float or list')
+
 
 def str_or_int(arg):
     try:
@@ -554,6 +559,7 @@ def str_or_int(arg):
         return arg
     raise argparse.ArgumentTypeError("Input must be an int or string")
 
+
 def str_or_float(arg):
     try:
         return float(arg)  # try convert to int
@@ -562,6 +568,7 @@ def str_or_float(arg):
     if isinstance(arg, str):
         return arg
     raise argparse.ArgumentTypeError("Input must be an int or string")
+
 
 def floatlist_or_float(argin):
     if argin is None:
@@ -581,6 +588,7 @@ def floatlist_or_float(argin):
         return arg
     else:
         raise argparse.ArgumentTypeError("This needs to be a float or list of floats")
+
 
 def check_strlist_or_intlist(argin):
     """ Check if the argument is a list of integers or a list of strings with correct formatting.

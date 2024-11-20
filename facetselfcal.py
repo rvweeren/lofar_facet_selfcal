@@ -81,9 +81,12 @@ try:
     from submods.h5_merger import merge_h5
     from submods.h5_helpers.split_h5 import split_multidir
     from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
-    from submods.h5_helpers.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes, normslope_withmatrix,
-                                                        normamplitudes_withmatrix, flaglowamps, flaghighamps, flaghighamps_fulljones)
-    from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, fix_rotationreference
+    from submods.h5_helpers.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes,
+                                                     normslope_withmatrix,
+                                                     normamplitudes_withmatrix, flaglowamps, flaghighamps,
+                                                     flaghighamps_fulljones)
+    from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, \
+        fix_rotationreference
     from submods.h5_helpers.modify_tec import fix_tecreference
     from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
     from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
@@ -97,9 +100,12 @@ except ImportError:
     from .submods.h5_merger import merge_h5
     from .submods.h5_helpers.split_h5 import split_multidir
     from .submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
-    from .submods.h5_helpers.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes, normslope_withmatrix,
-                                                                         normamplitudes_withmatrix, flaglowamps, flaghighamps, flaghighamps_fulljones)
-    from .submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, fix_rotationreference
+    from .submods.h5_helpers.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes,
+                                                      normslope_withmatrix,
+                                                      normamplitudes_withmatrix, flaglowamps, flaghighamps,
+                                                      flaghighamps_fulljones)
+    from .submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, \
+        fix_rotationreference
     from .submods.h5_helpers.modify_tec import fix_tecreference
     from .submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
     from .submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
@@ -155,11 +161,11 @@ def set_channelsout(mslist, factor=1):
     f_bw = get_fractional_bandwidth(mslist)
 
     if telescope == 'LOFAR':
-        channelsout = round_up_to_even(f_bw*12*factor)
+        channelsout = round_up_to_even(f_bw * 12 * factor)
     elif telescope == 'MeerKAT':
-        channelsout = round_up_to_even(f_bw*16*factor)
+        channelsout = round_up_to_even(f_bw * 16 * factor)
     else:
-        channelsout = round_up_to_even(f_bw*12*factor)
+        channelsout = round_up_to_even(f_bw * 12 * factor)
     return channelsout
 
 
@@ -181,7 +187,7 @@ def get_image_dynamicrange(image):
     print('Compute image dynamic range (peak over rms): ', image)
     hdul = fits.open(image)
     image_rms = findrms(np.ndarray.flatten(hdul[0].data))
-    DR = np.nanmax(np.ndarray.flatten(hdul[0].data))/image_rms
+    DR = np.nanmax(np.ndarray.flatten(hdul[0].data)) / image_rms
     hdul.close()
     return DR
 
@@ -266,7 +272,6 @@ def get_fractional_bandwidth(mslist):
     return f_bw
 
 
-
 def remove_column_ms(mslist, colname):
     """
     Remove a column from a Measurement Set or a list of Measurement Sets.
@@ -280,6 +285,7 @@ def remove_column_ms(mslist, colname):
     for ms in mslist:
         with table(ms, readonly=False, ack=False) as ts:
             ts.removecols([colname])
+
 
 def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
     h5list_sols = []
@@ -605,7 +611,6 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
 
 
 def check_for_BDPbug_longsolint(mslist, facetdirections, args=None):
-
     dirs, solints, soltypelist_includedir = parse_facetdirections(facetdirections, 1000, args=args)
 
     if solints is None:
@@ -813,7 +818,7 @@ def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
     solints_out = []
     for solint in solints:
         if (float(ms_ntimes) / float(solint)) - (
-        np.floor(float(ms_ntimes) / float(solint))) > 0.5 or solint < ignorelessthan:
+                np.floor(float(ms_ntimes) / float(solint))) > 0.5 or solint < ignorelessthan:
             solints_out.append(solint)
     return solints_out
 
@@ -1609,7 +1614,8 @@ def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=Fals
         del weight, model_orig, model_new
 
 
-def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA', backup=True):
+def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA',
+                           backup=True):
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     stepsize = 1000000
@@ -1650,7 +1656,8 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updatewe
         del weight, model
 
 
-def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA'):
+def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False,
+                                updateweights_from_thiscolumn='MODEL_DATA'):
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
@@ -2488,7 +2495,6 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns):
         None
     """
 
-
     special_DIL = False
     with tables.open_file(h5parm, mode='r') as H:
         dirnames = None
@@ -3214,7 +3220,8 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     else:
         filename = fitsimage
 
-    img = bdsf.process_image(filename, mean_map='zero', rms_map=True, rms_box=(100, 10), frequency=150e6, beam=(25. / 3600, 25. / 3600, 0.0))
+    img = bdsf.process_image(filename, mean_map='zero', rms_map=True, rms_box=(100, 10), frequency=150e6,
+                             beam=(25. / 3600, 25. / 3600, 0.0))
     img.write_catalog(format='bbs', bbs_patches='source', outfile='tgss' + extrastrname + '.skymodel', clobber=True)
     # bbsmodel = 'bla.skymodel'
     del img
@@ -3257,6 +3264,7 @@ def getregionboxcenter(regionfile, standardbox=True):
 
     regioncenter = ('{:12.8f}'.format(ra) + 'deg,' + '{:12.8f}'.format(dec) + 'deg').replace(' ', '')
     return regioncenter
+
 
 def smearing_bandwidth(r, th, nu, dnu):
     """ Returns the left over intensity I/I0 after bandwidth smearing.
@@ -3735,7 +3743,8 @@ def makephaseCDFh5_h5merger(phaseh5, ms, modeldatacolumns, backup=True, testscfa
         os.system('rm -f ' + phaseh5 + '.in')
     os.system('mv ' + phaseh5 + ' ' + phaseh5 + '.in')
 
-    merge_h5(h5_out=phaseh5, h5_tables=phaseh5 + '.in', ms_files=ms, merge_all_in_one=merge_all_in_one, propagate_weights=True)
+    merge_h5(h5_out=phaseh5, h5_tables=phaseh5 + '.in', ms_files=ms, merge_all_in_one=merge_all_in_one,
+             propagate_weights=True)
     H5 = tables.open_file(phaseh5, mode='a')
 
     phaseCDF = H5.root.sol000.phase000.val[:]  # time, freq, ant, dir, pol
@@ -3861,6 +3870,7 @@ def fix_phasereference(h5parm, refant):
     H.flush()
     H.close()
     return
+
 
 def resetsolsforstations(h5parm, stationlist, refant=None):
     """ Reset solutions for stations
@@ -4626,6 +4636,7 @@ def which(file_name):
         if os.path.exists(full_path) and os.access(full_path, os.X_OK):
             return full_path
     return None
+
 
 def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mergedh5_i=None, facetregionfile=None):
     path = '/disks/ftphome/pub/vanweeren'
@@ -5802,6 +5813,7 @@ def fixbeam_ST001(H5name):
 
     return ST001
 
+
 def split_facetdirections(facetregionfile):
     """
     split composite facet region file into individual polygon region files
@@ -5810,6 +5822,7 @@ def split_facetdirections(facetregionfile):
     for facet_id, facet in enumerate(r):
         r[facet_id:facet_id + 1].write('facet' + str(facet_id) + '.reg')
     return
+
 
 def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, imsize=None,
                             pixelscale=None, numClusters=0, weightBySize=False,
@@ -5897,6 +5910,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     else:
         return solints, soltypelist_includedir
 
+
 def parse_facetdirections(facetdirections, selfcalcycle, args=None):
     """
        parse the facetdirections.txt file and return a list of facet directions
@@ -5947,6 +5961,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, args=None):
             return PatchPositions_array, None, soltypelist_includedir_sel
         else:
             return PatchPositions_array, None, None
+
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
                 channelsout, args, numClusters=0, facetdirections=None,
@@ -6070,11 +6085,13 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
     if telescope == 'LOFAR' and wscleanskymodel is None:  # not for MeerKAT because WSCclean still has a bug if no primary beam is used, for now assume we do not use a primary beam for MeerKAT
         if os.path.isfile(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt'):
             if fitspectralpol > 0:
-                dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt', 'facets.fits')
+                dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt',
+                                             'facets.fits')
             else:
                 dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
     return modeldatacolumns, dde_skymodel, solints, soltypelist_includedir
+
 
 def is_scalar_array_for_wsclean(h5list):
     is_scalar = True  # Start with True to catch cases where the last polarization dimension is missing
@@ -6090,6 +6107,7 @@ def is_scalar_array_for_wsclean(h5list):
                     pass
 
     return is_scalar
+
 
 # this version corrupts the MODEL_DATA column
 def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
@@ -6195,7 +6213,8 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
     for _ in mslist:
         pertubation.append(False)
 
-    parmdbmergelist = [[] for _ in range(len(mslist))]  # [[],[],[],[]] nested list length mslist used for Jurjen's h5_merge
+    parmdbmergelist = [[] for _ in
+                       range(len(mslist))]  # [[],[],[],[]] nested list length mslist used for Jurjen's h5_merge
     # LOOP OVER THE ENTIRE SOLTYPE LIST (so includes pertubations via a pre-applycal)
     for soltypenumber, soltype in enumerate(soltype_list):
         # SOLVE LOOP OVER MS
@@ -6233,7 +6252,6 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                 create_modeldata = True
                 if soltypenumber >= 1:
                     create_modeldata = False
-
 
                 runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb,
                             soltype,
@@ -6426,6 +6444,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
     else:
         return []
 
+
 def predictsky_wscleanfits(ms, imagebasename, usewgridder=True,
                            wgridderaccuracy=1e-4, nosmallinversion=False):
     """
@@ -6458,6 +6477,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
 
     print(cmd)
     run(cmd)
+
 
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
                 SMconstraint=0.0, SMconstraintreffreq=0.0,
@@ -6553,7 +6573,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
                                           updateweights=True, originalmodel='MODEL_DATA',
                                           newmodel='MODEL_DATA_PHASE_SLOPE', backup=True)
 
-    if soltype in ['phaseonly', 'complexgain', 'fulljones', 'rotation+diagonal', 'amplitudeonly', 'rotation+diagonalamplitude',
+    if soltype in ['phaseonly', 'complexgain', 'fulljones', 'rotation+diagonal', 'amplitudeonly',
+                   'rotation+diagonalamplitude',
                    'rotation+diagonalphase']:  # for 1D plotting
         onepol = False
     if soltype in ['scalarphase', 'tecandphase', 'tec', 'scalaramplitude',
@@ -6929,7 +6950,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
                    'rotation+scalar', 'rotation+scalaramplitude']:
         if resetdir is not None or resetsols is not None:
             flag_bad_amps(parmdb, setweightsphases=includesphase, flagamp1=False,
-                        flagampxyzero=False)  # otherwise it flags the solutions which where reset
+                          flagampxyzero=False)  # otherwise it flags the solutions which where reset
         else:
             flag_bad_amps(parmdb, setweightsphases=includesphase)
         if soltype == 'fulljones':
@@ -7049,6 +7070,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
         force_close(parmdb)
     return
 
+
 def mask_region_inv(infilename, ds9region, outfilename):
     hdu = fits.open(infilename)
     hduflat = flatten(hdu)
@@ -7071,6 +7093,7 @@ def mask_region(infilename, ds9region, outfilename):
     hdu[0].data[0][0][np.where(manualmask == True)] = 0.0
     hdu.writeto(outfilename, overwrite=True)
     return
+
 
 def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                        channelsout, single_dual_speedup=True,
@@ -7178,6 +7201,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                 dataincolumn=datacolumn)
 
     return
+
 
 def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robust=-0.5,
               uvtaper=None, multiscale=False, predict=True, onlypredict=False, fitsmask=None,
@@ -7618,6 +7642,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             print(cmd)
             run(cmd)
 
+
 def removeneNaNfrommodel(imagenames):
     """
     replace NaN/inf pixels values in WSCLEAN model images with zeros
@@ -7631,6 +7656,7 @@ def removeneNaNfrommodel(imagenames):
             hdul[0].data = data
             hdul.writeto(image, overwrite=True)
     return
+
 
 def removenegativefrommodel(imagenames):
     """
@@ -7666,6 +7692,7 @@ def removenegativefrommodel(imagenames):
 
     return
 
+
 def checkforzerocleancomponents(imagenames):
     """ Check if something was cleaned, if not stop de script to avoid more obscure errors later
 
@@ -7690,6 +7717,7 @@ def checkforzerocleancomponents(imagenames):
         return True
     else:
         return False
+
 
 def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms, dryrun=False):
     modeldatacolumns_solve = []
@@ -7791,6 +7819,7 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
 
     return modeldatacolumns_solve_newnames, sourcedir[id_removed][:], id_kept
 
+
 def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
     import lsmtool
     print('Loading:', skymodelin)
@@ -7802,6 +7831,7 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
     else:
         LSM.write('grouped_' + skymodelin, clobber=True)
         return 'grouped_' + skymodelin
+
 
 def findrms(mIn, maskSup=1e-7):
     """
@@ -7838,6 +7868,7 @@ def _add_astropy_beam(fitsname):
     bminpix = bmin / cdelt
     ellipse = matplotlib.patches.Ellipse((20, 20), bmajpix, bminpix, bpa)
     return ellipse
+
 
 def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
     # image noise for plotting
@@ -7878,6 +7909,7 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None)
     logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
     return
 
+
 def plotimage(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
     """
     Tries to plot the image using astropy first, and falls back to aplpy if astropy fails.
@@ -7887,6 +7919,7 @@ def plotimage(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
     except Exception as e:
         print(f"Astropy plotting failed with error: {e}. Switching to aplpy.")
         plotimage_aplpy(fitsimagename, outplotname, mask, rmsnoiseimage)
+
 
 def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
     import aplpy
@@ -7935,6 +7968,7 @@ def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
     logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
     return
 
+
 def flatten(f):
     """ Flatten a fits file so that it becomes a 2D image. Return new header and data """
 
@@ -7969,6 +8003,7 @@ def flatten(f):
 
     hdu = fits.PrimaryHDU(header=header, data=f[0].data[tuple(slice)])
     return hdu
+
 
 def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
                          circ2lin=False, losotobeamlib='stationresponse', update_poltable=True, idg=False):
@@ -8310,7 +8345,8 @@ def change_refant(parmdb, soltab):
         if refant != ' ':
             for antennaid, antenna in enumerate(antennas):
                 if 'pol' in axesnames:
-                    phases[:, :, antennaid, :, :] = phases[:, :, antennaid, :, :] - phases[:, :, antennas.index(refant), :,
+                    phases[:, :, antennaid, :, :] = phases[:, :, antennaid, :, :] - phases[:, :, antennas.index(refant),
+                                                                                    :,
                                                                                     :]
                 else:
                     # phases[:,antennaid,:,:] = phases[:,antennaid,:,:] - phases[:,antennas.index(refant),:,:]
@@ -8962,7 +8998,6 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
         # Reference solution interval
         ref_solint = solint
 
-
         print(scorelist)
 
         # Set optimal std score
@@ -9281,7 +9316,8 @@ def main():
 
     if not args['skipbackup']:  # work on copy of input data as a backup
         print('Creating a copy of the data and work on that....')
-        mslist = average(mslist, freqstep=[0] * len(mslist), timestep=1, start=args['start'], makecopy=True, dysco=args['dysco'])
+        mslist = average(mslist, freqstep=[0] * len(mslist), timestep=1, start=args['start'], makecopy=True,
+                         dysco=args['dysco'])
 
     # take out bad WEIGHT_SPECTRUM values if weightspectrum_clipvalue is set
     if args['weightspectrum_clipvalue'] is not None:

@@ -31,6 +31,7 @@ def update_sourcedirname_h5_dde(h5, modeldatacolumns):
 
     print('Done updating direction names.')
 
+
 def update_sourcedir_h5_dde(h5, sourcedirpickle, dir_id_kept=None):
     f = open(sourcedirpickle, 'rb')
     sourcedir = pickle.load(f)

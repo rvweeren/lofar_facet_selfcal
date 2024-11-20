@@ -107,4 +107,3 @@ class multiprocManager(object):
 
         # wait for all jobs to finish
         self.inQueue.join()
-

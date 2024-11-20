@@ -4,6 +4,7 @@ from losoto import h5parm
 from .slicing import get_double_slice, get_double_slice_len
 import sys
 
+
 def flaglowamps(parmdb, lowampval=0.1, flagging=True, setweightsphases=True):
     """
     flag bad amplitudes in H5 parmdb, those with values < lowampval
@@ -36,6 +37,7 @@ def flaglowamps(parmdb, lowampval=0.1, flagging=True, setweightsphases=True):
     H5.close()
     return
 
+
 def flaghighamps(parmdb, highampval=10., flagging=True, setweightsphases=True):
     """
     flag bad amplitudes in H5 parmdb, those with values > highampval
@@ -67,6 +69,7 @@ def flaghighamps(parmdb, highampval=10., flagging=True, setweightsphases=True):
     # H5.getSolset('sol000').getSoltab('amplitude000').flush()
     H5.close()
     return
+
 
 def flaghighamps_fulljones(parmdb, highampval=10., flagging=True, setweightsphases=True):
     """
@@ -124,6 +127,7 @@ def flaghighamps_fulljones(parmdb, highampval=10., flagging=True, setweightsphas
             H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
     H5.close()
     return
+
 
 def flag_bad_amps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=True):
     """
@@ -245,6 +249,7 @@ def flag_bad_amps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=Tr
         H.close()
     return
 
+
 def get_median_amp(h5):
     # assume pol-axis is present (can handle length, 1 (scalar), 2 (diagonal), or 4 (fulljones))
     H = tables.open_file(h5)
@@ -297,6 +302,7 @@ def get_median_amp(h5):
     print('Median Stokes I amplitude of ' + h5 + ': ' + str(medamps))
     return medamps
 
+
 def get_all_antennas_from_h5list(h5list):
     """
     Get all unique antenna names in a list of h5 files.
@@ -339,6 +345,7 @@ def get_all_antennas_from_h5list(h5list):
 
     return np.unique(antennas)
 
+
 def h5_has_dir(h5):
     """Check if any sol set contains 'dir' in its AXES attributes."""
     with tables.open_file(h5) as H:
@@ -349,6 +356,7 @@ def h5_has_dir(h5):
             except AttributeError:
                 continue
     return False
+
 
 def normamplitudes_withmatrix(parmdblist):
     """
@@ -394,6 +402,7 @@ def normamplitudes_withmatrix(parmdblist):
         H.flush()
         H.close()
     return
+
 
 def normamplitudes(parmdb, norm_per_ms=False, norm_per_ant=False):
     """
@@ -891,6 +900,7 @@ def normamplitudes_old(parmdb, norm_per_ms=False):
             H5.close()
     return
 
+
 def get_matrix_forampnorm(parmdblist):
     assert type(parmdblist) == list, 'input is not list'  # use only lists as input
     allantenna = get_all_antennas_from_h5list(parmdblist)
@@ -934,6 +944,7 @@ def get_matrix_forampnorm(parmdblist):
                     # matrix_slope[h5_id,ant_id,dir_id] = np.mean(np.diff(np.log10(amps_sel[idx])))
     return matrix_amps, matrix_weights
 
+
 def normslope_withmatrix(parmdblist):
     """
     Global slope normalization per direction
@@ -975,6 +986,7 @@ def normslope_withmatrix(parmdblist):
         H.flush()
         H.close()
     return
+
 
 def get_matrix_forslopenorm(parmdblist):
     assert type(parmdblist) == list, 'input is not list'  # use only lists as input

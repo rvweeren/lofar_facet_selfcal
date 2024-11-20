@@ -1,6 +1,7 @@
 import tables
 import numpy as np
 
+
 def rotationmeasure_to_phase(H5filein, H5fileout, dejump=False):
     # note for scalarphase/phaseonly solve, does not work for tecandphase as freq axis is missing there for phase000
     H5in = tables.open_file(H5filein, mode='r')
@@ -32,6 +33,7 @@ def rotationmeasure_to_phase(H5filein, H5fileout, dejump=False):
     H5in.close()
     return
 
+
 def fix_weights_rotationh5(h5parm):
     """
      DP3 bug causing weird weight values in rotation000, fix these
@@ -59,6 +61,7 @@ def fix_weights_rotationh5(h5parm):
 
     # Update amplitude000 weights
     update_weights(h5parm, 'amplitude000')
+
 
 def fix_rotationreference(h5parm, refant):
     """ Phase reference rotation values with respect to a reference station

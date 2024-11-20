@@ -2,6 +2,7 @@ from losoto import h5parm
 import numpy as np
 import tables
 
+
 def remove_nans(parmdb, soltab):
     """
     Remove NaN values in an h5parm solution table by setting default values based on the solution type.
@@ -33,6 +34,7 @@ def remove_nans(parmdb, soltab):
     solset.setValues(weights, weight=True)
     solset.setValues(vals)
     H5.close()
+
 
 def removenans_fulljones(parmdb):
     """ Remove nan values in full jones h5parm

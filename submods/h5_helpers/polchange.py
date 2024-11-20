@@ -30,6 +30,7 @@ YY = RR - RL - LR + LL
 -----------------------------
 """
 
+
 def overwrite_table(T, solset, table, values, title=None):
     """
     Create table for given solset, opened with the package tables.
@@ -73,6 +74,7 @@ def overwrite_table(T, solset, table, values, title=None):
     T.create_table(ss, table, values, title=title)
 
     return
+
 
 class PolChange:
     """
