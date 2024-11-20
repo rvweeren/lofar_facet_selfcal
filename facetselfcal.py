@@ -80,22 +80,22 @@ if __package__:
     sys.path.append(current_dir)
 
 # modules
-from lofar_facet_selfcal.submods import main as quality_check
-from lofar_facet_selfcal.submods import regularize_ms, split_ms
-from lofar_facet_selfcal.submods import fix_h5
-from lofar_facet_selfcal.submods import merge_h5
-from lofar_facet_selfcal.submods import split_multidir
-from lofar_facet_selfcal.submods import copy_over_source_direction_h5
-from lofar_facet_selfcal.submods import (flag_bad_amps, get_median_amp, normamplitudes,
-                                         normslope_withmatrix,
-                                         normamplitudes_withmatrix, flaglowamps, flaghighamps,
-                                         flaghighamps_fulljones)
-from lofar_facet_selfcal.submods import rotationmeasure_to_phase, fix_weights_rotationh5, \
+from submods.source_selection.selfcal_selection import main as quality_check
+from submods.split_irregular_timeaxis import regularize_ms, split_ms
+from submods.h5_helpers.reset_structure import fix_h5
+from submods.h5_merger import merge_h5
+from submods.h5_helpers.split_h5 import split_multidir
+from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
+from submods.h5_helpers.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes,
+                                                 normslope_withmatrix,
+                                                 normamplitudes_withmatrix, flaglowamps, flaghighamps,
+                                                 flaghighamps_fulljones)
+from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, \
     fix_rotationreference
-from lofar_facet_selfcal.submods import fix_tecreference
-from lofar_facet_selfcal.submods import remove_nans, removenans_fulljones
-from lofar_facet_selfcal.submods import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
-from lofar_facet_selfcal.submods import make_utf8
+from submods.h5_helpers.modify_tec import fix_tecreference
+from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
+from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
+from submods.h5_helpers.general import make_utf8
 from arguments import option_parser
 
 
