@@ -29,9 +29,7 @@ from scipy.ndimage import gaussian_filter1d as gfilter
 
 import casacore.tables as pt
 
-from lofar_facet_selfcal.old_functions.lib_multiproc import multiprocManager
-
-
+from lib_multiproc import multiprocManager
 
 def addcol(ms, incol, outcol):
     """ Add a new column to a MS. """
