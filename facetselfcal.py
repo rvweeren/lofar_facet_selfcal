@@ -9402,8 +9402,8 @@ def main():
     # create facets.reg so we have it avaialble for image000
     # so that we can use WSClean facet mode, but without having h5 DDE solutions
     if args['facetdirections'] is not None and args['start'] == 0:
-        create_facet_directions(None, 0, ms=mslist[0], imsize=args['imsize'], \
-                                pixelscale=args['pixelscale'], facetdirections=args['facetdirections'], \
+        create_facet_directions(None, 0, ms=mslist[0], imsize=args['imsize'],
+                                pixelscale=args['pixelscale'], facetdirections=args['facetdirections'],
                                 args=args)
         facetregionfile = 'facets.reg'  # so when making image000 we can use it without having h5 DDE solutions
 
