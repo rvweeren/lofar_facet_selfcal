@@ -1,4 +1,4 @@
-# lofar_facet_selfcal
+# LOFAR facet self-calibration
 Selfcalibration for individual LOFAR sources and facets. If you use facetselfcal or extraction for scientific work, please cite the van Weeren et al. (2021, A&A, 651, 115) paper. 
 
 Requirements:
