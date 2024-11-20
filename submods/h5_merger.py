@@ -31,15 +31,12 @@ import tables
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 from casacore import tables as ct
-
-# Project-specific imports
 from losoto.h5parm import h5parm
 from losoto.lib_operations import reorderAxes
 
 # Required for running python package with relative imports
-if __package__:
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    sys.path.append(current_dir)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(current_dir)
 
 from h5_helpers.polchange import PolChange, overwrite_table
 from h5_helpers.slicing import get_slices

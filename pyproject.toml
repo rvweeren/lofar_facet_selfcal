@@ -9,10 +9,10 @@ description = "LOFAR facet selfcal"
 
 [project.scripts]
 h5_merger = "submods.h5_merger:main"
-facetselfcal = "install.wrapper:main"
+facetselfcal = "facetselfcal.main:main"
 sub_sources_outside_region = "submods.sub_sources_outside_region:main"
 ds9facetgenerator = "submods.ds9facetgenerator:main"
 
 [tool.setuptools]
-packages = ["install", "submods", "submods.h5_helpers", "submods.source_selection"]
+packages = ["facetselfcal", "submods", "submods.h5_helpers", "submods.source_selection"]
 include-package-data = true
