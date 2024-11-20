@@ -14,5 +14,5 @@ sub_sources_outside_region = "submods.sub_sources_outside_region:main"
 ds9facetgenerator = "submods.ds9facetgenerator:main"
 
 [tool.setuptools]
-packages = ["install", "submods", "h5_helpers", "source_selection"]
+packages = ["install", "submods", "submods.h5_helpers", "submods.source_selection"]
 include-package-data = true
