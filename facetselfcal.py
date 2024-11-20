@@ -9098,9 +9098,9 @@ def create_Ateam_seperation_plots(mslist, start=0):
     for ms in mslist:
         outputname = 'Ateam_' + ms + '.png'
         try:
-            run(f'{scriptpath}/check_Ateam_separation.py --outputimage=' + outputname + ' ' + ms)
+            run(f'check_Ateam_separation.py --outputimage=' + outputname + ' ' + ms)
         except Exception:
-            print(f"{scriptpath}/check_Ateam_separation.py does not exist")
+            print(f"check_Ateam_separation.py does not exist")
     return
 
 

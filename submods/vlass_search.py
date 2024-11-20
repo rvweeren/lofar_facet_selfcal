@@ -29,7 +29,7 @@ except ImportError:
     from urllib2 import urlopen
 
 #Settings to potentially tweak
-summary_file_location = "VLASS_dyn_summary.php"
+summary_file_location = "../data/VLASS_dyn_summary.php" #TODO: correct path
 crop = True
 crop_scale = 256
 consider_QA_rejected = True
