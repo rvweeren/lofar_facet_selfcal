@@ -44,7 +44,7 @@ try:
     from h5_helpers.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
 except ModuleNotFoundError:
     # Relative import (works when running as part of the package)
-    from .submods.h5_helpers.polchange import PolChange, overwrite_table
+    from .h5_helpers.polchange import PolChange, overwrite_table
     from .h5_helpers.slicing import get_slices
     from .h5_helpers.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
 
