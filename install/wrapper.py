@@ -2,10 +2,12 @@ import sys
 import os
 
 # Add the parent directory to sys.path to allow imports from it
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, parent_dir)  # Insert at the start to prioritize this path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
+sys.path.append(current_dir)
 
-print(sys.path)
+print(sys)
 
 # Import the main function from facetselfcal.py in the parent directory
 from facetselfcal import main as facetselfcal_main
