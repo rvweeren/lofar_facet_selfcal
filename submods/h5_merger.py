@@ -39,9 +39,9 @@ from losoto.lib_operations import reorderAxes
 # Sub-modules
 try:
     # Absolute import (works when running the script directly)
-    from h5_helpers.polchange import PolChange, overwrite_table
-    from h5_helpers.slicing import get_slices
-    from h5_helpers.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
+    from submods.h5_helpers.polchange import PolChange, overwrite_table
+    from submods.h5_helpers.slicing import get_slices
+    from submods.h5_helpers.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
 except ModuleNotFoundError:
     # Relative import (works when running as part of the package)
     from .h5_helpers.polchange import PolChange, overwrite_table
