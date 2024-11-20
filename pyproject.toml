@@ -13,4 +13,4 @@ facetselfcal = "install.wrapper:main"
 sub_sources_outside_region = "submods.sub_sources_outside_region:main"
 
 [tool.setuptools]
-packages = ["h5_helpers", "install", "subtract"]
+packages = ["install", "submods"]
