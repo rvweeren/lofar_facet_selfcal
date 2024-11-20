@@ -9243,8 +9243,6 @@ def main():
     global submodpath, datapath
     datapath = os.path.dirname(os.path.abspath(__file__))
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
-    print(datapath, submodpath)
-    sys.exit()
     os.system(f'cp {submodpath}/submods/polconv.py .')
 
     # copy h5s locally
