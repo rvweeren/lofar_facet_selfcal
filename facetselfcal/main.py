@@ -8722,7 +8722,7 @@ def check_valid_ms(mslist):
             print('ERROR, ', ms, 'not enough timesteps in ms/too short observation')
             print('---------------------------------------------------------------------------')
             raise Exception(
-                'You are providing a MS with less than 20 timeslots, that is not enough to self-calibrate on')
+                'You are providing an MS with less than 21 timeslots, that is not enough to self-calibrate on')
         t.close()
     return
 
