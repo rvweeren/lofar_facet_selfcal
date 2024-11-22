@@ -5,7 +5,7 @@ import casacore.tables as pt
 import numpy as np
 import os
 from astropy.time import Time
-from casacore.tables import table, msregularize
+from casacore.tables import msregularize
 import sys
 import argparse
 

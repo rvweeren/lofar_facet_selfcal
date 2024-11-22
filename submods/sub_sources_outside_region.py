@@ -665,11 +665,11 @@ def main():
         fullmask = args['HMPmodelfits']
 
     if not os.path.isfile(args['mslist']):
-        # try to make it
-        from make_mslists import make_list
-        success = make_list(workdir=os.getcwd())
-        if not os.path.isfile(args['mslist']):
-            raise IOError('File', args['mslist'], 'does not exist and could not be created')
+        # # try to make it
+        # from make_mslists import make_list
+        # success = make_list(workdir=os.getcwd())
+        # if not os.path.isfile(args['mslist']):
+        raise IOError('File', args['mslist'], 'does not exist and could not be created')
 
     boxfile = args['boxfile']
     ncpu = args['ncpu']

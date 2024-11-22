@@ -41,7 +41,7 @@ sys.path.append(current_dir)
 from h5_helpers.polchange import PolChange, overwrite_table
 from h5_helpers.slicing import get_slices
 from h5_helpers.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
-
+from h5_helpers.make_template_h5 import Template
 
 warnings.filterwarnings('ignore')
 
@@ -1618,10 +1618,8 @@ class MergeH5:
                             if self.merge_all_in_one:
                                 m = 0
 
-                            newvals = self._interp_along_axis(weight, st2.time[:], st.time[:], axes_new.index('time'),
-                                                              fill_value=1.).astype(float32)
-                            newvals = self._interp_along_axis(newvals, st2.freq[:], st.freq[:], axes_new.index('freq'),
-                                                              fill_value=1.).astype(float32)
+                            newvals = self._interp_along_axis(weight, st2.time[:], st.time[:], axes_new.index('time')).astype(float32)
+                            newvals = self._interp_along_axis(newvals, st2.freq[:], st.freq[:], axes_new.index('freq')).astype(float32)
 
                             if weight.shape[-2] != 1 and len(weight.shape) == 5:
                                 print("Merge multi-dir weights")
@@ -2212,10 +2210,6 @@ def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, conv
 
     # If add direction
     if add_directions:
-        try:
-            from utils.make_template_h5 import Template
-        except ImportError:
-            print("Missing h5_helpers.make_template_h5.\nPlease ensure you are running h5_merger.py from lofar_facet_selfcal")
         if type(add_directions) == list:
             outcoor = add_directions
         else:

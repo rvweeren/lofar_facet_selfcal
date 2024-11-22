@@ -7,6 +7,7 @@ import numpy as np
 import argparse
 import sys
 import casacore.tables as pt
+import matplotlib.pyplot as plt
 
 from shapely.geometry import Polygon
 from shapely.geometry import Point
@@ -143,7 +144,6 @@ def tessellate(x_pix, y_pix, w, dist_pix, bbox, plot_tesselation=True):
         clipped_polygons.append(polygon_intersect(bbox, polygon))
 
     if plot_tesselation:
-        import matplotlib.pyplot as plt
         [plt.plot(*poly.exterior.xy) for poly in clipped_polygons]
         plt.xlabel('Right Ascension [pixels]')
         plt.ylabel('Declination [pixels]')
