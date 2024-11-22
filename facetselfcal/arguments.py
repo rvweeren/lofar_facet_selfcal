@@ -245,11 +245,11 @@ def option_parser():
                                    default=[None],
                                    help="Update April 2024: Avoid usage because of corrupt vs correct. List of H5 files to preapply (one for each MS). The default is [None].")
     calibrationparser.add_argument('--normamps',
-                                   help='Normalize global amplitudes to 1.0. The default is True (False if fulljones is used).',
+                                   help='Normalize global amplitudes to 1.0. The default is True (False if fulljones is used). Note that if set to False --normamps-list is ignored.',
                                    type=ast.literal_eval,
                                    default=True)
     calibrationparser.add_argument('--normampsskymodel',
-                                   help='Normalize global amplitudes to 1.0 when solving against an external skymodel. The default is False (turned off if fulljones is used).',
+                                   help='Normalize global amplitudes to 1.0 when solving against an external skymodel. The default is False (turned off if fulljones is used). Note that this parameter is False (the default) --normamps-list is ignored for the solve against the skymodel.',
                                    type=ast.literal_eval,
                                    default=False)
     calibrationparser.add_argument('--normamps-per-ms',

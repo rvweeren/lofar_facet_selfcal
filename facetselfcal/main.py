@@ -6820,12 +6820,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
         outparmdb = 'adddirback' + parmdb
         if os.path.isfile(outparmdb):
             os.system('rm -f ' + outparmdb)
-        merge_h5(h5_out=outparmdb, h5_tables=parmdb, add_directions=sourcedir_removed.tolist())
+        merge_h5(h5_out=outparmdb, h5_tables=parmdb, add_directions=sourcedir_removed.tolist(), propagate_weights=False)
 
         # now we split them all into separate h5 per direction so we can reorder and fill them
+        print('Splitting directions into separate h5')
         split_multidir(outparmdb)
 
         # fill the added emtpy directions with the closest ones that were solved for
+        print('Copy over solutions from skipped directions')
         copy_over_solutions_from_skipped_directions(modeldatacolumns, dir_id_kept)
 
         # create backup of parmdb and remove orginal and cleanup
@@ -6835,6 +6837,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
 
         # merge h5 files in order of the directions in facetdirections.p and recreate parmdb
         # clean up previously splitted directions inside this function
+        print('Merge h5 files in correct order and recreate parmdb')
         merge_splitted_h5_ordered(modeldatacolumns, parmdb, clean_up=True)
 
         # fix direction names
