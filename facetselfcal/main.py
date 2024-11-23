@@ -9237,7 +9237,7 @@ def main():
 
     if args['stack']:
         args[
-            'dysco'] = False  # no dysco compression allowed as this the various steps violate the assumptions that need to be valud for proper dysco compression
+            'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
     version = '11.3.0'
@@ -9246,12 +9246,12 @@ def main():
     global submodpath, datapath
     datapath = os.path.dirname(os.path.abspath(__file__))
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
-    os.system(f'cp {submodpath}/submods/polconv.py .')
+    os.system(f'cp {submodpath}/polconv.py .')
 
     # copy h5s locally
     for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
         if h5parmdb is not None:
-            os.system('cp ' + h5parmdb + ' .')  # make them local because source direction will ne updated for merging
+            os.system('cp ' + h5parmdb + ' .')  # make them local because source direction will be updated for merging
             args['preapplyH5_list'][h5parm_id] = h5parmdb.split('/')[-1]  # update input list to local location
 
     # reorder lists based on sorted(args['ms'])
