@@ -387,6 +387,7 @@ def return_antennas_highflaggingpercentage(ms, percentage=0.85):
 
     flaggedants = [row["antname"] for row in t]
     print('Found:', flaggedants)
+    t.close()
     return flaggedants
 
 
