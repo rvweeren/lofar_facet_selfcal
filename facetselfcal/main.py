@@ -2431,7 +2431,7 @@ def runaoflagger(mslist, strategy=None):
     """
     for ms in mslist:
         if strategy is not None:
-            cmd = 'aoflagger -strategy ' + strategy + ' ' + ms
+            cmd = 'aoflagger -strategy ' + f'{datapath}/flagging_strategies/' + strategy + ' ' + ms
         else:
             cmd = 'aoflagger ' + ms
         print(cmd)
@@ -9315,7 +9315,7 @@ def main():
 
     # extra flagging if requested
     if args['start'] == 0 and args['useaoflagger'] and args['useaoflaggerbeforeavg']:
-        runaoflagger(mslist, strategy=f'{datapath}/flagging_strategies/' + args['aoflagger_strategy'])
+        runaoflagger(mslist, strategy=args['aoflagger_strategy'])
 
     # create Ateam plots
     create_Ateam_seperation_plots(mslist, start=args['start'])
