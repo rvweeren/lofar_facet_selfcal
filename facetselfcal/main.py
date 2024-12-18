@@ -2260,7 +2260,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 else:
                     cmd += ' steps=[shift,av] '
                 cmd += ' shift.type=phaseshifter '
-                cmd += ' shift.phasecenter=\[' + getregionboxcenter(phaseshiftbox) + '\] '
+                cmd += ' shift.phasecenter=\\[' + getregionboxcenter(phaseshiftbox) + '\\] '
             else:
                 if removeinternational:
                     cmd += ' steps=[f,av] '
@@ -3381,7 +3381,7 @@ def calculate_restoringbeam(mslist, LBA):
 
 
 def print_title(version):
-    print("""
+    print(r"""
               __        ______    _______    ___      .______      
              |  |      /  __  \  |   ____|  /   \     |   _  \     
              |  |     |  |  |  | |  |__    /  ^  \    |  |_)  |    
@@ -5905,7 +5905,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, args=None):
        for the given selfcalcycle. In the future, this function should also return a
        list of solints, nchans and other things
     """
-    data = ascii.read(facetdirections, format='commented_header', comment="\s*#")
+    data = ascii.read(facetdirections, format='commented_header', comment="\\s*#")
     ra, dec = data['RA'], data['DEC']
     try:
         start = data['start']
