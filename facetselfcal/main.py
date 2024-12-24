@@ -165,6 +165,20 @@ def update_fitspectralpol(args):
         args['fitspectralpol'] = set_fitspectralpol(args['channelsout'])
     return args['fitspectralpol']
 
+def get_image_size(fitsimage):
+    """ 
+    Find the dimensions of a FITS image.
+    Args:
+        fitsimage (str): path to the FITS file.
+    Returns:
+        imsize (tuple): dimensions of the 2D image
+    """
+    hdulist = fits.open(fitsimage)
+    shape = hdulist[0].data.squeeze().shape # squeeze out dimensions of 1
+    hdulist.close()
+    return shape
+  
+
 
 def get_image_dynamicrange(image):
     """
@@ -7462,7 +7476,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 cmd += '-multiscale-max-scales ' + str(int(multiscalemaxscales)) + ' '
         if fitsmask is not None and fitsmask != 'nofitsmask':
             if os.path.isfile(fitsmask):
-                cmd += '-fits-mask ' + fitsmask + ' '
+                shape = get_image_size(fitsmask)
+                if (shape[0] == int(imsize)) and (shape[1] == int(imsize)): # to allow for a restart with different imsize
+                    cmd += '-fits-mask ' + fitsmask + ' '
             else:
                 print('fitsmask: ', fitsmask, 'does not exist')
                 raise Exception('fitsmask does not exist')
