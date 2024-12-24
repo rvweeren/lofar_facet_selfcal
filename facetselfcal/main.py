@@ -9153,6 +9153,18 @@ def nested_mslistforimaging(mslist, stack=False):
             mslistreturn.append([ms])
         return mslistreturn  # has format [[ms1.ms],[ms2.ms],[...]]
 
+def flag_autocorr(mslist):
+    '''
+    Flag autocorrelations in MS
+    input: list of MS
+    '''
+    for ms in mslist:
+       cmd = 'DP3 msin=' + ms + ' msout=. steps=[pr] '
+       cmd += 'pr.type=preflagger pr.corrtype=auto'
+       run(cmd)
+    return   
+
+
 
 def mslist_return_stack(mslist, stack):
     if stack:
@@ -9427,7 +9439,11 @@ def main():
     if args['flagtimesmeared'] and args['start'] == 0:
         for ms in mslist:
             flag_smeared_data(ms)
-
+    
+    # flag autocorrelations for MeerKAT (these are not flagged by the SDP pipeline)
+    if telescope == 'MeerKAT' and args['start'] == 0:
+        flag_autocorr(mslist)
+  
     wsclean_h5list = []
     facetregionfile = None
     soltypelist_includedir = None
