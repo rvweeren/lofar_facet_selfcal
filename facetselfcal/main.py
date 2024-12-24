@@ -9389,7 +9389,7 @@ def main():
 
     # AVERAGE if requested/possible
     mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'],
-                     start=args['start'], msinnchan=args['msinnchan'], msinstartchan=['msinstartchan'],
+                     start=args['start'], msinnchan=args['msinnchan'], msinstartchan=args['msinstartchan'],
                      phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'],
                      dysco=args['dysco'], removeinternational=args['removeinternational'],
                      removemostlyflaggedstations=args['removemostlyflaggedstations'])
