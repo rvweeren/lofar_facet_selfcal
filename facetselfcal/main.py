@@ -9161,6 +9161,7 @@ def flag_autocorr(mslist):
     for ms in mslist:
        cmd = 'DP3 msin=' + ms + ' msout=. steps=[pr] '
        cmd += 'pr.type=preflagger pr.corrtype=auto'
+       print(cmd)
        run(cmd)
     return   
 
