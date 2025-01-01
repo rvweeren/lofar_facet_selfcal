@@ -7229,7 +7229,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         predict_inmodelcol = True
     else:
         predict_inmodelcol = False
-
+    predict_inmodelcol = False # temporary set to False because of DP3 storagemanager bug
+                
     fitspectrallogpol = False  # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     if idg:
