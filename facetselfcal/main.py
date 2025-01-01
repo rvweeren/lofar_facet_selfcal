@@ -6441,7 +6441,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
     ## --- end STACK code ---
 
     if len(modeldatacolumns) > 0:
-        np.save('wsclean_h5list.npy', wsclean_h5list)
+        np.save('wsclean_h5list' + str(selfcalcycle).zfill(3) + '.npy', wsclean_h5list)
         return wsclean_h5list
     else:
         return []
@@ -9598,7 +9598,7 @@ def main():
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope,
                             targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
                             disable_primary_beam=args['disable_primary_beam']))
-            wsclean_h5list = list(np.load('wsclean_h5list.npy'))
+            wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
 
         #  --- start imaging part ---
         for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
