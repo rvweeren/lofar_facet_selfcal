@@ -379,7 +379,7 @@ def option_parser():
                                 help='Run AOflagger on input data.',
                                 action='store_true')
     flaggingparser.add_argument('--aoflagger-strategy',
-                                help='Use this strategy for AOflagger (options are: "default_StokesV.lua", "LBAdefaultwideband.lua")',
+                                help='Use this strategy for AOflagger (options are: "default_StokesV.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',
                                 default=None,
                                 type=str)
     flaggingparser.add_argument('--useaoflaggerbeforeavg',
