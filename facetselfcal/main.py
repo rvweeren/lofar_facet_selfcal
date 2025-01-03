@@ -2522,7 +2522,8 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns):
 
 
 def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
-             msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None, find_closestdir=False):
+             msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
+             find_closestdir=False, updateweights=False):
     """ Apply an H5parm to a Measurement Set.
 
     Args:
@@ -2533,6 +2534,10 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
         msout (str): name of the output Measurement Set.
         dysco (bool): Dysco compress the output Measurement Set.
         modeldatacolumns (list): Model data columns list, if len(modeldatacolumns) > 1 we have a DDE solve
+        invert (bool): invert the applycal (=corrupt)
+        direction (str): Name of the direction in a multi-dir h5 for the applycal (find_closestdir needs to be False in this case)
+        find_closestdir (bool): find closest direction (to phasedir MS) in multi-dir h5 file to apply
+        updateweights (bool): Update WEIGHT_SPECTRUM in DP3
     Returns:
         None
     """
@@ -2614,6 +2619,8 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 cmd += 'ac' + str(count) + '.correction=amplitude000 '
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '
+                if updateweights:
+                    cmd += 'ac' + str(count) + '.updateweights=True '
                 if direction is not None:
                     if direction.startswith(
                             'MODEL_DATA'):  # because then the direction name in the h5 contains bracket strings
