@@ -7239,8 +7239,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     telescope = t.getcol('TELESCOPE_NAME')[0]
     t.close()
 
-    if telescope != 'LOFAR' and not onlypredict and facetregionfile is not None:
-        nosmallinversion = True
+    #if telescope != 'LOFAR' and not onlypredict and facetregionfile is not None:
+    #    nosmallinversion = True
+    if telescope != 'LOFAR':
+        nosmallinversion = True  
 
     #  --- DI predict only without facets ---
     # for example to subtract region of sky for the --remove-outside-center option
