@@ -9120,20 +9120,26 @@ def set_fitsmask_restart(args, i, mslist):
         if args['idg']:
             if os.path.isfile(args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'):
                 fitsmask = args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'
+            else:
+                print('Cannot find: ' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits')
         else:
             if args['imager'] == 'WSCLEAN':
                 if os.path.isfile(args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'):
                     fitsmask = args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'
+                else:
+                    print('Cannot find: ' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits')  
             if args['imager'] == 'DDFACET':
                 if os.path.isfile(args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits'):
                     fitsmask = args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits'
+                else:
+                    print('Cannot find: ' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits')  
         if args['channelsout'] == 1:
             if args['imager'] == 'WSCLEAN':
                 fitsmask = args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'
             if args['imager'] == 'DDFACET':
                 fitsmask = args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits'
             fitsmask = fitsmask.replace('-MFS', '').replace('-I', '')
-
+        print('Appending fitsmask: ', fitsmask) 
         fitsmask_list.append(fitsmask)
     return fitsmask, fitsmask_list
 
