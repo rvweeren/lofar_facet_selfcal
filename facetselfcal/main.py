@@ -7157,7 +7157,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                        channelsout, single_dual_speedup=True,
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None,
                        idg=False, h5list=[], facetregionfile=None,
-                       disable_primary_beam=False):
+                       disable_primary_beam=False, ddcor=True):
     # get imageheader to check frequency
     hdul = fits.open(imagebasename + '-MFS-image.fits')
     header = hdul[0].header
@@ -7257,7 +7257,16 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         average(mslist, freqstep=[1] * len(mslist), timestep=1,
                 phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True,
                 dataincolumn=datacolumn)
-
+    
+    # applycal of closest direction (in multidir h5)
+    if len(h5list) != 0 and ddcor:
+        for ms_id, ms in enumerate(mslist):
+            if os.path.isdir(ms + '.subtracted_ddcor'):
+                os.system('rm -rf ' + ms + '.subtracted_ddcor')  
+            applycal(ms + '.subtracted',h5list[ms_id],find_closestdir=True, 
+                     msout=ms + '.subtracted_ddcor')
+            # remove uncorrected file to save disk space
+            os.system('rm -rf ' + ms + '.subtracted')
     return
 
 
