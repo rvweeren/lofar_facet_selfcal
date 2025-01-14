@@ -39,7 +39,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
 from h5_helpers.polchange import PolChange, overwrite_table
-from h5_helpers.slicing import get_slices
+from h5_helpers.slicing import get_slices, get_double_slice
 from h5_helpers.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
 from h5_helpers.make_template_h5 import Template
 
@@ -1469,8 +1469,7 @@ class MergeH5:
             except AttributeError:
                 ms_antlist = t.getcol('NAME')
             ms_antpos = t.getcol('POSITION')
-            ms_antennas = array([list(zip(*(ms_antlist, ms_antpos)))],
-                                dtype=[('name', 'S16'), ('position', '<f4', (3,))])
+            ms_antennas = array([list(zip(*(ms_antlist, ms_antpos)))], dtype=[('name', 'S16'), ('position', '<f4', (3,))])
 
         with tables.open_file(self.h5name_out, 'r+') as H:
 
@@ -1483,8 +1482,15 @@ class MergeH5:
                 for soltab in ss._v_groups.keys():
                     print(soltab)
                     st = ss._f_get_child(soltab)
-                    attrsaxes = st.val.attrs['AXES']
-                    antenna_index = attrsaxes.decode('utf8').split(',').index('ant')
+                    AXES = st.val.attrs['AXES']
+                    attrsaxes = AXES.decode('utf8').split(',')
+                    antenna_index = attrsaxes.index('ant')
+
+                    if 'pol' in attrsaxes:
+                        pol_index = attrsaxes.index('pol')
+                    else:
+                        pol_index = None
+
                     h5_antlist = [v.decode('utf8') for v in list(st.ant[:])]
 
                     if keep_h5_interstations:  # keep international stations if these are not in MS
@@ -1519,16 +1525,16 @@ class MergeH5:
                         for idx, antenna in enumerate(new_antlist):
                             if antenna in h5_antlist:
                                 idx_h5 = h5_antlist.index(antenna)
-                                ms_values[get_slices(ms_values, idx, antenna_index)] += h5_values[
-                                    get_slices(h5_values, idx_h5, antenna_index)]
+                                ms_values[get_slices(ms_values, idx, antenna_index)] += h5_values[get_slices(h5_values, idx_h5, antenna_index)]
                             elif 'CS' in antenna and superstation:  # core stations
-                                ms_values[get_slices(ms_values, idx, antenna_index)] += h5_values[
-                                    get_slices(h5_values, superstation_index, antenna_index)]
-                            elif antenna not in h5_antlist and ('amplitude' in soltab or axes == 'weight') \
-                                    and 'RS' not in antenna and 'CS' not in antenna:
+                                ms_values[get_slices(ms_values, idx, antenna_index)] += h5_values[get_slices(h5_values, superstation_index, antenna_index)]
+                            elif antenna not in h5_antlist and ('amplitude' in soltab or axes == 'weight'):
                                 if axes == 'val':
                                     print('Add ' + antenna + ' to output H5 from MS')
                                 ms_values[get_slices(ms_values, idx, antenna_index)] = 1
+                                if pol_index is not None and axes != 'weight' and shape[pol_index]==4:
+                                    ms_values[get_double_slice(ms_values, [idx, 1], [antenna_index, pol_index])] = 0
+                                    ms_values[get_double_slice(ms_values, [idx, 2], [antenna_index, pol_index])] = 0
 
                         valtype = str(st._f_get_child(axes).dtype)
                         if '16' in valtype:
@@ -1542,7 +1548,7 @@ class MergeH5:
 
                         st._f_get_child(axes)._f_remove()
                         H.create_array(st, axes, ms_values.astype(valtype), atom=atomtype)
-                        st._f_get_child(axes).attrs['AXES'] = attrsaxes
+                        st._f_get_child(axes).attrs['AXES'] = AXES
                     print('Value shape after --> ' + str(st.val.shape))
 
         return self
