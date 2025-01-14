@@ -313,7 +313,7 @@ def parse_source_from_h5(h5):
             matches = re.findall(r'ILTJ\d+\..\d+\+\d+.\d+', h5)
             if len(matches)==0:
                 print("WARNING: Difficulty with parsing the source name form " + h5)
-                output = (re.sub('(\D)\d{3}\_', '', h5).
+                output = (re.sub(r'(\D)\d{3}_', '', h5).
                           replace("merged_", "").
                           replace('addCS_', '').
                           replace('selfcalcyl', '').
@@ -335,7 +335,7 @@ def parse_source_from_h5(h5):
         output = matches[0]
     else:
         print("WARNING: Difficulty with parsing the source name form "+h5)
-        output = (re.sub('(\D)\d{3}\_', '', h5).
+        output = (re.sub(r'(\D)\d{3}_', '', h5).
                   replace("merged_", "").
                   replace('addCS_', '').
                   replace('selfcalcyl', '').
