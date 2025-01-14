@@ -155,6 +155,51 @@ def set_channelsout(mslist, factor=1):
         channelsout = round_up_to_even(f_bw * 12 * factor)
     return channelsout
 
+def flag_antenna_taql(ms, antennaname):
+    """
+    Flags all data in a Measurement Set (MS) corresponding to a specific antenna, identified by its name, using TaQL (Table Query Language).
+
+    Parameters:
+    -----------
+    ms : str
+        The path to the Measurement Set (MS) to be modified. This should include the full directory name of the MS.
+    antennaname : str
+        The name of the antenna to flag. This name should match exactly with the entry in the ANTENNA table of the MS.
+
+    Functionality:
+    --------------
+    - Constructs a TaQL query to update the `FLAG` column in the MS's `MAIN` table.
+    - Flags all rows where `ANTENNA1` or `ANTENNA2` corresponds to the antenna with the specified name.
+    - Executes the constructed TaQL query using the `run` function (assumes `run` is defined elsewhere in your codebase to execute shell commands).
+
+    Notes:
+    ------
+    - This function modifies the MS in-place; ensure you have a backup if needed.
+    - The `run` function must be defined and capable of executing the constructed TaQL command in the appropriate environment.
+    - Requires that the specified `antennaname` exists in the MS's ANTENNA table; otherwise, no rows will be flagged.
+
+    Example:
+    --------
+    Suppose you have a Measurement Set `observation.ms` and want to flag an antenna named `DE601`:
+    
+    ```python
+    flag_antenna_taql("observation.ms", "DE601HBA")
+    ```
+
+    This will flag all rows in `observation.ms` where either `ANTENNA1` or `ANTENNA2` corresponds to the antenna named `DE601`.
+
+    Returns:
+    --------
+    None
+    """
+    cmd = "taql 'UPDATE " + ms + ' '
+    cmd += "SET FLAG=true WHERE ANTENNA1 IN (SELECT ROWID() FROM " + ms 
+    cmd += "::ANTENNA WHERE NAME=\"" + antennaname + "\") OR ANTENNA2 IN "
+    cmd += "(SELECT ROWID() FROM " + ms + "::ANTENNA WHERE NAME=\"" + antennaname + "\")' "
+    print(cmd)
+    run(cmd)
+    return
+
 
 def update_fitspectralpol(args):
     """
