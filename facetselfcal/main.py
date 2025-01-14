@@ -180,9 +180,10 @@ def flag_antenna_taql(ms, antennaname):
 
     Example:
     --------
-    Suppose you have a Measurement Set `observation.ms` and want to flag an antenna named `DE601`:
+    Suppose you have a Measurement Set `observation.ms` and want to flag an antenna named `DE601HBA`:
     
     ```python
+    from facetselfcal import *
     flag_antenna_taql("observation.ms", "DE601HBA")
     ```
 
