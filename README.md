@@ -23,7 +23,7 @@ Usage examples:
 `python /<path>/lofar_facet_selfcal/facetselfcal.py --imsize=1600 --auto -i yourimagename yourextracted.ms` 
 
 - With a config file (see an example in data/example_config.txt)):\
-`python /<path>/lofar_facet_selfcal/facetselfcal.py --config=yourconfig.txt yourextracted.ms` \
+`python /<path>/lofar_facet_selfcal/facetselfcal.py --config=yourconfig.txt yourextracted.ms`
 
 HBA international baselines
 - delaycalibrator
