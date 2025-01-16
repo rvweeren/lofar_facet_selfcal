@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lofar_facet_selfcal"
+version = "11.3.0"
+description = "LOFAR facet selfcal"
+
+[project.scripts]
+h5_merger = "submods.h5_merger:main"
+facetselfcal = "facetselfcal.main:main"
+sub_sources_outside_region = "submods.sub_sources_outside_region:main"
+ds9facetgenerator = "submods.ds9facetgenerator:main"
+
+[tool.setuptools]
+packages = ["facetselfcal", "submods", "submods.h5_helpers", "submods.source_selection"]
+include-package-data = true

@@ -157,12 +157,12 @@ class Observation(object):
     """
 
     def __init__(
-        self,
-        ms_filename: str,
-        starttime: float = None,
-        endtime: float = None,
-        startfreq: float = None,
-        endfreq: float = None,
+            self,
+            ms_filename: str,
+            starttime: float = None,
+            endtime: float = None,
+            startfreq: float = None,
+            endfreq: float = None,
     ):
         self.ms_filename = ms_filename
         self.name = os.path.basename(self.ms_filename.rstrip("/"))
@@ -341,9 +341,9 @@ class MSChunker:
                 else:
                     obs.log.info("Splitting MS in {:d} chunks.".format(nchunks))
                     steptime = (
-                        mintime * (tottime / mintime - nchunks) / nchunks
-                        + mintime
-                        + 0.1
+                            mintime * (tottime / mintime - nchunks) / nchunks
+                            + mintime
+                            + 0.1
                     )
                     starttimes = np.arange(obs.starttime, obs.endtime, steptime)
                     endtimes = np.arange(
@@ -525,7 +525,7 @@ steps=[]
 
 
 def chunk_and_concat(
-    mslist, mode: str, fraction: float = 1.0, mintime: int = 1, nchan: int = 0
+        mslist, mode: str, fraction: float = 1.0, mintime: int = 1, nchan: int = 0
 ) -> list:
     """
     Main entry point. Splits a MeasurementSet in time chunks and concatenate all generated chunks.

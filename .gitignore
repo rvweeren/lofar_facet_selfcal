@@ -1,3 +1,9 @@
 .vscode
 .pylintrc
 .idea
+__pycache__
+lofar_facet_selfcal.egg-info
+
+#astro data
+*.ms
+*.fits

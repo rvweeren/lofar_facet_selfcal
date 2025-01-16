@@ -221,6 +221,52 @@ class GetSolint:
             self.C = self._get_C
         return self.limit * np.sqrt(1 - np.exp(-(self.C / t)))
 
+def get_phasediff_score(h5, station=False):
+    """
+        Calculate score for phasediff
+
+        :return: circular standard deviation score
+        """
+    from scipy.stats import circstd
+    H = tables.open_file(h5)
+
+    stations = [make_utf8(s) for s in list(H.root.sol000.antenna[:]['name'])]
+
+    if not station:
+        stations_idx = [stations.index(stion) for stion in stations if
+                        ('RS' not in stion) &
+                        ('ST' not in stion) &
+                        ('CS' not in stion) &
+                        ('DE' not in stion)]
+    else:
+        stations_idx = [stations.index(station)]
+
+    axes = str(H.root.sol000.phase000.val.attrs["AXES"]).replace("b'", '').replace("'", '').split(',')
+    axes_idx = sorted({ax: axes.index(ax) for ax in axes}.items(), key=lambda x: x[1], reverse=True)
+
+    phase = H.root.sol000.phase000.val[:] * H.root.sol000.phase000.weight[:]
+    H.close()
+
+    phasemod = phase % (2 * np.pi)
+
+    for ax in axes_idx:
+        if ax[0] == 'pol':  # YX should be zero
+            phasemod = phasemod.take(indices=0, axis=ax[1])
+        elif ax[0] == 'dir':  # there should just be one direction
+            if phasemod.shape[ax[1]] == 1:
+                phasemod = phasemod.take(indices=0, axis=ax[1])
+            else:
+                sys.exit('ERROR: This solution file should only contain one direction, but it has ' +
+                         str(phasemod.shape[ax[1]]) + ' directions')
+        elif ax[0] == 'freq':  # faraday corrected
+            phasemod = np.diff(phasemod, axis=ax[1])
+        elif ax[0] == 'ant':  # take only international stations
+            phasemod = phasemod.take(indices=stations_idx, axis=ax[1])
+
+    phasemod[phasemod == 0] = np.nan
+
+    return circstd(phasemod, nan_policy='omit')
+
 
 def parse_args():
     """
@@ -276,7 +322,7 @@ def main():
                 solint = S.best_solint
                 H = tables.open_file(h5)
                 dir = rad_to_degree(H.root.sol000.source[:]['dir'])
-                from selfcal_selection import parse_source_from_h5
+                from .selfcal_selection import parse_source_from_h5
                 writer.writerow([parse_source_from_h5(h5) + station, std, solint, dir[0], dir[1]])
                 if args.make_plot:
                     S.plot_C(saveas='phasediff.png')
