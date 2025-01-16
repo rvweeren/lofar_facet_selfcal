@@ -428,6 +428,10 @@ def option_parser():
     startmodelparser.add_argument('--tgssfitsimage',
                                   help='Start TGSS fits image for model (if not provided use SkyView). The default is None.',
                                   type=str)
+    startmodelparser.add_argument('--startfromimage',
+                                  help='Start FITS image for model. The default is None.',
+                                  action='store_true')
+
 
     # General options
     parser.add_argument('-b', '--boxfile',
