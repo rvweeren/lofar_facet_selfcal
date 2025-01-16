@@ -32,18 +32,17 @@ import casacore.tables as pt
 from lib_multiproc import multiprocManager
 
 
-
 def addcol(ms, incol, outcol):
     """ Add a new column to a MS. """
     if outcol not in ms.colnames():
-        logging.info('Adding column: '+outcol)
+        logging.info('Adding column: ' + outcol)
         coldmi = ms.getdminfo(incol)
         coldmi['NAME'] = outcol
         ms.addcols(pt.makecoldesc(outcol, ms.getcoldesc(incol)), coldmi)
     if (outcol != incol):
         # copy columns val
-        logging.info('Set '+outcol+'='+incol)
-        pt.taql("UPDATE $ms SET "+outcol+"="+incol)
+        logging.info('Set ' + outcol + '=' + incol)
+        pt.taql("UPDATE $ms SET " + outcol + "=" + incol)
 
 
 def smooth_baseline(in_bl, data, weights, std_t, std_f, outQueue=None):
@@ -78,17 +77,17 @@ def smooth_baseline(in_bl, data, weights, std_t, std_f, outQueue=None):
     weights: ndarray
         Weight output.
     """
-    data = np.nan_to_num(data * weights) # set bad data to 0 so nans don't propagate
+    data = np.nan_to_num(data * weights)  # set bad data to 0 so nans don't propagate
     if np.isnan(data).all():
-        return in_bl, data, weights # flagged ants
+        return in_bl, data, weights  # flagged ants
     # smear weighted data and weights
-    if options.onlyamp: # smooth only amplitudes
+    if options.onlyamp:  # smooth only amplitudes
         dataAMP, dataPH = np.abs(data), np.angle(data)
         if not options.notime:
             dataAMP = gfilter(dataAMP, std_t, axis=0, truncate=3)
         if not options.nofreq:
             dataAMP = gfilter(dataAMP, std_f, axis=1, truncate=3)
-        data = dataAMP * (np.cos(dataPH) + 1j * np.sin(dataPH)) # recreate data
+        data = dataAMP * (np.cos(dataPH) + 1j * np.sin(dataPH))  # recreate data
     else:
         dataR, dataI = np.real(data), np.imag(data)
         if not options.notime:
@@ -97,7 +96,7 @@ def smooth_baseline(in_bl, data, weights, std_t, std_f, outQueue=None):
         if not options.nofreq:
             dataR = gfilter(dataR, std_f, axis=1, truncate=3)
             dataI = gfilter(dataI, std_f, axis=1, truncate=3)
-        data = dataR + 1j*dataI # recreate data
+        data = dataR + 1j * dataI  # recreate data
     if not options.notime:
         weights = gfilter(weights, std_t, axis=0, truncate=3)
     if not options.nofreq:
@@ -111,24 +110,38 @@ def smooth_baseline(in_bl, data, weights, std_t, std_f, outQueue=None):
     outQueue.put([in_bl, data, weights])
 
 
-
 opt = optparse.OptionParser(usage="%prog [options] MS", version="%prog 3.0")
-opt.add_option('-f', '--ionfactor', help='Gives an indication on how strong is the ionosphere along the time axis [default: 0.01]', type='float', default=0.01)
-opt.add_option('-s', '--bscalefactor', help='Gives an indication on how the smoothing in time varies with BL-lenght [default: 1.0]', type='float', default=1.0)
-opt.add_option('-u', '--tecfactor', help='Gives an indication on how strong is the ionosphere along the freq axis [default: 1.0]', type='float', default=1.0)
+opt.add_option('-f', '--ionfactor',
+               help='Gives an indication on how strong is the ionosphere along the time axis [default: 0.01]',
+               type='float', default=0.01)
+opt.add_option('-s', '--bscalefactor',
+               help='Gives an indication on how the smoothing in time varies with BL-lenght [default: 1.0]',
+               type='float', default=1.0)
+opt.add_option('-u', '--tecfactor',
+               help='Gives an indication on how strong is the ionosphere along the freq axis [default: 1.0]',
+               type='float', default=1.0)
 opt.add_option('-i', '--incol', help='Column name to smooth [default: DATA]', type='string', default='DATA')
 opt.add_option('-o', '--outcol', help='Output column [default: SMOOTHED_DATA]', type="string", default='SMOOTHED_DATA')
-opt.add_option('-w', '--weight', help='Save the newly computed WEIGHT_SPECTRUM, this action permanently modify the MS! [default: False]', action="store_true", default=False)
-opt.add_option('-r', '--restore', help='If WEIGHT_SPECTRUM_ORIG exists then restore it before smoothing [default: False]', action="store_true", default=False)
-opt.add_option('-b', '--nobackup', help='Do not backup the old WEIGHT_SPECTRUM in WEIGHT_SPECTRUM_ORIG [default: do backup if -w]', action="store_true", default=False)
-opt.add_option('-a', '--onlyamp', help='Smooth only amplitudes [default: smooth real/imag]', action="store_true", default=False)
-opt.add_option('-t', '--notime', help='Do not do smoothing in time [default: False]', action="store_true", default=False)
-opt.add_option('-q', '--nofreq', help='Do not do smoothing in frequency [default: False]', action="store_true", default=False)
-opt.add_option('-c', '--chunks', help='Split the I/O in n chunks. If you run out of memory, set this to a value > 2.', default=8, type='int')
+opt.add_option('-w', '--weight',
+               help='Save the newly computed WEIGHT_SPECTRUM, this action permanently modify the MS! [default: False]',
+               action="store_true", default=False)
+opt.add_option('-r', '--restore',
+               help='If WEIGHT_SPECTRUM_ORIG exists then restore it before smoothing [default: False]',
+               action="store_true", default=False)
+opt.add_option('-b', '--nobackup',
+               help='Do not backup the old WEIGHT_SPECTRUM in WEIGHT_SPECTRUM_ORIG [default: do backup if -w]',
+               action="store_true", default=False)
+opt.add_option('-a', '--onlyamp', help='Smooth only amplitudes [default: smooth real/imag]', action="store_true",
+               default=False)
+opt.add_option('-t', '--notime', help='Do not do smoothing in time [default: False]', action="store_true",
+               default=False)
+opt.add_option('-q', '--nofreq', help='Do not do smoothing in frequency [default: False]', action="store_true",
+               default=False)
+opt.add_option('-c', '--chunks', help='Split the I/O in n chunks. If you run out of memory, set this to a value > 2.',
+               default=8, type='int')
 opt.add_option('-n', '--ncpu', help='Number of cores', default=4, type='int')
 opt.add_option('-v', '--verbose', help='Change verbosity to DEBUG', action='store_true', default=False)
 (options, msfile) = opt.parse_args()
-
 
 if msfile == []:
     opt.print_help()
@@ -152,13 +165,13 @@ ms = pt.table(msfile, readonly=False, ack=False)
 with pt.table(msfile + '::SPECTRAL_WINDOW', ack=False) as freqtab:
     freq = freqtab.getcol('REF_FREQUENCY')[0]
     freqpersample = np.mean(freqtab.getcol('RESOLUTION'))
-    timepersample = ms.getcell('INTERVAL',0)
+    timepersample = ms.getcell('INTERVAL', 0)
 
 # get info on all baselines
 with pt.taql("SELECT ANTENNA1,ANTENNA2,sqrt(sumsqr(UVW)),GCOUNT() FROM $ms GROUPBY ANTENNA1,ANTENNA2") as BL:
     ants1, ants2 = BL.getcol('ANTENNA1'), BL.getcol('ANTENNA2')
-    dists = BL.getcol('Col_3')/1e3 # baseleline length in km
-    n_t = BL.getcol('Col_4')[0] # number of timesteps
+    dists = BL.getcol('Col_3') / 1e3  # baseleline length in km
+    n_t = BL.getcol('Col_4')[0]  # number of timesteps
     n_bl = len(ants1)
 
 # check if ms is time-ordered
@@ -179,7 +192,7 @@ elif options.weight and not options.nobackup:
 
 # Iterate over chunks of baselines
 for c, idx in enumerate(np.array_split(np.arange(n_bl), options.chunks)):
-    logging.debug('### Fetching chunk {}/{}'.format(c+1,options.chunks))
+    logging.debug('### Fetching chunk {}/{}'.format(c + 1, options.chunks))
 
     # get input data for this chunk
     ants1_chunk, ants2_chunk = ants1[idx], ants2[idx]
@@ -206,7 +219,7 @@ for c, idx in enumerate(np.array_split(np.arange(n_bl), options.chunks)):
         logging.debug('Working on baseline: {} - {} (dist = {:.2f}km)'.format(ant1, ant2, dist))
 
         in_bl = slice(i_chunk, -1, len(ants1_chunk))  # All times for 1 BL
-        data, weights= data_chunk[in_bl], weights_chunk[in_bl]
+        data, weights = data_chunk[in_bl], weights_chunk[in_bl]
 
         std_t = options.ionfactor * (25.e3 / dist) ** options.bscalefactor * (freq / 60.e6)  # in sec
         std_t = std_t / timepersample  # in samples
@@ -214,7 +227,7 @@ for c, idx in enumerate(np.array_split(np.arange(n_bl), options.chunks)):
         # However, the limitation is probably smearing here
         std_f = 1e6 * options.tecfactor / dist  # Hz
         std_f = std_f / freqpersample  # in samples
-        
+
         logging.debug("-Time: sig={:.1f} samples ({:.1f}s) -Freq: sig={:.1f} samples ({:.2f}MHz)".format(
             std_t, timepersample * std_t, std_f, freqpersample * std_f / 1e6))
         logging.debug('Working on baseline: {} - {} (dist = {:.2f}km)'.format(ant1, ant2, dist))
@@ -224,7 +237,7 @@ for c, idx in enumerate(np.array_split(np.arange(n_bl), options.chunks)):
         # fill queue
         mpm.put([in_bl, data, weights, std_t, std_f])
 
-    mpm.wait() # run queue
+    mpm.wait()  # run queue
     # reconstruct chunk column
     for in_bl, data, weights in mpm.get():
         smoothed_data[in_bl] = data

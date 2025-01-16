@@ -37,7 +37,6 @@ import multiprocessing
 
 
 class multiprocManager(object):
-
     class multiThread(multiprocessing.Process):
         """
         This class is a working thread which load parameters from a queue and
@@ -63,7 +62,6 @@ class multiprocManager(object):
                 self.funct(*parms, outQueue=self.outQueue)
                 self.inQueue.task_done()
 
-
     def __init__(self, procs=1, funct=None):
         """
         Manager for multiprocessing
@@ -76,7 +74,7 @@ class multiprocManager(object):
         self.inQueue = multiprocessing.JoinableQueue()
         self.outQueue = multiprocessing.Queue()
         self.runs = 0
-        
+
         logging.debug('Spawning %i threads...' % self.procs)
         for proc in range(self.procs):
             t = self.multiThread(self.inQueue, self.outQueue, funct)
@@ -109,4 +107,3 @@ class multiprocManager(object):
 
         # wait for all jobs to finish
         self.inQueue.join()
-
