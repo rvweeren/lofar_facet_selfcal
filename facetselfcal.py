@@ -3442,6 +3442,14 @@ def get_uvwmax(ms):
     t.close()
     return np.max(ssq)
 
+
+def makeBBSmodelforFITS(filename, extrastrname=''):
+    img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10))#, \
+                            # frequency=150e6, beam=(25./3600,25./3600,0.0) )
+    img.write_catalog(format='bbs', bbs_patches='source', \
+                      outfile='source' + extrastrname + '.skymodel'  , clobber=True)
+    return 'source' + extrastrname + '.skymodel'  
+
 def makeBBSmodelforVLASS(filename, extrastrname=''):
     img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10))#, \
                             # frequency=150e6, beam=(25./3600,25./3600,0.0) )
@@ -10926,6 +10934,15 @@ def set_skymodels_external_surveys(args, mslist):
          print('You cannot provide a skymodel/skymodelpointsource manually while using --startfromgsm')
          raise Exception('You cannot provide a skymodel/skymodelpointsource manually while using --startfromgsm')
 
+   # --- Arbitrary FITS image ---
+   for mstmp_id, mstmp in enumerate(mslist_return_stack(mslist, args['stack'])):
+     if args['startfromimage'] and args['start'] == 0:
+       if args['skymodel'].endswith('.fits') and args['skymodelpointsource'] is None:
+         skymodel_list.append(makeBBSmodelforFITS(args['skymodel'], extrastrname=str(mstmp_id)))
+       else:
+         print('You cannot provide skymodelpointsource manually while using --startfromimage')
+         raise Exception('You cannot provide skymodelpointsource manually while using --startfromimage')
+
    # note if skymodel_list is not set (len==0), args['skymodel'] keeps it value from argparse
    if len(skymodel_list) > 1: # so startfromtgss or startfromvlass was done and --stack was true
       args['skymodel'] = skymodel_list
@@ -11085,6 +11102,7 @@ def main():
    startmodelparser.add_argument('--startfromvlass', help='Start from VLASS skymodel for ILT phase-up core data.', action='store_true')
    startmodelparser.add_argument('--startfromgsm', help='Start from LINC GSM skymodel.', action='store_true')
    startmodelparser.add_argument('--tgssfitsimage', help='Start TGSS fits image for model (if not provided use SkyView). The default is None.', type=str)
+   startmodelparser.add_argument('--startfromimage', help='Use the FITS image given to `--skymodel` for model generation. The default is None.', action='store_true')
 
    # General options
    parser.add_argument('-b','--boxfile', help='DS9 box file. You need to provide a boxfile to use --startfromtgss. The default is None.', type=str)
