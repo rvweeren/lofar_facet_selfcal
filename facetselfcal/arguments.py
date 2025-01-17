@@ -276,6 +276,12 @@ def option_parser():
     calibrationparser.add_argument('--compute-phasediffstat',
                                    help='Get phasediff statistics for long-baseline calibrator dataset (see de Jong et al. 2024)',
                                    action='store_true')
+    calibrationparser.add_argument('--early-stopping',
+                                   help='Automatic decision of early stopping during self-calibration',
+                                   action='store_true')
+    calibrationparser.add_argument('--nn-model-cache',
+                                   help='Cache storage for Neural Network model for early stopping. If not given, it will download the model.',
+                                   default='.cache/cortexchange')
     calibrationparser.add_argument('--get-diagnostics',
                                    help='Get a prediction which selfcal cycle gives the highest quality output (works only when >5 selfcal cycle)',
                                    action='store_true')
