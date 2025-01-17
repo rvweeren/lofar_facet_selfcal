@@ -9297,7 +9297,7 @@ def set_skymodels_external_surveys(args, mslist):
         if args['startfromimage'] and args['start'] == 0:
             if args['skymodel'].endswith('.fits') and args['skymodelpointsource'] is None:
                 skymodel_list.append(makeBBSmodelforFITS(args['skymodel'], extrastrname=str(mstmp_id)))
-            if args['skymodel'].endswith('.fits') and args['skymodelpointsource'] is not None:
+            elif args['skymodel'].endswith('.fits') and args['skymodelpointsource'] is not None:
                 print('You cannot provide skymodelpointsource manually while using --startfromimage')
                 raise Exception('You cannot provide skymodelpointsource manually while using --startfromimage')
             elif (not args['skymodel'].endswith('.fits')) and args['skymodelpointsource'] is None:
