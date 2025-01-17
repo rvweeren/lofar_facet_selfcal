@@ -277,13 +277,13 @@ def option_parser():
                                    help='Get phasediff statistics for long-baseline calibrator dataset (see de Jong et al. 2024)',
                                    action='store_true')
     calibrationparser.add_argument('--early-stopping',
-                                   help='Automatic decision of early stopping during self-calibration',
+                                   help='Automatic decision to perform early stopping during self-calibration based on image quality and solution stability. Currently only optimized for LOFAR HBA data for VLBI imaging.',
                                    action='store_true')
     calibrationparser.add_argument('--nn-model-cache',
-                                   help='Cache storage for Neural Network model for early stopping. If not given, it will download the model.',
+                                   help='Cache storage for Neural Network model for early stopping. If not given, it will download the model. This needs to be given in combination with --early-stopping.',
                                    default='.cache/cortexchange')
     calibrationparser.add_argument('--get-diagnostics',
-                                   help='Get a prediction which selfcal cycle gives the highest quality output (works only when >5 selfcal cycle)',
+                                   help='Get a prediction for selfcal cycle gives the highest quality output (works only when >3 selfcal cycle)',
                                    action='store_true')
     calibrationparser.add_argument('--QualityBasedWeights',
                                    help='Experts only.',

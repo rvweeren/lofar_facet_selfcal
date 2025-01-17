@@ -9905,14 +9905,16 @@ def main():
                 archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
             cleanup(mslist)
 
+    # Get already obtained images
     images = glob.glob("*MFS-I-image.fits")
     if len(images) == 0:
         images = glob.glob("*MFS-image.fits")
     # Remove 1.2arcsectaper
     images = sorted([im for im in images if 'arcsectaper' not in im])
 
-    # Get additional diagnostics about the selfcal quality --> in particular useful for calibrator selection
+    # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
     if (args['get_diagnostics'] or args['early_stopping']) and i > 3 and abs(args['stop'] - args['start']) > 2:
+        # Need at least 3 cycles
         if abs(args['stop'] - args['start']) > 3:
             mergedh5 = sorted([h5 for h5 in glob.glob('merged_selfcal*.h5') if 'linearfulljones' not in h5])
             if len(mergedh5) > 0:
@@ -9930,9 +9932,11 @@ def main():
             if nn_model is None:
                 nn_model = get_nn_model(cache=args['nn_model_cache'])
 
+            # Open selfcal performance CSV
             df = pd.read_csv(f"./selfcal_quality_plots/selfcal_performance_{qualitycheck[0]}.csv")
             bestcycle = df['phase'].argmin()
 
+            # Get image statistics
             minmax_ratio = df['min/max'][bestcycle]/df['min/max'][0]
             if minmax!=minmax: # check for nan in final cycle
                 minmax_ratio = df['min/max'][bestcycle-1]/df['min/max'][0]
@@ -9940,10 +9944,11 @@ def main():
             else:
                 rms_ratio = df['rms'][bestcycle]/df['rms'][0]
 
+            # NN score
             predict_score = predict_nn(images[i], nn_model)
             logger.info(f"Neural network image prediction score of cycle {i}: {round(predict_score, 3)}")
 
-            # Selection criteria
+            # Selection criteria (good image and stable solutions)
             if predict_score < 0.5 and df['phase'][bestcycle]<0.1 and rms_ratio<1.05 and minmax_ratio<1.0:
                 logger.info(f"Early-stopping at cycle {i}")
                 logger.info(f"Best image: Cycle {mean(df['min/max'].argmin(), df['rms'].argmin())}")
