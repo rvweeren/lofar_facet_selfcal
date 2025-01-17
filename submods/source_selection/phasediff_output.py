@@ -275,7 +275,7 @@ def parse_args():
     :return: parsed arguments
     """
 
-    parser = ArgumentParser()
+    parser = ArgumentParser("Determine phasediff scores")
     parser.add_argument('--h5', nargs='+', help='selfcal phasediff solutions', default=None)
     parser.add_argument('--station', help='for one specific station', default=None)
     parser.add_argument('--all_stations', action='store_true', help='for all stations specifically')
@@ -283,8 +283,8 @@ def parse_args():
     parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.75, type=float)
     return parser.parse_args()
 
-def main():
 
+def main():
 
     args = parse_args()
 
@@ -333,7 +333,6 @@ def main():
     # sort output
     df = pd.read_csv('phasediff_output.csv').sort_values(by='spd_score')
     df.to_csv('phasediff_output.csv', index=False)
-
 
 
 if __name__ == '__main__':

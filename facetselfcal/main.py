@@ -9928,7 +9928,7 @@ def main():
 
         # Early stopping
         if args['early_stopping'] and i>0:
-            from submods.source_selection.neural_network import get_nn_model, predict_nn
+            from submods.source_selection.image_score import get_nn_model, predict_nn
             if nn_model is None:
                 nn_model = get_nn_model(cache=args['nn_model_cache'])
 
