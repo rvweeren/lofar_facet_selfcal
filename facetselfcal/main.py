@@ -3210,6 +3210,13 @@ def get_uvwmax(ms):
     return np.max(ssq)
 
 
+def makeBBSmodelforFITS(filename, extrastrname=''):
+    img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10))
+    img.write_catalog(format='bbs', bbs_patches='source', \
+                      outfile='source' + extrastrname + '.skymodel'  , clobber=True)
+    return 'source' + extrastrname + '.skymodel'
+
+
 def makeBBSmodelforVLASS(filename, extrastrname=''):
     img = bdsf.process_image(filename, mean_map='zero', rms_map=True, rms_box=(100, 10))
     # frequency=150e6, beam=(25./3600,25./3600,0.0) )
@@ -9284,6 +9291,21 @@ def set_skymodels_external_surveys(args, mslist):
             else:
                 print('You cannot provide a skymodel/skymodelpointsource manually while using --startfromgsm')
                 raise Exception('You cannot provide a skymodel/skymodelpointsource manually while using --startfromgsm')
+
+    # --- Arbitrary FITS image ---
+    for mstmp_id, mstmp in enumerate(mslist_return_stack(mslist, args['stack'])):
+        if args['startfromimage'] and args['start'] == 0:
+            if args['skymodel'].endswith('.fits') and args['skymodelpointsource'] is None:
+                skymodel_list.append(makeBBSmodelforFITS(args['skymodel'], extrastrname=str(mstmp_id)))
+            elif args['skymodel'].endswith('.fits') and args['skymodelpointsource'] is not None:
+                print('You cannot provide skymodelpointsource manually while using --startfromimage')
+                raise Exception('You cannot provide skymodelpointsource manually while using --startfromimage')
+            elif (not args['skymodel'].endswith('.fits')) and args['skymodelpointsource'] is None:
+                print('skymodel must be a FITS file and have the fits extension while using --startfromimage')
+                raise Exception('skymodel must be a FITS file while using --startfromimage')
+            else:
+                print('Something unknown went wrong. Please check your input.')
+                raise Exception('Something unknown went wrong. Please check your input.')
 
     # note if skymodel_list is not set (len==0), args['skymodel'] keeps it value from argparse
     if len(skymodel_list) > 1:  # so startfromtgss or startfromvlass was done and --stack was true
