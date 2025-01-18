@@ -455,11 +455,11 @@ def option_parser():
                         help='Keep solutions such that they can be used for widefield imaging/screens.',
                         action='store_true')
     parser.add_argument('--remove-outside-center',
-                        help='Subtract sources that are outside the central parts of the FoV, square box is used with sizes of 3.0, 2.0, 1.5 degr for MeerKAT UHF, L, and S-band, repspectively. In case you want something else set --remove-outside-center-box',
+                        help='Subtract sources that are outside the central parts of the FoV, square box is used in the phase center with sizes of 3.0, 2.0, 1.5 degr for MeerKAT UHF, L, and S-band, repspectively. In case you want something else set --remove-outside-center-box. In case of a --DDE solve the solution closest to the box center is applied.',
                         action='store_true')
     parser.add_argument('--remove-outside-center-box',
-                        help='User defined box to subtract sources that are outside this part of the image. If not set boxsize is set automatically. If "keepall" is set then no subtract is done and everything is kept, this is mainly useful if you are already working on box-extracted data',
-                        type=str,
+                        help='User defined box DS9 region file to subtract sources that are outside this part of the image, see also --remove-outside-center. If "keepall" is set then no subtract is done and everything is kept, this is mainly useful if you are already working on box-extracted data. If number is given a boxsize of this size (degr) will be used in the phase center. In case of a --DDE solve the solution closest to the box center is applied (unless "keepall" is set).',
+                        type=str_or_float,
                         default=None)
     parser.add_argument('--single-dual-speedup',
                         help='Speed up calibration and imaging if possible using datause=single/dual in DP3 and -scalar/diagonal-visibilities in WSClean. Requires a recent (mid July 2024) DP3 and WSClean versions. Default is True. Set to --single-dual-speedup=False to disable to speed-up',
