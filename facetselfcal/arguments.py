@@ -566,12 +566,12 @@ def str_or_int(arg):
 
 def str_or_float(arg):
     try:
-        return float(arg)  # try convert to int
+        return float(arg)  # try convert to float
     except ValueError:
         pass
     if isinstance(arg, str):
         return arg
-    raise argparse.ArgumentTypeError("Input must be an int or string")
+    raise argparse.ArgumentTypeError("Input must be an float or string")
 
 
 def floatlist_or_float(argin):
