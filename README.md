@@ -1,5 +1,10 @@
-# LOFAR facet self-calibration
-Selfcalibration for individual LOFAR sources and facets. If you use facetselfcal or extraction for scientific work, please cite the van Weeren et al. (2021, A&A, 651, 115) paper. 
+# LOFAR and MeerKAT facet self-calibration
+General direction-independent and direction-dependent self-calibration: 
+ - refinement self-calibration for individual 'extracted' datasets 
+ - full field of view self-calibration and extraction of regions of interest
+
+If you use facetselfcal or extraction for scientific work, please cite van Weeren et al. (2021, A&A, 651, 115) paper: \
+https://ui.adsabs.harvard.edu/abs/2021A%26A...651A.115V/abstract 
 
 Requirements:
 - Container with all standard LOFAR software: https://tikk3r.github.io/flocs/ 
@@ -33,3 +38,6 @@ LBA Dutch baselines
  - < 30 MHz
  - < 30 MHz
 
+MeerKAT
+- UHF, L-band, and S-band
+- direction-independent and direction-dependent self-calibration
