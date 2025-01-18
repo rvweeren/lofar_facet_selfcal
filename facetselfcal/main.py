@@ -7182,6 +7182,12 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         boxsize = 2.0  # degr
     if (header['CRVAL3'] >= 1.7e9) and (header['CRVAL3'] < 4.0e9):  # S-band
         boxsize = 1.5  # degr
+        
+    try:
+        boxsize = float(userbox) # userbox is a number,
+        # overwrite boxsize value here with user specified number
+    except:
+        pass # userbox is not a number    
 
     # create square box file templatebox.reg
     region_string = """
@@ -7266,7 +7272,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                 dataincolumn=datacolumn)
     
     # applycal of closest direction (in multidir h5)
-    if len(h5list) != 0 and ddcor:
+    if len(h5list) != 0 and ddcor and userbox != 'keepall':
         for ms_id, ms in enumerate(mslist):
             if os.path.isdir(ms + '.subtracted_ddcor'):
                 os.system('rm -rf ' + ms + '.subtracted_ddcor')  
