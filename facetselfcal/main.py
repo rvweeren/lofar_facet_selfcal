@@ -9893,7 +9893,7 @@ def main():
 
                 # Get image statistics
                 minmax_ratio = df['min/max'][bestcycle]/df['min/max'][0]
-                if minmax!=minmax: # check for nan in final cycle
+                if minmax_ratio!=minmax_ratio: # check for nan in final cycle
                     minmax_ratio = df['min/max'][bestcycle-1]/df['min/max'][0]
                     rms_ratio = df['rms'][bestcycle - 1]/df['rms'][0]
                 else:
