@@ -81,7 +81,7 @@ sys.path.append(current_dir)
 
 # modules
 from arguments import option_parser
-from submods.source_selection.selfcal_selection import main as quality_check
+from submods.source_selection.selfcal_selection import get_images, main as quality_check
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
 from submods.h5_helpers.reset_structure import fix_h5
 from submods.h5_merger import merge_h5
@@ -9863,6 +9863,60 @@ def main():
         # update fitspectralpol
         args['fitspectralpol'] = update_fitspectralpol(args)
 
+        # Get already obtained selfcal images
+        images = get_images()
+
+        # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
+        if (args['get_diagnostics'] or args['early_stopping']) and i > 3 and abs(args['stop'] - args['start']) > 2:
+            # Need at least 3 cycles
+            if abs(args['stop'] - args['start']) > 3:
+                mergedh5 = sorted([h5 for h5 in glob.glob('merged_selfcal*.h5') if 'linearfulljones' not in h5])
+                if len(mergedh5) > 0:
+                    if longbaseline:
+                        station = 'international'
+                    else:
+                        station = 'alldutch'
+                    qualitycheck = quality_check(mergedh5, images, station)
+                else:
+                    logger.info("Cannot find merged_selfcal*.h5, so cannot perform --get-diagnostics or --early-stopping.")
+
+            # Early stopping
+            if args['early_stopping'] and i>0:
+                from submods.source_selection.image_score import get_nn_model, predict_nn
+
+                if nn_model is None:
+                    nn_model = get_nn_model(cache=args['nn_model_cache'])
+
+                # Open selfcal performance CSV
+                df = pd.read_csv(f"./selfcal_quality_plots/selfcal_performance_{qualitycheck[0]}.csv")
+                bestcycle = df['phase'].argmin()
+
+                # Get image statistics
+                minmax_ratio = df['min/max'][bestcycle]/df['min/max'][0]
+                if minmax!=minmax: # check for nan in final cycle
+                    minmax_ratio = df['min/max'][bestcycle-1]/df['min/max'][0]
+                    rms_ratio = df['rms'][bestcycle - 1]/df['rms'][0]
+                else:
+                    rms_ratio = df['rms'][bestcycle]/df['rms'][0]
+
+                # NN score
+                predict_score = predict_nn(images[i], nn_model)
+                logger.info(f"Neural network image prediction score of cycle {i}: {round(predict_score, 3)}")
+
+                # Selection criteria (good image and stable solutions)
+                if predict_score < 0.5 and df['phase'][bestcycle]<0.1 and rms_ratio<1.05 and minmax_ratio<1.0:
+                    logger.info(f"Early-stopping at cycle {i}")
+                    logger.info(f"Best image: Cycle {int(round(mean(df['min/max'].argmin(), df['rms'].argmin()), 0))}")
+                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+                    sys.exit()
+                else:
+                    logger.info(f"No early-stopping at cycle {i}")
+                    logger.info(f"Best image: Cycle {int(round(mean(df['min/max'].argmin(), df['rms'].argmin()), 0))}")
+                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+
+        elif abs(args['stop'] - args['start']) <=2:
+            logger.info("Need at least 3 selfcal cycles for getting diagnostics")
+
     # remove sources outside central region after selfcal (to prepare for DDE solves)
     if args['remove_outside_center']:
         # make image after calibration so the calibration and images match
@@ -9905,58 +9959,6 @@ def main():
                 archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
             cleanup(mslist)
 
-    # Get already obtained images
-    images = glob.glob("*MFS-I-image.fits")
-    if len(images) == 0:
-        images = glob.glob("*MFS-image.fits")
-    # Remove 1.2arcsectaper
-    images = sorted([im for im in images if 'arcsectaper' not in im])
-
-    # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
-    if (args['get_diagnostics'] or args['early_stopping']) and i > 3 and abs(args['stop'] - args['start']) > 2:
-        # Need at least 3 cycles
-        if abs(args['stop'] - args['start']) > 3:
-            mergedh5 = sorted([h5 for h5 in glob.glob('merged_selfcal*.h5') if 'linearfulljones' not in h5])
-            if len(mergedh5) > 0:
-                if longbaseline:
-                    station = 'international'
-                else:
-                    station = 'alldutch'
-                qualitycheck = quality_check(mergedh5, images, station)
-            else:
-                logger.info("Cannot find merged_selfcal*.h5, so cannot perform --get-diagnostics or --early-stopping.")
-
-        # Early stopping
-        if args['early_stopping'] and i>0:
-            from submods.source_selection.image_score import get_nn_model, predict_nn
-            if nn_model is None:
-                nn_model = get_nn_model(cache=args['nn_model_cache'])
-
-            # Open selfcal performance CSV
-            df = pd.read_csv(f"./selfcal_quality_plots/selfcal_performance_{qualitycheck[0]}.csv")
-            bestcycle = df['phase'].argmin()
-
-            # Get image statistics
-            minmax_ratio = df['min/max'][bestcycle]/df['min/max'][0]
-            if minmax!=minmax: # check for nan in final cycle
-                minmax_ratio = df['min/max'][bestcycle-1]/df['min/max'][0]
-                rms_ratio = df['rms'][bestcycle - 1]/df['rms'][0]
-            else:
-                rms_ratio = df['rms'][bestcycle]/df['rms'][0]
-
-            # NN score
-            predict_score = predict_nn(images[i], nn_model)
-            logger.info(f"Neural network image prediction score of cycle {i}: {round(predict_score, 3)}")
-
-            # Selection criteria (good image and stable solutions)
-            if predict_score < 0.5 and df['phase'][bestcycle]<0.1 and rms_ratio<1.05 and minmax_ratio<1.0:
-                logger.info(f"Early-stopping at cycle {i}")
-                logger.info(f"Best image: Cycle {mean(df['min/max'].argmin(), df['rms'].argmin())}")
-                logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-                sys.exit()
-
-    elif abs(args['stop'] - args['start']) <=2:
-        logger.info("Need at least 3 selfcal cycles for getting diagnostics")
 
 if __name__ == "__main__":
     main()

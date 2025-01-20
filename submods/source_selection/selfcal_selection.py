@@ -20,6 +20,7 @@ import csv
 from pathlib import Path
 from os import sched_getaffinity, system
 import sys
+from glob import glob
 
 from joblib import Parallel, delayed
 import tables
@@ -542,6 +543,15 @@ def make_figure(vals1=None, vals2=None, label1=None, label2=None, plotname=None,
     fig.tight_layout()
 
     plt.savefig(plotname, dpi=150)
+
+
+def get_images():
+    """ Get already obtained images """
+    images = glob("*MFS-I-image.fits")
+    if len(images) == 0:
+        images = glob("*MFS-image.fits")
+    # Remove 1.2arcsectaper if in list
+    return sorted([im for im in images if 'arcsectaper' not in im])
 
 
 def parse_args():

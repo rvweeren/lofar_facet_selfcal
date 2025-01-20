@@ -1,9 +1,10 @@
 from cortexchange.wdclient import init_downloader
 from cortexchange.architecture import get_architecture, Architecture
 from argparse import ArgumentParser
+import os
 
 
-def get_nn_model(model: str = 'surf/dinov2_09814', device: str = 'cpu', cache: str = ".cache/cortexchange"):
+def get_nn_model(model: str = 'surf/dino_big_lora_default_pos_november_09876', device: str = 'cpu', cache: str = ".cache/cortexchange"):
     """
     Get Neural Network model for prediction
 
@@ -14,6 +15,8 @@ def get_nn_model(model: str = 'surf/dinov2_09814', device: str = 'cpu', cache: s
     Returns:
         Model
     """
+    os.environ['TORCH_HOME'] = cache
+
     init_downloader(url="https://researchdrive.surfsara.nl/public.php/webdav/",
                     login="WsSxVZHPqHlKcvY",
                     password="PublicAccess1!",
@@ -36,7 +39,7 @@ def predict_nn(image: str = None, model=None):
         model = get_nn_model()
 
     torch_tensor=model.prepare_data(image)
-    return model.predict(torch_tensor)
+    return float(model.predict(torch_tensor)[0])
 
 
 def parse_args():
