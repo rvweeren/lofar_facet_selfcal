@@ -9906,12 +9906,12 @@ def main():
                 # Selection criteria (good image and stable solutions)
                 if predict_score < 0.5 and df['phase'][bestcycle]<0.1 and rms_ratio<1.05 and minmax_ratio<1.0:
                     logger.info(f"Early-stopping at cycle {i}")
-                    logger.info(f"Best image: Cycle {int(round(mean(df['min/max'].argmin(), df['rms'].argmin()), 0))}")
+                    logger.info(f"Best image: Cycle {int(round(np.mean(df['min/max'].argmin(), df['rms'].argmin()), 0))}")
                     logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
                     sys.exit()
                 else:
                     logger.info(f"No early-stopping at cycle {i}")
-                    logger.info(f"Best image: Cycle {int(round(mean(df['min/max'].argmin(), df['rms'].argmin()), 0))}")
+                    logger.info(f"Best image: Cycle {int(round(np.mean(df['min/max'].argmin(), df['rms'].argmin()), 0))}")
                     logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
 
         elif abs(args['stop'] - args['start']) <=2:
