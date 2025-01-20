@@ -81,7 +81,7 @@ sys.path.append(current_dir)
 
 # modules
 from arguments import option_parser
-from submods.source_selection.selfcal_selection import get_images, main as quality_check
+from submods.source_selection.selfcal_selection import get_images_solutions, main as quality_check
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
 from submods.h5_helpers.reset_structure import fix_h5
 from submods.h5_merger import merge_h5
@@ -9863,22 +9863,20 @@ def main():
         # update fitspectralpol
         args['fitspectralpol'] = update_fitspectralpol(args)
 
-        # Get already obtained selfcal images
-        images = get_images()
+        # Get already obtained selfcal images and merged solutions
+        images, mergedh5 = get_images_solutions()
 
         # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
-        if (args['get_diagnostics'] or args['early_stopping']) and i > 3 and abs(args['stop'] - args['start']) > 2:
-            # Need at least 3 cycles
-            if abs(args['stop'] - args['start']) > 3:
-                mergedh5 = sorted([h5 for h5 in glob.glob('merged_selfcal*.h5') if 'linearfulljones' not in h5])
-                if len(mergedh5) > 0:
-                    if longbaseline:
-                        station = 'international'
-                    else:
-                        station = 'alldutch'
-                    qualitycheck = quality_check(mergedh5, images, station)
+        if (args['get_diagnostics'] or args['early_stopping']) and i > 3:
+
+            if len(mergedh5) > 0:
+                if longbaseline:
+                    station = 'international'
                 else:
-                    logger.info("Cannot find merged_selfcal*.h5, so cannot perform --get-diagnostics or --early-stopping.")
+                    station = 'alldutch'
+                qualitycheck = quality_check(mergedh5, images, station)
+            else:
+                logger.info("Cannot find merged_selfcal*.h5, so cannot perform --get-diagnostics or --early-stopping.")
 
             # Early stopping
             if args['early_stopping'] and i>0:
