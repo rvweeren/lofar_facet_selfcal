@@ -1,3 +1,9 @@
+"""
+This script requires https://github.com/sara-nl/cortExchange to pull neural network models.
+"""
+
+author__ = "Jurjen de Jong (jurjendejong@strw.leidenuniv.nl)"
+
 from cortexchange.wdclient import init_downloader
 from cortexchange.architecture import get_architecture, Architecture
 from argparse import ArgumentParser
@@ -17,6 +23,7 @@ def get_nn_model(model: str = 'surf/dino_big_lora_default_pos_november_09876', d
     """
     os.environ['TORCH_HOME'] = cache
 
+    # Public access credentials from https://github.com/sara-nl/cortExchange/blob/master/cortexchange/wdclient.py#L243
     init_downloader(url="https://researchdrive.surfsara.nl/public.php/webdav/",
                     login="WsSxVZHPqHlKcvY",
                     password="PublicAccess1!",
