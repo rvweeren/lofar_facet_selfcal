@@ -7184,8 +7184,9 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         boxsize = 1.5  # degr
         
     try:
-        boxsize = float(userbox) # userbox is a number,
+        boxsize = float(userbox) # userbox is a number
         # overwrite boxsize value here with user specified number
+        userbox = 'templatebox.reg' # set this as we are going to use the template region file                 
     except:
         pass # userbox is not a number    
 
