@@ -20,6 +20,7 @@ import csv
 from pathlib import Path
 from os import sched_getaffinity, system
 import sys
+from glob import glob
 
 from joblib import Parallel, delayed
 import tables
@@ -544,6 +545,20 @@ def make_figure(vals1=None, vals2=None, label1=None, label2=None, plotname=None,
     plt.savefig(plotname, dpi=150)
 
 
+def get_images_solutions():
+    """ Get already obtained images and solutions """
+
+    images = glob("*MFS-I-image.fits")
+    if len(images) == 0:
+        images = glob("*MFS-image.fits")
+
+    # Remove 1.2arcsectaper if in list
+    images = sorted([im for im in images if 'arcsectaper' not in im])
+    solutions = sorted([h5 for h5 in glob.glob('merged_selfcal*.h5') if 'linearfulljones' not in h5])
+
+    return images, solutions
+
+
 def parse_args():
     """
     Command line argument parser
@@ -612,8 +627,8 @@ def main(h5s: list = None, fitsfiles: list = None, station: str = 'international
         f"{sq.main_source} | accept: {accept}, best solutions: {sq.h5s[best_cycle]}"
     )
 
-    fname = f'./selection_output/selfcal_performance_{sq.main_source}.csv'
-    system(f'mkdir -p ./selection_output')
+    fname = f'./selfcal_quality_plots/selfcal_performance_{sq.main_source}.csv'
+    system(f'mkdir -p ./selfcal_quality_plots')
     with open(fname, 'w') as textfile:
         # output csv
         csv_writer = csv.writer(textfile)
@@ -626,8 +641,8 @@ def main(h5s: list = None, fitsfiles: list = None, station: str = 'international
         csv_writer.writerow(['min/max'] + minmaxs + [np.nan])
         csv_writer.writerow(['rms'] + rmss + [np.nan])
 
-    make_figure(finalphase, finalamp, 'Phase stability', 'Amplitude stability', f'./selection_output/solution_stability_{sq.main_source}.png', best_cycle)
-    make_figure(rmss, minmaxs, 'RMS (mJy/beam)', '$|min/max|$', f'./selection_output/image_stability_{sq.main_source}.png', best_cycle)
+    make_figure(finalphase, finalamp, 'Phase stability', 'Amplitude stability', f'./selfcal_quality_plots/solution_stability_{sq.main_source}.png', best_cycle)
+    make_figure(rmss, minmaxs, 'RMS (mJy/beam)', '$|min/max|$', f'./selfcal_quality_plots/image_stability_{sq.main_source}.png', best_cycle)
 
     df = pd.read_csv(fname).set_index('solutions').T
     df.to_csv(fname, index=False)
@@ -659,8 +674,8 @@ def calc_all_scores(sources_root, stations='international'):
 
     results = filter(None, results)
 
-    fname = f'./selection_output/selfcal_performance.csv'
-    system(f'mkdir -p ./selection_output')
+    fname = f'./selfcal_quality_plots/selfcal_performance.csv'
+    system(f'mkdir -p ./selfcal_quality_plots')
     with open(fname, 'w') as textfile:
         csv_writer = csv.writer(textfile)
         csv_writer.writerow(
@@ -675,7 +690,7 @@ def calc_all_scores(sources_root, stations='international'):
 if __name__ == '__main__':
     args = parse_args()
 
-    output_folder='./selection_output'
+    output_folder='./selfcal_quality_plots'
     system(f'mkdir -p {output_folder}')
 
     if args.parallel:

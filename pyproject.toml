@@ -12,6 +12,7 @@ h5_merger = "submods.h5_merger:main"
 facetselfcal = "facetselfcal.main:main"
 sub_sources_outside_region = "submods.sub_sources_outside_region:main"
 ds9facetgenerator = "submods.ds9facetgenerator:main"
+image_score = "submods.source_selection.image_score:main"
 
 [tool.setuptools]
 packages = ["facetselfcal", "submods", "submods.h5_helpers", "submods.source_selection"]
