@@ -225,7 +225,26 @@ def get_image_size(fitsimage):
     hdulist.close()
     return shape
   
+def fix_uvw(mslist):
+    """
+    The MeerKAT definition of UVW differs by a minus sign, but not always for some reason
+    This leads to a mix of definitions inside a MS which causes problems when time averaging
+    This function fixes that issue
+    Parameters:
+    mslist (str/list): Input Measurement Set(s) as a string or a list of strings.
+    """
+    mslist = [mslist] if isinstance(mslist, str) else mslist
+    t = table(mslist[0] + '/OBSERVATION', ack=False)
+    telescope = t.getcol('TELESCOPE_NAME')[0]
+    t.close()
+    if telescope != 'MeerKAT':
+        return    
 
+    for ms in mslist:
+        cmd = "taql 'update " + ms + " set UVW=mscal.UVWJ2000()'"
+        print(cmd)
+        run(cmd)
+    return
 
 def get_image_dynamicrange(image):
     """
@@ -9450,6 +9469,9 @@ def main():
     # create Ateam plots
     create_Ateam_seperation_plots(mslist, start=args['start'])
 
+    # fix UVW coordinates (for time averaging with MeerKAT data)
+    fix_uvw(mslist)
+  
     # fix irregular time axes if needed (do this after flaging)
     mslist = fix_equidistant_times(mslist, args['start'] != 0, dysco=args['dysco'])
 
