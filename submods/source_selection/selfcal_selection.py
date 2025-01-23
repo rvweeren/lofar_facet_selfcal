@@ -554,7 +554,7 @@ def get_images_solutions():
 
     # Remove 1.2arcsectaper if in list
     images = sorted([im for im in images if 'arcsectaper' not in im])
-    solutions = sorted([h5 for h5 in glob.glob('merged_selfcal*.h5') if 'linearfulljones' not in h5])
+    solutions = sorted([h5 for h5 in glob('merged_selfcal*.h5') if 'linearfulljones' not in h5])
 
     return images, solutions
 
