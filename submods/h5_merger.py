@@ -1311,7 +1311,6 @@ class MergeH5:
 
         # make new solution table
         if 'phase' in soltab:
-            self.phases = self.remove_invalid_values('phase', self.phases, self.axes_final)
             if shape_axes_vals != self.phases.shape:
                 self.phases = reorderAxes(self.phases, self.axes_current, self.axes_final)
             weights = ones(self.phases.shape)
@@ -1319,7 +1318,6 @@ class MergeH5:
             solsetout.makeSoltab('phase', axesNames=self.axes_final, axesVals=axes_vals, vals=self.phases,
                                  weights=weights)
         elif 'amplitude' in soltab:
-            self.amplitudes = self.remove_invalid_values('amplitude', self.amplitudes, self.axes_final)
             if shape_axes_vals != self.amplitudes.shape:
                 self.amplitudes = reorderAxes(self.amplitudes, self.axes_current, self.axes_final)
             weights = ones(self.amplitudes.shape)
@@ -1327,7 +1325,6 @@ class MergeH5:
             solsetout.makeSoltab('amplitude', axesNames=self.axes_final, axesVals=axes_vals, vals=self.amplitudes,
                                  weights=weights)
         elif 'tec' in soltab and not self.convert_tec:
-            self.tec = self.remove_invalid_values('tec', self.tec, self.axes_final)
             if shape_axes_vals != self.tec.shape:
                 self.tec = reorderAxes(self.tec, self.axes_current, self.axes_final)
             weights = ones(self.tec.shape)
@@ -1336,7 +1333,6 @@ class MergeH5:
                                  axesVals=axes_vals,
                                  vals=self.tec, weights=weights)
         elif 'error' in soltab:
-            self.error = self.remove_invalid_values('error', self.error, self.axes_final)
             if shape_axes_vals != self.error.shape:
                 self.error = reorderAxes(self.error, self.axes_current, self.axes_final)
             weights = ones(self.error.shape)
