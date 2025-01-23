@@ -241,7 +241,7 @@ def fix_uvw(mslist):
         return    
 
     for ms in mslist:
-        cmd = "taql 'update " + ms + " set UVW=mscal.UVWJ2000()'"
+        cmd = "taql 'update " + ms + " set UVW=(-1.)*(mscal.UVWJ2000())'"
         print(cmd)
         run(cmd)
     return
@@ -8925,7 +8925,7 @@ def basicsetup(mslist, args):
                 args['pixelscale'] = 0.04
             else:
                 args['pixelscale'] = 1.5
-    elif telescope == 'MeerKAT':
+    elif args['pixelscale'] is None and telescope == 'MeerKAT':
         if freq < 1e9:  # UHF-band
             args['pixelscale'] = pixelscale = 1.8
         elif freq < 2e9:  # L-band
