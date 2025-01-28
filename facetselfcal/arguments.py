@@ -472,9 +472,14 @@ def option_parser():
                         type=ast.literal_eval,
                         default=True)
     parser.add_argument('--dysco',
-                        help='Use Dysco compression. The default is True.',
+                        help='Use Dysco data compression. The default is True.',
                         type=ast.literal_eval,
                         default=True)
+    parser.add_argument('--modelcompression',
+                        help='Use stokes_i compression for MODEL_DATA type columns if possible. The default is False.',
+                        type=ast.literal_eval,
+                        default=False)
+        
     parser.add_argument('--resetweights',
                         help='If you want to ignore weight_spectrum_solve.',
                         action='store_true')
