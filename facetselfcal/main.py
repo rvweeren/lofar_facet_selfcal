@@ -249,6 +249,12 @@ def fix_uvw(mslist):
 def get_image_dynamicrange(image):
     """
     Get dynamic range of an image (peak over rms)
+
+    Args:
+        image (str): FITS image file name .
+     
+    Returns:
+        DR (float): Dynamic range vale.
     """
 
     print('Compute image dynamic range (peak over rms): ', image)
@@ -257,6 +263,31 @@ def get_image_dynamicrange(image):
     DR = np.nanmax(np.ndarray.flatten(hdul[0].data)) / image_rms
     hdul.close()
     return DR
+
+
+def is_stokesi_modeltype_allowed(args, telescope):
+    """
+    Determine if Stokes I compression is allowed for MODEL_DATA-type columns.
+
+    Args:
+        args (dict): Dictionary of arguments, including 'single_dual_speedup', 
+                     'disable_primary_beam', and 'soltype_list'.
+        telescope (str): The telescope name (e.g., 'LOFAR').
+
+    Returns:
+        bool: True if Stokes I compression is allowed, False otherwise.
+    """
+    if telescope == 'LOFAR': 
+        if not args['single_dual_speedup']:
+            if not args['disable_primary_beam']:
+                return False # so in this case we want the keep the primary beam polarization information    
+    
+    notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'phaseonly_phmin', 'rotation_phmin', 'phaseonly_slope']
+    for soltype in args['soltype_list']:
+        if soltype in notallowed_list: return False
+    return True
+
+
 
 
 def update_channelsout(args, selfcalcycle, mslist):
@@ -1970,7 +2001,7 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
     return
 
 
-def create_MODEL_DATA_PDIFF(inmslist):
+def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
     """ Creates the MODEL_DATA_PDIFF column.
 
     Args:
@@ -1979,7 +2010,10 @@ def create_MODEL_DATA_PDIFF(inmslist):
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
+        if modelstoragemanager is None:
+            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
+        else:
+             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=' + modelstoragemanager + ' steps=[]')
         run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
         run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
         run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
@@ -2552,7 +2586,7 @@ def build_applycal_dde_cmd(inparmdblist):
     return cmd
 
 
-def corrupt_modelcolumns(ms, h5parm, modeldatacolumns):
+def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None):
     """ Ccorrupt a list of model data columns with H5parm solutions
 
     Args:
@@ -2580,16 +2614,16 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns):
     for m_id, modelcolumn in enumerate(modeldatacolumns):
         if special_DIL:
             applycal(ms, h5parm, msincol=modelcolumn, msoutcol=modelcolumn,
-                     dysco=False, invert=False, direction=dirnames[m_id].decode("utf-8"))
+                     dysco=False, invert=False, direction=dirnames[m_id].decode("utf-8"), modelstoragemanager=modelstoragemanager)
         else:
             applycal(ms, h5parm, msincol=modelcolumn, msoutcol=modelcolumn,
-                     dysco=False, invert=False, direction=modelcolumn)
+                     dysco=False, invert=False, direction=modelcolumn, modelstoragemanager=modelstoragemanager)
     return
 
 
 def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
-             find_closestdir=False, updateweights=False):
+             find_closestdir=False, updateweights=False, modelstoragemanager=None):
     """ Apply an H5parm to a Measurement Set.
 
     Args:
@@ -2626,6 +2660,8 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
     if dysco:
         cmd += 'msout.storagemanager=dysco '
         cmd += 'msout.storagemanager.weightbitrate=16 '
+    if modelstoragemanager is not None and not dysco:
+        cmd += 'msout.storagemanager=' + modelstoragemanager + ' '
     count = 0
     for parmdb in inparmdblist:
         if find_closestdir:
@@ -6050,7 +6086,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
                 DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=True,
                 telescope='LOFAR', targetFlux=2.0, skyview=None,
                 fitspectralpol=3, disable_primary_beam=False, wscleanskymodel=None,
-                skymodel=None):
+                skymodel=None, modelstoragemanager=None, parallelgridding=1):
     if telescope == 'LOFAR' and not disable_IDG_DDE_predict:
         idg = True  # predict WSCLEAN with beam using IDG (wsclean facet mode with h5 is not efficient here)
     else:
@@ -6103,14 +6139,15 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
 
     if restart:
         # restart with DDE_predict=DP3 because then only the variable modeldatacolumns is made
-        # So the wsclean predict step is skipped in makeimage but modeldatacolumns is created
+        # So the wsclean predict step is skipped in makeimage but variable modeldatacolumns is created
         modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3),
                                      pixelscale, imsize, channelsout, predict=True,
                                      onlypredict=True, facetregionfile='facets.reg',
                                      DDE_predict='DP3',
                                      disable_primarybeam_image=disable_primary_beam,
                                      disable_primarybeam_predict=disable_primary_beam,
-                                     fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                                     fulljones_h5_facetbeam=not args['single_dual_speedup'],
+                                     modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
         # selfcalcycle-1 because makeimage has not yet produced an image at this point
         if fitspectralpol > 0 and DDE_predict == 'DP3':
             dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle - 1).zfill(3) + '-sources.txt', 'facets.fits')
@@ -6123,7 +6160,8 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
                                      DDE_predict=DDE_predict,
                                      disable_primarybeam_image=disable_primary_beam,
                                      disable_primarybeam_predict=disable_primary_beam,
-                                     fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                                     fulljones_h5_facetbeam=not args['single_dual_speedup'],
+                                     modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
         if fitspectralpol > 0:
             dde_skymodel = groupskymodel(imagebasename, 'facets.fits')  # imagebasename
         else:
@@ -6145,7 +6183,8 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
                                      DDE_predict='WSCLEAN', idg=idg,
                                      disable_primarybeam_image=disable_primary_beam,
                                      disable_primarybeam_predict=disable_primary_beam,
-                                     fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                                     fulljones_h5_facetbeam=not args['single_dual_speedup'],
+                                     modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
         # assume there is no model for DDE wscleanskymodel solve at the start
         # since we are making image000 afterwards anyway setting a dummy now is ok
         dde_skymodel = 'dummy.skymodel'
@@ -6157,7 +6196,8 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
                                      DDE_predict=DDE_predict, idg=idg,
                                      disable_primarybeam_image=disable_primary_beam,
                                      disable_primarybeam_predict=disable_primary_beam,
-                                     fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                                     fulljones_h5_facetbeam=not args['single_dual_speedup'],
+                                     modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
         if fitspectralpol > 0 and DDE_predict == 'DP3':
             dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'facets.fits')
         else:
@@ -6208,7 +6248,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                          gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None,
                          DDE_predict='WSCLEAN', QualityBasedWeights=False, QualityBasedWeights_start=5,
                          QualityBasedWeights_dtime=10., QualityBasedWeights_dfreq=5., telescope='LOFAR',
-                         ncpu_max=24, mslist_beforeremoveinternational=None, soltypelist_includedir=None):
+                         ncpu_max=24, mslist_beforeremoveinternational=None, soltypelist_includedir=None, modelstoragemanager=None):
     ## --- start STACK code ---
     if args['stack']:
         # create MODEL_DATA because in case it does not exist, happens under these conditions
@@ -6219,26 +6259,29 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                 print('Doing sky predict for stacking...')
                 if skymodel is not None and type(skymodel) is str:
                     predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam,
-                               sources=skymodelsource)
+                               sources=skymodelsource, modelstoragemanager=modelstoragemanager)
                 if skymodel is not None and type(skymodel) is list:
                     predictsky(ms, skymodel[ms_id], modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam,
-                               sources=skymodelsource)
+                               sources=skymodelsource, modelstoragemanager=modelstoragemanager)
                 if wscleanskymodel is not None and type(wscleanskymodel) is str:
                     makeimage([ms], wscleanskymodel, 1., 1.,
                               len(glob.glob(wscleanskymodel + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
                               gapchanneldivision=gapchanneldivision,
-                              fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                              fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
                 if wscleanskymodel is not None and type(wscleanskymodel) is list:
                     makeimage([ms], wscleanskymodel[ms_id], 1., 1.,
                               len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
                               gapchanneldivision=gapchanneldivision,
-                              fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                              fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
 
                 if skymodelpointsource is not None and type(skymodelpointsource) is float:
                     # create MODEL_DATA (no dysco!)
-                    run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
+                    if modelstoragemanager is None:
+                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
+                    else:
+                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + modelstoragemanager + ' steps=[]', log=True)                        
                     # do the predict with taql
                     run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'",
                         log=True)
@@ -6249,7 +6292,10 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
 
                 if skymodelpointsource is not None and type(skymodelpointsource) is list:
                     # create MODEL_DATA (no dysco!)
-                    run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
+                    if modelstoragemanager is None:
+                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
+                    else:
+                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + modelstoragemanager + ' steps=[]', log=True)
                     # do the predict with taql
                     run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource[ms_id]) + "+0i)'",
                         log=True)
@@ -6362,7 +6408,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                             preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel,
                             DDE_predict=DDE_predict, telescope=telescope, ncpu_max=ncpu_max, soltype_list=soltype_list,
                             DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir,
-                            normamps=normamps)
+                            normamps=normamps, modelstoragemanager=modelstoragemanager)
 
                 parmdbmslist.append(parmdb)
                 parmdbmergelist[msnumber].append(parmdb)  # for h5_merge
@@ -6408,15 +6454,15 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                     if soltypenumber == 0:
                         if len(modeldatacolumns) > 1:
                             if DDE_predict == 'WSCLEAN':
-                                corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns)  # For DDE
+                                corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns, modelstoragemanager=modelstoragemanager)  # For DDE
                         else:
-                            corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'])  # Saves disk space
+                            corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'], modelstoragemanager=modelstoragemanager)  # Saves disk space
                     else:
                         if len(modeldatacolumns) > 1:
                             if DDE_predict == 'WSCLEAN':
                                 corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns)  # For DDE
                         else:
-                            corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'])  # Saves disk space
+                            corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'], modelstoragemanager=modelstoragemanager)  # Saves disk space
                 else:  # This is the last solve; no other perturbation
                     # Reverse solution tables ([::-1]) to switch from corrupt to correct; essential as fulljones and diagonal solutions do not commute
                     applycal(ms, parmdbmergelist[msnumber][::-1], msincol='DATA', msoutcol='CORRECTED_DATA',
@@ -6527,28 +6573,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
         return []
 
 
-def predictsky_wscleanfits(ms, imagebasename, usewgridder=True,
-                           wgridderaccuracy=1e-4, nosmallinversion=False):
-    """
-    Predict the sky from model channels fits images (from a previous run, so frequencies need to overlap)
-    """
-    channelsout = len(glob.glob(imagebasename + '-????-model.fits'))
-    cmd = 'wsclean -channels-out ' + str(channelsout) + ' -pol i '
-    if usewgridder:
-        cmd += '-gridder wgridder '
-        cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
-        if nosmallinversion:
-            cmd += '-no-min-grid-resolution '  # '-no-small-inversion '
-    else:
-        cmd += '-padding 1.8 '
-    cmd += '-name ' + imagebasename + ' -predict ' + ms
-    print(cmd)
-    run(cmd)
-    time.sleep(1)
-    return
-
-
-def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None, beamproximitylimit=240.0):
+def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None, beamproximitylimit=240.0, modelstoragemanager=None):
     cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msout=. '
     cmd += 'p.sourcedb=' + skymodel + ' steps=[p] p.type=predict msout.datacolumn=' + modeldata + ' '
     if sources is not None:
@@ -6556,12 +6581,13 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
     if predictskywithbeam:
         cmd += 'p.usebeammodel=True p.usechannelfreq=True p.beammode=array_factor '
         cmd += 'p.beamproximitylimit=' + str(beamproximitylimit) + ' '
-
+    elif modelstoragemanager is not None:
+        cmd += 'msout.storagemanager=' + modelstoragemanager + ' '
     print(cmd)
     run(cmd)
 
 
-def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
+def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 SMconstraint=0.0, SMconstraintreffreq=0.0,
                 SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None,
                 resetsols=None, resetsols_list=[None], resetdir=None,
@@ -6578,7 +6604,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
                 preapplyH5_dde=[],
                 dde_skymodel=None, DDE_predict='WSCLEAN', telescope='LOFAR', beamproximitylimit=240.,
                 ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None,
-                normamps=True):
+                normamps=True, modelstoragemanager=None):
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
     modeldata = 'MODEL_DATA'  # the default, update if needed for scalarphasediff and phmin solves
@@ -6600,17 +6626,20 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
         incol = 'SMOOTHED_DATA'
 
     if skymodel is not None and create_modeldata and selfcalcycle == 0 and len(modeldatacolumns) == 0:
-        predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource)
+        predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource, modelstoragemanager=modelstoragemanager)
 
     # if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if wscleanskymodel is not None and create_modeldata and len(modeldatacolumns) == 0:
         makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')),
-                  0, 0.0, onlypredict=True, idg=False, gapchanneldivision=gapchanneldivision)
+                  0, 0.0, onlypredict=True, idg=False, gapchanneldivision=gapchanneldivision, modelstoragemanager=modelstoragemanager)
 
     # if skymodelpointsource is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if skymodelpointsource is not None and create_modeldata:
         # create MODEL_DATA (no dysco!)
-        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
+        if modelstoragemanager is None:
+            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
+        else:
+            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + modelstoragemanager + ' steps=[]')
         # do the predict with taql
         run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'")
         run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
@@ -6632,14 +6661,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1,
         if 'DATA_CIRCULAR_PHASEDIFF' not in colnames:
             create_phasediff_column(ms, incol=incol, dysco=dysco)
         if 'MODEL_DATA_PDIFF' not in colnames:
-            create_MODEL_DATA_PDIFF(ms)  # make a point source
+            create_MODEL_DATA_PDIFF(ms, modelstoragemanager)  # make a point source
         soltype = 'phaseonly'  # do this type of solve, maybe scalarphase is fine? 'scalarphase' #
         incol = 'DATA_CIRCULAR_PHASEDIFF'
         modeldata = 'MODEL_DATA_PDIFF'
 
     if soltype in ['phaseonly_phmin', 'rotation_phmin', 'tec_phmin', 'tecandphase_phmin', 'scalarphase_phmin']:
         create_phase_column(ms, incol=incol, outcol='DATA_PHASEONLY', dysco=dysco)
-        create_phase_column(ms, incol='MODEL_DATA', outcol='MODEL_DATA_PHASEONLY', dysco=dysco)
+        create_phase_column(ms, incol='MODEL_DATA', outcol='MODEL_DATA_PHASEONLY', dysco=False)
         soltype = soltype.split('_phmin')[0]
         incol = 'DATA_PHASEONLY'
         modeldata = 'MODEL_DATA_PHASEONLY'
@@ -7184,7 +7213,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                        channelsout, single_dual_speedup=True,
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None,
                        idg=False, h5list=[], facetregionfile=None,
-                       disable_primary_beam=False, ddcor=True):
+                       disable_primary_beam=False, ddcor=True, modelstoragemanager=None, parallelgridding=1):
     # get imageheader to check frequency
     hdul = fits.open(imagebasename + '-MFS-image.fits')
     header = hdul[0].header
@@ -7212,11 +7241,11 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
 
     # create square box file templatebox.reg
     region_string = """
-   # Region file format: DS9 version 4.1
-   global color=green dashlist=8 3 width=1 font="helvetica 10 normal roman" select=1
-   fk5
-   box(137.2868914,-9.6412498,7200.000",7200.000",0)
-   """
+    # Region file format: DS9 version 4.1
+    global color=green dashlist=8 3 width=1 font="helvetica 10 normal roman" select=1
+    fk5
+    box(137.2868914,-9.6412498,7200.000",7200.000",0)
+    """
     r = pyregion.parse(region_string)
     r.write('templatebox.reg')
     r = pyregion.open('templatebox.reg')
@@ -7232,14 +7261,14 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
             makeimage(mslist, imagebasename, pixsize, imsize,
                       channelsout, onlypredict=True, squarebox='templatebox.reg',
                       idg=idg, disable_primarybeam_predict=disable_primary_beam,
-                      fulljones_h5_facetbeam=not single_dual_speedup)
+                      fulljones_h5_facetbeam=not single_dual_speedup, modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
             phaseshiftbox = 'templatebox.reg'
         else:
             if userbox != 'keepall':
                 makeimage(mslist, imagebasename, pixsize, imsize,
                           channelsout, onlypredict=True, squarebox=userbox,
                           idg=idg, disable_primarybeam_predict=disable_primary_beam,
-                          fulljones_h5_facetbeam=not single_dual_speedup)
+                          fulljones_h5_facetbeam=not single_dual_speedup, modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
                 phaseshiftbox = userbox
             else:
                 phaseshiftbox = None  # so option keepall was set by the user
@@ -7249,7 +7278,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                       channelsout, onlypredict=True, squarebox='templatebox.reg',
                       idg=idg, h5list=h5list, facetregionfile=facetregionfile,
                       disable_primarybeam_predict=disable_primary_beam,
-                      fulljones_h5_facetbeam=not single_dual_speedup)
+                      fulljones_h5_facetbeam=not single_dual_speedup, modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
             phaseshiftbox = 'templatebox.reg'
         else:
             if userbox != 'keepall':
@@ -7257,7 +7286,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                           channelsout, onlypredict=True, squarebox=userbox,
                           idg=idg, h5list=h5list, facetregionfile=facetregionfile,
                           disable_primarybeam_predict=disable_primary_beam,
-                          fulljones_h5_facetbeam=not single_dual_speedup)
+                          fulljones_h5_facetbeam=not single_dual_speedup, modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
                 phaseshiftbox = userbox
             else:
                 phaseshiftbox = None  # so option keepall was set by the user
@@ -7273,7 +7302,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                 cmd = 'DP3 msin=' + ms + ' msout=. steps=[] msout.datacolumn=' + outcol + ' '
                 cmd += 'msin.datacolumn=' + datacolumn + ' '
                 if dysco:
-                    cmd += 'msout.storagemanager=dysco'
+                    cmd += 'msout.storagemanager=dysco '
                     cmd += 'msout.storagemanager.weightbitrate=16 '
                 print(cmd)
                 run(cmd)
@@ -7317,15 +7346,20 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False,
               facet_beam_update_time=120, groupms_h5facetspeedup=False,
               singlefacetpredictspeedup=True, forceimagingwithfacets=True, ddpsfgrid=None,
-              fulljones_h5_facetbeam=False):
+              fulljones_h5_facetbeam=False, modelstoragemanager=None):
     """
     forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
     """
-    if '-model-column' in subprocess.check_output(['wsclean'], text=True):
+    
+    # since the addition of the -model-storage-manager the option -model-column can be used without hitting a DP3 error 
+    #Related to this was that WSClean up to now uses the same storage manager (read: file) for multiple model columns. While this is 'legal', it turned out that Dp3's DDECal with those model columns as input didn't work with this (due to complicated multi-threading issues).
+    if '-model-storage-manager' in subprocess.check_output(['wsclean'], text=True):
         predict_inmodelcol = True
     else:
         predict_inmodelcol = False
-    predict_inmodelcol = False # temporary set to False because of DP3 storagemanager bug
+    
+    if modelstoragemanager == 'stokes_i':
+        modelstoragemanager = 'stokes-i' # because WSclean uses a different name than DP3
                 
     fitspectrallogpol = False  # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
@@ -7373,6 +7407,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                         cmd += '-no-min-grid-resolution '  # '-no-small-inversion '
                 if parallelgridding > 1:
                     cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
+            
+            if modelstoragemanager is not None:
+                cmd += '-model-storage-manager ' + modelstoragemanager + ' '
 
             if squarebox is None:
                 cmd += '-name ' + imageout + ' ' + msliststring
@@ -7431,6 +7468,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                 cmd += '-use-differential-lofar-beam '
 
+        if modelstoragemanager is not None:
+            cmd += '-model-storage-manager ' + modelstoragemanager + ' '
+
         cmd += '-name box_' + imageout + ' ' + msliststring
         if DDE_predict == 'WSCLEAN':
             print('DDE PREDICT STEP: ', cmd)
@@ -7459,6 +7499,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             cmd = 'wsclean -predict '
             if predict_inmodelcol:  # directly predict the right column name
                 cmd += '-model-column MODEL_DATA_DD' + str(facet_id) + ' '
+            if modelstoragemanager is not None:
+                cmd += '-model-storage-manager ' + modelstoragemanager + ' '
             # if not usewgridder and not idg:
             #  cmd += '-padding 1.8 '
             if channelsout > 1:
@@ -7720,6 +7762,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 #     if telescope == 'LOFAR':
                 #         cmd += '-apply-facet-beam -facet-beam-update 600 -use-differential-lofar-beam '
                 #         cmd += '-diagonal-solutions '
+                if modelstoragemanager is not None:
+                    cmd += '-model-storage-manager ' + modelstoragemanager + ' '
 
                 cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' + msliststring
                 print('PREDICT STEP: ', cmd)
@@ -9097,7 +9141,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
         scorelist = []
         parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
         runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,
-                    dysco=args['dysco'])
+                    dysco=args['dysco'], modelstoragemanager=modelstoragemanager)
 
         # Reference solution interval
         ref_solint = solint
@@ -9390,7 +9434,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '11.3.0'
+    version = '12.0.0'
     print_title(version)
 
     global submodpath, datapath
@@ -9470,8 +9514,8 @@ def main():
     create_Ateam_seperation_plots(mslist, start=args['start'])
 
     # fix UVW coordinates (for time averaging with MeerKAT data)
-    fix_uvw(mslist)
-  
+    if args['start'] == 0: fix_uvw(mslist)
+       
     # fix irregular time axes if needed (do this after flaging)
     mslist = fix_equidistant_times(mslist, args['start'] != 0, dysco=args['dysco'])
 
@@ -9484,6 +9528,15 @@ def main():
     # SETUP VARIOUS PARAMETERS
     longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, maskthreshold_selfcalcycle, \
         outtarname, telescope, args = basicsetup(mslist, args)
+
+    # set model storagemanager
+    modelstoragemanager = None
+    if args['modelcompression']:
+        if is_stokesi_modeltype_allowed(args, telescope):
+            modelstoragemanager = 'stokes_i'
+            print('Using stokes_i model compression')
+        else:
+            print('Cannot use stokes_i model compression')
 
     # check if we could average more
     avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
@@ -9663,7 +9716,7 @@ def main():
                                 DDE_predict='DP3', restart=False, skyview=tgssfitsfile,
                                 targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
                                 disable_primary_beam=args['disable_primary_beam'],
-                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel']))
+                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding']))
 
                 if candidate_solints is not None:
                     candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
@@ -9704,7 +9757,7 @@ def main():
                                                   QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],
                                                   ncpu_max=args['ncpu_max_DP3solve'],
                                                   mslist_beforeremoveinternational=mslist_beforeremoveinternational,
-                                                  soltypelist_includedir=soltypelist_includedir)
+                                                  soltypelist_includedir=soltypelist_includedir, modelstoragemanager=modelstoragemanager)
 
         if args['phasediff_only']:
             return
@@ -9722,7 +9775,7 @@ def main():
                             args, numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope,
                             targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
-                            disable_primary_beam=args['disable_primary_beam']))
+                            disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding']))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
 
         #  --- start imaging part ---
@@ -9755,7 +9808,7 @@ def main():
                       disable_primarybeam_image=args['disable_primary_beam'],
                       disable_primarybeam_predict=args['disable_primary_beam'],
                       groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
-                      fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                      fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
             # args['idg'] = idgin # set back
             if args['makeimage_ILTlowres_HBA']:
                 if args['phaseupstations'] is None:
@@ -9778,7 +9831,7 @@ def main():
                           disable_primarybeam_predict=args['disable_primary_beam'],
                           groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
                           ddpsfgrid=args['ddpsfgrid'],
-                          fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                          fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
             if args['makeimage_fullpol']:
                 makeimage(mslistim, args['imagename'] + 'fullpol' + str(i).zfill(3) + stackstr,
                           args['pixelscale'], args['imsize'],
@@ -9796,7 +9849,7 @@ def main():
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
                           groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
-                          fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                          fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
 
             # make figure
             if args['imager'] == 'WSCLEAN':
@@ -9823,7 +9876,7 @@ def main():
                 prepare_DDE(args['imagename'], i, mslist, args['imsize'], args['pixelscale'], args['channelsout'],
                             args, numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
                             DDE_predict=args['DDE_predict'], telescope=telescope, targetFlux=args['targetFlux'],
-                            fitspectralpol=args['fitspectralpol'], disable_primary_beam=args['disable_primary_beam']))
+                            fitspectralpol=args['fitspectralpol'], disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding']))
 
             if candidate_solints is not None:
                 candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
@@ -9897,7 +9950,7 @@ def main():
                                               QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],
                                               telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'],
                                               mslist_beforeremoveinternational=mslist_beforeremoveinternational,
-                                              soltypelist_includedir=soltypelist_includedir)
+                                              soltypelist_includedir=soltypelist_includedir, modelstoragemanager=modelstoragemanager)
 
         # update uvmin if allowed/requested
         args['uvmin'] = update_uvmin(fitsmask, longbaseline, args, LBA)
@@ -9988,14 +10041,14 @@ def main():
                   disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
                   groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
-                  ddpsfgrid=args['ddpsfgrid'], fulljones_h5_facetbeam=not args['single_dual_speedup'])
+                  ddpsfgrid=args['ddpsfgrid'], fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
 
         remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), args['pixelscale'],
                            args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
                            dysco=args['dysco'],
                            userbox=args['remove_outside_center_box'], idg=args['idg'],
                            h5list=wsclean_h5list, facetregionfile=facetregionfile,
-                           disable_primary_beam=args['disable_primary_beam'])
+                           disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding'])
 
     # ARCHIVE DATA AFTER SELFCAL if requested
     if not longbaseline and not args['noarchive']:
