@@ -1186,21 +1186,14 @@ def run(command, log=False):
     Args:
         command (str): the command to execute.
     Returns:
-        retval (int): the return code of the executed process.
+        None
     """
     if log:
         print(command)
         logger.info(command)
-    process = subprocess.run(command, shell=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, encoding="utf-8")
-    retval = process.returncode
-    stdout = process.stdout
-    stderr = process.stderr
-    if retval!= 0:
-        print("FAILED to run", command)
-        print("return value is", retval)
-        print("stderr is", stderr)
-        print("stdout is", stdout)
+    retval = subprocess.call(command, shell=True)
+    if retval != 0:
+        print('FAILED to run ' + command + ': return value is ' + str(retval))
         raise Exception(command)
     return retval
 
