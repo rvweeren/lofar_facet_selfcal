@@ -1186,14 +1186,21 @@ def run(command, log=False):
     Args:
         command (str): the command to execute.
     Returns:
-        None
+        retval (int): the return code of the executed process.
     """
     if log:
         print(command)
         logger.info(command)
-    retval = subprocess.call(command, shell=True)
-    if retval != 0:
-        print('FAILED to run ' + command + ': return value is ' + str(retval))
+    process = subprocess.run(command, shell=True,
+                            stderr=subprocess.STDOUT, encoding="utf-8")
+    retval = process.returncode
+    #stdout = process.stdout
+    stderr = process.stderr
+    if retval!= 0:
+        print("FAILED to run", command)
+        print("return value is", retval)
+        print("stderr is", stderr)
+        #print("stdout is", stdout)
         raise Exception(command)
     return retval
 
@@ -6460,7 +6467,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                     else:
                         if len(modeldatacolumns) > 1:
                             if DDE_predict == 'WSCLEAN':
-                                corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns)  # For DDE
+                                corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns, modelstoragemanager=modelstoragemanager)  # For DDE
                         else:
                             corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'], modelstoragemanager=modelstoragemanager)  # Saves disk space
                 else:  # This is the last solve; no other perturbation
@@ -6829,7 +6836,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             modeldatacolumns_solve, sourcedir_removed, dir_id_kept = updatemodelcols_includedir(modeldatacolumns,
                                                                                                 soltypenumber,
                                                                                                 soltypelist_includedir,
-                                                                                                ms)
+                                                                                                ms, modelstoragemanager=modelstoragemanager)
 
         if DDE_predict == 'DP3':
             cmd += 'ddecal.sourcedb=' + dde_skymodel + ' '
@@ -7326,8 +7333,8 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         for ms_id, ms in enumerate(mslist):
             if os.path.isdir(ms + '.subtracted_ddcor'):
                 os.system('rm -rf ' + ms + '.subtracted_ddcor')  
-            applycal(ms + '.subtracted',h5list[ms_id],find_closestdir=True, 
-                     msout=ms + '.subtracted_ddcor')
+            applycal(ms + '.subtracted',h5list[ms_id], find_closestdir=True, 
+                     msout=ms + '.subtracted_ddcor', dysco=dysco)
             # remove uncorrected file to save disk space
             os.system('rm -rf ' + ms + '.subtracted')
     return
@@ -7869,7 +7876,7 @@ def checkforzerocleancomponents(imagenames):
         return False
 
 
-def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms, dryrun=False):
+def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms, dryrun=False, modelstoragemanager=None):
     modeldatacolumns_solve = []
     modeldatacolumns_notselected = []
     id_kept = []
@@ -7937,8 +7944,11 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
         colnames = t.colnames()
         t.close()
         if modelcol not in colnames:
-            cmddppp = 'DP3 msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. steps=[] '
+            cmddppp = 'DP3 msin=' + ms + ' msin.datacolumn='
+            cmddppp += modeldatacolumns[0] + ' msout=. steps=[] ' # modeldatacolumns[0] just use to first one as template
             cmddppp += 'msout.datacolumn=' + modelcol + ' '
+            if modelstoragemanager is not None:
+                cmddppp += 'msout.storagemanager=' + modelstoragemanager + ' '
             print(cmddppp)
             if not dryrun:
                 run(cmddppp)
@@ -8020,7 +8030,7 @@ def _add_astropy_beam(fitsname):
     return ellipse
 
 
-def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
+def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None, regionfile=None):
     # image noise for plotting
     if rmsnoiseimage is None:
         hdulist = fits.open(fitsimagename)
@@ -8032,40 +8042,62 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None)
     # image noise info
     hdulist = fits.open(fitsimagename)
     imagenoiseinfo = findrms(np.ndarray.flatten(hdulist[0].data))
-    logger.info(fitsimagename + ' Max image: ' + str(np.max(np.ndarray.flatten(hdulist[0].data))))
-    logger.info(fitsimagename + ' Min image: ' + str(np.min(np.ndarray.flatten(hdulist[0].data))))
-    hdulist.close()
+    
+    try:
+        logger.info(fitsimagename + ' Max image: ' + str(np.max(np.ndarray.flatten(hdulist[0].data))))
+        logger.info(fitsimagename + ' Min image: ' + str(np.min(np.ndarray.flatten(hdulist[0].data))))
+        logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
+    except:
+        pass # so we can also use the function without a logger open
+
+    hdulist = flatten(fits.open(fitsimagename))
 
     data = fits.getdata(fitsimagename)
     head = fits.getheader(fitsimagename)
     f = plt.figure()
-    ax = f.add_subplot(111, projection=WCS(head), slices=('x', 'y', 0, 0))
+    ax = f.add_subplot(111, projection=WCS(hdulist.header) ) #, slices=('x', 'y', 0, 0))
     img = ax.imshow(data[0, 0, :, :], cmap='bone', vmax=16 * imagenoise, vmin=-6 * imagenoise)
     ax.set_title(fitsimagename + ' (noise = {} mJy/beam)'.format(round(imagenoiseinfo * 1e3, 3)))
     ax.grid(True)
     ax.set_xlabel('Right Ascension (J2000)')
     ax.set_ylabel('Declination (J2000)')
+    try:
+        from astropy.visualization.wcsaxes import add_beam, add_scalebar
+        add_beam(ax, header=hdulist.header,  frame=True) 
+    except Exception as e:
+        print(f"Cannot plot beam on image, failed with error: {e}. Skipping.")
+
     cbar = plt.colorbar(img)
     cbar.set_label('Flux (Jy beam$^{-1}$)')
-    ax.add_artist(_add_astropy_beam(fitsimagename))
-
+    #ax.add_artist(_add_astropy_beam(fitsimagename))
+ 
+    try: 
+        if regionfile is not None:
+            import regions
+            ds9regions = regions.Regions.read(regionfile, format='ds9')
+            for ds9region in ds9regions:
+                reg = ds9region.to_pixel(WCS(hdulist.header))
+                reg.plot(ax=ax, color='yellow', alpha=0.5)
+    except Exception as e:
+        print(f"Cannot overplot facets, failed with error: {e}. Skipping.")
+        
     if mask is not None:
         maskdata = fits.getdata(mask)[0, 0, :, :]
-        ax.contour(maskdata, colors='red', levels=[0.1 * imagenoise], filled=False, smooth=1, alpha=0.6, linewidths=1)
+        ax.contour(maskdata, colors='red', levels=[0.1 * imagenoise], filled=False, alpha=0.6, linewidths=1)
 
     if os.path.isfile(outplotname + '.png'):
         os.system('rm -f ' + outplotname + '.png')
     plt.savefig(outplotname, dpi=450, format='png')
-    logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
+    plt.close()
     return
 
 
-def plotimage(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
+def plotimage(fitsimagename, outplotname, mask=None, rmsnoiseimage=None, regionfile=None):
     """
     Tries to plot the image using astropy first, and falls back to aplpy if astropy fails.
     """
     try:
-        plotimage_astropy(fitsimagename, outplotname, mask, rmsnoiseimage)
+        plotimage_astropy(fitsimagename, outplotname, mask, rmsnoiseimage, regionfile=regionfile)
     except Exception as e:
         print(f"Astropy plotting failed with error: {e}. Switching to aplpy.")
         plotimage_aplpy(fitsimagename, outplotname, mask, rmsnoiseimage)
@@ -9110,7 +9142,7 @@ def basicsetup(mslist, args):
         maskthreshold_selfcalcycle, outtarname, telescope, args
 
 
-def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
+def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min', modelstoragemanager=None):
     """
     Compute phasediff statistics using circular standard deviations on the solutions of a scalarphasediff solve for
     international stations.
@@ -9121,6 +9153,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
     :param args: input arguments
     :param nchan: n channels
     :param solint: solution interval
+    :param modelstoragemanager: modelstoragemanager to use
     """
 
     mslist_input = mslist[:]  # make a copy
@@ -9141,7 +9174,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
         scorelist = []
         parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
         runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,
-                    dysco=args['dysco'])
+                    dysco=args['dysco'], modelstoragemanager=modelstoragemanager)
 
         # Reference solution interval
         ref_solint = solint
@@ -9553,7 +9586,7 @@ def main():
     # COMPUTE PHASE-DIFF statistic
     if args['compute_phasediffstat']:
         if longbaseline:
-            compute_phasediffstat(mslist, args)
+            compute_phasediffstat(mslist, args, modelstoragemanager=modelstoragemanager)
         else:
             logger.info("--compute-phasediffstat requested but no long-baselines in dataset.")
 
@@ -9866,7 +9899,8 @@ def main():
             if args['channelsout'] == 1:
                 plotpngimage = plotpngimage.replace('-MFS', '').replace('-I', '')
                 plotfitsimage = plotfitsimage.replace('-MFS', '').replace('-I', '')
-            plotimage(plotfitsimage, plotpngimage, mask=fitsmask_list[msim_id], rmsnoiseimage=plotfitsimage)
+            plotimage(plotfitsimage, plotpngimage, mask=fitsmask_list[msim_id], 
+                      rmsnoiseimage=plotfitsimage, regionfile='facets.reg' if args['DDE'] else None)
 
         #  --- end imaging part ---
 
