@@ -25,7 +25,7 @@ def option_parser():
                                default=None,
                                type=int)
     imagingparser.add_argument('--maskthreshold',
-                               help="Mask noise thresholds used from image 1 to 10 made by MakeMask.py. This is by default [5.0,4.5,4.5,4.5,4.0].",
+                               help="Mask noise thresholds used from image 1 to N made by MakeMask.py/breizorro. This is by default [5.0,4.5,4.5,4.5,4.0].",
                                default=[5.0, 4.5, 4.5, 4.5, 4.0],
                                type=arg_as_list)
     imagingparser.add_argument('--localrmswindow',
@@ -41,7 +41,7 @@ def option_parser():
                                type=ast.literal_eval,
                                default=True)
     imagingparser.add_argument('--fitsmask',
-                               help='Fits mask for deconvolution (needs to match image size). If this is not provided automasking is used in combination with MakeMask.py. If set to "nofitsmask" then only WSCLean auto-masking is used',
+                               help='Fits mask for deconvolution (needs to match image size). If this is not provided automasking is used in combination with MakeMask.py/breizorro. If set to "nofitsmask" then only WSCLean auto-masking is used',
                                type=str)
     imagingparser.add_argument('--robust',
                                help='Briggs robust parameter for imagaging. The default is -0.5. Also allowed are the strings uniform or naturual which will override Briggs weighting.',
