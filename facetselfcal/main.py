@@ -96,19 +96,16 @@ from submods.h5_helpers.general_utils import make_utf8
 from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
 from submods.source_selection.phasediff_output import GetSolint
 
-
+# Set logger
 logger = logging.getLogger(__name__)
-
-# Create a file handler explicitly
 file_handler = logging.FileHandler('selfcal.log')
 formatter = logging.Formatter('%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 file_handler.setFormatter(formatter)
-
-# Add the handler to the logger
 logger.addHandler(file_handler)
 logger.setLevel(logging.DEBUG)
 
 matplotlib.use('Agg')
+
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
