@@ -3121,9 +3121,9 @@ def inputchecker(args, mslist):
         print('Cannot find WSclean, forgot to source lofarinit.[c]sh?')
         raise Exception('Cannot find WSClean, forgot to source lofarinit.[c]sh?')
 
-    if which('MakeMask.py') is None:
-        print('Cannot find MakeMask.py, forgot to install it?')
-        raise Exception('Cannot find MakeMask.py, forgot to install it?')
+    if which('MakeMask.py') is None and which('breizorro') is None:
+        print('Cannot find MakeMask.py or breizorro, forgot to install it?')
+        raise Exception('Cannot find MakeMask.py or breizorro, forgot to install it?')
 
     if which('taql') is None:
         print('Cannot find taql, forgot to install it?')
@@ -3445,6 +3445,14 @@ def smearing_time_ms(msin, t):
     r_dis = 3600. * compute_distance_to_pointingcenter(msin, returnval=True, dologging=False)
     return smearing_time(r_dis, res, t)
 
+def smearing_time_ms_imsize(msin, imsize, pixelscale):
+    t = table(ms, readonly=True, ack=False)
+    time = np.unique(t.getcol('TIME'))
+    tint = np.abs(time[1] - time[0])
+    t.close()        
+    res = get_resolution(msin)
+    r_dis = 3600.*np.sqrt(2)*imsize*pixelscale # image diagonal length in arcsec
+    return smearing_time(r_dis, res, tint)
 
 def flag_smeared_data(msin):
     Ismear = smearing_time_ms(msin, get_time_preavg_factor_LTAdata(msin))
@@ -6611,7 +6619,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 preapplyH5_dde=[],
                 dde_skymodel=None, DDE_predict='WSCLEAN', telescope='LOFAR', beamproximitylimit=240.,
                 ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None,
-                normamps=True, modelstoragemanager=None):
+                normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None):
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
     modeldata = 'MODEL_DATA'  # the default, update if needed for scalarphasediff and phmin solves
@@ -6808,22 +6816,13 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                     cmd += 'ddecal.datause=single '
 
     cmd += 'msin.weightcolumn=' + weight_spectrum + ' '
-    if bdaaverager:
+    if bdaaverager and pixelscale is not None and imsize is not None:
         cmd += 'steps=[bda,ddecal] ddecal.type=ddecal bda.type=bdaaverager '
     else:
         cmd += 'steps=[ddecal] ddecal.type=ddecal '
     if dysco:
         cmd += 'msout.storagemanager=dysco '
         cmd += 'msout.storagemanager.weightbitrate=16 '
-
-    if bdaaverager:
-        cmd += 'bda.frequencybase= ' + 'bda.minchannels=' + format_nchan(nchan, ms) + ' '
-        if type(solint) == list:
-            lcm = math.lcm(*solint)
-            divisors = [int(lcm / i) for i in solint]
-            cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm / np.max(divisors)) + ' '
-        else:
-            cmd += 'bda.timebase= ' + 'bda.maxinterval=' + format_solint(solint, ms) + ' '
 
     modeldatacolumns_solve = []  # empty, will be filled below if applicable
     dir_id_kept = []  # empty, will be filled below if applicable
@@ -6875,6 +6874,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd += 'ddecal.solint=' + str(tweak_solints_single(int(solint_integer), ms_ntimes)) + ' '
     cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
+
+    if bdaaverager  and pixelscale is not None and imsize is not None:
+        cmd += 'bda.frequencybase= ' + 'bda.minchannels=' + format_nchan(nchan, ms) + ' '
+        if type(solint) == list:
+            cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm / np.max(divisors)) + ' '
+        else:
+            cmd += 'bda.timebase= ' + 'bda.maxinterval=' + format_solint(solint, ms) + ' '
+
 
     # preapply H5 from previous pertubation for DDE solves with DP3
     if (len(modeldatacolumns) > 1) and (len(preapplyH5_dde) > 0):
@@ -9259,7 +9266,11 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
         # check if we need/can do masking & mask
         if args['fitsmask'] is None:
             if maskthreshold_selfcalcycle[selfcalcycle] > 0.0:
-                cmdm = 'MakeMask.py --Th=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
+                if which('breizorro') is not None:
+                    cmdm = 'breizorro --threshold=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
+                       ' --restored-image=' + imagename + ' --boxsize=30 --outfile=' + imagename + '.mask.fits'
+                else:
+                    cmdm = 'MakeMask.py --Th=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
                        ' --RestoredIm=' + imagename
                 if fitsmask is not None:
                     if os.path.isfile(imagename + '.mask.fits'):
@@ -9467,7 +9478,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.0.0'
+    version = '12.1.0'
     print_title(version)
 
     global submodpath, datapath
