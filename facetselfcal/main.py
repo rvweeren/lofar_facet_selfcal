@@ -79,7 +79,7 @@ import time
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
-# modules
+# Modules
 from arguments import option_parser
 from submods.source_selection.selfcal_selection import get_images_solutions, main as quality_check
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
@@ -98,8 +98,14 @@ from submods.source_selection.phasediff_output import GetSolint
 
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename='selfcal.log',
-                    format='%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
+
+# Create a file handler explicitly
+file_handler = logging.FileHandler('selfcal.log')
+formatter = logging.Formatter('%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
+file_handler.setFormatter(formatter)
+
+# Add the handler to the logger
+logger.addHandler(file_handler)
 logger.setLevel(logging.DEBUG)
 
 matplotlib.use('Agg')
