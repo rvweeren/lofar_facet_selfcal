@@ -7360,7 +7360,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False,
               facet_beam_update_time=120, groupms_h5facetspeedup=False,
               singlefacetpredictspeedup=True, forceimagingwithfacets=True, ddpsfgrid=None,
-              fulljones_h5_facetbeam=False, modelstoragemanager=None):
+              fulljones_h5_facetbeam=False, modelstoragemanager=None, sharedfacetreads=False):
     """
     forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
     """
@@ -7371,6 +7371,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         predict_inmodelcol = True
     else:
         predict_inmodelcol = False
+
+    if '-shared-facet-reads' in subprocess.check_output(['wsclean'], text=True):
+        sharedfacetreads = True
     
     if modelstoragemanager == 'stokes_i':
         modelstoragemanager = 'stokes-i' # because WSclean uses a different name than DP3
@@ -7470,6 +7473,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
         cmd += '-facet-regions ' + facetregionfile + ' '
         cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
+        if sharedfacetreads: cmd += '-shared-facet-reads '
 
         if not fulljones_h5_facetbeam:
             if not is_scalar_array_for_wsclean(h5list):
@@ -7675,6 +7679,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
         if len(h5list) > 0:
             cmd += '-facet-regions ' + facetregionfile + ' '
+            if sharedfacetreads: cmd += '-shared-facet-reads '
             if groupms_h5facetspeedup and len(mslist) > 1:
                 mslist_concat, h5list_concat = concat_ms_wsclean_facetimaging(mslist, h5list=h5list, concatms=False)
                 cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list_concat)) + ' '
@@ -7694,6 +7699,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     cmd += '-use-differential-lofar-beam '
         elif forceimagingwithfacets and facetregionfile is not None:  # so h5list is zero, but we still want facet imaging
             cmd += '-facet-regions ' + facetregionfile + ' '
+            if sharedfacetreads: cmd += '-shared-facet-reads '
             if telescope == 'LOFAR' and not disable_primarybeam_image:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                 cmd += '-use-differential-lofar-beam '
@@ -8075,7 +8081,7 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None,
         print(f"Cannot plot beam on image, failed with error: {e}. Skipping.")
 
     cbar = plt.colorbar(img)
-    cbar.set_label('Flux (Jy beam$^{-1}$)')
+    cbar.set_label('Flux (mJy beam$^{-1}$)')
     #ax.add_artist(_add_astropy_beam(fitsimagename))
  
     try: 
@@ -8144,7 +8150,7 @@ def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
     f.grid.set_alpha(0.5)
     f.grid.set_linewidth(0.2)
     f.add_colorbar()
-    f.colorbar.set_axis_label_text('Flux (Jy beam$^{-1}$)')
+    f.colorbar.set_axis_label_text('Flux (mJy beam$^{-1}$)')
     if mask is not None:
         try:
             f.show_contour(mask, colors='red', levels=[0.1 * imagenoise], filled=False, smooth=1, alpha=0.6,
@@ -9420,7 +9426,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.1.0'
+    version = '12.2.0'
     print_title(version)
 
     global submodpath, datapath
