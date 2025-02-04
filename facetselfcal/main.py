@@ -79,7 +79,7 @@ import time
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
-# modules
+# Modules
 from arguments import option_parser
 from submods.source_selection.selfcal_selection import get_images_solutions, main as quality_check
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
@@ -87,25 +87,25 @@ from submods.h5_helpers.reset_structure import fix_h5
 from submods.h5_merger import merge_h5
 from submods.h5_helpers.split_h5 import split_multidir
 from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
-from submods.h5_helpers.modify_amplitude import (flag_bad_amps, get_median_amp, normamplitudes,
-                                                 normslope_withmatrix,
-                                                 normamplitudes_withmatrix, flaglowamps, flaghighamps,
-                                                 flaghighamps_fulljones)
-from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, \
-    fix_rotationreference
+from submods.h5_helpers.modify_amplitude import get_median_amp, normamplitudes, normslope_withmatrix, normamplitudes_withmatrix
+from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, fix_rotationreference
 from submods.h5_helpers.modify_tec import fix_tecreference
 from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
 from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
-from submods.h5_helpers.general import make_utf8
+from submods.h5_helpers.general_utils import make_utf8
+from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
 from submods.source_selection.phasediff_output import GetSolint
 
-
+# Set logger
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename='selfcal.log',
-                    format='%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
+file_handler = logging.FileHandler('selfcal.log')
+formatter = logging.Formatter('%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 logger.setLevel(logging.DEBUG)
 
 matplotlib.use('Agg')
+
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
@@ -182,7 +182,7 @@ def flag_antenna_taql(ms, antennaname):
     Example:
     --------
     Suppose you have a Measurement Set `observation.ms` and want to flag an antenna named `DE601HBA`:
-    
+
     ```python
     from facetselfcal import *
     flag_antenna_taql("observation.ms", "DE601HBA")
@@ -195,7 +195,7 @@ def flag_antenna_taql(ms, antennaname):
     None
     """
     cmd = "taql 'UPDATE " + ms + ' '
-    cmd += "SET FLAG=true WHERE ANTENNA1 IN (SELECT ROWID() FROM " + ms 
+    cmd += "SET FLAG=true WHERE ANTENNA1 IN (SELECT ROWID() FROM " + ms
     cmd += "::ANTENNA WHERE NAME=\"" + antennaname + "\") OR ANTENNA2 IN "
     cmd += "(SELECT ROWID() FROM " + ms + "::ANTENNA WHERE NAME=\"" + antennaname + "\")' "
     print(cmd)
@@ -8624,64 +8624,6 @@ def declination_sensivity_factor(declination):
     return factor
 
 
-def flaglowamps_fulljones(parmdb, lowampval=0.1, flagging=True, setweightsphases=True):
-    """
-    flag bad amplitudes in H5 parmdb, those with values < lowampval
-    assume pol-axis is present (can handle length 2 (diagonal), or 4 (fulljones))
-    """
-    H5 = h5parm.h5parm(parmdb, readonly=False)
-    amps = H5.getSolset('sol000').getSoltab('amplitude000').getValues()[0]
-    weights = H5.getSolset('sol000').getSoltab('amplitude000').getValues(weight=True)[0]
-
-    amps_xx = amps[..., 0]
-    amps_yy = amps[..., -1]  # so this also works for pol axis length 1
-    weights_xx = weights[..., 0]
-    weights_yy = weights[..., -1]
-    idx_xx = np.where(amps_xx < lowampval)
-    idx_yy = np.where(amps_yy < lowampval)
-
-    if flagging:  # no flagging
-        weights_xx[idx_xx] = 0.0
-        weights_yy[idx_yy] = 0.0
-        print('Settting some weights to zero in flaglowamps_fulljones')
-
-    amps_xx[idx_xx] = 1.0
-    amps_yy[idx_yy] = 1.0
-
-    weights[..., 0] = weights_xx
-    weights[..., -1] = weights_yy
-    amps[..., 0] = amps_xx
-    amps[..., -1] = amps_yy
-
-    H5.getSolset('sol000').getSoltab('amplitude000').setValues(weights, weight=True)
-    H5.getSolset('sol000').getSoltab('amplitude000').setValues(amps)
-
-    # also put phases weights and phases to zero
-    if setweightsphases:
-        phases = H5.getSolset('sol000').getSoltab('phase000').getValues()[0]
-        weights_p = H5.getSolset('sol000').getSoltab('phase000').getValues(weight=True)[0]
-        phases_xx = phases[..., 0]
-        phases_yy = phases[..., -1]
-        weights_p_xx = weights_p[..., 0]
-        weights_p_yy = weights_p[..., -1]
-
-        if flagging:  # no flagging
-            weights_p_xx[idx_xx] = 0.0
-            weights_p_yy[idx_yy] = 0.0
-            phases_xx[idx_xx] = 0.0
-            phases_yy[idx_yy] = 0.0
-
-            weights_p[..., 0] = weights_p_xx
-            weights_p[..., -1] = weights_p_yy
-            phases[..., 0] = phases_xx
-            phases[..., -1] = phases_yy
-
-            H5.getSolset('sol000').getSoltab('phase000').setValues(weights_p, weight=True)
-            H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
-    H5.close()
-    return
-
-
 def is_binary(file_name):
     """
     Check if a file is binary or text-based.
@@ -10012,11 +9954,11 @@ def main():
         # update fitspectralpol
         args['fitspectralpol'] = update_fitspectralpol(args)
 
-        # Get already obtained selfcal images and merged solutions
-        images, mergedh5 = get_images_solutions()
-
         # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
         if (args['get_diagnostics'] or args['early_stopping']) and i > 3:
+
+            # Get already obtained selfcal images and merged solutions
+            images, mergedh5 = get_images_solutions()
 
             if len(mergedh5) > 0:
                 if longbaseline:
@@ -10032,7 +9974,14 @@ def main():
                 from submods.source_selection.image_score import get_nn_model, predict_nn
 
                 if nn_model is None:
-                    nn_model = get_nn_model(cache=args['nn_model_cache'])
+                    try:
+                        # NN score
+                        nn_model = get_nn_model(cache=args['nn_model_cache'])
+                        predict_score = predict_nn(images[i], nn_model)
+                        logger.info(f"Neural network image prediction score of cycle {i}: {round(predict_score, 3)}")
+                    except:
+                        logger.info("WARNING: issues with downloading/getting Neural Network model.. Skipping and continue without.")
+                        predict_score = 1.0
 
                 # Open selfcal performance CSV
                 df = pd.read_csv(f"./selfcal_quality_plots/selfcal_performance_{qualitycheck[0]}.csv")
@@ -10041,25 +9990,48 @@ def main():
                 # Get image statistics
                 minmax_ratio = df['min/max'][bestcycle]/df['min/max'][0]
                 if minmax_ratio!=minmax_ratio: # check for nan in final cycle
-                    minmax_ratio = df['min/max'][bestcycle-1]/df['min/max'][0]
+                    minmax_ratio = df['min/max'][bestcycle - 1]/df['min/max'][0]
                     rms_ratio = df['rms'][bestcycle - 1]/df['rms'][0]
                 else:
                     rms_ratio = df['rms'][bestcycle]/df['rms'][0]
 
-                # NN score
-                predict_score = predict_nn(images[i], nn_model)
-                logger.info(f"Neural network image prediction score of cycle {i}: {round(predict_score, 3)}")
-
                 # Selection criteria (good image and stable solutions)
-                if predict_score < 0.5 and df['phase'][bestcycle]<0.1 and rms_ratio<1.05 and minmax_ratio<1.0:
-                    logger.info(f"Early-stopping at cycle {i}")
+                if predict_score < 0.5 and df['phase'][bestcycle]<0.1 and rms_ratio<1.0 and minmax_ratio<0.85:
+                    logger.info(f"Early-stopping at cycle {i}, because Neural Network happy")
                     logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
                     logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-                    sys.exit()
+                    logger.info(f'{mergedh5[i]} --> best_solutions.h5')
+                    os.system(f'cp {mergedh5[i]} best_solutions.h5')
+                    break # Break for loop
+                elif predict_score < 0.5 and df['phase'][bestcycle]<0.2 and rms_ratio<0.7 and minmax_ratio<0.5:
+                    logger.info(f"Early-stopping at cycle {i}, because Neural Network happy")
+                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
+                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+                    logger.info(f'{mergedh5[i]} --> best_solutions.h5')
+                    os.system(f'cp {mergedh5[i]} best_solutions.h5')
+                    break # Break for loop
+                elif df['phase'][bestcycle]<0.005:
+                    logger.info(f"Early-stopping at cycle {i}, because solutions stabilized")
+                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
+                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+                    logger.info(f'{mergedh5[bestcycle]} --> best_solutions.h5')
+                    os.system(f'cp {mergedh5[bestcycle]} best_solutions.h5')
+                    break # Break for loop
+                elif df['phase'][bestcycle]<0.1 and rms_ratio<0.5 and minmax_ratio<0.1:
+                    logger.info(f"Early-stopping at cycle {i}, because image quality much improved")
+                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
+                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+                    logger.info(f'{mergedh5[i]} --> best_solutions.h5')
+                    os.system(f'cp {mergedh5[i]} best_solutions.h5')
+                    break # Break for loop
                 else:
                     logger.info(f"No early-stopping at cycle {i}")
                     logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
                     logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+                    if i==args['stop']-1:
+                        bestcycle = max(df['min/max'].argmin(), df['phase'].argmin())
+                        logger.info(f'{mergedh5[bestcycle]} --> best_solutions.h5')
+                        os.system(f'cp {mergedh5[bestcycle]} best_solutions.h5')
 
         elif abs(args['stop'] - args['start']) <=2:
             logger.info("Need at least 3 selfcal cycles for getting diagnostics")

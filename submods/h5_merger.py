@@ -40,12 +40,12 @@ sys.path.append(current_dir)
 try:
     from .h5_helpers.polchange import PolChange, overwrite_table
     from .h5_helpers.slicing import get_slices, get_double_slice
-    from .h5_helpers.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
+    from .h5_helpers.general_utils import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
     from .h5_helpers.make_template_h5 import Template
 except ImportError:
     from h5_helpers.polchange import PolChange, overwrite_table
     from h5_helpers.slicing import get_slices, get_double_slice
-    from h5_helpers.general import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
+    from h5_helpers.general_utils import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
     from h5_helpers.make_template_h5 import Template
 
 warnings.filterwarnings('ignore')
