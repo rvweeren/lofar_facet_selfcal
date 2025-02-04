@@ -13,7 +13,6 @@ where '<my_path>' is the path directed to where all calibrator source folders ar
 
 __author__ = "Jurjen de Jong (jurjendejong@strw.leidenuniv.nl), Robert Jan Schlimbach (robert-jan.schlimbach@surf.nl)"
 
-import logging
 import functools
 import re
 import csv
@@ -31,9 +30,6 @@ from argparse import ArgumentParser
 from astropy.io import fits
 import pandas as pd
 from typing import Union
-
-logger = logging.getLogger(__file__)
-logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 
 class SelfcalQuality:
@@ -75,26 +71,6 @@ class SelfcalQuality:
             ('IE', 'SE', 'PL', 'UK', 'LV', 'DE')  # i.e.: if self.station == 'international'
         )
 
-    # def image_entropy(self, fitsfile: str = None):
-    #     """
-    #     Calculate entropy of image
-    #
-    #     :param fitsfile:
-    #
-    #     :return: image entropy value
-    #     """
-    #
-    #     with fits.open(fitsfile) as f:
-    #         image = f[0].data
-    #
-    #     while image.ndim > 2:
-    #         image = image[0]
-    #     image = np.sqrt((image - self.minp) / (self.maxp - self.minp)) * 255
-    #     image = image.astype(np.uint8)
-    #     val = entropy(image, disk(6)).sum()
-    #     print(f"Entropy: {val}")
-    #     return val
-
     def filter_stations(self, station_names):
         """Generate indices of filtered stations"""
 
@@ -120,7 +96,7 @@ class SelfcalQuality:
             station_name for station_name in stations
             if any(station_code in station_name for station_code in self.station_codes)
         ])
-        logger.debug(f'Used the following stations: {stations_used}')
+        print(f'Used the following stations: {stations_used}')
         return self
 
     def get_solution_scores(self, h5_1: str, h5_2: str = None):
@@ -208,7 +184,7 @@ class SelfcalQuality:
 
         # loop over sources to get scores
         for k, source in enumerate(self.sources):
-            logger.debug(source)
+            print(source)
 
             sub_h5s = sorted([h5 for h5 in self.h5s if source in h5])
 
@@ -396,7 +372,7 @@ def get_minmax(inp: Union[str, np.ndarray]):
 
     minmax = np.abs(data.min() / data.max())
 
-    logger.debug(f"min/max: {minmax}")
+    print(f"min/max: {minmax}")
     return minmax
 
 def get_peakflux(inp: Union[str, np.ndarray]):
@@ -415,7 +391,7 @@ def get_peakflux(inp: Union[str, np.ndarray]):
 
     mx = data.max()
 
-    logger.debug(f"Peak flux: {mx}")
+    print(f"Peak flux: {mx}")
     return mx
 
 
@@ -470,7 +446,7 @@ def get_rms(inp: Union[str, np.ndarray], maskSup: float = 1e-7):
             break
         rmsold = rms
 
-    logger.debug(f'rms: {rms}')
+    print(f'rms: {rms}')
 
     return rms  # jy/beam
 
@@ -617,13 +593,13 @@ def main(h5s: list = None, fitsfiles: list = None, station: str = 'international
               and (rmss[best_cycle] < rmss[0] or minmaxs[best_cycle] < minmaxs[0])
               )
 
-    logger.info(
-        f"{sq.main_source} | "
-        f"Best cycle according to images: {bestcycle_image}, accept image: {accept_image_stability}. "
-        f"Best cycle according to solutions: {bestcycle_solutions}, accept solution: {accept_solutions}. "
+    print(
+        f"{sq.main_source} | \n"
+        f"Best cycle according to images: {bestcycle_image}, accept image: {accept_image_stability}.\n"
+        f"Best cycle according to solutions: {bestcycle_solutions}, accept solution: {accept_solutions}.\n"
     )
 
-    logger.info(
+    print(
         f"{sq.main_source} | accept: {accept}, best solutions: {sq.h5s[best_cycle]}"
     )
 
@@ -665,7 +641,7 @@ def calc_all_scores(sources_root, stations='international'):
             return main(list(map(str, sorted(star_folder.glob('merged*.h5')))),
                         list(map(str, sorted(star_folder.glob('*MFS-*image.fits')))), stations)
         except Exception as e:
-            logger.warning(f"skipping {star_folder} due to {e}")
+            print(f"skipping {star_folder} due to {e}")
             return star_name, None, None, None, None, None, None
 
     all_files = [p for p in Path(sources_root).iterdir() if p.is_dir()]
