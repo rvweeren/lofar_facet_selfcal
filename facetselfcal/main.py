@@ -9974,7 +9974,14 @@ def main():
                 from submods.source_selection.image_score import get_nn_model, predict_nn
 
                 if nn_model is None:
-                    nn_model = get_nn_model(cache=args['nn_model_cache'])
+                    try:
+                        # NN score
+                        nn_model = get_nn_model(cache=args['nn_model_cache'])
+                        predict_score = predict_nn(images[i], nn_model)
+                        logger.info(f"Neural network image prediction score of cycle {i}: {round(predict_score, 3)}")
+                    except:
+                        logger.info("WARNING: issues with downloading/getting Neural Network model.. Skipping and continue without.")
+                        predict_score = 1.0
 
                 # Open selfcal performance CSV
                 df = pd.read_csv(f"./selfcal_quality_plots/selfcal_performance_{qualitycheck[0]}.csv")
@@ -9983,18 +9990,35 @@ def main():
                 # Get image statistics
                 minmax_ratio = df['min/max'][bestcycle]/df['min/max'][0]
                 if minmax_ratio!=minmax_ratio: # check for nan in final cycle
-                    minmax_ratio = df['min/max'][bestcycle-1]/df['min/max'][0]
+                    minmax_ratio = df['min/max'][bestcycle - 1]/df['min/max'][0]
                     rms_ratio = df['rms'][bestcycle - 1]/df['rms'][0]
                 else:
                     rms_ratio = df['rms'][bestcycle]/df['rms'][0]
 
-                # NN score
-                predict_score = predict_nn(images[i], nn_model)
-                logger.info(f"Neural network image prediction score of cycle {i}: {round(predict_score, 3)}")
-
                 # Selection criteria (good image and stable solutions)
-                if predict_score < 0.5 and df['phase'][bestcycle]<0.1 and rms_ratio<1.05 and minmax_ratio<1.0:
-                    logger.info(f"Early-stopping at cycle {i}")
+                if predict_score < 0.5 and df['phase'][bestcycle]<0.1 and rms_ratio<1.0 and minmax_ratio<0.85:
+                    logger.info(f"Early-stopping at cycle {i}, because Neural Network happy")
+                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
+                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+                    logger.info(f'{mergedh5[i]} --> best_solutions.h5')
+                    os.system(f'cp {mergedh5[i]} best_solutions.h5')
+                    break # Break for loop
+                elif predict_score < 0.5 and df['phase'][bestcycle]<0.2 and rms_ratio<0.7 and minmax_ratio<0.5:
+                    logger.info(f"Early-stopping at cycle {i}, because Neural Network happy")
+                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
+                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+                    logger.info(f'{mergedh5[i]} --> best_solutions.h5')
+                    os.system(f'cp {mergedh5[i]} best_solutions.h5')
+                    break # Break for loop
+                elif df['phase'][bestcycle]<0.005:
+                    logger.info(f"Early-stopping at cycle {i}, because solutions stabilized")
+                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
+                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+                    logger.info(f'{mergedh5[bestcycle]} --> best_solutions.h5')
+                    os.system(f'cp {mergedh5[bestcycle]} best_solutions.h5')
+                    break # Break for loop
+                elif df['phase'][bestcycle]<0.1 and rms_ratio<0.5 and minmax_ratio<0.1:
+                    logger.info(f"Early-stopping at cycle {i}, because image quality much improved")
                     logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
                     logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
                     logger.info(f'{mergedh5[i]} --> best_solutions.h5')
@@ -10005,9 +10029,9 @@ def main():
                     logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
                     logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
                     if i==args['stop']-1:
-                        best_cycle = max(df['min/max'].argmin(), df['phase'].argmin())
-                        logger.info(f'{mergedh5[best_cycle]} --> best_solutions.h5')
-                        os.system(f'cp {mergedh5[best_cycle]} best_solutions.h5')
+                        bestcycle = max(df['min/max'].argmin(), df['phase'].argmin())
+                        logger.info(f'{mergedh5[bestcycle]} --> best_solutions.h5')
+                        os.system(f'cp {mergedh5[bestcycle]} best_solutions.h5')
 
         elif abs(args['stop'] - args['start']) <=2:
             logger.info("Need at least 3 selfcal cycles for getting diagnostics")
