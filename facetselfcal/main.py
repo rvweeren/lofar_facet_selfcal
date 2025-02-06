@@ -9977,16 +9977,17 @@ def main():
 
             # Early stopping
             if args['early_stopping'] and i>0:
-                from submods.source_selection.image_score import get_nn_model, predict_nn
 
                 if nn_model is None:
                     try:
                         # NN score
+                        from submods.source_selection.image_score import get_nn_model, predict_nn
                         nn_model = get_nn_model(cache=args['nn_model_cache'])
                         predict_score = predict_nn(images[i], nn_model)
                         logger.info(f"Neural network image prediction score of cycle {i}: {round(predict_score, 3)}")
-                    except:
-                        logger.info("WARNING: issues with downloading/getting Neural Network model.. Skipping and continue without.")
+                    except ImportError:
+                        logger.info("WARNING: issues with downloading/getting Neural Network model.. Skipping and continue without."
+                                    "\nMost likely due to issues with accessing cortExchange.")
                         predict_score = 1.0
 
                 # Open selfcal performance CSV

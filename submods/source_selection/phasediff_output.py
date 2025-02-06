@@ -18,6 +18,11 @@ from argparse import ArgumentParser
 from typing import Union
 from numpy.random import normal
 
+try:
+    from .selfcal_selection import parse_source_from_h5
+except ImportError:
+    from selfcal_selection import parse_source_from_h5
+
 
 def make_utf8(inp):
     """
@@ -322,7 +327,7 @@ def main():
                 solint = S.best_solint
                 H = tables.open_file(h5)
                 dir = rad_to_degree(H.root.sol000.source[:]['dir'])
-                from .selfcal_selection import parse_source_from_h5
+
                 writer.writerow([parse_source_from_h5(h5) + station, std, solint, dir[0], dir[1]])
                 if args.make_plot:
                     S.plot_C(saveas='phasediff.png')
