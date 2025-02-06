@@ -9397,16 +9397,15 @@ def early_stopping(station: str = 'international', cycle: int = None):
 
     # Early stopping
     if cycle == 0:
+        global nn_model
         try:
             # NN score
             from submods.source_selection.image_score import get_nn_model, predict_nn
-            global nn_model
             nn_model = get_nn_model(cache=args['nn_model_cache'])
         except ImportError:
             logger.info(
                 "WARNING: issues with downloading/getting Neural Network model.. Skipping and continue without."
                 "\nMost likely due to issues with accessing cortExchange.")
-            global nn_model
             nn_model = None
 
     if nn_model is not None:
