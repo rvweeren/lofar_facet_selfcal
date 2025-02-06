@@ -9345,10 +9345,6 @@ def early_stopping(station: str = 'international', cycle: int = None):
     Returns: stop == True, continue == False
     """
 
-    # Get already obtained selfcal images and merged solutions
-    images, mergedh5 = get_images_solutions()
-    qualitymetrics = quality_check(mergedh5, images, station)
-
     # Early stopping
     if cycle == 0:
         global nn_model
@@ -9364,6 +9360,10 @@ def early_stopping(station: str = 'international', cycle: int = None):
     # Start only after cycle 3
     elif cycle <= 3:
         return False
+
+    # Get already obtained selfcal images and merged solutions
+    images, mergedh5 = get_images_solutions()
+    qualitymetrics = quality_check(mergedh5, images, station)
 
     if nn_model is not None:
         predict_score = predict_nn(images[cycle], nn_model)
