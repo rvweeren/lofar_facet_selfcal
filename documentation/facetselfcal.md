@@ -1,0 +1,3 @@
+## Self-calibrate with ```facetselfcal```
+
+To be added ...
