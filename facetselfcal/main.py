@@ -9344,8 +9344,10 @@ def early_stopping(station: str = 'international', cycle: int = None):
 
     Returns: stop == True, continue == False
     """
+
     # Get already obtained selfcal images and merged solutions
     images, mergedh5 = get_images_solutions()
+    qualitymetrics = quality_check(mergedh5, images, station)
 
     # Early stopping
     if cycle == 0:
@@ -9366,7 +9368,6 @@ def early_stopping(station: str = 'international', cycle: int = None):
         predict_score = 1.0
 
     # Open selfcal quality CSV
-    qualitymetrics = quality_check(mergedh5, images, station)
     df = pd.read_csv(f"./selfcal_quality_plots/selfcal_performance_{qualitymetrics[0]}.csv")
     bestcycle = df['phase'].argmin() - 1
 

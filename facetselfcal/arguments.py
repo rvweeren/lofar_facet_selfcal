@@ -282,9 +282,6 @@ def option_parser():
     calibrationparser.add_argument('--nn-model-cache',
                                    help='Cache storage for Neural Network model for early stopping. If not given, it will download the model. This needs to be given in combination with --early-stopping.',
                                    default='.cache/cortexchange')
-    calibrationparser.add_argument('--get-diagnostics',
-                                   help='Get a prediction for selfcal cycle gives the highest quality output (works only when >3 selfcal cycle)',
-                                   action='store_true')
     calibrationparser.add_argument('--QualityBasedWeights',
                                    help='Experts only.',
                                    action='store_true')
