@@ -9361,6 +9361,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
                 "WARNING: issues with downloading/getting Neural Network model.. Skipping and continue without."
                 "\nMost likely due to issues with accessing cortExchange.")
             nn_model = None
+    elif cycle <= 3:
+        return False
 
     if nn_model is not None:
         predict_score = predict_nn(images[cycle], nn_model)
@@ -10003,7 +10005,7 @@ def main():
         args['fitspectralpol'] = update_fitspectralpol(args)
 
         # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
-        if args['early_stopping'] and i > 3 and early_stopping(station='international' if longbaseline else 'alldutch', cycle=i):
+        if args['early_stopping'] and early_stopping(station='international' if longbaseline else 'alldutch', cycle=i):
             break
 
     # remove sources outside central region after selfcal (to prepare for DDE solves)
