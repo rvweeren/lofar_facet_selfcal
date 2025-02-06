@@ -9386,7 +9386,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
         (predict_score < 0.5 and df['phase'][cycle] < 0.2 and rms_ratio < 0.9 and minmax_ratio < 0.5) or \
         df['phase'][cycle] < 0.005 or \
         (df['phase'][cycle] < 0.1 and rms_ratio < 0.5 and minmax_ratio < 0.1) or \
-        (df['phase'][cycle] < 0.03 and minmax_ratio < 0.15 and rms_ratio < 0.9):
+        (df['phase'][cycle] < 0.04 and minmax_ratio < 0.15 and rms_ratio < 0.9) or \
+        (df['phase'][cycle] < 0.04 and minmax_ratio < 0.5 and rms_ratio < 1.0 and cycle > 11):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal converged")
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
@@ -9397,8 +9398,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
     elif (df['rms'][cycle-1] < df['rms'][cycle] and df['min/max'][cycle-1] < df['min/max'][cycle]
           and df['rms'][cycle-2] < df['rms'][cycle] and df['min/max'][cycle-2] < df['min/max'][cycle]
             and df['rms'][cycle-3] < df['rms'][cycle] and df['min/max'][cycle-3] < df['min/max'][cycle]) or \
-            (minmax_ratio > 1.0 and rms_ratio > 1.0) or minmax_ratio > 1.25:
-        logger.info(f"Early-stopping at cycle {cycle}, because selfcal diverged...")
+            (minmax_ratio > 1.0 and rms_ratio > 1.0):
+        logger.info(f"Early-stopping at cycle {cycle}, because selfcal starts to diverge...")
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
         logger.info(f'{mergedh5[cycle]} --> best_solutions.h5')
