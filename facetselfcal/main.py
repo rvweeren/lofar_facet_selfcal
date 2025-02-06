@@ -973,9 +973,8 @@ def add_dummyms(msfiles):
 
     # Check for wrong REF_FREQUENCY which happens after a DPPP split in frequency
     for ms in msfiles:
-        t = table(ms + '/SPECTRAL_WINDOW', readonly=True)
-        freq = t.getcol('REF_FREQUENCY')[0]
-        t.close()
+        with table(ms + '/SPECTRAL_WINDOW', readonly=True) as t:
+            freq = t.getcol('REF_FREQUENCY')[0]
         freqaxis.append(freq)
     freqaxis = np.sort(np.array(freqaxis))
     minfreqspacing = np.min(np.diff(freqaxis))
@@ -984,12 +983,11 @@ def add_dummyms(msfiles):
 
     freqaxis = []
     for ms in msfiles:
-        t = table(ms + '/SPECTRAL_WINDOW', readonly=True)
-        if keyname == 'CHAN_FREQ':
-            freq = t.getcol(keyname)[0][0]
-        else:
-            freq = t.getcol(keyname)[0]
-        t.close()
+        with table(ms + '/SPECTRAL_WINDOW', readonly=True) as t:
+            if keyname == 'CHAN_FREQ':
+                freq = t.getcol(keyname)[0][0]
+            else:
+                freq = t.getcol(keyname)[0]
         freqaxis.append(freq)
 
     # put everything in order of increasing frequency
@@ -1055,13 +1053,12 @@ def getobsmslist(msfiles, observationnumber):
 def mscolexist(ms, colname):
     """ Check if a colname exists in the measurement set ms, returns either True or False """
     if os.path.isdir(ms):
-        t = table(ms, readonly=True, ack=False)
-        colnames = t.colnames()
-        if colname in colnames:  # check if the column is in the list
-            exist = True
-        else:
-            exist = False
-        t.close()
+        with table(ms, readonly=True, ack=False) as t:
+            colnames = t.colnames()
+            if colname in colnames:  # check if the column is in the list
+                exist = True
+            else:
+                exist = False
     else:
         exist = False  # ms does not exist
     return exist
@@ -1102,9 +1099,8 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True):
 
 
 def fix_equidistant_times(mslist, dryrun, dysco=True):
-    t = table(mslist[0] + '/OBSERVATION', ack=False)
-    telescope = t.getcol('TELESCOPE_NAME')[0]
-    t.close()
+    with table(mslist[0] + '/OBSERVATION', ack=False) as t:
+        telescope = t.getcol('TELESCOPE_NAME')[0]
     mslist_return = []
 
     for ms in mslist:
@@ -1127,9 +1123,8 @@ def check_equidistant_times(mslist, stop=True, return_result=False):
     """ Check if times in mslist are equidistant"""
 
     for ms in mslist:
-        t = table(ms, ack=False)
-        times = np.unique(t.getcol('TIME'))
-        t.close()
+        with table(ms, ack=False) as t:
+            times = np.unique(t.getcol('TIME'))
         if len(times) == 1:  # single timestep data
             return
         diff_times = np.abs(np.diff(times))[
@@ -1153,7 +1148,6 @@ def check_equidistant_times(mslist, stop=True, return_result=False):
             if stop:
                 print('If you want to take the risk comment out the sys.exit() in the Python code')
                 sys.exit()
-        t.close()
     if return_result:
         if len(idx_deviating) > 0:
             return False  # so irregular time axis
@@ -1165,17 +1159,15 @@ def check_equidistant_times(mslist, stop=True, return_result=False):
 def check_equidistant_freqs(mslist):
     """ Check if freuqencies in mslist are equidistant """
     for ms in mslist:
-        t = table(ms + '/SPECTRAL_WINDOW', ack=False)
-        chan_freqs = t.getcol('CHAN_FREQ')[0]
+        with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+            chan_freqs = t.getcol('CHAN_FREQ')[0]
         if len(chan_freqs) == 1:  # single channel data
             return
         diff_freqs = np.diff(chan_freqs)
-        t.close()
         if len(np.unique(diff_freqs)) != 1:
             print(np.unique(diff_freqs))
             print(ms, 'Frequency channels are not equidistant, made a mistake in DP3 concat?')
             raise Exception(ms + ': Freqeuency channels are no equidistant, made a mistake in DP3 concat?')
-        t.close()
     return
 
 
@@ -1215,12 +1207,11 @@ def fix_bad_weightspectrum(mslist, clipvalue):
     """
     for ms in mslist:
         print('Clipping WEIGHT_SPECTRUM manually', ms, clipvalue)
-        t = table(ms, readonly=False)
-        ws = t.getcol('WEIGHT_SPECTRUM')
-        idx = np.where(ws > clipvalue)
-        ws[idx] = 0.0
-        t.putcol('WEIGHT_SPECTRUM', ws)
-        t.close()
+        with table(ms, readonly=False) as t:
+            ws = t.getcol('WEIGHT_SPECTRUM')
+            idx = np.where(ws > clipvalue)
+            ws[idx] = 0.0
+            t.putcol('WEIGHT_SPECTRUM', ws)
     return
 
 
@@ -1235,17 +1226,15 @@ def format_solint(solint, ms, return_ntimes=False):
     """
     if str(solint).isdigit():
         if return_ntimes:
-            t = table(ms, readonly=True, ack=False)
-            time = np.unique(t.getcol('TIME'))
-            t.close()
+            with table(ms, readonly=True, ack=False) as t:
+                time = np.unique(t.getcol('TIME'))
             return str(solint), len(time)
         else:
             return str(solint)
     else:
-        t = table(ms, readonly=True, ack=False)
-        time = np.unique(t.getcol('TIME'))
-        tint = np.abs(time[1] - time[0])
-        t.close()
+        with table(ms, readonly=True, ack=False) as t:
+            time = np.unique(t.getcol('TIME'))
+            tint = np.abs(time[1] - time[0])
         if 's' in solint:
             solintout = int(np.rint(float(re.findall(r'[+-]?\d+(?:\.\d+)?', solint)[0]) / tint))
         if 'm' in solint:
@@ -1272,9 +1261,8 @@ def format_nchan(nchan, ms):
     if str(nchan).isdigit():
         return str(nchan)
     else:
-        t = table(ms + '/SPECTRAL_WINDOW', ack=False)
-        chanw = np.median(t.getcol('CHAN_WIDTH'))
-        t.close()
+        with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+            chanw = np.median(t.getcol('CHAN_WIDTH'))
         if 'Hz' in nchan:
             nchanout = int(np.rint(float(re.findall(r'[+-]?\d+(?:\.\d+)?', nchan)[0]) / chanw))
         if 'kHz' in nchan:
@@ -1369,25 +1357,24 @@ def remove_flagged_data_startend(mslist):
     mslistout = []
 
     for ms in mslist:
-        t = table(ms, readonly=True, ack=False)
-        alltimes = t.getcol('TIME')
-        alltimes = np.unique(alltimes)
+        with table(ms, readonly=True, ack=False) as t:
+            alltimes = t.getcol('TIME')
+            alltimes = np.unique(alltimes)
 
-        newt = taql('select TIME from $t where FLAG[0,0]=False')
-        time = newt.getcol('TIME')
-        time = np.unique(time)
+            newt = taql('select TIME from $t where FLAG[0,0]=False')
+            time = newt.getcol('TIME')
+            time = np.unique(time)
 
-        print('There are', len(alltimes), 'times')
-        print('There are', len(time), 'unique unflagged times')
+            print('There are', len(alltimes), 'times')
+            print('There are', len(time), 'unique unflagged times')
 
-        print('First unflagged time', np.min(time))
-        print('Last unflagged time', np.max(time))
+            print('First unflagged time', np.min(time))
+            print('Last unflagged time', np.max(time))
 
-        goodstartid = np.where(alltimes == np.min(time))[0][0]
-        goodendid = np.where(alltimes == np.max(time))[0][0] + 1
+            goodstartid = np.where(alltimes == np.min(time))[0][0]
+            goodendid = np.where(alltimes == np.max(time))[0][0] + 1
 
-        print(goodstartid, goodendid)
-        t.close()
+            print(goodstartid, goodendid)
 
         if (goodstartid != 0) or (goodendid != len(alltimes)):
             msout = ms + '.cut'
@@ -1469,9 +1456,8 @@ def time_match_mstoH5(H5filelist, ms):
     Returns:
         H5filematch (list): list of h5parms matching the measurement set.
     """
-    t = table(ms)
-    timesms = np.unique(t.getcol('TIME'))
-    t.close()
+    with table(ms) as t:
+        timesms = np.unique(t.getcol('TIME'))
     H5filematch = None
 
     for H5file in H5filelist:
@@ -1583,10 +1569,9 @@ def getlargestislandsize(fitsmask):
     Returns:
         max_area (float): area of the largest island.
     """
-    hdulist = fits.open(fitsmask)
-    data = hdulist[0].data
-    max_area = max_area_of_island(data[0, 0, :, :])
-    hdulist.close()
+    with fits.open(fitsmask) as hdulist:
+        data = hdulist[0].data
+        max_area = max_area_of_island(data[0, 0, :, :])
     return max_area
 
 
@@ -1606,43 +1591,41 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE',
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        if outcol not in t.colnames():
-            print('Adding', outcol, 'to', ms)
-            desc = t.getcoldesc(incol)
-            newdesc = makecoldesc(outcol, desc)
-            newdmi = t.getdminfo(incol)
-            if dysco:
-                newdmi['NAME'] = 'Dysco' + outcol
-            else:
-                newdmi['NAME'] = outcol
-            t.addcols(newdesc, newdmi)
-        data = t.getcol(incol)
-        dataslope = np.copy(data)
-        for ff in range(data.shape[1] - 1):
-            if ampnorm:
-                dataslope[:, ff, 0] = np.copy(
-                    np.exp(1j * testscfactor * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
-                dataslope[:, ff, 3] = np.copy(
-                    np.exp(1j * testscfactor * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
-                if crosshandtozero:
-                    dataslope[:, ff, 1] = 0. * np.exp(1j * 0)
-                    dataslope[:, ff, 2] = 0. * np.exp(1j * 0)
-            else:
-                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0]) * np.exp(
-                    1j * testscfactor * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
-                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3]) * np.exp(
-                    1j * testscfactor * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
-                if crosshandtozero:
-                    dataslope[:, ff, 1] = 0. * np.exp(1j * 0)
-                    dataslope[:, ff, 2] = 0. * np.exp(1j * 0)
+        with table(ms, readonly=False, ack=True) as t:
+            if outcol not in t.colnames():
+                print('Adding', outcol, 'to', ms)
+                desc = t.getcoldesc(incol)
+                newdesc = makecoldesc(outcol, desc)
+                newdmi = t.getdminfo(incol)
+                if dysco:
+                    newdmi['NAME'] = 'Dysco' + outcol
+                else:
+                    newdmi['NAME'] = outcol
+                t.addcols(newdesc, newdmi)
+            data = t.getcol(incol)
+            dataslope = np.copy(data)
+            for ff in range(data.shape[1] - 1):
+                if ampnorm:
+                    dataslope[:, ff, 0] = np.copy(
+                        np.exp(1j * testscfactor * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
+                    dataslope[:, ff, 3] = np.copy(
+                        np.exp(1j * testscfactor * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
+                    if crosshandtozero:
+                        dataslope[:, ff, 1] = 0. * np.exp(1j * 0)
+                        dataslope[:, ff, 2] = 0. * np.exp(1j * 0)
+                else:
+                    dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0]) * np.exp(
+                        1j * testscfactor * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
+                    dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3]) * np.exp(
+                        1j * testscfactor * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
+                    if crosshandtozero:
+                        dataslope[:, ff, 1] = 0. * np.exp(1j * 0)
+                        dataslope[:, ff, 2] = 0. * np.exp(1j * 0)
 
-        # last freq set to second to last freq because difference reduces length of freq axis with one
-        dataslope[:, -1, :] = np.copy(dataslope[:, -2, :])
-        t.putcol(outcol, dataslope)
-        t.close()
-        # print( np.nanmedian(np.abs(data)))
-        # print( np.nanmedian(np.abs(dataslope)))
+            # last freq set to second to last freq because difference reduces length of freq axis with one
+            dataslope[:, -1, :] = np.copy(dataslope[:, -2, :])
+            t.putcol(outcol, dataslope)
+
         del data, dataslope
     return
 
@@ -1678,43 +1661,42 @@ def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=Fals
         inmslist = [inmslist]
     stepsize = 1000000
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        weightref = 'WEIGHT_SPECTRUM'
-        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-            weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
-        if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
-            desc = t.getcoldesc(weightref)
-            desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
-            t.addcols(desc)
+        with table(ms, readonly=False, ack=True) as t:
+            weightref = 'WEIGHT_SPECTRUM'
+            if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+                weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
+            if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
+                desc = t.getcoldesc(weightref)
+                desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
+                t.addcols(desc)
 
-        if outweightcol not in t.colnames():
-            print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-            desc = t.getcoldesc(weightref)
-            desc['name'] = outweightcol
-            t.addcols(desc)
-        # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
-        for row in range(0, t.nrows(), stepsize):
-            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1).astype(np.float64)
-            if updateweights and originalmodel in t.colnames() and newmodel in t.colnames():
-                model_orig = t.getcol(originalmodel, startrow=row, nrow=stepsize, rowincr=1).astype(np.complex256)
-                model_new = t.getcol(newmodel, startrow=row, nrow=stepsize, rowincr=1).astype(np.complex256)
+            if outweightcol not in t.colnames():
+                print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+                desc = t.getcoldesc(weightref)
+                desc['name'] = outweightcol
+                t.addcols(desc)
+            # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
+            for row in range(0, t.nrows(), stepsize):
+                print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1).astype(np.float64)
+                if updateweights and originalmodel in t.colnames() and newmodel in t.colnames():
+                    model_orig = t.getcol(originalmodel, startrow=row, nrow=stepsize, rowincr=1).astype(np.complex256)
+                    model_new = t.getcol(newmodel, startrow=row, nrow=stepsize, rowincr=1).astype(np.complex256)
 
-                model_orig[:, :, 1] = model_orig[:, :, 0]  # make everything XX/RR
-                model_orig[:, :, 2] = model_orig[:, :, 0]  # make everything XX/RR
-                model_orig[:, :, 3] = model_orig[:, :, 0]  # make everything XX/RR
-                model_new[:, :, 1] = model_new[:, :, 0]  # make everything XX/RR
-                model_new[:, :, 2] = model_new[:, :, 0]  # make everything XX/RR
-                model_new[:, :, 3] = model_new[:, :, 0]  # make everything XX/RR
-            else:
-                model_orig = 1.
-                model_new = 1.
-            print('Mean weights input', np.nanmean(weight))
-            print('Mean weights change factor', np.nanmean((np.abs(model_orig)) ** 2))
-            t.putcol(outweightcol, (weight * (np.abs(model_orig / model_new)) ** 2).astype(np.float64), startrow=row,
-                     nrow=stepsize, rowincr=1)
-            # print(weight.shape, model_orig.shape)
-        t.close()
+                    model_orig[:, :, 1] = model_orig[:, :, 0]  # make everything XX/RR
+                    model_orig[:, :, 2] = model_orig[:, :, 0]  # make everything XX/RR
+                    model_orig[:, :, 3] = model_orig[:, :, 0]  # make everything XX/RR
+                    model_new[:, :, 1] = model_new[:, :, 0]  # make everything XX/RR
+                    model_new[:, :, 2] = model_new[:, :, 0]  # make everything XX/RR
+                    model_new[:, :, 3] = model_new[:, :, 0]  # make everything XX/RR
+                else:
+                    model_orig = 1.
+                    model_new = 1.
+                print('Mean weights input', np.nanmean(weight))
+                print('Mean weights change factor', np.nanmean((np.abs(model_orig)) ** 2))
+                t.putcol(outweightcol, (weight * (np.abs(model_orig / model_new)) ** 2).astype(np.float64), startrow=row,
+                         nrow=stepsize, rowincr=1)
+                # print(weight.shape, model_orig.shape)
         print()
         del weight, model_orig, model_new
 
@@ -1725,38 +1707,37 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updatewe
         inmslist = [inmslist]
     stepsize = 1000000
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        weightref = 'WEIGHT_SPECTRUM'
-        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-            weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
-        if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
-            desc = t.getcoldesc(weightref)
-            desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
-            t.addcols(desc)
+        with table(ms, readonly=False, ack=True) as t:
+            weightref = 'WEIGHT_SPECTRUM'
+            if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+                weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
+            if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
+                desc = t.getcoldesc(weightref)
+                desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
+                t.addcols(desc)
 
-        if outweightcol not in t.colnames():
-            print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-            desc = t.getcoldesc(weightref)
-            desc['name'] = outweightcol
-            t.addcols(desc)
-        # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
-        for row in range(0, t.nrows(), stepsize):
-            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1).astype(np.float64)
-            if updateweights and updateweights_from_thiscolumn in t.colnames():
-                model = t.getcol(updateweights_from_thiscolumn, startrow=row, nrow=stepsize, rowincr=1).astype(
-                    np.complex256)
-                model[:, :, 1] = model[:, :, 0]  # make everything XX/RR
-                model[:, :, 2] = model[:, :, 0]  # make everything XX/RR
-                model[:, :, 3] = model[:, :, 0]  # make everything XX/RR
-            else:
-                model = 1.
-            print('Mean weights input', np.nanmean(weight))
-            print('Mean weights change factor', np.nanmean((np.abs(model)) ** 2))
-            t.putcol(outweightcol, (weight * (np.abs(model)) ** 2).astype(np.float64), startrow=row, nrow=stepsize,
-                     rowincr=1)
-            # print(weight.shape, model.shape)
-        t.close()
+            if outweightcol not in t.colnames():
+                print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+                desc = t.getcoldesc(weightref)
+                desc['name'] = outweightcol
+                t.addcols(desc)
+            # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
+            for row in range(0, t.nrows(), stepsize):
+                print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1).astype(np.float64)
+                if updateweights and updateweights_from_thiscolumn in t.colnames():
+                    model = t.getcol(updateweights_from_thiscolumn, startrow=row, nrow=stepsize, rowincr=1).astype(
+                        np.complex256)
+                    model[:, :, 1] = model[:, :, 0]  # make everything XX/RR
+                    model[:, :, 2] = model[:, :, 0]  # make everything XX/RR
+                    model[:, :, 3] = model[:, :, 0]  # make everything XX/RR
+                else:
+                    model = 1.
+                print('Mean weights input', np.nanmean(weight))
+                print('Mean weights change factor', np.nanmean((np.abs(model)) ** 2))
+                t.putcol(outweightcol, (weight * (np.abs(model)) ** 2).astype(np.float64), startrow=row, nrow=stepsize,
+                         rowincr=1)
+                # print(weight.shape, model.shape)
         print()
         del weight, model
 
@@ -1805,24 +1786,23 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol=
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        if outcol not in t.colnames():
-            print('Adding', outcol, 'to', ms, 'based on', incol)
-            desc = t.getcoldesc(incol)
-            desc['name'] = outcol
-            t.addcols(desc)
-        for row in range(0, t.nrows(), stepsize):
-            data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
-            if modelcol in t.colnames():
-                model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
-                print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-                # print(np.max(abs(model)))
-                # print(np.min(abs(model)))
-                np.divide(data, model, out=data, where=np.abs(model) > 0)
-                t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
-            else:
-                t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
-        t.close()
+        with table(ms, readonly=False, ack=True) as t:
+            if outcol not in t.colnames():
+                print('Adding', outcol, 'to', ms, 'based on', incol)
+                desc = t.getcoldesc(incol)
+                desc['name'] = outcol
+                t.addcols(desc)
+            for row in range(0, t.nrows(), stepsize):
+                data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
+                if modelcol in t.colnames():
+                    model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
+                    print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                    # print(np.max(abs(model)))
+                    # print(np.min(abs(model)))
+                    np.divide(data, model, out=data, where=np.abs(model) > 0)
+                    t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
+                else:
+                    t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
 
 
 def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM',
@@ -1844,26 +1824,24 @@ def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', wei
         os.system('rm -rf ' + outputms)
     os.system('cp -r {} {}'.format(inmslist[0], outputms))
     taql('UPDATE stack.MS SET DATA=DATA_NORM*WEIGHT_SPECTRUM_PM')
-    t_main = table(outputms, readonly=False, ack=True)
-    for ms in inmslist[1:]:
-        t = table(ms, readonly=True, ack=True)
-        for row in range(0, t.nrows(), stepsize):
-            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            weight_main = t_main.getcol(outcol_weight, startrow=row, nrow=stepsize, rowincr=1)
-            visibi_main = t_main.getcol(outcol, startrow=row, nrow=stepsize, rowincr=1)
+    with table(outputms, readonly=False, ack=True) as t_main:
+        for ms in inmslist[1:]:
+            with table(ms, readonly=True, ack=True) as t:
+                for row in range(0, t.nrows(), stepsize):
+                    print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                    weight_main = t_main.getcol(outcol_weight, startrow=row, nrow=stepsize, rowincr=1)
+                    visibi_main = t_main.getcol(outcol, startrow=row, nrow=stepsize, rowincr=1)
 
-            weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1)
-            visibi = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
+                    weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1)
+                    visibi = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
 
-            stacked_vis = visibi_main + (visibi * weight)
+                    stacked_vis = visibi_main + (visibi * weight)
 
-            average_wgt = weight + weight_main
-            print(f'Writing stacked data to outputcolumn {outcol}')
-            t_main.putcol(outcol, stacked_vis, startrow=row, nrow=stepsize, rowincr=1)
-            print(f'Writing stacked weights to outputcolumn {outcol_weight}')
-            t_main.putcol(outcol_weight, average_wgt, startrow=row, nrow=stepsize, rowincr=1)
-        t.close()
-    t_main.close()
+                    average_wgt = weight + weight_main
+                    print(f'Writing stacked data to outputcolumn {outcol}')
+                    t_main.putcol(outcol, stacked_vis, startrow=row, nrow=stepsize, rowincr=1)
+                    print(f'Writing stacked weights to outputcolumn {outcol_weight}')
+                    t_main.putcol(outcol_weight, average_wgt, startrow=row, nrow=stepsize, rowincr=1)
     # This is probably wrong / not needed.
     taql('UPDATE stack.MS SET DATA=DATA/WEIGHT_SPECTRUM')
 
@@ -1928,29 +1906,28 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        if outcol not in t.colnames():
-            print('Adding', outcol, 'to', ms)
-            desc = t.getcoldesc(incol)
-            newdesc = makecoldesc(outcol, desc)
-            newdmi = t.getdminfo(incol)
-            if dysco:
-                newdmi['NAME'] = 'Dysco' + outcol
-            else:
-                newdmi['NAME'] = outcol
-            t.addcols(newdesc, newdmi)
+        with table(ms, readonly=False, ack=True) as t:
+            if outcol not in t.colnames():
+                print('Adding', outcol, 'to', ms)
+                desc = t.getcoldesc(incol)
+                newdesc = makecoldesc(outcol, desc)
+                newdmi = t.getdminfo(incol)
+                if dysco:
+                    newdmi['NAME'] = 'Dysco' + outcol
+                else:
+                    newdmi['NAME'] = outcol
+                t.addcols(newdesc, newdmi)
 
-        for row in range(0, t.nrows(), stepsize):
-            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
-            phasediff = np.copy(np.angle(data[:, :, 0]) - np.angle(data[:, :, 3]))  # RR - LL
-            data[:, :, 0] = 0.5 * np.exp(
-                1j * phasediff)  # because I = RR+LL/2 (this is tricky because we work with phase diff)
-            data[:, :, 3] = data[:, :, 0]
-            t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
-            del data
-            del phasediff
-        t.close()
+            for row in range(0, t.nrows(), stepsize):
+                print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
+                phasediff = np.copy(np.angle(data[:, :, 0]) - np.angle(data[:, :, 3]))  # RR - LL
+                data[:, :, 0] = 0.5 * np.exp(
+                    1j * phasediff)  # because I = RR+LL/2 (this is tricky because we work with phase diff)
+                data[:, :, 3] = data[:, :, 0]
+                t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
+                del data
+                del phasediff
 
     if False:
         # data = t.getcol(incol)
@@ -1987,22 +1964,21 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        if outcol not in t.colnames():
-            print('Adding', outcol, 'to', ms)
-            desc = t.getcoldesc(incol)
-            newdesc = makecoldesc(outcol, desc)
-            newdmi = t.getdminfo(incol)
-            if dysco:
-                newdmi['NAME'] = 'Dysco' + outcol
-            else:
-                newdmi['NAME'] = outcol
-            t.addcols(newdesc, newdmi)
-        data = t.getcol(incol)
-        data[:, :, 0] = np.copy(np.exp(1j * np.angle(data[:, :, 0])))  # because I = xx+yy/2
-        data[:, :, 3] = np.copy(np.exp(1j * np.angle(data[:, :, 3])))  # because I = xx+yy/2
-        t.putcol(outcol, data)
-        t.close()
+        with table(ms, readonly=False, ack=True) as t:
+            if outcol not in t.colnames():
+                print('Adding', outcol, 'to', ms)
+                desc = t.getcoldesc(incol)
+                newdesc = makecoldesc(outcol, desc)
+                newdmi = t.getdminfo(incol)
+                if dysco:
+                    newdmi['NAME'] = 'Dysco' + outcol
+                else:
+                    newdmi['NAME'] = outcol
+                t.addcols(newdesc, newdmi)
+            data = t.getcol(incol)
+            data[:, :, 0] = np.copy(np.exp(1j * np.angle(data[:, :, 0])))  # because I = xx+yy/2
+            data[:, :, 3] = np.copy(np.exp(1j * np.angle(data[:, :, 3])))  # because I = xx+yy/2
+            t.putcol(outcol, data)
         del data
     return
 
@@ -2209,11 +2185,9 @@ def findfreqavg(ms, imsize, bwsmearlimit=1.0):
     Returns:
         avgfactor (int): the frequency averaging factor for the Measurement Set.
     """
-    t = table(ms + '/SPECTRAL_WINDOW', ack=False)
-    bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), float(imsize),
-                                verbose=False)
-    nfreq = len(t.getcol('CHAN_FREQ')[0])
-    t.close()
+    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), float(imsize), verbose=False)
+        nfreq = len(t.getcol('CHAN_FREQ')[0])
     avgfactor = 0
 
     for count in range(2, 21):  # try average values between 2 to 20
@@ -2275,17 +2249,16 @@ def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
     """
     cname = 'FLAG'
     flags = []
-    t = table(ms, readonly=False, ack=True)
-    if flagcolname not in t.colnames():
-        flags = t.getcol('FLAG')
-        print('Adding flagging column', flagcolname, 'to', ms)
-        desc = t.getcoldesc(cname)
-        newdesc = makecoldesc(flagcolname, desc)
-        newdmi = t.getdminfo(cname)
-        newdmi['NAME'] = flagcolname
-        t.addcols(newdesc, newdmi)
-        t.putcol(flagcolname, flags)
-    t.close()
+    with table(ms, readonly=False, ack=True) as t:
+        if flagcolname not in t.colnames():
+            flags = t.getcol('FLAG')
+            print('Adding flagging column', flagcolname, 'to', ms)
+            desc = t.getcoldesc(cname)
+            newdesc = makecoldesc(flagcolname, desc)
+            newdmi = t.getdminfo(cname)
+            newdmi['NAME'] = flagcolname
+            t.addcols(newdesc, newdmi)
+            t.putcol(flagcolname, flags)
     del flags
     return
 
@@ -2298,9 +2271,8 @@ def check_phaseup_station(ms):
     Returns:
         None
     """
-    t = table(ms + '/ANTENNA', ack=False)
-    antennasms = list(t.getcol('NAME'))
-    t.close()
+    with table(ms + '/ANTENNA', ack=False) as t:
+        antennasms = list(t.getcol('NAME'))
     substr = 'ST'  # to check if a a superstation is present, assume this 'ST' string, usually ST001
     hassuperstation = any(substr in mystring for mystring in antennasms)
     print('Contains superstation?', hassuperstation)
@@ -2315,9 +2287,8 @@ def checklongbaseline(ms):
     Returns:
         None
     """
-    t = table(ms + '/ANTENNA', ack=False)
-    antennasms = list(t.getcol('NAME'))
-    t.close()
+    with table(ms + '/ANTENNA', ack=False) as t:
+        antennasms = list(t.getcol('NAME'))
     substr = 'DE'  # to check if a German station is present, if yes assume this is long baseline data
     haslongbaselines = any(substr in mystring for mystring in antennasms)
     print('Contains long baselines?', haslongbaselines)
@@ -2479,33 +2450,26 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
 
             if start == 0:
-                t = table(ms)
-                if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if present otherwise this is not needed
-                    t.close()
-                    print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
-                    if os.path.isdir(msouttmp):
+                with table(ms) as t:
+                    if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if present otherwise this is not needed
+                        print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
+                        if os.path.isdir(msouttmp):
+                            os.system('rm -rf ' + msouttmp)
+                        run(cmd)
+
+                        # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
+                        with table(msout, readonly=False) as t2:
+                            print('Adding WEIGHT_SPECTRUM_SOLVE')
+                            desc = t2.getcoldesc('WEIGHT_SPECTRUM')
+                            desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
+                            t2.addcols(desc)
+
+                            with table(msouttmp, readonly=True) as t3:
+                                imweights = t3.getcol('WEIGHT_SPECTRUM')
+                                t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
+
+                        # clean up
                         os.system('rm -rf ' + msouttmp)
-                    run(cmd)
-
-                    # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-                    t = table(msout, readonly=False)
-                    print('Adding WEIGHT_SPECTRUM_SOLVE')
-                    desc = t.getcoldesc('WEIGHT_SPECTRUM')
-                    desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
-                    t.addcols(desc)
-
-                    t2 = table(msouttmp, readonly=True)
-                    imweights = t2.getcol('WEIGHT_SPECTRUM')
-                    t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
-
-                    # Fill WEIGHT_SPECTRUM with WEIGHT_SPECTRUM from second ms
-                    t2.close()
-                    t.close()
-
-                    # clean up
-                    os.system('rm -rf ' + msouttmp)
-                else:
-                    t.close()
 
             outmslist.append(msout)
         else:
@@ -2795,9 +2759,8 @@ def inputchecker(args, mslist):
     #        raise Exception('--BLsmooth cannot be used together with --BLsmooth-list')
 
     # set telescope
-    t = table(mslist[0] + '/OBSERVATION', ack=False)
-    telescope = t.getcol('TELESCOPE_NAME')[0]
-    t.close()
+    with table(mslist[0] + '/OBSERVATION', ack=False) as t:
+        telescope = t.getcol('TELESCOPE_NAME')[0]
     # if telescope != 'LOFAR':
     #    check_equidistant_times(mslist)
 
@@ -2853,11 +2816,10 @@ def inputchecker(args, mslist):
 
     if args['DDE']:
         for ms in mslist:
-            t = table(ms, readonly=True, ack=False)
-            if 'CORRECTED_DATA' in t.colnames():  # not allowed for DDE runs (because solving from DATA and imaging from DATA with an h5)
-                print(ms, 'contains a CORRECTED_DATA column, this is not allowed when using --DDE')
-                raise Exception('CORRECTED_DATA should not be present when using option --DDE')
-            t.close()
+            with table(ms, readonly=True, ack=False) as t:
+                if 'CORRECTED_DATA' in t.colnames():  # not allowed for DDE runs (because solving from DATA and imaging from DATA with an h5)
+                    print(ms, 'contains a CORRECTED_DATA column, this is not allowed when using --DDE')
+                    raise Exception('CORRECTED_DATA should not be present when using option --DDE')
 
     if args['DDE'] and not args['forwidefield']:
         print('--forwidefield needs to be set in DDE mode')
@@ -3248,10 +3210,9 @@ def inputchecker(args, mslist):
 
 def get_resolution(ms):
     uvmax = get_uvwmax(ms)
-    t = table(ms + '/SPECTRAL_WINDOW', ack=False)
-    freq = np.median(t.getcol('CHAN_FREQ'))
-    print('Central freq [MHz]', freq / 1e6, 'Longest baselines [km]', uvmax / 1e3)
-    t.close()
+    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        freq = np.median(t.getcol('CHAN_FREQ'))
+        print('Central freq [MHz]', freq / 1e6, 'Longest baselines [km]', uvmax / 1e3)
     res = 1.22 * 3600. * 180. * ((299792458. / freq) / uvmax) / np.pi
     return res
 
@@ -3264,11 +3225,10 @@ def get_uvwmax(ms):
     Returns:
         None
     """
-    t = table(ms, ack=False)
-    uvw = t.getcol('UVW')
-    ssq = np.sqrt(np.sum(uvw ** 2, axis=1))
-    print(uvw.shape)
-    t.close()
+    with table(ms, ack=False) as t:
+        uvw = t.getcol('UVW')
+        ssq = np.sqrt(np.sum(uvw ** 2, axis=1))
+        print(uvw.shape)
     return np.max(ssq)
 
 
@@ -3445,10 +3405,9 @@ def smearing_time_ms(msin, t):
     return smearing_time(r_dis, res, t)
 
 def smearing_time_ms_imsize(msin, imsize, pixelscale):
-    t = table(ms, readonly=True, ack=False)
-    time = np.unique(t.getcol('TIME'))
-    tint = np.abs(time[1] - time[0])
-    t.close()        
+    with table(msin, readonly=True, ack=False) as t:
+        time = np.unique(t.getcol('TIME'))
+        tint = np.abs(time[1] - time[0])
     res = get_resolution(msin)
     r_dis = 3600.*np.sqrt(2)*imsize*pixelscale # image diagonal length in arcsec
     return smearing_time(r_dis, res, tint)
@@ -3460,10 +3419,9 @@ def flag_smeared_data(msin):
         # uvmaxflag(msin, uvmax)
 
     # uvmax = get_uvwmax(ms)
-    t = table(msin + '/SPECTRAL_WINDOW', ack=False)
-    freq = np.median(t.getcol('CHAN_FREQ'))
+    with table(msin + '/SPECTRAL_WINDOW', ack=False) as t:
+        freq = np.median(t.getcol('CHAN_FREQ'))
     # print('Central freq [MHz]', freq/1e6, 'Longest baselines [km]', uvmax/1e3)
-    t.close()
 
     t = get_time_preavg_factor_LTAdata(msin)
     r_dis = 3600. * compute_distance_to_pointingcenter(msin, returnval=True, dologging=False)
@@ -4735,26 +4693,20 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     run(cmd)
 
     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-    t = table(ms + '.cut', readonly=False)
-
     print('Adding WEIGHT_SPECTRUM_SOLVE')
-    desc = t.getcoldesc('WEIGHT_SPECTRUM')
-    desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
-    t.addcols(desc)
+    with table(ms + '.cut', readonly=False) as t:
+        desc = t.getcoldesc('WEIGHT_SPECTRUM')
+        desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
+        t.addcols(desc)
 
-    t2 = table(ms + '.cuttmp', readonly=True)
-    imweights = t2.getcol('WEIGHT_SPECTRUM')
-    t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
-
-    # Fill WEIGHT_SPECTRUM with WEIGHT_SPECTRUM from second ms
-    t2.close()
-    t.close()
+        with table(ms + '.cuttmp', readonly=True) as t2:
+            imweights = t2.getcol('WEIGHT_SPECTRUM')
+        t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
 
     # clean up
     os.system('rm -rf ' + ms + '.cuttmp')
 
     return
-
 
 # removestartendms('P219+50_PSZ2G084.10+58.72.dysco.sub.shift.avg.weights.ms.archive',endtime='16-Apr-2015/02:14:47.0')
 # removestartendms('P223+50_PSZ2G084.10+58.72.dysco.sub.shift.avg.weights.ms.archive',starttime='24-Feb-2015/22:16:00.0')
