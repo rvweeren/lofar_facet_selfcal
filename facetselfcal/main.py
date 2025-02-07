@@ -9358,7 +9358,7 @@ def early_stopping(station: str = 'international', cycle: int = None):
                 "\nMost likely due to issues with accessing cortExchange.")
             nn_model = None
     # Start only after cycle 3
-    elif cycle <= 3:
+    if cycle <= 3:
         return False
 
     # Get already obtained selfcal images and merged solutions
@@ -9411,10 +9411,9 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
         if cycle == args['stop'] - 1:
-            bestcycle = (df['rms'].argmin() + df['min/max'].argmin())//2
-            logger.info(f'{mergedh5[bestcycle]} --> best_solutions.h5')
-            os.system(f'cp {mergedh5[bestcycle]} best_solutions.h5')
-            os.system(f'cp {images[bestcycle]} best_{images[bestcycle].split("/")[-1]}')
+            logger.info(f'{mergedh5[cycle]} --> best_solutions.h5')
+            os.system(f'cp {mergedh5[cycle]} best_solutions.h5')
+            os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
 
     return False
 
@@ -9997,7 +9996,11 @@ def main():
         args['fitspectralpol'] = update_fitspectralpol(args)
 
         # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
-        if args['early_stopping'] and early_stopping(station='international' if longbaseline else 'alldutch', cycle=i):
+        if args['early_stopping'] and len(mslist)>1:
+            logger.info("WARNING: --early-stopping not yet developed for multiple input MeasurementSets.\nSkipping early-stopping evaluation.")
+        elif args['early_stopping'] and early_stopping(station='international' if longbaseline else 'alldutch', cycle=i):
+            if args['phaseupstations'] is not None:
+                merge_h5(h5_out='best_addCS_solutions.h5', h5_tables='best_solutions.h5', ms_files=mslist_beforephaseup[0], add_cs=True)
             break
 
     # remove sources outside central region after selfcal (to prepare for DDE solves)

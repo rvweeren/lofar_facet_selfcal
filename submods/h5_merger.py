@@ -387,7 +387,7 @@ class MergeH5:
         print(message)
 
     @staticmethod
-    def _print_antenna_mismatch_between_files(self, h5_name1, h5_name2, antennas_ref, antennas):
+    def _print_antenna_mismatch_between_files(h5_name1, h5_name2, antennas_ref, antennas):
         """
         Print a message for antenna mismatch between two H5 files.
         """
