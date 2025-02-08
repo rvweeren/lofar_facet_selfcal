@@ -7374,6 +7374,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
     if '-shared-facet-reads' in subprocess.check_output(['wsclean'], text=True):
         sharedfacetreads = True
+    sharedfacetreads = False # for now force it to False
+    # it seems to slow the imaging down, instead of speed it up
     
     if modelstoragemanager == 'stokes_i':
         modelstoragemanager = 'stokes-i' # because WSclean uses a different name than DP3
@@ -8989,6 +8991,12 @@ def basicsetup(mslist, args):
                 args['soltypecycles_list'] = [0, 999, 2]
                 args['stop'] = 8
 
+    if args['paralleldeconvolution'] == 0: # means determine automatically
+        if args['imsize'] > 1600 and telescope == 'MeerKAT':
+            args['paralleldeconvolution'] = 1200
+        elif args['imsize'] > 1600: 
+            args['paralleldeconvolution'] =  np.min([2600, int(args['imsize'] / 2)])
+            
     if args['auto'] and longbaseline and not args['delaycal']:
         args['update_uvmin'] = False
         args['usemodeldataforsolints'] = True
@@ -9006,9 +9014,6 @@ def basicsetup(mslist, args):
             args['smoothnessspectralexponent_list'] = [-1.0, -1.0]
             args['smoothnessrefdistance_list'] = [0.0, 0.0]
         args['uvmin'] = 20000
-
-        if args['imsize'] > 1600:
-            args['paralleldeconvolution'] = np.min([2600, int(args['imsize'] / 2)])
 
         if LBA:
             args['BLsmooth_list'] = [True] * len(args['soltype_list'])
