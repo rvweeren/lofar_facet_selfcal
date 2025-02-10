@@ -80,7 +80,7 @@ def option_parser():
                                type=int)
 
     imagingparser.add_argument('--paralleldeconvolution',
-                               help="Parallel-deconvolution size for WSCLean (see WSClean documentation). This is by default 0 (no parallel deconvolution). Suggested value for very large images is about 2000.",
+                               help="Parallel-deconvolution size for WSCLean (see WSClean documentation). The default is 0 which means the parallel deconvolution value is determined automatically in facetselfcal. For large images, values around 1000-2000 usually work well. For any value below zero the option is turned off.",
                                default=0,
                                type=int)
     imagingparser.add_argument('--parallelgridding',
@@ -472,11 +472,10 @@ def option_parser():
                         help='Use Dysco data compression. The default is True.',
                         type=ast.literal_eval,
                         default=True)
-    parser.add_argument('--modelcompression',
-                        help='Use stokes_i compression for MODEL_DATA type columns if possible. The default is False.',
-                        type=ast.literal_eval,
-                        default=False)
-        
+    parser.add_argument('--modelstoragemanager',
+                        help='String input option is "stokes_i" compression for MODEL_DATA. The default is None. This will be turned off (set to None) automatically if the solve types do not allow for stokes_i compression',
+                        type=str,
+                        default=None)
     parser.add_argument('--resetweights',
                         help='If you want to ignore weight_spectrum_solve.',
                         action='store_true')

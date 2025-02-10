@@ -2752,6 +2752,7 @@ def inputchecker(args, mslist):
     """ Check input validity.
     Args:
         args (dict): argparse inputs.
+        mslist (str list): list of ms
     """
     # if args['BLsmooth']:
     #    if True in args['BLsmooth_list']:
@@ -2764,11 +2765,17 @@ def inputchecker(args, mslist):
     # if telescope != 'LOFAR':
     #    check_equidistant_times(mslist)
 
+
     if True in args['BLsmooth_list']:
         if len(args['soltypecycles_list']) != len(args['BLsmooth_list']):
             print('--BLsmooth-list length does not match the length of --soltype-list')
             raise Exception('--BLsmooth-list length does not match the length of --soltype-list')
 
+    if args['modelstoragemanager'] != 'stokes_i' and args['modelstoragemanager'] is not None:
+         print(args['modelstoragemanager'])
+         print('Wrong input for --modelstoragemanager, needs to be "stokes_i" or None')
+         raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i or None')
+         
     for tmp in args['BLsmooth_list']:
         # print(args['BLsmooth_list'])
         if not (isinstance(tmp, bool)):
@@ -6208,8 +6215,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                          predictskywithbeam=False, restoreflags=False, flagging=False,
                          longbaseline=False, flagslowphases=True,
                          flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None,
-                         skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01,
-                         ionfreqfactor=1.0, blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0,
+                         skymodelpointsource=None, wscleanskymodel=None, uvminscalarphasediff=0,
                          docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8,
                          gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None,
                          DDE_predict='WSCLEAN', QualityBasedWeights=False, QualityBasedWeights_start=5,
@@ -6364,8 +6370,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                             predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth_list[soltypenumber][msnumber],
                             skymodelsource=skymodelsource,
                             skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,
-                            iontimefactor=iontimefactor, ionfreqfactor=ionfreqfactor, blscalefactor=blscalefactor,
-                            dejumpFR=dejumpFR, uvminscalarphasediff=uvminscalarphasediff,
+                            iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'], uvminscalarphasediff=uvminscalarphasediff,
                             create_modeldata=create_modeldata,
                             selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size,
                             gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,
@@ -7325,6 +7330,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
     if '-shared-facet-reads' in subprocess.check_output(['wsclean'], text=True):
         sharedfacetreads = True
+    sharedfacetreads = False # for now force it to False
+    # it seems to slow the imaging down, instead of speed it up
     
     if modelstoragemanager == 'stokes_i':
         modelstoragemanager = 'stokes-i' # because WSclean uses a different name than DP3
@@ -8940,6 +8947,12 @@ def basicsetup(mslist, args):
                 args['soltypecycles_list'] = [0, 999, 2]
                 args['stop'] = 8
 
+    if args['paralleldeconvolution'] == 0: # means determine automatically
+        if args['imsize'] > 1600 and telescope == 'MeerKAT':
+            args['paralleldeconvolution'] = 1200
+        elif args['imsize'] > 1600: 
+            args['paralleldeconvolution'] =  np.min([2600, int(args['imsize'] / 2)])
+            
     if args['auto'] and longbaseline and not args['delaycal']:
         args['update_uvmin'] = False
         args['usemodeldataforsolints'] = True
@@ -8957,9 +8970,6 @@ def basicsetup(mslist, args):
             args['smoothnessspectralexponent_list'] = [-1.0, -1.0]
             args['smoothnessrefdistance_list'] = [0.0, 0.0]
         args['uvmin'] = 20000
-
-        if args['imsize'] > 1600:
-            args['paralleldeconvolution'] = np.min([2600, int(args['imsize'] / 2)])
 
         if LBA:
             args['BLsmooth_list'] = [True] * len(args['soltype_list'])
@@ -9048,7 +9058,7 @@ def basicsetup(mslist, args):
         maskthreshold_selfcalcycle, outtarname, telescope, args
 
 
-def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min', modelstoragemanager=None):
+def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
     """
     Compute phasediff statistics using circular standard deviations on the solutions of a scalarphasediff solve for
     international stations.
@@ -9059,7 +9069,6 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min', mod
     :param args: input arguments
     :param nchan: n channels
     :param solint: solution interval
-    :param modelstoragemanager: modelstoragemanager to use
     """
 
     mslist_input = mslist[:]  # make a copy
@@ -9080,7 +9089,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min', mod
         scorelist = []
         parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
         runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,
-                    dysco=args['dysco'], modelstoragemanager=modelstoragemanager)
+                    dysco=args['dysco'], modelstoragemanager=args['modelstoragemanager'])
 
         # Reference solution interval
         ref_solint = solint
@@ -9560,13 +9569,12 @@ def main():
         outtarname, telescope, args = basicsetup(mslist, args)
 
     # set model storagemanager
-    modelstoragemanager = None
-    if args['modelcompression']:
+    if args['modelstoragemanager'] == 'stokes_i': # check if this request is possible
         if is_stokesi_modeltype_allowed(args, telescope):
-            modelstoragemanager = 'stokes_i'
             print('Using stokes_i model compression')
         else:
             print('Cannot use stokes_i model compression')
+            args['modelstoragemanager'] = None
 
     # check if we could average more
     avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
@@ -9583,7 +9591,7 @@ def main():
     # COMPUTE PHASE-DIFF statistic
     if args['compute_phasediffstat']:
         if longbaseline:
-            compute_phasediffstat(mslist, args, modelstoragemanager=modelstoragemanager)
+            compute_phasediffstat(mslist, args)
         else:
             logger.info("--compute-phasediffstat requested but no long-baselines in dataset.")
 
@@ -9743,7 +9751,7 @@ def main():
                                 DDE_predict='DP3', restart=False, skyview=tgssfitsfile,
                                 targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
                                 disable_primary_beam=args['disable_primary_beam'],
-                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding']))
+                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
 
                 if candidate_solints is not None:
                     candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
@@ -9767,9 +9775,6 @@ def main():
                                                   skymodelsource=args['skymodelsource'],
                                                   skymodelpointsource=args['skymodelpointsource'],
                                                   wscleanskymodel=args['wscleanskymodel'],
-                                                  iontimefactor=args['iontimefactor'],
-                                                  ionfreqfactor=args['ionfreqfactor'],
-                                                  blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'],
                                                   uvminscalarphasediff=args['uvminscalarphasediff'],
                                                   docircular=args['docircular'],
                                                   mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],
@@ -9784,7 +9789,7 @@ def main():
                                                   QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],
                                                   ncpu_max=args['ncpu_max_DP3solve'],
                                                   mslist_beforeremoveinternational=mslist_beforeremoveinternational,
-                                                  soltypelist_includedir=soltypelist_includedir, modelstoragemanager=modelstoragemanager)
+                                                  soltypelist_includedir=soltypelist_includedir, modelstoragemanager=args['modelstoragemanager'])
 
         if args['phasediff_only']:
             return
@@ -9802,7 +9807,7 @@ def main():
                             args, numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope,
                             targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
-                            disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding']))
+                            disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
 
         #  --- start imaging part ---
@@ -9835,7 +9840,7 @@ def main():
                       disable_primarybeam_image=args['disable_primary_beam'],
                       disable_primarybeam_predict=args['disable_primary_beam'],
                       groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
-                      fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
+                      fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
             # args['idg'] = idgin # set back
             if args['makeimage_ILTlowres_HBA']:
                 if args['phaseupstations'] is None:
@@ -9858,7 +9863,7 @@ def main():
                           disable_primarybeam_predict=args['disable_primary_beam'],
                           groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
                           ddpsfgrid=args['ddpsfgrid'],
-                          fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
+                          fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
             if args['makeimage_fullpol']:
                 makeimage(mslistim, args['imagename'] + 'fullpol' + str(i).zfill(3) + stackstr,
                           args['pixelscale'], args['imsize'],
@@ -9876,7 +9881,7 @@ def main():
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
                           groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
-                          fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
+                          fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
             # make figure
             if args['imager'] == 'WSCLEAN':
@@ -9904,7 +9909,7 @@ def main():
                 prepare_DDE(args['imagename'], i, mslist, args['imsize'], args['pixelscale'], args['channelsout'],
                             args, numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
                             DDE_predict=args['DDE_predict'], telescope=telescope, targetFlux=args['targetFlux'],
-                            fitspectralpol=args['fitspectralpol'], disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding']))
+                            fitspectralpol=args['fitspectralpol'], disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
 
             if candidate_solints is not None:
                 candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
@@ -9961,11 +9966,7 @@ def main():
                                               flagging=args['doflagging'], longbaseline=longbaseline,
                                               flagslowphases=args['doflagslowphases'],
                                               flagslowamprms=args['flagslowamprms'],
-                                              flagslowphaserms=args['flagslowphaserms'],
-                                              iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'],
-                                              blscalefactor=args['blscalefactor'],
-                                              dejumpFR=args['dejumpFR'],
-                                              uvminscalarphasediff=args['uvminscalarphasediff'],
+                                              flagslowphaserms=args['flagslowphaserms'],                                              uvminscalarphasediff=args['uvminscalarphasediff'],
                                               docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup,
                                               dysco=args['dysco'],
                                               blsmooth_chunking_size=args['blsmooth_chunking_size'],
@@ -9978,7 +9979,7 @@ def main():
                                               QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],
                                               telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'],
                                               mslist_beforeremoveinternational=mslist_beforeremoveinternational,
-                                              soltypelist_includedir=soltypelist_includedir, modelstoragemanager=modelstoragemanager)
+                                              soltypelist_includedir=soltypelist_includedir, modelstoragemanager=args['modelstoragemanager'])
 
         # update uvmin if allowed/requested
         args['uvmin'] = update_uvmin(fitsmask, longbaseline, args, LBA)
@@ -10025,14 +10026,14 @@ def main():
                   disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
                   groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
-                  ddpsfgrid=args['ddpsfgrid'], fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
+                  ddpsfgrid=args['ddpsfgrid'], fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
         remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), args['pixelscale'],
                            args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
                            dysco=args['dysco'],
                            userbox=args['remove_outside_center_box'], idg=args['idg'],
                            h5list=wsclean_h5list, facetregionfile=facetregionfile,
-                           disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding'])
+                           disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
 
     # ARCHIVE DATA AFTER SELFCAL if requested
     if not longbaseline and not args['noarchive']:
