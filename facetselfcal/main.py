@@ -1640,7 +1640,6 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
     if type(inmslist) is not list:
         raise TypeError('Incorrect input type for inmslist')
     print('Adding weight spectrum to stack')
-    # create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True,\
     create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True,
                            updateweights_from_thiscolumn='MODEL_DATA')
     print('Attempting to normalise data to point source')
@@ -1650,7 +1649,6 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
 
     start = time.time()
     stackMS_taql(inmslist, outputms=msout, incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
-    # stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
     now = time.time()
     print(f'Stacking took {now - start} seconds')
 
@@ -6055,7 +6053,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, args=None):
 
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
-                channelsout, args, numClusters=0, facetdirections=None,
+                channelsout, numClusters=0, facetdirections=None,
                 DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=True,
                 telescope='LOFAR', targetFlux=2.0, skyview=None,
                 fitspectralpol=3, disable_primary_beam=False, wscleanskymodel=None,
@@ -6205,7 +6203,7 @@ def is_scalar_array_for_wsclean(h5list):
 
 
 # this version corrupts the MODEL_DATA column
-def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
+def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          soltype_list, soltypecycles_list, smoothnessconstraint_list,
                          smoothnessreffrequency_list, smoothnessspectralexponent_list,
                          smoothnessrefdistance_list,
@@ -6223,7 +6221,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                          ncpu_max=24, mslist_beforeremoveinternational=None, soltypelist_includedir=None, modelstoragemanager=None):
     ## --- start STACK code ---
     if args['stack']:
-        # create MODEL_DATA because in case it does not exist, happens under these conditions
+        # create MODEL_DATA because in case it does not exist (needed in case user gives external model(s))
         # only for first (=0) selfcalcycle cycle and if user provides a model
         if ((skymodel is not None) or (skymodelpointsource is not None)
             or (wscleanskymodel is not None)) and selfcalcycle == 0:
@@ -9746,7 +9744,7 @@ def main():
                 modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
                     prepare_DDE(args['skymodel'], i,
                                 mslist, args['imsize'], args['pixelscale'],
-                                args['channelsout'], args, numClusters=args['Nfacets'],
+                                args['channelsout'], numClusters=args['Nfacets'],
                                 facetdirections=args['facetdirections'],
                                 DDE_predict='DP3', restart=False, skyview=tgssfitsfile,
                                 targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
@@ -9758,7 +9756,7 @@ def main():
                     solint_list = candidate_solints
             else:
                 dde_skymodel = None
-            wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'],
+            wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, args['soltype_list'],
                                                   soltypecycles_list, smoothnessconstraint_list,
                                                   smoothnessreffrequency_list,
                                                   smoothnessspectralexponent_list, smoothnessrefdistance_list,
@@ -9804,7 +9802,7 @@ def main():
         if args['DDE'] and args['start'] != 0 and i == args['start']:
             modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist, args['imsize'], args['pixelscale'], args['channelsout'],
-                            args, numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
+                            numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope,
                             targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
                             disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
@@ -9907,7 +9905,7 @@ def main():
         if args['DDE']:
             modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist, args['imsize'], args['pixelscale'], args['channelsout'],
-                            args, numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
+                            numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
                             DDE_predict=args['DDE_predict'], telescope=telescope, targetFlux=args['targetFlux'],
                             fitspectralpol=args['fitspectralpol'], disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
 
@@ -9955,7 +9953,7 @@ def main():
                                       delaycal=args['delaycal'])
 
         # CALIBRATE AND APPLYCAL
-        wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'],
+        wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, args['soltype_list'],
                                               soltypecycles_list,
                                               smoothnessconstraint_list, smoothnessreffrequency_list,
                                               smoothnessspectralexponent_list, smoothnessrefdistance_list,
