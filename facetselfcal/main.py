@@ -5916,7 +5916,7 @@ def split_facetdirections(facetregionfile):
 def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, imsize=None,
                             pixelscale=None, numClusters=0, weightBySize=False,
                             facetdirections=None, imsizemargin=100, restart=False,
-                            args=None):
+                            args=None, via_h5=False, h5=None):
     """
     Create a facet region file based on an input image or file provided by the user
     if there is an image use lsmtool tessellation algorithm
@@ -5924,7 +5924,13 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     This function also returns the solints obtained out of the facetdirections file (if avail). It is up to
     the function that calls this to do something with it or not.
     """
-    # groupalgorithm =
+    if via_h5: # this is quick call to ds9facetgenerator using an h5 file and a None return
+        cmd = f'python {submodpath}/ds9facetgenerator.py '
+        cmd += '--ms=' + ms + ' --h5=' + h5 + ' '
+        cmd += '--imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
+        run(cmd)
+        return
+    
     solints = None  # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
     soltypelist_includedir = None  # initialize
     if facetdirections is not None:
@@ -9807,6 +9813,10 @@ def main():
                             targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
                             disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
+            # re-create facets.reg here 
+            # in a restart the number of directions from the previous facets.reg might not match that in the h5
+            create_facet_directions(args['imagename'], i, ms=mslist[0], imsize=args['imsize'],
+                            pixelscale= args['pixelscale'], via_h5=True, h5=wsclean_h5list[0])
 
         #  --- start imaging part ---
         for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
