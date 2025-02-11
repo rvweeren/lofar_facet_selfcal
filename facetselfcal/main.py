@@ -708,8 +708,8 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
     return MSs_files_clean, H5s_files_clean
 
 
-def check_for_BDPbug_longsolint(mslist, facetdirections, args=None):
-    dirs, solints, soltypelist_includedir = parse_facetdirections(facetdirections, 1000, args=args)
+def check_for_BDPbug_longsolint(mslist, facetdirections):
+    dirs, solints, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)
 
     if solints is None:
         return
@@ -3002,7 +3002,7 @@ def inputchecker(args, mslist):
         if not os.path.isfile(args['facetdirections']):
             print('--facetdirections file does not exist')
             raise Exception('--facetdirections file does not exist')
-        check_for_BDPbug_longsolint(mslist, args['facetdirections'], args=args)
+        check_for_BDPbug_longsolint(mslist, args['facetdirections'])
 
     if args['DDE']:
         if 'fulljones' in args['soltype_list']:
@@ -6534,7 +6534,8 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
     if args['stack']:
         for ms in mslist_orig:
             applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
-            # note parmdbmergename should alwats be correct since we only had one MS (stack.MS) and so it does only "loop" over one MS.
+            # note parmdbmergename should always be correct since we only had one MS (stack.MS) and so it does only "loop" over one MS.
+            # Future work: If there are mulitple time groups we probably want to use wsclean_h5list instead of parmdbmergename (as it contains a list of all merged h5 in order of mslist)
     ## --- end STACK code ---
 
     if len(modeldatacolumns) > 0:
@@ -9175,7 +9176,7 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
         if args['fitsmask'] is None:
             if maskthreshold_selfcalcycle[selfcalcycle] > 0.0:
                 if which('breizorro') is not None:
-                    cmdm = 'breizorro --threshold=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
+                    cmdm = 'breizorro --make-binary --fill-holes --threshold=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
                        ' --restored-image=' + imagename + ' --boxsize=30 --outfile=' + imagename + '.mask.fits'
                 else:
                     cmdm = 'MakeMask.py --Th=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
@@ -9518,7 +9519,7 @@ def main():
     if False:
         modeldatacolumnsin = ['MODEL_DATA_DD0', 'MODEL_DATA_DD1', 'MODEL_DATA_DD2', 'MODEL_DATA_DD3', 'MODEL_DATA_DD4']
         soltypenumber = 0
-        dirs, solints, soltypelist_includedir = parse_facetdirections(args['facetdirections'], 0, args=args)
+        dirs, solints, soltypelist_includedir = parse_facetdirections(args['facetdirections'], 0)
         modeldatacolumns, sourcedir_removed, id_kept = updatemodelcols_includedir(modeldatacolumnsin, soltypenumber,
                                                                                   soltypelist_includedir, mslist[0],
                                                                                   dryrun=True)
