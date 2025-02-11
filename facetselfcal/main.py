@@ -12,7 +12,6 @@
 # bdsf still steals the logger https://github.com/lofar-astron/PyBDSF/issues/176
 # add html summary overview
 # Stacking check that freq and time axes are identical
-# Add multi-run stacking
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
@@ -108,7 +107,6 @@ matplotlib.use('Agg')
 
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
-
 
 def MeerKAT_antconstraint(antfile=None, ctype='all'):
     if antfile is None:
@@ -974,9 +972,8 @@ def add_dummyms(msfiles):
 
     # Check for wrong REF_FREQUENCY which happens after a DPPP split in frequency
     for ms in msfiles:
-        t = table(ms + '/SPECTRAL_WINDOW', readonly=True)
-        freq = t.getcol('REF_FREQUENCY')[0]
-        t.close()
+        with table(ms + '/SPECTRAL_WINDOW', readonly=True) as t:
+            freq = t.getcol('REF_FREQUENCY')[0]
         freqaxis.append(freq)
     freqaxis = np.sort(np.array(freqaxis))
     minfreqspacing = np.min(np.diff(freqaxis))
@@ -985,12 +982,11 @@ def add_dummyms(msfiles):
 
     freqaxis = []
     for ms in msfiles:
-        t = table(ms + '/SPECTRAL_WINDOW', readonly=True)
-        if keyname == 'CHAN_FREQ':
-            freq = t.getcol(keyname)[0][0]
-        else:
-            freq = t.getcol(keyname)[0]
-        t.close()
+        with table(ms + '/SPECTRAL_WINDOW', readonly=True) as t:
+            if keyname == 'CHAN_FREQ':
+                freq = t.getcol(keyname)[0][0]
+            else:
+                freq = t.getcol(keyname)[0]
         freqaxis.append(freq)
 
     # put everything in order of increasing frequency
@@ -1056,13 +1052,12 @@ def getobsmslist(msfiles, observationnumber):
 def mscolexist(ms, colname):
     """ Check if a colname exists in the measurement set ms, returns either True or False """
     if os.path.isdir(ms):
-        t = table(ms, readonly=True, ack=False)
-        colnames = t.colnames()
-        if colname in colnames:  # check if the column is in the list
-            exist = True
-        else:
-            exist = False
-        t.close()
+        with table(ms, readonly=True, ack=False) as t:
+            colnames = t.colnames()
+            if colname in colnames:  # check if the column is in the list
+                exist = True
+            else:
+                exist = False
     else:
         exist = False  # ms does not exist
     return exist
@@ -1103,9 +1098,8 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True):
 
 
 def fix_equidistant_times(mslist, dryrun, dysco=True):
-    t = table(mslist[0] + '/OBSERVATION', ack=False)
-    telescope = t.getcol('TELESCOPE_NAME')[0]
-    t.close()
+    with table(mslist[0] + '/OBSERVATION', ack=False) as t:
+        telescope = t.getcol('TELESCOPE_NAME')[0]
     mslist_return = []
 
     for ms in mslist:
@@ -1128,9 +1122,8 @@ def check_equidistant_times(mslist, stop=True, return_result=False):
     """ Check if times in mslist are equidistant"""
 
     for ms in mslist:
-        t = table(ms, ack=False)
-        times = np.unique(t.getcol('TIME'))
-        t.close()
+        with table(ms, ack=False) as t:
+            times = np.unique(t.getcol('TIME'))
         if len(times) == 1:  # single timestep data
             return
         diff_times = np.abs(np.diff(times))[
@@ -1154,7 +1147,6 @@ def check_equidistant_times(mslist, stop=True, return_result=False):
             if stop:
                 print('If you want to take the risk comment out the sys.exit() in the Python code')
                 sys.exit()
-        t.close()
     if return_result:
         if len(idx_deviating) > 0:
             return False  # so irregular time axis
@@ -1166,17 +1158,15 @@ def check_equidistant_times(mslist, stop=True, return_result=False):
 def check_equidistant_freqs(mslist):
     """ Check if freuqencies in mslist are equidistant """
     for ms in mslist:
-        t = table(ms + '/SPECTRAL_WINDOW', ack=False)
-        chan_freqs = t.getcol('CHAN_FREQ')[0]
+        with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+            chan_freqs = t.getcol('CHAN_FREQ')[0]
         if len(chan_freqs) == 1:  # single channel data
             return
         diff_freqs = np.diff(chan_freqs)
-        t.close()
         if len(np.unique(diff_freqs)) != 1:
             print(np.unique(diff_freqs))
             print(ms, 'Frequency channels are not equidistant, made a mistake in DP3 concat?')
             raise Exception(ms + ': Freqeuency channels are no equidistant, made a mistake in DP3 concat?')
-        t.close()
     return
 
 
@@ -1216,12 +1206,11 @@ def fix_bad_weightspectrum(mslist, clipvalue):
     """
     for ms in mslist:
         print('Clipping WEIGHT_SPECTRUM manually', ms, clipvalue)
-        t = table(ms, readonly=False)
-        ws = t.getcol('WEIGHT_SPECTRUM')
-        idx = np.where(ws > clipvalue)
-        ws[idx] = 0.0
-        t.putcol('WEIGHT_SPECTRUM', ws)
-        t.close()
+        with table(ms, readonly=False) as t:
+            ws = t.getcol('WEIGHT_SPECTRUM')
+            idx = np.where(ws > clipvalue)
+            ws[idx] = 0.0
+            t.putcol('WEIGHT_SPECTRUM', ws)
     return
 
 
@@ -1236,17 +1225,15 @@ def format_solint(solint, ms, return_ntimes=False):
     """
     if str(solint).isdigit():
         if return_ntimes:
-            t = table(ms, readonly=True, ack=False)
-            time = np.unique(t.getcol('TIME'))
-            t.close()
+            with table(ms, readonly=True, ack=False) as t:
+                time = np.unique(t.getcol('TIME'))
             return str(solint), len(time)
         else:
             return str(solint)
     else:
-        t = table(ms, readonly=True, ack=False)
-        time = np.unique(t.getcol('TIME'))
-        tint = np.abs(time[1] - time[0])
-        t.close()
+        with table(ms, readonly=True, ack=False) as t:
+            time = np.unique(t.getcol('TIME'))
+            tint = np.abs(time[1] - time[0])
         if 's' in solint:
             solintout = int(np.rint(float(re.findall(r'[+-]?\d+(?:\.\d+)?', solint)[0]) / tint))
         if 'm' in solint:
@@ -1273,9 +1260,8 @@ def format_nchan(nchan, ms):
     if str(nchan).isdigit():
         return str(nchan)
     else:
-        t = table(ms + '/SPECTRAL_WINDOW', ack=False)
-        chanw = np.median(t.getcol('CHAN_WIDTH'))
-        t.close()
+        with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+            chanw = np.median(t.getcol('CHAN_WIDTH'))
         if 'Hz' in nchan:
             nchanout = int(np.rint(float(re.findall(r'[+-]?\d+(?:\.\d+)?', nchan)[0]) / chanw))
         if 'kHz' in nchan:
@@ -1370,25 +1356,24 @@ def remove_flagged_data_startend(mslist):
     mslistout = []
 
     for ms in mslist:
-        t = table(ms, readonly=True, ack=False)
-        alltimes = t.getcol('TIME')
-        alltimes = np.unique(alltimes)
+        with table(ms, readonly=True, ack=False) as t:
+            alltimes = t.getcol('TIME')
+            alltimes = np.unique(alltimes)
 
-        newt = taql('select TIME from $t where FLAG[0,0]=False')
-        time = newt.getcol('TIME')
-        time = np.unique(time)
+            newt = taql('select TIME from $t where FLAG[0,0]=False')
+            time = newt.getcol('TIME')
+            time = np.unique(time)
 
-        print('There are', len(alltimes), 'times')
-        print('There are', len(time), 'unique unflagged times')
+            print('There are', len(alltimes), 'times')
+            print('There are', len(time), 'unique unflagged times')
 
-        print('First unflagged time', np.min(time))
-        print('Last unflagged time', np.max(time))
+            print('First unflagged time', np.min(time))
+            print('Last unflagged time', np.max(time))
 
-        goodstartid = np.where(alltimes == np.min(time))[0][0]
-        goodendid = np.where(alltimes == np.max(time))[0][0] + 1
+            goodstartid = np.where(alltimes == np.min(time))[0][0]
+            goodendid = np.where(alltimes == np.max(time))[0][0] + 1
 
-        print(goodstartid, goodendid)
-        t.close()
+            print(goodstartid, goodendid)
 
         if (goodstartid != 0) or (goodendid != len(alltimes)):
             msout = ms + '.cut'
@@ -1470,9 +1455,8 @@ def time_match_mstoH5(H5filelist, ms):
     Returns:
         H5filematch (list): list of h5parms matching the measurement set.
     """
-    t = table(ms)
-    timesms = np.unique(t.getcol('TIME'))
-    t.close()
+    with table(ms) as t:
+        timesms = np.unique(t.getcol('TIME'))
     H5filematch = None
 
     for H5file in H5filelist:
@@ -1584,10 +1568,9 @@ def getlargestislandsize(fitsmask):
     Returns:
         max_area (float): area of the largest island.
     """
-    hdulist = fits.open(fitsmask)
-    data = hdulist[0].data
-    max_area = max_area_of_island(data[0, 0, :, :])
-    hdulist.close()
+    with fits.open(fitsmask) as hdulist:
+        data = hdulist[0].data
+        max_area = max_area_of_island(data[0, 0, :, :])
     return max_area
 
 
@@ -1607,48 +1590,46 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE',
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        if outcol not in t.colnames():
-            print('Adding', outcol, 'to', ms)
-            desc = t.getcoldesc(incol)
-            newdesc = makecoldesc(outcol, desc)
-            newdmi = t.getdminfo(incol)
-            if dysco:
-                newdmi['NAME'] = 'Dysco' + outcol
-            else:
-                newdmi['NAME'] = outcol
-            t.addcols(newdesc, newdmi)
-        data = t.getcol(incol)
-        dataslope = np.copy(data)
-        for ff in range(data.shape[1] - 1):
-            if ampnorm:
-                dataslope[:, ff, 0] = np.copy(
-                    np.exp(1j * testscfactor * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
-                dataslope[:, ff, 3] = np.copy(
-                    np.exp(1j * testscfactor * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
-                if crosshandtozero:
-                    dataslope[:, ff, 1] = 0. * np.exp(1j * 0)
-                    dataslope[:, ff, 2] = 0. * np.exp(1j * 0)
-            else:
-                dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0]) * np.exp(
-                    1j * testscfactor * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
-                dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3]) * np.exp(
-                    1j * testscfactor * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
-                if crosshandtozero:
-                    dataslope[:, ff, 1] = 0. * np.exp(1j * 0)
-                    dataslope[:, ff, 2] = 0. * np.exp(1j * 0)
+        with table(ms, readonly=False, ack=True) as t:
+            if outcol not in t.colnames():
+                print('Adding', outcol, 'to', ms)
+                desc = t.getcoldesc(incol)
+                newdesc = makecoldesc(outcol, desc)
+                newdmi = t.getdminfo(incol)
+                if dysco:
+                    newdmi['NAME'] = 'Dysco' + outcol
+                else:
+                    newdmi['NAME'] = outcol
+                t.addcols(newdesc, newdmi)
+            data = t.getcol(incol)
+            dataslope = np.copy(data)
+            for ff in range(data.shape[1] - 1):
+                if ampnorm:
+                    dataslope[:, ff, 0] = np.copy(
+                        np.exp(1j * testscfactor * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
+                    dataslope[:, ff, 3] = np.copy(
+                        np.exp(1j * testscfactor * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
+                    if crosshandtozero:
+                        dataslope[:, ff, 1] = 0. * np.exp(1j * 0)
+                        dataslope[:, ff, 2] = 0. * np.exp(1j * 0)
+                else:
+                    dataslope[:, ff, 0] = np.copy(np.abs(data[:, ff, 0]) * np.exp(
+                        1j * testscfactor * (np.angle(data[:, ff, 0]) - np.angle(data[:, ff + 1, 0]))))
+                    dataslope[:, ff, 3] = np.copy(np.abs(data[:, ff, 3]) * np.exp(
+                        1j * testscfactor * (np.angle(data[:, ff, 3]) - np.angle(data[:, ff + 1, 3]))))
+                    if crosshandtozero:
+                        dataslope[:, ff, 1] = 0. * np.exp(1j * 0)
+                        dataslope[:, ff, 2] = 0. * np.exp(1j * 0)
 
-        # last freq set to second to last freq because difference reduces length of freq axis with one
-        dataslope[:, -1, :] = np.copy(dataslope[:, -2, :])
-        t.putcol(outcol, dataslope)
-        t.close()
-        # print( np.nanmedian(np.abs(data)))
-        # print( np.nanmedian(np.abs(dataslope)))
+            # last freq set to second to last freq because difference reduces length of freq axis with one
+            dataslope[:, -1, :] = np.copy(dataslope[:, -2, :])
+            t.putcol(outcol, dataslope)
+
         del data, dataslope
     return
 
 
-def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: str = 'DATA') -> None:
+def stackwrapper(inmslist: list, msout_prefix: str = 'stack', column_to_normalise: str = 'DATA') -> None:
     """ Wraps the stack
     Arguments
     ---------
@@ -1658,7 +1639,6 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
     if type(inmslist) is not list:
         raise TypeError('Incorrect input type for inmslist')
     print('Adding weight spectrum to stack')
-    # create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True,\
     create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True,
                            updateweights_from_thiscolumn='MODEL_DATA')
     print('Attempting to normalise data to point source')
@@ -1667,10 +1647,13 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
     print('Stacking datasets')
 
     start = time.time()
-    stackMS_taql(inmslist, outputms=msout, incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
-    # stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
+    msout_stacks, mss_timestacks = stackMS_taql(inmslist, outputms_prefix=msout_prefix, incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
     now = time.time()
     print(f'Stacking took {now - start} seconds')
+
+    assert len(msout_stacks) == len(mss_timestacks)
+
+    return msout_stacks, mss_timestacks
 
 
 def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=False,
@@ -1679,43 +1662,42 @@ def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=Fals
         inmslist = [inmslist]
     stepsize = 1000000
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        weightref = 'WEIGHT_SPECTRUM'
-        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-            weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
-        if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
-            desc = t.getcoldesc(weightref)
-            desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
-            t.addcols(desc)
+        with table(ms, readonly=False, ack=True) as t:
+            weightref = 'WEIGHT_SPECTRUM'
+            if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+                weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
+            if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
+                desc = t.getcoldesc(weightref)
+                desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
+                t.addcols(desc)
 
-        if outweightcol not in t.colnames():
-            print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-            desc = t.getcoldesc(weightref)
-            desc['name'] = outweightcol
-            t.addcols(desc)
-        # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
-        for row in range(0, t.nrows(), stepsize):
-            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1).astype(np.float64)
-            if updateweights and originalmodel in t.colnames() and newmodel in t.colnames():
-                model_orig = t.getcol(originalmodel, startrow=row, nrow=stepsize, rowincr=1).astype(np.complex256)
-                model_new = t.getcol(newmodel, startrow=row, nrow=stepsize, rowincr=1).astype(np.complex256)
+            if outweightcol not in t.colnames():
+                print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+                desc = t.getcoldesc(weightref)
+                desc['name'] = outweightcol
+                t.addcols(desc)
+            # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
+            for row in range(0, t.nrows(), stepsize):
+                print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1).astype(np.float64)
+                if updateweights and originalmodel in t.colnames() and newmodel in t.colnames():
+                    model_orig = t.getcol(originalmodel, startrow=row, nrow=stepsize, rowincr=1).astype(np.complex256)
+                    model_new = t.getcol(newmodel, startrow=row, nrow=stepsize, rowincr=1).astype(np.complex256)
 
-                model_orig[:, :, 1] = model_orig[:, :, 0]  # make everything XX/RR
-                model_orig[:, :, 2] = model_orig[:, :, 0]  # make everything XX/RR
-                model_orig[:, :, 3] = model_orig[:, :, 0]  # make everything XX/RR
-                model_new[:, :, 1] = model_new[:, :, 0]  # make everything XX/RR
-                model_new[:, :, 2] = model_new[:, :, 0]  # make everything XX/RR
-                model_new[:, :, 3] = model_new[:, :, 0]  # make everything XX/RR
-            else:
-                model_orig = 1.
-                model_new = 1.
-            print('Mean weights input', np.nanmean(weight))
-            print('Mean weights change factor', np.nanmean((np.abs(model_orig)) ** 2))
-            t.putcol(outweightcol, (weight * (np.abs(model_orig / model_new)) ** 2).astype(np.float64), startrow=row,
-                     nrow=stepsize, rowincr=1)
-            # print(weight.shape, model_orig.shape)
-        t.close()
+                    model_orig[:, :, 1] = model_orig[:, :, 0]  # make everything XX/RR
+                    model_orig[:, :, 2] = model_orig[:, :, 0]  # make everything XX/RR
+                    model_orig[:, :, 3] = model_orig[:, :, 0]  # make everything XX/RR
+                    model_new[:, :, 1] = model_new[:, :, 0]  # make everything XX/RR
+                    model_new[:, :, 2] = model_new[:, :, 0]  # make everything XX/RR
+                    model_new[:, :, 3] = model_new[:, :, 0]  # make everything XX/RR
+                else:
+                    model_orig = 1.
+                    model_new = 1.
+                print('Mean weights input', np.nanmean(weight))
+                print('Mean weights change factor', np.nanmean((np.abs(model_orig)) ** 2))
+                t.putcol(outweightcol, (weight * (np.abs(model_orig / model_new)) ** 2).astype(np.float64), startrow=row,
+                         nrow=stepsize, rowincr=1)
+                # print(weight.shape, model_orig.shape)
         print()
         del weight, model_orig, model_new
 
@@ -1726,38 +1708,37 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updatewe
         inmslist = [inmslist]
     stepsize = 1000000
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        weightref = 'WEIGHT_SPECTRUM'
-        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-            weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
-        if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
-            desc = t.getcoldesc(weightref)
-            desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
-            t.addcols(desc)
+        with table(ms, readonly=False, ack=True) as t:
+            weightref = 'WEIGHT_SPECTRUM'
+            if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+                weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
+            if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
+                desc = t.getcoldesc(weightref)
+                desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
+                t.addcols(desc)
 
-        if outweightcol not in t.colnames():
-            print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-            desc = t.getcoldesc(weightref)
-            desc['name'] = outweightcol
-            t.addcols(desc)
-        # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
-        for row in range(0, t.nrows(), stepsize):
-            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1).astype(np.float64)
-            if updateweights and updateweights_from_thiscolumn in t.colnames():
-                model = t.getcol(updateweights_from_thiscolumn, startrow=row, nrow=stepsize, rowincr=1).astype(
-                    np.complex256)
-                model[:, :, 1] = model[:, :, 0]  # make everything XX/RR
-                model[:, :, 2] = model[:, :, 0]  # make everything XX/RR
-                model[:, :, 3] = model[:, :, 0]  # make everything XX/RR
-            else:
-                model = 1.
-            print('Mean weights input', np.nanmean(weight))
-            print('Mean weights change factor', np.nanmean((np.abs(model)) ** 2))
-            t.putcol(outweightcol, (weight * (np.abs(model)) ** 2).astype(np.float64), startrow=row, nrow=stepsize,
-                     rowincr=1)
-            # print(weight.shape, model.shape)
-        t.close()
+            if outweightcol not in t.colnames():
+                print('Adding', outweightcol, 'to', ms, 'based on', weightref)
+                desc = t.getcoldesc(weightref)
+                desc['name'] = outweightcol
+                t.addcols(desc)
+            # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
+            for row in range(0, t.nrows(), stepsize):
+                print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1).astype(np.float64)
+                if updateweights and updateweights_from_thiscolumn in t.colnames():
+                    model = t.getcol(updateweights_from_thiscolumn, startrow=row, nrow=stepsize, rowincr=1).astype(
+                        np.complex256)
+                    model[:, :, 1] = model[:, :, 0]  # make everything XX/RR
+                    model[:, :, 2] = model[:, :, 0]  # make everything XX/RR
+                    model[:, :, 3] = model[:, :, 0]  # make everything XX/RR
+                else:
+                    model = 1.
+                print('Mean weights input', np.nanmean(weight))
+                print('Mean weights change factor', np.nanmean((np.abs(model)) ** 2))
+                t.putcol(outweightcol, (weight * (np.abs(model)) ** 2).astype(np.float64), startrow=row, nrow=stepsize,
+                         rowincr=1)
+                # print(weight.shape, model.shape)
         print()
         del weight, model
 
@@ -1806,29 +1787,29 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol=
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        if outcol not in t.colnames():
-            print('Adding', outcol, 'to', ms, 'based on', incol)
-            desc = t.getcoldesc(incol)
-            desc['name'] = outcol
-            t.addcols(desc)
-        for row in range(0, t.nrows(), stepsize):
-            data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
-            if modelcol in t.colnames():
-                model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
-                print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-                # print(np.max(abs(model)))
-                # print(np.min(abs(model)))
-                np.divide(data, model, out=data, where=np.abs(model) > 0)
-                t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
-            else:
-                t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
-        t.close()
+        with table(ms, readonly=False, ack=True) as t:
+            if outcol not in t.colnames():
+                print('Adding', outcol, 'to', ms, 'based on', incol)
+                desc = t.getcoldesc(incol)
+                desc['name'] = outcol
+                t.addcols(desc)
+            for row in range(0, t.nrows(), stepsize):
+                data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
+                if modelcol in t.colnames():
+                    model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
+                    print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                    # print(np.max(abs(model)))
+                    # print(np.min(abs(model)))
+                    np.divide(data, model, out=data, where=np.abs(model) > 0)
+                    t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
+                else:
+                    t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
 
 
 def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM',
             outcol_weight='WEIGHT_SPECTRUM', stepsize=1000000):
-    """ Stack a list of MSes.
+    """ Henrik Feb 2025: This function is not used currently and does not support ulti-timestack MS. Can be removed?
+    Stack a list of MSes.
 
     Arguments
     ---------
@@ -1845,39 +1826,37 @@ def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', wei
         os.system('rm -rf ' + outputms)
     os.system('cp -r {} {}'.format(inmslist[0], outputms))
     taql('UPDATE stack.MS SET DATA=DATA_NORM*WEIGHT_SPECTRUM_PM')
-    t_main = table(outputms, readonly=False, ack=True)
-    for ms in inmslist[1:]:
-        t = table(ms, readonly=True, ack=True)
-        for row in range(0, t.nrows(), stepsize):
-            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            weight_main = t_main.getcol(outcol_weight, startrow=row, nrow=stepsize, rowincr=1)
-            visibi_main = t_main.getcol(outcol, startrow=row, nrow=stepsize, rowincr=1)
+    with table(outputms, readonly=False, ack=True) as t_main:
+        for ms in inmslist[1:]:
+            with table(ms, readonly=True, ack=True) as t:
+                for row in range(0, t.nrows(), stepsize):
+                    print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                    weight_main = t_main.getcol(outcol_weight, startrow=row, nrow=stepsize, rowincr=1)
+                    visibi_main = t_main.getcol(outcol, startrow=row, nrow=stepsize, rowincr=1)
 
-            weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1)
-            visibi = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
+                    weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1)
+                    visibi = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
 
-            stacked_vis = visibi_main + (visibi * weight)
+                    stacked_vis = visibi_main + (visibi * weight)
 
-            average_wgt = weight + weight_main
-            print(f'Writing stacked data to outputcolumn {outcol}')
-            t_main.putcol(outcol, stacked_vis, startrow=row, nrow=stepsize, rowincr=1)
-            print(f'Writing stacked weights to outputcolumn {outcol_weight}')
-            t_main.putcol(outcol_weight, average_wgt, startrow=row, nrow=stepsize, rowincr=1)
-        t.close()
-    t_main.close()
+                    average_wgt = weight + weight_main
+                    print(f'Writing stacked data to outputcolumn {outcol}')
+                    t_main.putcol(outcol, stacked_vis, startrow=row, nrow=stepsize, rowincr=1)
+                    print(f'Writing stacked weights to outputcolumn {outcol_weight}')
+                    t_main.putcol(outcol_weight, average_wgt, startrow=row, nrow=stepsize, rowincr=1)
     # This is probably wrong / not needed.
     taql('UPDATE stack.MS SET DATA=DATA/WEIGHT_SPECTRUM')
 
 
-def stackMS_taql(inmslist: list, outputms: str = 'stack.MS', incol: str = 'DATA_NORM', outcol: str = 'DATA',
+def stackMS_taql(inmslist: list, outputms_prefix: str = 'stack', incol: str = 'DATA_NORM', outcol: str = 'DATA',
                  weightref: str = 'WEIGHT_SPECTRUM_PM', outcol_weight: str = 'WEIGHT_SPECTRUM'):
-    """ Stack a list of MSes.
+    """ Stack a list of MSes - per group with same time axis, one stacked MS is created.
 
     Arguments
     ---------
     inmslist : list
         List of input Measurement Sets to stack.
-    outputms : str
+    outputms_prefix : str
         Name of the output MS.
     incol : str
         Column to stack from the individual MSes.
@@ -1887,32 +1866,64 @@ def stackMS_taql(inmslist: list, outputms: str = 'stack.MS', incol: str = 'DATA_
         Name of the weight column to stack from the individual files.
     outcol_weight : str
         Name of the stacked weight column in the output MS.
+    Returns
+    ---------
+    msout_stacked: list of stacked MS names
+    mss_timestacks: list of input MS grouped in timestacks
     """
-    print(f'Using input column {incol}')
-    print(f'Writing to {outputms}')
-    if not isinstance(inmslist, list):
-        os.system('cp -r {} {}'.format(inmslist, outputms))
-        print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
-        return True
-    if os.path.isdir(outputms):  # delete MS if it exists
-        os.system('rm -rf ' + outputms)
-    os.system('cp -r {} {}'.format(inmslist[0], outputms))
 
-    TAQLSTR = f'UPDATE {outputms} SET DATA = ('
-    sum_clause = ' + '.join(
-        [f'ms{idx:02d}.DATA_NORM * ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist) + 1)])
-    sum_weight_clause = ' + '.join([f'ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist) + 1)])
-    from_clause = ', '.join([f'{ms} AS ms{idx:02d}' for idx, ms in enumerate(inmslist, start=1)])
+    # identify which MSs share the same time axis:
+    starttimelist = [] # list of unique timestamps
+    mss_timestacks = [] # list of MSs stacks
+    for ms in inmslist:
+        with table(ms, ack=False) as t:
+            starttime = t.TIME[0]
+            try: # check if timestamps already exist and if yes, add to this stack
+                group = starttimelist.index(starttime)
+                print('group', group)
+                print(f'append {ms} to {starttime}: {mss_timestacks[group]}')
+                mss_timestacks[group].append(ms)
+            except ValueError: # add new list of MS for this timestamps if there is none already
+                starttimelist.append(starttime)
+                mss_timestacks.append([ms])
+            print(f'new list {ms} to {starttime}')
+    print(starttimelist)
+    print(f'Found {len(starttimelist)} groups of MSs with same time axis.')
+    print(f'Groups: {mss_timestacks}.')
 
-    taql_query = f'{TAQLSTR} {sum_clause}) / ({sum_weight_clause}) FROM {from_clause}'
+    print(map(len, mss_timestacks))
 
-    print('Stacking DATA')
-    print(taql_query)
-    taql(taql_query)
+    msout_stacked = []
+    for timestack_id, inmslist_timestack in enumerate(mss_timestacks):
+        outputms = f'{outputms_prefix}_t{timestack_id:02d}.MS'
+        msout_stacked.append(outputms)
+        print(f'Using input column {incol}')
+        print(f'Writing to {outputms}')
+        if not isinstance(inmslist_timestack, list):
+            os.system('cp -r {} {}'.format(inmslist_timestack, outputms))
+            print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
+            return True
+        if os.path.isdir(outputms):  # delete MS if it exists
+            os.system('rm -rf ' + outputms)
+        os.system('cp -r {} {}'.format(inmslist_timestack[0], outputms))
 
-    print('Stacking WEIGHT_SPECTRUM')
-    print(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
-    taql(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+        TAQLSTR = f'UPDATE {outputms} SET DATA = ('
+        sum_clause = ' + '.join(
+            [f'ms{idx:02d}.DATA_NORM * ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist_timestack) + 1)])
+        sum_weight_clause = ' + '.join([f'ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist_timestack) + 1)])
+        from_clause = ', '.join([f'{ms} AS ms{idx:02d}' for idx, ms in enumerate(inmslist_timestack, start=1)])
+
+        taql_query = f'{TAQLSTR} {sum_clause}) / ({sum_weight_clause}) FROM {from_clause}'
+
+        print('Stacking DATA')
+        print(taql_query)
+        taql(taql_query)
+
+        print('Stacking WEIGHT_SPECTRUM')
+        print(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+        taql(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+
+    return msout_stacked, mss_timestacks
 
 
 def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True, stepsize=1000000):
@@ -1929,29 +1940,28 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        if outcol not in t.colnames():
-            print('Adding', outcol, 'to', ms)
-            desc = t.getcoldesc(incol)
-            newdesc = makecoldesc(outcol, desc)
-            newdmi = t.getdminfo(incol)
-            if dysco:
-                newdmi['NAME'] = 'Dysco' + outcol
-            else:
-                newdmi['NAME'] = outcol
-            t.addcols(newdesc, newdmi)
+        with table(ms, readonly=False, ack=True) as t:
+            if outcol not in t.colnames():
+                print('Adding', outcol, 'to', ms)
+                desc = t.getcoldesc(incol)
+                newdesc = makecoldesc(outcol, desc)
+                newdmi = t.getdminfo(incol)
+                if dysco:
+                    newdmi['NAME'] = 'Dysco' + outcol
+                else:
+                    newdmi['NAME'] = outcol
+                t.addcols(newdesc, newdmi)
 
-        for row in range(0, t.nrows(), stepsize):
-            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-            data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
-            phasediff = np.copy(np.angle(data[:, :, 0]) - np.angle(data[:, :, 3]))  # RR - LL
-            data[:, :, 0] = 0.5 * np.exp(
-                1j * phasediff)  # because I = RR+LL/2 (this is tricky because we work with phase diff)
-            data[:, :, 3] = data[:, :, 0]
-            t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
-            del data
-            del phasediff
-        t.close()
+            for row in range(0, t.nrows(), stepsize):
+                print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+                data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
+                phasediff = np.copy(np.angle(data[:, :, 0]) - np.angle(data[:, :, 3]))  # RR - LL
+                data[:, :, 0] = 0.5 * np.exp(
+                    1j * phasediff)  # because I = RR+LL/2 (this is tricky because we work with phase diff)
+                data[:, :, 3] = data[:, :, 0]
+                t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
+                del data
+                del phasediff
 
     if False:
         # data = t.getcol(incol)
@@ -1988,22 +1998,21 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        if outcol not in t.colnames():
-            print('Adding', outcol, 'to', ms)
-            desc = t.getcoldesc(incol)
-            newdesc = makecoldesc(outcol, desc)
-            newdmi = t.getdminfo(incol)
-            if dysco:
-                newdmi['NAME'] = 'Dysco' + outcol
-            else:
-                newdmi['NAME'] = outcol
-            t.addcols(newdesc, newdmi)
-        data = t.getcol(incol)
-        data[:, :, 0] = np.copy(np.exp(1j * np.angle(data[:, :, 0])))  # because I = xx+yy/2
-        data[:, :, 3] = np.copy(np.exp(1j * np.angle(data[:, :, 3])))  # because I = xx+yy/2
-        t.putcol(outcol, data)
-        t.close()
+        with table(ms, readonly=False, ack=True) as t:
+            if outcol not in t.colnames():
+                print('Adding', outcol, 'to', ms)
+                desc = t.getcoldesc(incol)
+                newdesc = makecoldesc(outcol, desc)
+                newdmi = t.getdminfo(incol)
+                if dysco:
+                    newdmi['NAME'] = 'Dysco' + outcol
+                else:
+                    newdmi['NAME'] = outcol
+                t.addcols(newdesc, newdmi)
+            data = t.getcol(incol)
+            data[:, :, 0] = np.copy(np.exp(1j * np.angle(data[:, :, 0])))  # because I = xx+yy/2
+            data[:, :, 3] = np.copy(np.exp(1j * np.angle(data[:, :, 3])))  # because I = xx+yy/2
+            t.putcol(outcol, data)
         del data
     return
 
@@ -2210,11 +2219,9 @@ def findfreqavg(ms, imsize, bwsmearlimit=1.0):
     Returns:
         avgfactor (int): the frequency averaging factor for the Measurement Set.
     """
-    t = table(ms + '/SPECTRAL_WINDOW', ack=False)
-    bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), float(imsize),
-                                verbose=False)
-    nfreq = len(t.getcol('CHAN_FREQ')[0])
-    t.close()
+    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), float(imsize), verbose=False)
+        nfreq = len(t.getcol('CHAN_FREQ')[0])
     avgfactor = 0
 
     for count in range(2, 21):  # try average values between 2 to 20
@@ -2276,17 +2283,16 @@ def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
     """
     cname = 'FLAG'
     flags = []
-    t = table(ms, readonly=False, ack=True)
-    if flagcolname not in t.colnames():
-        flags = t.getcol('FLAG')
-        print('Adding flagging column', flagcolname, 'to', ms)
-        desc = t.getcoldesc(cname)
-        newdesc = makecoldesc(flagcolname, desc)
-        newdmi = t.getdminfo(cname)
-        newdmi['NAME'] = flagcolname
-        t.addcols(newdesc, newdmi)
-        t.putcol(flagcolname, flags)
-    t.close()
+    with table(ms, readonly=False, ack=True) as t:
+        if flagcolname not in t.colnames():
+            flags = t.getcol('FLAG')
+            print('Adding flagging column', flagcolname, 'to', ms)
+            desc = t.getcoldesc(cname)
+            newdesc = makecoldesc(flagcolname, desc)
+            newdmi = t.getdminfo(cname)
+            newdmi['NAME'] = flagcolname
+            t.addcols(newdesc, newdmi)
+            t.putcol(flagcolname, flags)
     del flags
     return
 
@@ -2299,9 +2305,8 @@ def check_phaseup_station(ms):
     Returns:
         None
     """
-    t = table(ms + '/ANTENNA', ack=False)
-    antennasms = list(t.getcol('NAME'))
-    t.close()
+    with table(ms + '/ANTENNA', ack=False) as t:
+        antennasms = list(t.getcol('NAME'))
     substr = 'ST'  # to check if a a superstation is present, assume this 'ST' string, usually ST001
     hassuperstation = any(substr in mystring for mystring in antennasms)
     print('Contains superstation?', hassuperstation)
@@ -2316,9 +2321,8 @@ def checklongbaseline(ms):
     Returns:
         None
     """
-    t = table(ms + '/ANTENNA', ack=False)
-    antennasms = list(t.getcol('NAME'))
-    t.close()
+    with table(ms + '/ANTENNA', ack=False) as t:
+        antennasms = list(t.getcol('NAME'))
     substr = 'DE'  # to check if a German station is present, if yes assume this is long baseline data
     haslongbaselines = any(substr in mystring for mystring in antennasms)
     print('Contains long baselines?', haslongbaselines)
@@ -2480,33 +2484,26 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
 
             if start == 0:
-                t = table(ms)
-                if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if present otherwise this is not needed
-                    t.close()
-                    print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
-                    if os.path.isdir(msouttmp):
+                with table(ms) as t:
+                    if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if present otherwise this is not needed
+                        print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
+                        if os.path.isdir(msouttmp):
+                            os.system('rm -rf ' + msouttmp)
+                        run(cmd)
+
+                        # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
+                        with table(msout, readonly=False) as t2:
+                            print('Adding WEIGHT_SPECTRUM_SOLVE')
+                            desc = t2.getcoldesc('WEIGHT_SPECTRUM')
+                            desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
+                            t2.addcols(desc)
+
+                            with table(msouttmp, readonly=True) as t3:
+                                imweights = t3.getcol('WEIGHT_SPECTRUM')
+                                t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
+
+                        # clean up
                         os.system('rm -rf ' + msouttmp)
-                    run(cmd)
-
-                    # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-                    t = table(msout, readonly=False)
-                    print('Adding WEIGHT_SPECTRUM_SOLVE')
-                    desc = t.getcoldesc('WEIGHT_SPECTRUM')
-                    desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
-                    t.addcols(desc)
-
-                    t2 = table(msouttmp, readonly=True)
-                    imweights = t2.getcol('WEIGHT_SPECTRUM')
-                    t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
-
-                    # Fill WEIGHT_SPECTRUM with WEIGHT_SPECTRUM from second ms
-                    t2.close()
-                    t.close()
-
-                    # clean up
-                    os.system('rm -rf ' + msouttmp)
-                else:
-                    t.close()
 
             outmslist.append(msout)
         else:
@@ -2789,6 +2786,7 @@ def inputchecker(args, mslist):
     """ Check input validity.
     Args:
         args (dict): argparse inputs.
+        mslist (str list): list of ms
     """
     # if args['BLsmooth']:
     #    if True in args['BLsmooth_list']:
@@ -2796,16 +2794,21 @@ def inputchecker(args, mslist):
     #        raise Exception('--BLsmooth cannot be used together with --BLsmooth-list')
 
     # set telescope
-    t = table(mslist[0] + '/OBSERVATION', ack=False)
-    telescope = t.getcol('TELESCOPE_NAME')[0]
-    t.close()
+    with table(mslist[0] + '/OBSERVATION', ack=False) as t:
+        telescope = t.getcol('TELESCOPE_NAME')[0]
     # if telescope != 'LOFAR':
     #    check_equidistant_times(mslist)
+
 
     if True in args['BLsmooth_list']:
         if len(args['soltypecycles_list']) != len(args['BLsmooth_list']):
             print('--BLsmooth-list length does not match the length of --soltype-list')
             raise Exception('--BLsmooth-list length does not match the length of --soltype-list')
+
+    if args['modelstoragemanager'] != 'stokes_i' and args['modelstoragemanager'] is not None:
+         print(args['modelstoragemanager'])
+         print('Wrong input for --modelstoragemanager, needs to be "stokes_i" or None')
+         raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i or None')
 
     for tmp in args['BLsmooth_list']:
         # print(args['BLsmooth_list'])
@@ -2854,11 +2857,10 @@ def inputchecker(args, mslist):
 
     if args['DDE']:
         for ms in mslist:
-            t = table(ms, readonly=True, ack=False)
-            if 'CORRECTED_DATA' in t.colnames():  # not allowed for DDE runs (because solving from DATA and imaging from DATA with an h5)
-                print(ms, 'contains a CORRECTED_DATA column, this is not allowed when using --DDE')
-                raise Exception('CORRECTED_DATA should not be present when using option --DDE')
-            t.close()
+            with table(ms, readonly=True, ack=False) as t:
+                if 'CORRECTED_DATA' in t.colnames():  # not allowed for DDE runs (because solving from DATA and imaging from DATA with an h5)
+                    print(ms, 'contains a CORRECTED_DATA column, this is not allowed when using --DDE')
+                    raise Exception('CORRECTED_DATA should not be present when using option --DDE')
 
     if args['DDE'] and not args['forwidefield']:
         print('--forwidefield needs to be set in DDE mode')
@@ -3249,10 +3251,9 @@ def inputchecker(args, mslist):
 
 def get_resolution(ms):
     uvmax = get_uvwmax(ms)
-    t = table(ms + '/SPECTRAL_WINDOW', ack=False)
-    freq = np.median(t.getcol('CHAN_FREQ'))
-    print('Central freq [MHz]', freq / 1e6, 'Longest baselines [km]', uvmax / 1e3)
-    t.close()
+    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        freq = np.median(t.getcol('CHAN_FREQ'))
+        print('Central freq [MHz]', freq / 1e6, 'Longest baselines [km]', uvmax / 1e3)
     res = 1.22 * 3600. * 180. * ((299792458. / freq) / uvmax) / np.pi
     return res
 
@@ -3265,11 +3266,10 @@ def get_uvwmax(ms):
     Returns:
         None
     """
-    t = table(ms, ack=False)
-    uvw = t.getcol('UVW')
-    ssq = np.sqrt(np.sum(uvw ** 2, axis=1))
-    print(uvw.shape)
-    t.close()
+    with table(ms, ack=False) as t:
+        uvw = t.getcol('UVW')
+        ssq = np.sqrt(np.sum(uvw ** 2, axis=1))
+        print(uvw.shape)
     return np.max(ssq)
 
 
@@ -3446,10 +3446,9 @@ def smearing_time_ms(msin, t):
     return smearing_time(r_dis, res, t)
 
 def smearing_time_ms_imsize(msin, imsize, pixelscale):
-    t = table(ms, readonly=True, ack=False)
-    time = np.unique(t.getcol('TIME'))
-    tint = np.abs(time[1] - time[0])
-    t.close()        
+    with table(msin, readonly=True, ack=False) as t:
+        time = np.unique(t.getcol('TIME'))
+        tint = np.abs(time[1] - time[0])
     res = get_resolution(msin)
     r_dis = 3600.*np.sqrt(2)*imsize*pixelscale # image diagonal length in arcsec
     return smearing_time(r_dis, res, tint)
@@ -3461,10 +3460,9 @@ def flag_smeared_data(msin):
         # uvmaxflag(msin, uvmax)
 
     # uvmax = get_uvwmax(ms)
-    t = table(msin + '/SPECTRAL_WINDOW', ack=False)
-    freq = np.median(t.getcol('CHAN_FREQ'))
+    with table(msin + '/SPECTRAL_WINDOW', ack=False) as t:
+        freq = np.median(t.getcol('CHAN_FREQ'))
     # print('Central freq [MHz]', freq/1e6, 'Longest baselines [km]', uvmax/1e3)
-    t.close()
 
     t = get_time_preavg_factor_LTAdata(msin)
     r_dis = 3600. * compute_distance_to_pointingcenter(msin, returnval=True, dologging=False)
@@ -4736,26 +4734,20 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     run(cmd)
 
     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-    t = table(ms + '.cut', readonly=False)
-
     print('Adding WEIGHT_SPECTRUM_SOLVE')
-    desc = t.getcoldesc('WEIGHT_SPECTRUM')
-    desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
-    t.addcols(desc)
+    with table(ms + '.cut', readonly=False) as t:
+        desc = t.getcoldesc('WEIGHT_SPECTRUM')
+        desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
+        t.addcols(desc)
 
-    t2 = table(ms + '.cuttmp', readonly=True)
-    imweights = t2.getcol('WEIGHT_SPECTRUM')
-    t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
-
-    # Fill WEIGHT_SPECTRUM with WEIGHT_SPECTRUM from second ms
-    t2.close()
-    t.close()
+        with table(ms + '.cuttmp', readonly=True) as t2:
+            imweights = t2.getcol('WEIGHT_SPECTRUM')
+        t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
 
     # clean up
     os.system('rm -rf ' + ms + '.cuttmp')
 
     return
-
 
 # removestartendms('P219+50_PSZ2G084.10+58.72.dysco.sub.shift.avg.weights.ms.archive',endtime='16-Apr-2015/02:14:47.0')
 # removestartendms('P223+50_PSZ2G084.10+58.72.dysco.sub.shift.avg.weights.ms.archive',starttime='24-Feb-2015/22:16:00.0')
@@ -6097,7 +6089,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, args=None):
 
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
-                channelsout, args, numClusters=0, facetdirections=None,
+                channelsout, numClusters=0, facetdirections=None,
                 DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=True,
                 telescope='LOFAR', targetFlux=2.0, skyview=None,
                 fitspectralpol=3, disable_primary_beam=False, wscleanskymodel=None,
@@ -6247,7 +6239,7 @@ def is_scalar_array_for_wsclean(h5list):
 
 
 # this version corrupts the MODEL_DATA column
-def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
+def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          soltype_list, soltypecycles_list, smoothnessconstraint_list,
                          smoothnessreffrequency_list, smoothnessspectralexponent_list,
                          smoothnessrefdistance_list,
@@ -6265,7 +6257,7 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                          ncpu_max=24, mslist_beforeremoveinternational=None, soltypelist_includedir=None, modelstoragemanager=None):
     ## --- start STACK code ---
     if args['stack']:
-        # create MODEL_DATA because in case it does not exist, happens under these conditions
+        # create MODEL_DATA because in case it does not exist (needed in case user gives external model(s))
         # only for first (=0) selfcalcycle cycle and if user provides a model
         if ((skymodel is not None) or (skymodelpointsource is not None)
             or (wscleanskymodel is not None)) and selfcalcycle == 0:
@@ -6319,23 +6311,25 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                     run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
 
         # do the stack and normalization
-        stackwrapper(mslist, msout='stack.MS', column_to_normalise='DATA')
+        # mslist_stacked = stacked MS (one per common time axis / timestack); mss_timestacks = list of MSs that were used to create each stack
+        mslist_stacked, mss_timestacks = stackwrapper(mslist, msout_prefix='stack', column_to_normalise='DATA')
         mslist_orig = mslist[:]  # so we can use it for the applycal
-        mslist = ['stack.MS']
+        mslist = mslist_stacked
 
-        # set MODEL_DATA to point source in stack
-        t = table('stack.MS', ack=False)
-        if 'MODEL_DATA' not in t.colnames():
-            t.close()
-            run('DP3 msin=stack.MS msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
-        else:
-            t.close()
-        print('Predict point source for stack.MS')
-        # do the predict with taql
-        run("taql" + " 'update stack.MS set MODEL_DATA[,0]=(1.0+ +0i)'", log=True)
-        run("taql" + " 'update stack.MS set MODEL_DATA[,3]=(1.0+ +0i)'", log=True)
-        run("taql" + " 'update stack.MS set MODEL_DATA[,1]=(0+0i)'", log=True)
-        run("taql" + " 'update stack.MS set MODEL_DATA[,2]=(0+0i)'", log=True)
+        # set MODEL_DATA to point source in stacks
+        for ms in mslist:
+            t = table(ms, ack=False)
+            if 'MODEL_DATA' not in t.colnames():
+                t.close()
+                run(f'DP3 msin={ms} msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
+            else:
+                t.close()
+            print(f'Predict point source for  {ms}')
+            # do the predict with taql
+            run(f"taql 'update {ms} set MODEL_DATA[,0]=(1.0+ +0i)'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA[,3]=(1.0+ +0i)'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA[,1]=(0+0i)'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA[,2]=(0+0i)'", log=True)
 
         print(mslist, mslist_orig)
 
@@ -6565,6 +6559,13 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
             run('losoto ' + parmdbmergename + ' ' + losotoparset)
             force_close(parmdbmergename)
 
+        ## --- start STACK code ---
+        if args['stack']:
+            # for each stacked MS (one per common time axis), apply the solutions to each direction MS
+            for orig_ms in mss_timestacks[msnumber]:
+                applycal(orig_ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
+        ## --- end STACK code ---
+
     if QualityBasedWeights and selfcalcycle >= QualityBasedWeights_start:
         for ms in mslist:
             run('python3 NeReVar.py --filename=' + ms + \
@@ -6572,12 +6573,6 @@ def calibrateandapplycal(mslist, selfcalcycle, args, solint_list, nchan_list,
                 ' --DiagDir=plotlosoto' + ms + '/NeReVar/ --basename=_selfcalcycle' + str(selfcalcycle).zfill(
                 3) + ' --modelcol=MODEL_DATA')
 
-    ## --- start STACK code ---
-    if args['stack']:
-        for ms in mslist_orig:
-            applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
-            # note parmdbmergename should alwats be correct since we only had one MS (stack.MS) and so it does only "loop" over one MS.
-    ## --- end STACK code ---
 
     if len(modeldatacolumns) > 0:
         np.save('wsclean_h5list' + str(selfcalcycle).zfill(3) + '.npy', wsclean_h5list)
@@ -9100,7 +9095,7 @@ def basicsetup(mslist, args):
         maskthreshold_selfcalcycle, outtarname, telescope, args
 
 
-def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min', modelstoragemanager=None):
+def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
     """
     Compute phasediff statistics using circular standard deviations on the solutions of a scalarphasediff solve for
     international stations.
@@ -9111,7 +9106,6 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min', mod
     :param args: input arguments
     :param nchan: n channels
     :param solint: solution interval
-    :param modelstoragemanager: modelstoragemanager to use
     """
 
     mslist_input = mslist[:]  # make a copy
@@ -9132,7 +9126,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min', mod
         scorelist = []
         parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
         runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,
-                    dysco=args['dysco'], modelstoragemanager=modelstoragemanager)
+                    dysco=args['dysco'], modelstoragemanager=args['modelstoragemanager'])
 
         # Reference solution interval
         ref_solint = solint
@@ -9287,35 +9281,51 @@ def create_Ateam_seperation_plots(mslist, start=0):
             print(f"check_Ateam_separation.py does not exist")
     return
 
-
 def nested_mslistforimaging(mslist, stack=False):
     if not stack:
         return [mslist]  # has format [[ms1.ms,ms2.ms,....]]
     else:
-        mslistreturn = []
-        for ms in mslist:
-            mslistreturn.append([ms])
+        # sort MSs in groups with same phase center
+        for msid, ms in enumerate(mslist):
+            with table(f'{ms}::FIELD') as tf:
+                phasecenter = tf[0]['PHASE_DIR'][0]
+                if msid == 0:
+                    mslistreturn = [[ms]]
+                    phasecenterlist = [phasecenter]
+                    print('create first mslist', mslistreturn, phasecenter)
+                else:
+                    image_id = None
+                    #iterate over already existing imaging groups
+                    for iid, image_phasecenter in enumerate(phasecenterlist):
+                        print('dist',np.linalg.norm(image_phasecenter - phasecenter))
+                        if np.linalg.norm(image_phasecenter-phasecenter) < 4.84e-8: # phase center distance less than 0.01 arcsec
+                            image_id = iid
+                    if image_id is not None:
+                        mslistreturn[image_id].append(ms)
+                        print('append to mslist', mslistreturn, ms)
+                    else:
+                        phasecenterlist.append(phasecenter)
+                        mslistreturn.append([ms])
+                        print('new group ', ms)
+        print(mslistreturn, phasecenterlist)
         return mslistreturn  # has format [[ms1.ms],[ms2.ms],[...]]
 
 def flag_autocorr(mslist):
-    '''
+    """
     Flag autocorrelations in MS
     input: list of MS
-    '''
+    """
     for ms in mslist:
        cmd = 'DP3 msin=' + ms + ' msout=. steps=[pr] '
        cmd += 'pr.type=preflagger pr.corrtype=auto'
-       print(cmd)
+       logger.info(cmd)
        run(cmd)
     return   
 
 
-
 def mslist_return_stack(mslist, stack):
-    if stack:
-        return mslist
-    else:
-        return [mslist[0]]  # just the first one
+    """Returns the full mslist if 'stack' is True; otherwise, returns a list containing only the first element."""
+    return mslist if stack else [mslist[0]]
 
 
 def set_skymodels_external_surveys(args, mslist):
@@ -9383,6 +9393,89 @@ def set_skymodels_external_surveys(args, mslist):
     return args, tgssfitsfile
 
 
+def early_stopping(station: str = 'international', cycle: int = None):
+    """
+    Determine early-stopping based on Neural network image validation and solutions and image-based metrics.
+
+    :param station: international stations or dutch stations
+    :param cycle: cycle number
+    :param nn_model_cache: neural network model cache
+
+    Returns: stop == True, continue == False
+    """
+
+    # Early stopping
+    if cycle == 0:
+        global nn_model
+        try:
+            # NN score
+            from submods.source_selection.image_score import get_nn_model, predict_nn
+            nn_model = get_nn_model(cache=args['nn_model_cache'])
+        except ImportError:
+            logger.info(
+                "WARNING: issues with downloading/getting Neural Network model.. Skipping and continue without."
+                "\nMost likely due to issues with accessing cortExchange.")
+            nn_model = None
+    # Start only after cycle 3
+    if cycle <= 3:
+        return False
+
+    # Get already obtained selfcal images and merged solutions
+    images, mergedh5 = get_images_solutions()
+    qualitymetrics = quality_check(mergedh5, images, station)
+
+    if nn_model is not None:
+        predict_score = predict_nn(images[cycle], nn_model)
+    else:
+        predict_score = 1.0
+
+    # Open selfcal quality CSV
+    df = pd.read_csv(f"./selfcal_quality_plots/selfcal_performance_{qualitymetrics[0]}.csv")
+
+    # Get image statistics
+    minmax_ratio = df['min/max'][cycle] / df['min/max'][0]
+    if minmax_ratio != minmax_ratio:  # check for nan in final cycle
+        minmax_ratio = df['min/max'][cycle] / df['min/max'][0]
+        rms_ratio = df['rms'][cycle] / df['rms'][0]
+    else:
+        rms_ratio = df['rms'][cycle] / df['rms'][0]
+
+    # Selection criteria (good image and stable solutions)
+    if (predict_score < 0.5 and df['phase'][cycle] < 0.1 and rms_ratio < 1.0 and minmax_ratio < 0.85) or \
+        (predict_score < 0.5 and df['phase'][cycle] < 0.2 and rms_ratio < 0.9 and minmax_ratio < 0.5) or \
+        df['phase'][cycle] < 0.005 or \
+        (df['phase'][cycle] < 0.1 and rms_ratio < 0.5 and minmax_ratio < 0.1) or \
+        (df['phase'][cycle] < 0.04 and minmax_ratio < 0.15 and rms_ratio < 0.9) or \
+        (df['phase'][cycle] < 0.04 and minmax_ratio < 0.5 and rms_ratio < 1.0 and cycle > 11):
+        logger.info(f"Early-stopping at cycle {cycle}, because selfcal converged")
+        logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
+        logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+        logger.info(f'{mergedh5[cycle]} --> best_solutions.h5')
+        os.system(f'cp {mergedh5[cycle]} best_solutions.h5')
+        os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
+        return True
+    elif (df['rms'][cycle-1] < df['rms'][cycle] and df['min/max'][cycle-1] < df['min/max'][cycle]
+          and df['rms'][cycle-2] < df['rms'][cycle] and df['min/max'][cycle-2] < df['min/max'][cycle]
+            and df['rms'][cycle-3] < df['rms'][cycle] and df['min/max'][cycle-3] < df['min/max'][cycle]) or \
+            (minmax_ratio > 1.0 and rms_ratio > 1.0):
+        logger.info(f"Early-stopping at cycle {cycle}, because selfcal starts to diverge...")
+        logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
+        logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+        logger.info(f'{mergedh5[cycle]} --> best_solutions.h5')
+        os.system(f'cp {mergedh5[cycle]} best_solutions.h5')
+        os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
+        return True
+    else:
+        logger.info(f"No early-stopping at cycle {cycle}")
+        logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
+        logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+        if cycle == args['stop'] - 1:
+            logger.info(f'{mergedh5[cycle]} --> best_solutions.h5')
+            os.system(f'cp {mergedh5[cycle]} best_solutions.h5')
+            os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
+
+    return False
+
 ###############################
 ############## MAIN ###########
 ###############################
@@ -9422,6 +9515,7 @@ def main():
                 setattr(options, k, v)
             else:
                 setattr(options, k, ast.literal_eval(v))
+    global args
     args = vars(options)
 
     if args['stack']:
@@ -9525,13 +9619,12 @@ def main():
         outtarname, telescope, args = basicsetup(mslist, args)
 
     # set model storagemanager
-    modelstoragemanager = None
-    if args['modelcompression']:
+    if args['modelstoragemanager'] == 'stokes_i': # check if this request is possible
         if is_stokesi_modeltype_allowed(args, telescope):
-            modelstoragemanager = 'stokes_i'
             print('Using stokes_i model compression')
         else:
             print('Cannot use stokes_i model compression')
+            args['modelstoragemanager'] = None
 
     # check if we could average more
     avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
@@ -9548,7 +9641,7 @@ def main():
     # COMPUTE PHASE-DIFF statistic
     if args['compute_phasediffstat']:
         if longbaseline:
-            compute_phasediffstat(mslist, args, modelstoragemanager=modelstoragemanager)
+            compute_phasediffstat(mslist, args)
         else:
             logger.info("--compute-phasediffstat requested but no long-baselines in dataset.")
 
@@ -9637,9 +9730,6 @@ def main():
                                 args=args)
         facetregionfile = 'facets.reg'  # so when making image000 we can use it without having h5 DDE solutions
 
-    #neural network model
-    nn_model=None
-
     # ----- START SELFCAL LOOP -----
     for i in range(args['start'], args['stop']):
 
@@ -9706,19 +9796,19 @@ def main():
                 modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
                     prepare_DDE(args['skymodel'], i,
                                 mslist, args['imsize'], args['pixelscale'],
-                                args['channelsout'], args, numClusters=args['Nfacets'],
+                                args['channelsout'], numClusters=args['Nfacets'],
                                 facetdirections=args['facetdirections'],
                                 DDE_predict='DP3', restart=False, skyview=tgssfitsfile,
                                 targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
                                 disable_primary_beam=args['disable_primary_beam'],
-                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding']))
+                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
 
                 if candidate_solints is not None:
                     candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
                     solint_list = candidate_solints
             else:
                 dde_skymodel = None
-            wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'],
+            wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, args['soltype_list'],
                                                   soltypecycles_list, smoothnessconstraint_list,
                                                   smoothnessreffrequency_list,
                                                   smoothnessspectralexponent_list, smoothnessrefdistance_list,
@@ -9749,7 +9839,7 @@ def main():
                                                   QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],
                                                   ncpu_max=args['ncpu_max_DP3solve'],
                                                   mslist_beforeremoveinternational=mslist_beforeremoveinternational,
-                                                  soltypelist_includedir=soltypelist_includedir, modelstoragemanager=modelstoragemanager)
+                                                  soltypelist_includedir=soltypelist_includedir, modelstoragemanager=args['modelstoragemanager'])
 
         if args['phasediff_only']:
             return
@@ -9764,10 +9854,10 @@ def main():
         if args['DDE'] and args['start'] != 0 and i == args['start']:
             modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist, args['imsize'], args['pixelscale'], args['channelsout'],
-                            args, numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
+                            numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope,
                             targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
-                            disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding']))
+                            disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
 
         #  --- start imaging part ---
@@ -9800,7 +9890,7 @@ def main():
                       disable_primarybeam_image=args['disable_primary_beam'],
                       disable_primarybeam_predict=args['disable_primary_beam'],
                       groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
-                      fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
+                      fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
             # args['idg'] = idgin # set back
             if args['makeimage_ILTlowres_HBA']:
                 if args['phaseupstations'] is None:
@@ -9823,7 +9913,7 @@ def main():
                           disable_primarybeam_predict=args['disable_primary_beam'],
                           groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
                           ddpsfgrid=args['ddpsfgrid'],
-                          fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
+                          fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
             if args['makeimage_fullpol']:
                 makeimage(mslistim, args['imagename'] + 'fullpol' + str(i).zfill(3) + stackstr,
                           args['pixelscale'], args['imsize'],
@@ -9841,7 +9931,7 @@ def main():
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
                           groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
-                          fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
+                          fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
             # make figure
             if args['imager'] == 'WSCLEAN':
@@ -9867,9 +9957,9 @@ def main():
         if args['DDE']:
             modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist, args['imsize'], args['pixelscale'], args['channelsout'],
-                            args, numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
+                            numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
                             DDE_predict=args['DDE_predict'], telescope=telescope, targetFlux=args['targetFlux'],
-                            fitspectralpol=args['fitspectralpol'], disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding']))
+                            fitspectralpol=args['fitspectralpol'], disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
 
             if candidate_solints is not None:
                 candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
@@ -9915,7 +10005,7 @@ def main():
                                       delaycal=args['delaycal'])
 
         # CALIBRATE AND APPLYCAL
-        wsclean_h5list = calibrateandapplycal(mslist, i, args, solint_list, nchan_list, args['soltype_list'],
+        wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, args['soltype_list'],
                                               soltypecycles_list,
                                               smoothnessconstraint_list, smoothnessreffrequency_list,
                                               smoothnessspectralexponent_list, smoothnessrefdistance_list,
@@ -9939,7 +10029,7 @@ def main():
                                               QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],
                                               telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'],
                                               mslist_beforeremoveinternational=mslist_beforeremoveinternational,
-                                              soltypelist_includedir=soltypelist_includedir, modelstoragemanager=modelstoragemanager)
+                                              soltypelist_includedir=soltypelist_includedir, modelstoragemanager=args['modelstoragemanager'])
 
         # update uvmin if allowed/requested
         args['uvmin'] = update_uvmin(fitsmask, longbaseline, args, LBA)
@@ -9957,86 +10047,12 @@ def main():
         args['fitspectralpol'] = update_fitspectralpol(args)
 
         # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
-        if (args['get_diagnostics'] or args['early_stopping']) and i > 3:
-
-            # Get already obtained selfcal images and merged solutions
-            images, mergedh5 = get_images_solutions()
-
-            if len(mergedh5) > 0:
-                if longbaseline:
-                    station = 'international'
-                else:
-                    station = 'alldutch'
-                qualitycheck = quality_check(mergedh5, images, station)
-            else:
-                logger.info("Cannot find merged_selfcal*.h5, so cannot perform --get-diagnostics or --early-stopping.")
-
-            # Early stopping
-            if args['early_stopping'] and i>0:
-                from submods.source_selection.image_score import get_nn_model, predict_nn
-
-                if nn_model is None:
-                    try:
-                        # NN score
-                        nn_model = get_nn_model(cache=args['nn_model_cache'])
-                        predict_score = predict_nn(images[i], nn_model)
-                        logger.info(f"Neural network image prediction score of cycle {i}: {round(predict_score, 3)}")
-                    except:
-                        logger.info("WARNING: issues with downloading/getting Neural Network model.. Skipping and continue without.")
-                        predict_score = 1.0
-
-                # Open selfcal performance CSV
-                df = pd.read_csv(f"./selfcal_quality_plots/selfcal_performance_{qualitycheck[0]}.csv")
-                bestcycle = df['phase'].argmin()
-
-                # Get image statistics
-                minmax_ratio = df['min/max'][bestcycle]/df['min/max'][0]
-                if minmax_ratio!=minmax_ratio: # check for nan in final cycle
-                    minmax_ratio = df['min/max'][bestcycle - 1]/df['min/max'][0]
-                    rms_ratio = df['rms'][bestcycle - 1]/df['rms'][0]
-                else:
-                    rms_ratio = df['rms'][bestcycle]/df['rms'][0]
-
-                # Selection criteria (good image and stable solutions)
-                if predict_score < 0.5 and df['phase'][bestcycle]<0.1 and rms_ratio<1.0 and minmax_ratio<0.85:
-                    logger.info(f"Early-stopping at cycle {i}, because Neural Network happy")
-                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
-                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-                    logger.info(f'{mergedh5[i]} --> best_solutions.h5')
-                    os.system(f'cp {mergedh5[i]} best_solutions.h5')
-                    break # Break for loop
-                elif predict_score < 0.5 and df['phase'][bestcycle]<0.2 and rms_ratio<0.7 and minmax_ratio<0.5:
-                    logger.info(f"Early-stopping at cycle {i}, because Neural Network happy")
-                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
-                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-                    logger.info(f'{mergedh5[i]} --> best_solutions.h5')
-                    os.system(f'cp {mergedh5[i]} best_solutions.h5')
-                    break # Break for loop
-                elif df['phase'][bestcycle]<0.005:
-                    logger.info(f"Early-stopping at cycle {i}, because solutions stabilized")
-                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
-                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-                    logger.info(f'{mergedh5[bestcycle]} --> best_solutions.h5')
-                    os.system(f'cp {mergedh5[bestcycle]} best_solutions.h5')
-                    break # Break for loop
-                elif df['phase'][bestcycle]<0.1 and rms_ratio<0.5 and minmax_ratio<0.1:
-                    logger.info(f"Early-stopping at cycle {i}, because image quality much improved")
-                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
-                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-                    logger.info(f'{mergedh5[i]} --> best_solutions.h5')
-                    os.system(f'cp {mergedh5[i]} best_solutions.h5')
-                    break # Break for loop
-                else:
-                    logger.info(f"No early-stopping at cycle {i}")
-                    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
-                    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-                    if i==args['stop']-1:
-                        bestcycle = max(df['min/max'].argmin(), df['phase'].argmin())
-                        logger.info(f'{mergedh5[bestcycle]} --> best_solutions.h5')
-                        os.system(f'cp {mergedh5[bestcycle]} best_solutions.h5')
-
-        elif abs(args['stop'] - args['start']) <=2:
-            logger.info("Need at least 3 selfcal cycles for getting diagnostics")
+        if args['early_stopping'] and len(mslist)>1:
+            logger.info("WARNING: --early-stopping not yet developed for multiple input MeasurementSets.\nSkipping early-stopping evaluation.")
+        elif args['early_stopping'] and early_stopping(station='international' if longbaseline else 'alldutch', cycle=i):
+            if args['phaseupstations'] is not None:
+                merge_h5(h5_out='best_addCS_solutions.h5', h5_tables='best_solutions.h5', ms_files=mslist_beforephaseup[0], add_cs=True)
+            break
 
     # remove sources outside central region after selfcal (to prepare for DDE solves)
     if args['remove_outside_center']:
@@ -10060,14 +10076,14 @@ def main():
                   disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
                   groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
-                  ddpsfgrid=args['ddpsfgrid'], fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
+                  ddpsfgrid=args['ddpsfgrid'], fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
         remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), args['pixelscale'],
                            args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
                            dysco=args['dysco'],
                            userbox=args['remove_outside_center_box'], idg=args['idg'],
                            h5list=wsclean_h5list, facetregionfile=facetregionfile,
-                           disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=modelstoragemanager, parallelgridding=args['parallelgridding'])
+                           disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
 
     # ARCHIVE DATA AFTER SELFCAL if requested
     if not longbaseline and not args['noarchive']:
