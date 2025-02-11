@@ -1798,8 +1798,8 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol=
                 if modelcol in t.colnames():
                     model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
                     print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-                    # print(np.max(abs(model)))
-                    # print(np.min(abs(model)))
+                    print('maxmodel',np.max(abs(model)))
+                    print('minmodel',np.min(abs(model)))
                     np.divide(data, model, out=data, where=np.abs(model) > 0)
                     t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
                 else:
@@ -1890,8 +1890,6 @@ def stackMS_taql(inmslist: list, outputms_prefix: str = 'stack', incol: str = 'D
     print(starttimelist)
     print(f'Found {len(starttimelist)} groups of MSs with same time axis.')
     print(f'Groups: {mss_timestacks}.')
-
-    print(map(len, mss_timestacks))
 
     msout_stacked = []
     for timestack_id, inmslist_timestack in enumerate(mss_timestacks):
@@ -6331,8 +6329,6 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             run(f"taql 'update {ms} set MODEL_DATA[,1]=(0+0i)'", log=True)
             run(f"taql 'update {ms} set MODEL_DATA[,2]=(0+0i)'", log=True)
 
-        print(mslist, mslist_orig)
-
         # set all these to None to avoid skymodel predicts in runDPPPbase()
         skymodelpointsource = None
         wscleanskymodel = None
@@ -6559,12 +6555,12 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             run('losoto ' + parmdbmergename + ' ' + losotoparset)
             force_close(parmdbmergename)
 
-        ## --- start STACK code ---
-        if args['stack']:
-            # for each stacked MS (one per common time axis), apply the solutions to each direction MS
-            for orig_ms in mss_timestacks[msnumber]:
-                applycal(orig_ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
-        ## --- end STACK code ---
+            ## --- start STACK code ---
+            if args['stack']:
+                # for each stacked MS (one per common time axis), apply the solutions to each direction MS
+                for orig_ms in mss_timestacks[msnumber]:
+                    applycal(orig_ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
+            ## --- end STACK code ---
 
     if QualityBasedWeights and selfcalcycle >= QualityBasedWeights_start:
         for ms in mslist:
@@ -9292,23 +9288,20 @@ def nested_mslistforimaging(mslist, stack=False):
                 if msid == 0:
                     mslistreturn = [[ms]]
                     phasecenterlist = [phasecenter]
-                    print('create first mslist', mslistreturn, phasecenter)
                 else:
                     image_id = None
                     #iterate over already existing imaging groups
                     for iid, image_phasecenter in enumerate(phasecenterlist):
-                        print('dist',np.linalg.norm(image_phasecenter - phasecenter))
                         if np.linalg.norm(image_phasecenter-phasecenter) < 4.84e-8: # phase center distance less than 0.01 arcsec
                             image_id = iid
+                    # if ms phase center already has an image list, add to that.
                     if image_id is not None:
                         mslistreturn[image_id].append(ms)
-                        print('append to mslist', mslistreturn, ms)
                     else:
                         phasecenterlist.append(phasecenter)
                         mslistreturn.append([ms])
-                        print('new group ', ms)
-        print(mslistreturn, phasecenterlist)
-        return mslistreturn  # has format [[ms1.ms],[ms2.ms],[...]]
+        print(f'Found {len(mslistreturn)} imaging groups: ', mslistreturn)
+        return mslistreturn  # has format [[ms1.ms,..],[ms2.ms,..],[...]]
 
 def flag_autocorr(mslist):
     """
