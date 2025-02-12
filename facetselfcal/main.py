@@ -707,8 +707,8 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
     return MSs_files_clean, H5s_files_clean
 
 
-def check_for_BDPbug_longsolint(mslist, facetdirections, args=None):
-    dirs, solints, soltypelist_includedir = parse_facetdirections(facetdirections, 1000, args=args)
+def check_for_BDPbug_longsolint(mslist, facetdirections):
+    dirs, solints, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)
 
     if solints is None:
         return
@@ -3036,7 +3036,7 @@ def inputchecker(args, mslist):
         if not os.path.isfile(args['facetdirections']):
             print('--facetdirections file does not exist')
             raise Exception('--facetdirections file does not exist')
-        check_for_BDPbug_longsolint(mslist, args['facetdirections'], args=args)
+        check_for_BDPbug_longsolint(mslist, args['facetdirections'])
 
     if args['DDE']:
         if 'fulljones' in args['soltype_list']:
@@ -5950,7 +5950,7 @@ def split_facetdirections(facetregionfile):
 def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, imsize=None,
                             pixelscale=None, numClusters=0, weightBySize=False,
                             facetdirections=None, imsizemargin=100, restart=False,
-                            args=None):
+                            via_h5=False, h5=None):
     """
     Create a facet region file based on an input image or file provided by the user
     if there is an image use lsmtool tessellation algorithm
@@ -5958,13 +5958,18 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     This function also returns the solints obtained out of the facetdirections file (if avail). It is up to
     the function that calls this to do something with it or not.
     """
-    # groupalgorithm =
+    if via_h5: # this is quick call to ds9facetgenerator using an h5 file and a None return
+        cmd = f'python {submodpath}/ds9facetgenerator.py '
+        cmd += '--ms=' + ms + ' --h5=' + h5 + ' '
+        cmd += '--imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
+        run(cmd)
+        return
+
     solints = None  # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
     soltypelist_includedir = None  # initialize
     if facetdirections is not None:
         try:
-            PatchPositions_array, solints, soltypelist_includedir = parse_facetdirections(facetdirections, selfcalcycle,
-                                                                                          args=args)
+            PatchPositions_array, solints, soltypelist_includedir = parse_facetdirections(facetdirections, selfcalcycle)
         except:
             try:
                 f = open(facetdirections, 'rb')
@@ -6034,7 +6039,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         return solints, soltypelist_includedir
 
 
-def parse_facetdirections(facetdirections, selfcalcycle, args=None):
+def parse_facetdirections(facetdirections, selfcalcycle):
     """
        parse the facetdirections.txt file and return a list of facet directions
        for the given selfcalcycle. In the future, this function should also return a
@@ -6060,7 +6065,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, args=None):
     rasel = ra[a]
     decsel = dec[a]
 
-    if soltypelist_includedir is not None and args is not None:
+    if soltypelist_includedir is not None and 'args' in globals():
         soltypelist_includedir_sel_tmp = soltypelist_includedir[a]
 
         # create 2D array booleans
@@ -6086,22 +6091,19 @@ def parse_facetdirections(facetdirections, selfcalcycle, args=None):
             return PatchPositions_array, None, None
 
 
-def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
-                channelsout, numClusters=0, facetdirections=None,
+def prepare_DDE(imagebasename, selfcalcycle, mslist,
                 DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=True,
-                telescope='LOFAR', targetFlux=2.0, skyview=None,
-                fitspectralpol=3, disable_primary_beam=False, wscleanskymodel=None,
-                skymodel=None, modelstoragemanager=None, parallelgridding=1):
+                telescope='LOFAR', skyview=None, wscleanskymodel=None,
+                skymodel=None):
     if telescope == 'LOFAR' and not disable_IDG_DDE_predict:
         idg = True  # predict WSCLEAN with beam using IDG (wsclean facet mode with h5 is not efficient here)
     else:
         idg = False
 
     solints, soltypelist_includedir = create_facet_directions(imagebasename, selfcalcycle,
-                                                              targetFlux=targetFlux, ms=mslist[0], imsize=imsize,
-                                                              pixelscale=pixelscale, numClusters=numClusters,
-                                                              facetdirections=facetdirections, restart=restart,
-                                                              args=args)
+                                                              targetFlux=args['targetFlux'], ms=mslist[0], imsize=args['imsize'],
+                                                              pixelscale=args['pixelscale'], numClusters=args['Nfacets'],
+                                                              facetdirections=args['facetdirections'], restart=restart)
 
     # --- start CREATE facets.fits -----
     # remove previous facets.fits if needed
@@ -6112,9 +6114,9 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
             os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) + '-MFS-image.fits' + ' facets.fits')
         if not restart and wscleanskymodel is not None:
             # os.system('cp ' + glob.glob(wscleanskymodel + '-????-*model*.fits')[0] + ' facets.fits')
-            create_empty_fitsimage(mslist[0], int(imsize), float(pixelscale), 'facets.fits')
+            create_empty_fitsimage(mslist[0], int(args['imsize']), float(args['pixelscale']), 'facets.fits')
         if not restart and skymodel is not None:
-            create_empty_fitsimage(mslist[0], int(imsize), float(pixelscale), 'facets.fits')
+            create_empty_fitsimage(mslist[0], int(args['imsize']), float(args['pixelscale']), 'facets.fits')
     else:
         os.system('cp ' + skyview + ' facets.fits')
 
@@ -6146,28 +6148,28 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
         # restart with DDE_predict=DP3 because then only the variable modeldatacolumns is made
         # So the wsclean predict step is skipped in makeimage but variable modeldatacolumns is created
         modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3),
-                                     pixelscale, imsize, channelsout, predict=True,
+                                     args['pixelscale'], args['imsize'], args['channelsout'], predict=True,
                                      onlypredict=True, facetregionfile='facets.reg',
                                      DDE_predict='DP3',
-                                     disable_primarybeam_image=disable_primary_beam,
-                                     disable_primarybeam_predict=disable_primary_beam,
+                                     disable_primarybeam_image=args['disable_primary_beam'],
+                                     disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'],
-                                     modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
+                                     modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
         # selfcalcycle-1 because makeimage has not yet produced an image at this point
-        if fitspectralpol > 0 and DDE_predict == 'DP3':
+        if args['fitspectralpol'] > 0 and DDE_predict == 'DP3':
             dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle - 1).zfill(3) + '-sources.txt', 'facets.fits')
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
     elif skyview is not None:
         modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3),
-                                     pixelscale, imsize, channelsout, predict=True,
+                                     args['pixelscale'], args['imsize'], args['channelsout'], predict=True,
                                      onlypredict=True, facetregionfile='facets.reg',
                                      DDE_predict=DDE_predict,
-                                     disable_primarybeam_image=disable_primary_beam,
-                                     disable_primarybeam_predict=disable_primary_beam,
+                                     disable_primarybeam_image=args['disable_primary_beam'],
+                                     disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'],
-                                     modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
-        if fitspectralpol > 0:
+                                     modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
+        if args['fitspectralpol'] > 0:
             dde_skymodel = groupskymodel(imagebasename, 'facets.fits')  # imagebasename
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
@@ -6183,24 +6185,24 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist, imsize, pixelscale,
             channelsout_forpredict = len(nonpblist)
 
         modeldatacolumns = makeimage(mslist, wscleanskymodel,
-                                     pixelscale, imsize, channelsout_forpredict, predict=True,
+                                     args['pixelscale'], args['imsize'], channelsout_forpredict, predict=True,
                                      onlypredict=True, facetregionfile='facets.reg',
                                      DDE_predict='WSCLEAN', idg=idg,
-                                     disable_primarybeam_image=disable_primary_beam,
-                                     disable_primarybeam_predict=disable_primary_beam,
+                                     disable_primarybeam_image=args['disable_primary_beam'],
+                                     disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'],
-                                     modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
+                                     modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
         # assume there is no model for DDE wscleanskymodel solve at the start
         # since we are making image000 afterwards anyway setting a dummy now is ok
         dde_skymodel = 'dummy.skymodel'
         print(modeldatacolumns)
     else:
         modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3),
-                                     pixelscale, imsize, channelsout, predict=True,
+                                     args['pixelscale'], args['imsize'], args['channelsout'], predict=True,
                                      onlypredict=True, facetregionfile='facets.reg',
                                      DDE_predict=DDE_predict, idg=idg,
-                                     disable_primarybeam_image=disable_primary_beam,
-                                     disable_primarybeam_predict=disable_primary_beam,
+                                     disable_primarybeam_image=args['disable_primary_beam'],
+                                     disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'],
                                      modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
         if fitspectralpol > 0 and DDE_predict == 'DP3':
@@ -9561,7 +9563,7 @@ def main():
     if False:
         modeldatacolumnsin = ['MODEL_DATA_DD0', 'MODEL_DATA_DD1', 'MODEL_DATA_DD2', 'MODEL_DATA_DD3', 'MODEL_DATA_DD4']
         soltypenumber = 0
-        dirs, solints, soltypelist_includedir = parse_facetdirections(args['facetdirections'], 0, args=args)
+        dirs, solints, soltypelist_includedir = parse_facetdirections(args['facetdirections'], 0)
         modeldatacolumns, sourcedir_removed, id_kept = updatemodelcols_includedir(modeldatacolumnsin, soltypenumber,
                                                                                   soltypelist_includedir, mslist[0],
                                                                                   dryrun=True)
@@ -9719,8 +9721,7 @@ def main():
     # so that we can use WSClean facet mode, but without having h5 DDE solutions
     if args['facetdirections'] is not None and args['start'] == 0:
         create_facet_directions(None, 0, ms=mslist[0], imsize=args['imsize'],
-                                pixelscale=args['pixelscale'], facetdirections=args['facetdirections'],
-                                args=args)
+                                pixelscale=args['pixelscale'], facetdirections=args['facetdirections'])
         facetregionfile = 'facets.reg'  # so when making image000 we can use it without having h5 DDE solutions
 
     # ----- START SELFCAL LOOP -----
@@ -9787,14 +9788,9 @@ def main():
             # also do prepare_DDE
             if args['DDE']:
                 modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
-                    prepare_DDE(args['skymodel'], i,
-                                mslist, args['imsize'], args['pixelscale'],
-                                args['channelsout'], numClusters=args['Nfacets'],
-                                facetdirections=args['facetdirections'],
+                    prepare_DDE(args['skymodel'], i, mslist,
                                 DDE_predict='DP3', restart=False, skyview=tgssfitsfile,
-                                targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
-                                disable_primary_beam=args['disable_primary_beam'],
-                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
+                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel']))
 
                 if candidate_solints is not None:
                     candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
@@ -9846,12 +9842,13 @@ def main():
         # RESTART FOR A DDE RUN, set modeldatacolumns and dde_skymodel
         if args['DDE'] and args['start'] != 0 and i == args['start']:
             modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
-                prepare_DDE(args['imagename'], i, mslist, args['imsize'], args['pixelscale'], args['channelsout'],
-                            numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
-                            DDE_predict=args['DDE_predict'], restart=True, telescope=telescope,
-                            targetFlux=args['targetFlux'], fitspectralpol=args['fitspectralpol'],
-                            disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
+                prepare_DDE(args['imagename'], i, mslist,
+                            DDE_predict=args['DDE_predict'], restart=True, telescope=telescope))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
+            # re-create facets.reg here
+            # in a restart the number of directions from the previous facets.reg might not match that in the h5
+            create_facet_directions(args['imagename'], i, ms=mslist[0], imsize=args['imsize'],
+                            pixelscale= args['pixelscale'], via_h5=True, h5=wsclean_h5list[0])
 
         #  --- start imaging part ---
         for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
@@ -9949,10 +9946,8 @@ def main():
         modeldatacolumns = []
         if args['DDE']:
             modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
-                prepare_DDE(args['imagename'], i, mslist, args['imsize'], args['pixelscale'], args['channelsout'],
-                            numClusters=args['Nfacets'], facetdirections=args['facetdirections'],
-                            DDE_predict=args['DDE_predict'], telescope=telescope, targetFlux=args['targetFlux'],
-                            fitspectralpol=args['fitspectralpol'], disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding']))
+                prepare_DDE(args['imagename'], i, mslist,
+                            DDE_predict=args['DDE_predict'], telescope=telescope))
 
             if candidate_solints is not None:
                 candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
