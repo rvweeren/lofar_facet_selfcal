@@ -525,7 +525,7 @@ def option_parser():
                         default='scalarphase',
                         type=str)
     parser.add_argument('--stack',
-                        help='Stacking of visibility data for multiple sources to increase S/N - still under construction.',
+                        help='Stacking of visibility data for multiple sources to increase S/N. Solve on stacked MSs that have the same time axis and imaging all MSs with the same phase center together - still under construction.',
                         action='store_true')
 
     parser.add_argument('ms', nargs='+', help='msfile(s)')

@@ -12,7 +12,6 @@
 # bdsf still steals the logger https://github.com/lofar-astron/PyBDSF/issues/176
 # add html summary overview
 # Stacking check that freq and time axes are identical
-# Add multi-run stacking
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
@@ -1630,7 +1629,7 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE',
     return
 
 
-def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: str = 'DATA') -> None:
+def stackwrapper(inmslist: list, msout_prefix: str = 'stack', column_to_normalise: str = 'DATA') -> None:
     """ Wraps the stack
     Arguments
     ---------
@@ -1648,9 +1647,13 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
     print('Stacking datasets')
 
     start = time.time()
-    stackMS_taql(inmslist, outputms=msout, incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
+    msout_stacks, mss_timestacks = stackMS_taql(inmslist, outputms_prefix=msout_prefix, incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
     now = time.time()
     print(f'Stacking took {now - start} seconds')
+
+    assert len(msout_stacks) == len(mss_timestacks)
+
+    return msout_stacks, mss_timestacks
 
 
 def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=False,
@@ -1805,7 +1808,8 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol=
 
 def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM',
             outcol_weight='WEIGHT_SPECTRUM', stepsize=1000000):
-    """ Stack a list of MSes.
+    """ Henrik Feb 2025: This function is not used currently and does not support ulti-timestack MS. Can be removed?
+    Stack a list of MSes.
 
     Arguments
     ---------
@@ -1844,15 +1848,15 @@ def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', wei
     taql('UPDATE stack.MS SET DATA=DATA/WEIGHT_SPECTRUM')
 
 
-def stackMS_taql(inmslist: list, outputms: str = 'stack.MS', incol: str = 'DATA_NORM', outcol: str = 'DATA',
+def stackMS_taql(inmslist: list, outputms_prefix: str = 'stack', incol: str = 'DATA_NORM', outcol: str = 'DATA',
                  weightref: str = 'WEIGHT_SPECTRUM_PM', outcol_weight: str = 'WEIGHT_SPECTRUM'):
-    """ Stack a list of MSes.
+    """ Stack a list of MSes - per group with same time axis, one stacked MS is created.
 
     Arguments
     ---------
     inmslist : list
         List of input Measurement Sets to stack.
-    outputms : str
+    outputms_prefix : str
         Name of the output MS.
     incol : str
         Column to stack from the individual MSes.
@@ -1862,32 +1866,62 @@ def stackMS_taql(inmslist: list, outputms: str = 'stack.MS', incol: str = 'DATA_
         Name of the weight column to stack from the individual files.
     outcol_weight : str
         Name of the stacked weight column in the output MS.
+    Returns
+    ---------
+    msout_stacked: list of stacked MS names
+    mss_timestacks: list of input MS grouped in timestacks
     """
-    print(f'Using input column {incol}')
-    print(f'Writing to {outputms}')
-    if not isinstance(inmslist, list):
-        os.system('cp -r {} {}'.format(inmslist, outputms))
-        print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
-        return True
-    if os.path.isdir(outputms):  # delete MS if it exists
-        os.system('rm -rf ' + outputms)
-    os.system('cp -r {} {}'.format(inmslist[0], outputms))
 
-    TAQLSTR = f'UPDATE {outputms} SET DATA = ('
-    sum_clause = ' + '.join(
-        [f'ms{idx:02d}.DATA_NORM * ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist) + 1)])
-    sum_weight_clause = ' + '.join([f'ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist) + 1)])
-    from_clause = ', '.join([f'{ms} AS ms{idx:02d}' for idx, ms in enumerate(inmslist, start=1)])
+    # identify which MSs share the same time axis:
+    starttimelist = [] # list of unique timestamps
+    mss_timestacks = [] # list of MSs stacks
+    for ms in inmslist:
+        with table(ms, ack=False) as t:
+            starttime = t.TIME[0]
+            try: # check if timestamps already exist and if yes, add to this stack
+                group = starttimelist.index(starttime)
+                print('group', group)
+                print(f'append {ms} to {starttime}: {mss_timestacks[group]}')
+                mss_timestacks[group].append(ms)
+            except ValueError: # add new list of MS for this timestamps if there is none already
+                starttimelist.append(starttime)
+                mss_timestacks.append([ms])
+            print(f'new list {ms} to {starttime}')
+    print(starttimelist)
+    print(f'Found {len(starttimelist)} groups of MSs with same time axis.')
+    print(f'Groups: {mss_timestacks}.')
 
-    taql_query = f'{TAQLSTR} {sum_clause}) / ({sum_weight_clause}) FROM {from_clause}'
+    msout_stacked = []
+    for timestack_id, inmslist_timestack in enumerate(mss_timestacks):
+        outputms = f'{outputms_prefix}_t{timestack_id:02d}.MS'
+        msout_stacked.append(outputms)
+        print(f'Using input column {incol}')
+        print(f'Writing to {outputms}')
+        if not isinstance(inmslist_timestack, list):
+            os.system('cp -r {} {}'.format(inmslist_timestack, outputms))
+            print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
+            return True
+        if os.path.isdir(outputms):  # delete MS if it exists
+            os.system('rm -rf ' + outputms)
+        os.system('cp -r {} {}'.format(inmslist_timestack[0], outputms))
 
-    print('Stacking DATA')
-    print(taql_query)
-    taql(taql_query)
+        TAQLSTR = f'UPDATE {outputms} SET DATA = ('
+        sum_clause = ' + '.join(
+            [f'ms{idx:02d}.DATA_NORM * ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist_timestack) + 1)])
+        sum_weight_clause = ' + '.join([f'ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist_timestack) + 1)])
+        from_clause = ', '.join([f'{ms} AS ms{idx:02d}' for idx, ms in enumerate(inmslist_timestack, start=1)])
 
-    print('Stacking WEIGHT_SPECTRUM')
-    print(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
-    taql(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+        taql_query = f'{TAQLSTR} {sum_clause}) / ({sum_weight_clause}) FROM {from_clause}'
+
+        print('Stacking DATA')
+        print(taql_query)
+        taql(taql_query)
+
+        print('Stacking WEIGHT_SPECTRUM')
+        print(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+        taql(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+
+    return msout_stacked, mss_timestacks
 
 
 def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True, stepsize=1000000):
@@ -2773,7 +2807,7 @@ def inputchecker(args, mslist):
          print(args['modelstoragemanager'])
          print('Wrong input for --modelstoragemanager, needs to be "stokes_i" or None')
          raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i or None')
-         
+
     for tmp in args['BLsmooth_list']:
         # print(args['BLsmooth_list'])
         if not (isinstance(tmp, bool)):
@@ -5930,7 +5964,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         cmd += '--imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
         run(cmd)
         return
-    
+
     solints = None  # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
     soltypelist_includedir = None  # initialize
     if facetdirections is not None:
@@ -6277,25 +6311,25 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
 
         # do the stack and normalization
-        stackwrapper(mslist, msout='stack.MS', column_to_normalise='DATA')
+        # mslist_stacked = stacked MS (one per common time axis / timestack); mss_timestacks = list of MSs that were used to create each stack
+        mslist_stacked, mss_timestacks = stackwrapper(mslist, msout_prefix='stack', column_to_normalise='DATA')
         mslist_orig = mslist[:]  # so we can use it for the applycal
-        mslist = ['stack.MS']
+        mslist = mslist_stacked
 
-        # set MODEL_DATA to point source in stack
-        t = table('stack.MS', ack=False)
-        if 'MODEL_DATA' not in t.colnames():
-            t.close()
-            run('DP3 msin=stack.MS msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
-        else:
-            t.close()
-        print('Predict point source for stack.MS')
-        # do the predict with taql
-        run("taql" + " 'update stack.MS set MODEL_DATA[,0]=(1.0+ +0i)'", log=True)
-        run("taql" + " 'update stack.MS set MODEL_DATA[,3]=(1.0+ +0i)'", log=True)
-        run("taql" + " 'update stack.MS set MODEL_DATA[,1]=(0+0i)'", log=True)
-        run("taql" + " 'update stack.MS set MODEL_DATA[,2]=(0+0i)'", log=True)
-
-        print(mslist, mslist_orig)
+        # set MODEL_DATA to point source in stacks
+        for ms in mslist:
+            t = table(ms, ack=False)
+            if 'MODEL_DATA' not in t.colnames():
+                t.close()
+                run(f'DP3 msin={ms} msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
+            else:
+                t.close()
+            print(f'Predict point source for  {ms}')
+            # do the predict with taql
+            run(f"taql 'update {ms} set MODEL_DATA[,0]=(1.0+ +0i)'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA[,3]=(1.0+ +0i)'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA[,1]=(0+0i)'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA[,2]=(0+0i)'", log=True)
 
         # set all these to None to avoid skymodel predicts in runDPPPbase()
         skymodelpointsource = None
@@ -6523,6 +6557,13 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             run('losoto ' + parmdbmergename + ' ' + losotoparset)
             force_close(parmdbmergename)
 
+            ## --- start STACK code ---
+            if args['stack']:
+                # for each stacked MS (one per common time axis), apply the solutions to each direction MS
+                for orig_ms in mss_timestacks[msnumber]:
+                    applycal(orig_ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
+            ## --- end STACK code ---
+
     if QualityBasedWeights and selfcalcycle >= QualityBasedWeights_start:
         for ms in mslist:
             run('python3 NeReVar.py --filename=' + ms + \
@@ -6530,13 +6571,6 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 ' --DiagDir=plotlosoto' + ms + '/NeReVar/ --basename=_selfcalcycle' + str(selfcalcycle).zfill(
                 3) + ' --modelcol=MODEL_DATA')
 
-    ## --- start STACK code ---
-    if args['stack']:
-        for ms in mslist_orig:
-            applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
-            # note parmdbmergename should always be correct since we only had one MS (stack.MS) and so it does only "loop" over one MS.
-            # Future work: If there are mulitple time groups we probably want to use wsclean_h5list instead of parmdbmergename (as it contains a list of all merged h5 in order of mslist)
-    ## --- end STACK code ---
 
     if len(modeldatacolumns) > 0:
         np.save('wsclean_h5list' + str(selfcalcycle).zfill(3) + '.npy', wsclean_h5list)
@@ -9245,21 +9279,31 @@ def create_Ateam_seperation_plots(mslist, start=0):
             print(f"check_Ateam_separation.py does not exist")
     return
 
-
 def nested_mslistforimaging(mslist, stack=False):
-    """
-    Returns a nested list of measurement sets for imaging.
-    Examples:
-        nested_mslistforimaging(['ms1.ms', 'ms2.ms'], stack=False)
-        # returns: [['ms1.ms', 'ms2.ms']]
-
-        nested_mslistforimaging(['ms1.ms', 'ms2.ms'], stack=True)
-        # returns: [['ms1.ms'], ['ms2.ms']]
-    """
-    if stack:
-        return [[ms] for ms in mslist]
-    return [mslist]
-
+    if not stack:
+        return [mslist]  # has format [[ms1.ms,ms2.ms,....]]
+    else:
+        # sort MSs in groups with same phase center
+        for msid, ms in enumerate(mslist):
+            with table(f'{ms}::FIELD') as tf:
+                phasecenter = tf[0]['PHASE_DIR'][0]
+                if msid == 0:
+                    mslistreturn = [[ms]]
+                    phasecenterlist = [phasecenter]
+                else:
+                    image_id = None
+                    #iterate over already existing imaging groups
+                    for iid, image_phasecenter in enumerate(phasecenterlist):
+                        if np.linalg.norm(image_phasecenter-phasecenter) < 4.84e-8: # phase center distance less than 0.01 arcsec
+                            image_id = iid
+                    # if ms phase center already has an image list, add to that.
+                    if image_id is not None:
+                        mslistreturn[image_id].append(ms)
+                    else:
+                        phasecenterlist.append(phasecenter)
+                        mslistreturn.append([ms])
+        print(f'Found {len(mslistreturn)} imaging groups: ', mslistreturn)
+        return mslistreturn  # has format [[ms1.ms,..],[ms2.ms,..],[...]]
 
 def flag_autocorr(mslist):
     """
@@ -9801,7 +9845,7 @@ def main():
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
-            # re-create facets.reg here 
+            # re-create facets.reg here
             # in a restart the number of directions from the previous facets.reg might not match that in the h5
             create_facet_directions(args['imagename'], i, ms=mslist[0], imsize=args['imsize'],
                             pixelscale= args['pixelscale'], via_h5=True, h5=wsclean_h5list[0])
