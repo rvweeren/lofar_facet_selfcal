@@ -1798,8 +1798,8 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol=
                 if modelcol in t.colnames():
                     model = t.getcol(modelcol, startrow=row, nrow=stepsize, rowincr=1)
                     print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-                    print('maxmodel',np.max(abs(model)))
-                    print('minmodel',np.min(abs(model)))
+                    # print(np.max(abs(model)))
+                    # print(np.min(abs(model)))
                     np.divide(data, model, out=data, where=np.abs(model) > 0)
                     t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
                 else:
@@ -6204,8 +6204,8 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      disable_primarybeam_image=args['disable_primary_beam'],
                                      disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'],
-                                     modelstoragemanager=modelstoragemanager, parallelgridding=parallelgridding)
-        if fitspectralpol > 0 and DDE_predict == 'DP3':
+                                     modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
+        if args['fitspectralpol'] > 0 and DDE_predict == 'DP3':
             dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'facets.fits')
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
@@ -6213,7 +6213,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
     # needed because image000 does not have a pb version as no facet imaging is used, however, if IDG is used it does exist and hence the following does also handfle that
     if telescope == 'LOFAR' and wscleanskymodel is None:  # not for MeerKAT because WSCclean still has a bug if no primary beam is used, for now assume we do not use a primary beam for MeerKAT
         if os.path.isfile(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt'):
-            if fitspectralpol > 0:
+            if args['fitspectralpol'] > 0:
                 dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt',
                                              'facets.fits')
             else:
@@ -9210,7 +9210,7 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
         if args['fitsmask'] is None:
             if maskthreshold_selfcalcycle[selfcalcycle] > 0.0:
                 if which('breizorro') is not None:
-                    cmdm = 'breizorro --threshold=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
+                    cmdm = 'breizorro --make-binary --fill-holes --threshold=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
                        ' --restored-image=' + imagename + ' --boxsize=30 --outfile=' + imagename + '.mask.fits'
                 else:
                     cmdm = 'MakeMask.py --Th=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
