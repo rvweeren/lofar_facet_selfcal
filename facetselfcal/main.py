@@ -9356,23 +9356,27 @@ def early_stopping(station: str = 'international', cycle: int = None):
     """
 
     # Early stopping
-    if cycle == 0:
-        global nn_model
+    if cycle == args['start']:
+        global nn_model, predict_nn
         try:
             # NN score
             from submods.source_selection.image_score import get_nn_model, predict_nn
             nn_model = get_nn_model(cache=args['nn_model_cache'])
         except ImportError:
             logger.info(
-                "WARNING: issues with downloading/getting Neural Network model.. Skipping and continue without."
+                "WARNING: Issues with downloading/getting Neural Network model.. Skipping and continue without."
                 "\nMost likely due to issues with accessing cortExchange.")
             nn_model = None
+
     # Start only after cycle 3
     if cycle <= 3:
         return False
 
     # Get already obtained selfcal images and merged solutions
     images, mergedh5 = get_images_solutions()
+    if len(images) == 0:
+        logger.info("WARNING: Issues with finding images for early-stopping. Skipping and continue without...")
+        return False
     qualitymetrics = quality_check(mergedh5, images, station)
 
     if nn_model is not None:
