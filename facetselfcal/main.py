@@ -1492,7 +1492,7 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
 
     logger.info('Version:                   ' + str(version))
     logger.info('Imsize:                    ' + str(args['imsize']))
-    logger.info('Pixelscale:                ' + str(args['pixelscale']))
+    logger.info('Pixelscale [arcsec]:       ' + str(args['pixelscale']))
     logger.info('Niter:                     ' + str(args['niter']))
     logger.info('Uvmin:                     ' + str(args['uvmin']))
     logger.info('Multiscale:                ' + str(args['multiscale']))
@@ -1509,6 +1509,25 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
     logger.info('User specified clean mask: ' + str(fitsmask))
     logger.info('Threshold for MakeMask:    ' + str(args['maskthreshold']))
     logger.info('Briggs robust:             ' + str(args['robust']))
+        
+    for ms in mslist:
+        logger.info(' === ' + ms + ' ===')
+        with table(mslist[0] + '/OBSERVATION', ack=False) as t:
+            telescope = t.getcol('TELESCOPE_NAME')[0]
+            logger.info('Telescope:                 ' + telescope)
+        with table(ms, readonly=True, ack=False) as t:            
+            time = np.unique(t.getcol('TIME'))
+            logger.info('Integration time [s]:      {:.2f}'.format(np.abs(time[1] - time[0])))
+            logger.info('Observation duration [hr]: {:.2f}'.format((np.max(time)-np.min(time))/3600.))
+        with table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False) as t:
+            chanw = np.median(t.getcol('CHAN_WIDTH'))
+            freqs = t.getcol('CHAN_FREQ')[0]
+            nfreq = len(t.getcol('CHAN_FREQ')[0])
+            logger.info('Number of channels:        {:.2f}'.format(nfreq))
+            logger.info('Bandwidth [MHz]:           {:.2f}'.format((np.max(freqs)-np.min(freqs))/1e6))
+            logger.info('Start frequnecy [MHz]:     {:.2f}'.format(np.min(freqs)/1e6))      
+            logger.info('End frequency [MHz]:       {:.2f}'.format(np.max(freqs)/1e6))
+        logger.info('================')
     return
 
 
@@ -5131,7 +5150,7 @@ def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
     time = np.unique(t.getcol('TIME'))
     tint = np.abs(time[1] - time[0])
     print('Integration time visibilities', tint)
-    logger.info('Integration time visibilities: ' + str(tint))
+    logger.info('Integration time visibilities [s]: ' + str(tint))
     t.close()
 
     del data, flags, model
@@ -9518,7 +9537,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.2.0'
+    version = '12.3.0'
     print_title(version)
 
     global submodpath, datapath
