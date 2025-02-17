@@ -4,7 +4,6 @@
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
 # h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_weights=False) Needs to be propagate_weights to be fully correct, this is a h5_merger issue
-# check that MODEL_DATA_DD etc XY,YX are set to zero/or clean if wsclean predicts are used for Stokes I/dual
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
 # compression: blosc2
@@ -20,7 +19,6 @@
 # phase detrending.
 # log command into the FITS header
 # BLsmooth constant smooth for gain solves
-# stop selfcal  based on some metrics
 # use scalarphasediff sols stats for solints? test amplitude stats as well
 # parallel solving with DP3, given that DP3 often does not use all cores?
 # uvmin, uvmax, uvminim, uvmaxim per ms per soltype
@@ -149,7 +147,8 @@ def set_channelsout(mslist, factor=1):
     if telescope == 'LOFAR':
         channelsout = round_up_to_even(f_bw * 12 * factor)
     elif telescope == 'MeerKAT':
-        channelsout = round_up_to_even(f_bw * 16 * factor)
+        channelsout = round_up_to_even(f_bw * 13 * factor) 
+        # should result in channelsout=12 for L-band, with bandpass edges removed
     else:
         channelsout = round_up_to_even(f_bw * 12 * factor)
     return channelsout
@@ -424,6 +423,67 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
         for h5 in h5list_sols:
             os.system('rm -f ' + h5)
     return
+
+def read_MeerKAT_wscleanmodel(filename, outfile):
+    '''
+    Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
+    These are used by the SDP pipeline
+    (code can only handle the wsclean format models provided there)
+    The function reformats the file so it can be used in DP3 and/or makesourcedb
+    Parameters:
+    filename (str): input filename
+    outfile (str): ouptput filename
+    '''
+    assert filename !=  outfile # prevent overwriting the input
+    data = ascii.read(filename, delimiter=' ')
+
+    # remove these as they are part of the skymodel format
+    data.remove_column('col5')
+    data.remove_column('col6')
+    data.remove_column('col7')
+    
+    # make all sources type POINT
+    data['col2'][:] =  'POINT,'
+    
+    # replace : with . for the declination
+    data['col4'] = np.char.replace(data['col4'], ":", ".")
+    
+    # add , after the StokesI flux (first convert to str format)
+    data['col8'] = data['col8'].astype(str)
+    data['col8'] = np.char.add(data['col8'], ',')
+    
+    #add , after first spectral index element
+    data['col9'] = np.char.add(data['col9'], ',')    
+
+    #add , after second spectral index element    
+    data['col10'] = data['col10'].astype(str)
+    data['col10'] = np.char.add(data['col10'], ',')
+    
+    #add , after third spectral index element    
+    data['col11'] = data['col11'].astype(str)
+    data['col11'] = np.char.add(data['col11'], ',')
+
+    #add , after third spectral index element    
+    data['col12'] = data['col12'].astype(str)
+    data['col12'] = np.char.add(data['col12'], ',')
+    
+    #add , after third spectral index element    
+    data['col13'] = np.char.add(data['col13'], ',')
+    
+    #add , after LogarithmicSI element    
+    #data['col14'] = data['col14'].astype(str)
+    data['col14'] = np.char.add(data['col14'], ',')
+    
+    #add ,,, after ReferenceFrequency element (extra comma because there are no Gaussian components)    
+    data['col15'] = data['col15'].astype(str)
+    data['col15'] = np.char.add(data['col15'], ',,,')
+    
+    ascii.write(data, outfile, overwrite=True, format='fast_no_header')
+    
+    # add formatting line
+    formatstr = "'1iFormat = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation'"
+    os.system("sed -i " + formatstr + " " + outfile)
+    return    
 
 
 def copy_over_solutions_from_skipped_directions(modeldatacolumnsin, id_kept):
