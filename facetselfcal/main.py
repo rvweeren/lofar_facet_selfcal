@@ -25,6 +25,11 @@
 
 # antidx = 0
 # taql("select ANTENNA1,ANTENNA2,gntrue(FLAG)/(gntrue(FLAG)+gnfalse(FLAG)) as NFLAG from L656064_129_164MHz_uv_pre-cal.concat.ms WHERE (ANTENNA1=={:d} OR ANTENNA2=={:d}) AND ANTENNA1!=ANTENNA2".format(antidx, antidx)).getcol('NFLAG')
+#read_MeerKAT_wscleanmodel_5spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J1939-6342_UHF.txt','J1939-6342_UHF.skymodel')
+#read_MeerKAT_wscleanmodel_5spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J1939-6342_L.txt','J1939-6342_L.skymodel')
+#read_MeerKAT_wscleanmodel_4spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J0408-6545_UHF.txt','J0408-6545_UHF.skymodel')
+#read_MeerKAT_wscleanmodel_3spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J0408-6545_L.txt','J0408-6545_L.skymodel')
+
 
 # example:
 # python facetselfal.py -b box_18.reg --forwidefield --avgfreqstep=2 --avgtimestep=2 --smoothnessconstraint-list="[0.0,0.0,5.0]" --antennaconstraint-list="['core']" --solint-list=[1,20,120] --soltypecycles-list="[0,1,3]" --soltype-list="['tecandphase','tecandphase','scalarcomplexgain']" test.ms
@@ -423,10 +428,10 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
         for h5 in h5list_sols:
             os.system('rm -f ' + h5)
     return
-
-def read_MeerKAT_wscleanmodel(filename, outfile):
+def read_MeerKAT_wscleanmodel_5spix(filename, outfile):
     '''
     Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
+    This model is for 5-spectral index terms
     These are used by the SDP pipeline
     (code can only handle the wsclean format models provided there)
     The function reformats the file so it can be used in DP3 and/or makesourcedb
@@ -471,7 +476,6 @@ def read_MeerKAT_wscleanmodel(filename, outfile):
     data['col13'] = np.char.add(data['col13'], ',')
     
     #add , after LogarithmicSI element    
-    #data['col14'] = data['col14'].astype(str)
     data['col14'] = np.char.add(data['col14'], ',')
     
     #add ,,, after ReferenceFrequency element (extra comma because there are no Gaussian components)    
@@ -485,6 +489,118 @@ def read_MeerKAT_wscleanmodel(filename, outfile):
     os.system("sed -i " + formatstr + " " + outfile)
     return    
 
+def read_MeerKAT_wscleanmodel_4spix(filename, outfile):
+    '''
+    Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
+    This model is for 4-spectral index terms
+    These are used by the SDP pipeline
+    (code can only handle the wsclean format models provided there)
+    The function reformats the file so it can be used in DP3 and/or makesourcedb
+    Parameters:
+    filename (str): input filename
+    outfile (str): ouptput filename
+    '''
+    assert filename !=  outfile # prevent overwriting the input
+    data = ascii.read(filename, delimiter=' ')
+
+    # remove these as they are part of the skymodel format
+    data.remove_column('col5')
+    data.remove_column('col6')
+    data.remove_column('col7')
+    
+    # make all sources type POINT
+    data['col2'][:] =  'POINT,'
+    
+    # replace : with . for the declination
+    data['col4'] = np.char.replace(data['col4'], ":", ".")
+    
+    # add , after the StokesI flux (first convert to str format)
+    data['col8'] = data['col8'].astype(str)
+    data['col8'] = np.char.add(data['col8'], ',')
+    
+    #add , after first spectral index element
+    data['col9'] = np.char.add(data['col9'], ',')    
+
+    #add , after second spectral index element    
+    data['col10'] = data['col10'].astype(str)
+    data['col10'] = np.char.add(data['col10'], ',')
+    
+    #add , after third spectral index element    
+    data['col11'] = data['col11'].astype(str)
+    data['col11'] = np.char.add(data['col11'], ',')
+    
+    #add , after third spectral index element    
+    data['col12'] = np.char.add(data['col12'], ',')
+    
+    #add , after LogarithmicSI element    
+    data['col13'] = np.char.add(data['col13'], ',')
+    
+    #add ,,, after ReferenceFrequency element (extra comma because there are no Gaussian components)    
+    data['col14'] = data['col14'].astype(str)
+    data['col14'] = np.char.add(data['col14'], ',,,')
+    
+    ascii.write(data, outfile, overwrite=True, format='fast_no_header')
+    
+    # add formatting line
+    formatstr = "'1iFormat = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation'"
+    os.system("sed -i " + formatstr + " " + outfile)
+    return    
+
+
+
+def read_MeerKAT_wscleanmodel_3spix(filename, outfile):
+    '''
+    Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
+    This model is for 3-spectral index terms
+    These are used by the SDP pipeline
+    (code can only handle the wsclean format models provided there)
+    The function reformats the file so it can be used in DP3 and/or makesourcedb
+    Parameters:
+    filename (str): input filename
+    outfile (str): ouptput filename
+    '''
+    assert filename !=  outfile # prevent overwriting the input
+    data = ascii.read(filename, delimiter=' ')
+
+    # remove these as they are part of the skymodel format
+    data.remove_column('col5')
+    data.remove_column('col6')
+    data.remove_column('col7')
+    
+    # make all sources type POINT
+    data['col2'][:] =  'POINT,'
+    
+    # replace : with . for the declination
+    data['col4'] = np.char.replace(data['col4'], ":", ".")
+    
+    # add , after the StokesI flux (first convert to str format)
+    data['col8'] = data['col8'].astype(str)
+    data['col8'] = np.char.add(data['col8'], ',')
+    
+    #add , after first spectral index element
+    data['col9'] = np.char.add(data['col9'], ',')    
+
+    #add , after second spectral index element    
+    data['col10'] = data['col10'].astype(str)
+    data['col10'] = np.char.add(data['col10'], ',')
+    
+    #add , after third spectral index element    
+    data['col11'] = np.char.add(data['col11'], ',')
+
+
+    #add , after LogarithmicSI element    
+    data['col12'] = np.char.add(data['col12'], ',')
+    
+    #add ,,, after ReferenceFrequency element (extra comma because there are no Gaussian components)    
+    data['col13'] = data['col13'].astype(str)
+    data['col13'] = np.char.add(data['col13'], ',,,')
+    
+    ascii.write(data, outfile, overwrite=True, format='fast_no_header')
+    
+    # add formatting line
+    formatstr = "'1iFormat = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation'"
+    os.system("sed -i " + formatstr + " " + outfile)
+    return    
 
 def copy_over_solutions_from_skipped_directions(modeldatacolumnsin, id_kept):
     """
