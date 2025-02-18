@@ -5717,6 +5717,42 @@ def create_beamcortemplate(ms):
 
     return H5name
 
+def create_losoto_bandpassparset(intype):
+    '''
+    Create losoto parset than takes median along the time axis
+    Can be used to create a bandpass
+    Parameters:
+    intype (str): set "phase" or "amplitude" or amplitude and phase ("a&p") smoothing, input should be one of these strings
+    '''
+    assert intype == 'phase' or intype == 'amplitude' or intype == 'a&p'
+    parset = 'losoto_bandpass.parset'
+    os.system('rm -f ' + parset)
+    f = open(parset, 'w')
+
+    f.write('soltab = [sol000/*]\n')
+    f.write('Ncpu = 0\n\n\n')
+
+    if intype == 'amplitude' or intype == 'a&p':
+        f.write('[bandpassamp]\n')
+        f.write('operation = SMOOTH\n')
+        f.write('soltab = [sol000/amplitude000]\n')
+        f.write('axesToSmooth = [time] # axes to smooth\n')
+        f.write('mode = median\n')
+        f.write('replace = False\n')
+        f.write('log = True\n')
+
+    if intype == 'phase' or intype == 'a&p':
+        f.write('[bandpassphase]\n')
+        f.write('operation = SMOOTH\n')
+        f.write('soltab = [sol000/phase000]\n')
+        f.write('axesToSmooth = [time] # axes to smooth\n')
+        f.write('mode = median\n')
+        f.write('replace = False\n')
+        f.write('log = False\n')
+
+    f.close()
+    return parset    
+
 
 def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     """
