@@ -1622,6 +1622,70 @@ def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
     return
 
 
+def preapply_bandpass(H5filelist, mslist, dysco=True, updateweights=True):
+    """ Pre-apply a given set of corrections to a list of measurement sets.
+
+    Args:
+        H5filelist (list): list of h5parms to apply.
+        mslist (list): list of measurement set to apply corrections to.
+        dysco (bool): dysco compress the CORRECTED_DATA column or not.
+        updateweights (bool): updateweights based on amplitudes in DP3
+    Returns:
+        None
+    """
+    for ms in mslist:
+        parmdb = find_closest_H5time_toms(H5filelist, ms)
+        # overwrite DATA here (!)
+        applycal(ms, parmdb, msincol='DATA', msoutcol='DATA', dysco=dysco, updateweights=updateweights)
+    return
+
+def find_closest_H5time_toms(H5filelist, ms):
+    """ Find the h5parms, from a given list, that overlap in time with the specified Measurement Set.
+
+    Args:
+        H5filelist (list): list of h5parms to apply.
+        ms (str): Measurement Set to match h5parms to.
+    Returns:
+        H5filematch (list): list of h5parms matching the measurement set.
+    """
+    with table(ms, ack=False) as t:
+        timesms = np.sort(np.unique(t.getcol('TIME')))
+    H5filematch = None
+    time_diff = float('inf')
+    
+    for H5file in H5filelist:
+        with tables.open_file(H5file, mode='r') as H:
+            times = None
+            for sol_type in ['amplitude000', 'rotation000', 'phase000', 'tec000', 'rotationmeasure000']:
+                try:
+                    times = np.sort(getattr(H.root.sol000, sol_type).time[:])
+                    break
+                except AttributeError:
+                    continue
+                
+            if times is not None:
+                time_diff_tmp = abs(np.diff(closest_arrayvals(times,timesms))[0])
+                if time_diff_tmp < time_diff:
+                    H5filematch = H5file
+                    time_diff = time_diff_tmp
+
+    if H5filematch is None or times is None:
+        print('find_closest_H5time_toms: Cannot find matching H5file and ms')
+        raise Exception('find_closest_H5time_toms: Cannot find matching H5file and ms')
+    print(H5filematch, 'is closest in time to', ms,  ' diff is', time_diff)
+    return H5filematch
+
+def closest_arrayvals(a, b):
+    result = None
+    min_diff = float('inf')
+    for x in a:
+        for y in b:
+            diff = abs(x - y)
+            if diff < min_diff:
+                min_diff = diff
+                result = [x, y]
+    return result
+
 def time_match_mstoH5(H5filelist, ms):
     """ Find the h5parms, from a given list, that overlap in time with the specified Measurement Set.
 
@@ -1638,7 +1702,7 @@ def time_match_mstoH5(H5filelist, ms):
     for H5file in H5filelist:
         with tables.open_file(H5file, mode='r') as H:
             times = None
-            for sol_type in ['amplitude000', 'rotation000', 'phase000', 'tec000']:
+            for sol_type in ['amplitude000', 'rotation000', 'phase000', 'tec000', 'rotationmeasure000']:
                 try:
                     times = getattr(H.root.sol000, sol_type).time[:]
                     break
@@ -5717,42 +5781,6 @@ def create_beamcortemplate(ms):
 
     return H5name
 
-def create_losoto_bandpassparset(intype):
-    '''
-    Create losoto parset than takes median along the time axis
-    Can be used to create a bandpass
-    Parameters:
-    intype (str): set "phase" or "amplitude" or amplitude and phase ("a&p") smoothing, input should be one of these strings
-    '''
-    assert intype == 'phase' or intype == 'amplitude' or intype == 'a&p'
-    parset = 'losoto_bandpass.parset'
-    os.system('rm -f ' + parset)
-    f = open(parset, 'w')
-
-    f.write('soltab = [sol000/*]\n')
-    f.write('Ncpu = 0\n\n\n')
-
-    if intype == 'amplitude' or intype == 'a&p':
-        f.write('[bandpassamp]\n')
-        f.write('operation = SMOOTH\n')
-        f.write('soltab = [sol000/amplitude000]\n')
-        f.write('axesToSmooth = [time] # axes to smooth\n')
-        f.write('mode = median\n')
-        f.write('replace = False\n')
-        f.write('log = True\n')
-
-    if intype == 'phase' or intype == 'a&p':
-        f.write('[bandpassphase]\n')
-        f.write('operation = SMOOTH\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('axesToSmooth = [time] # axes to smooth\n')
-        f.write('mode = median\n')
-        f.write('replace = False\n')
-        f.write('log = False\n')
-
-    f.close()
-    return parset    
-
 
 def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     """
@@ -6040,6 +6068,45 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     f.close()
     return parset
 
+
+def create_losoto_bandpassparset(intype):
+    '''
+    Create losoto parset than takes median along the time axis
+    Can be used to create a bandpass
+    Parameters:
+    intype (str): set "phase" or "amplitude" or amplitude and phase ("a&p") smoothing, input should be one of these strings
+    '''
+    assert intype == 'phase' or intype == 'amplitude' or intype == 'a&p'
+    parset = 'losoto_bandpass.parset'
+    os.system('rm -f ' + parset)
+    f = open(parset, 'w')
+
+    f.write('soltab = [sol000/*]\n')
+    f.write('Ncpu = 0\n\n\n')
+
+    if intype == 'amplitude' or intype == 'a&p':
+        f.write('[bandpassamp]\n')
+        f.write('operation = SMOOTH\n')
+        f.write('soltab = [sol000/amplitude000]\n')
+        f.write('axesToSmooth = [time] # axes to smooth\n')
+        f.write('mode = median\n')
+        f.write('replace = False\n')
+        f.write('log = True\n')
+
+    if intype == 'phase' or intype == 'a&p':
+        f.write('[bandpassphase]\n')
+        f.write('operation = SMOOTH\n')
+        f.write('soltab = [sol000/phase000]\n')
+        f.write('axesToSmooth = [time] # axes to smooth\n')
+        f.write('mode = median\n')
+        f.write('replace = False\n')
+        f.write('log = False\n')
+
+    f.close()
+    return parset    
+    
+    
+    
 
 def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=True, refant='CS003HBA0',
                                      onechannel=False, outplotname='runningmedian'):
@@ -9749,7 +9816,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.3.0'
+    version = '12.4.0'
     print_title(version)
 
     global submodpath, datapath
@@ -9762,6 +9829,19 @@ def main():
         if h5parmdb is not None:
             os.system('cp ' + h5parmdb + ' .')  # make them local because source direction will be updated for merging
             args['preapplyH5_list'][h5parm_id] = h5parmdb.split('/')[-1]  # update input list to local location
+
+    # deal with glob-like string input for preapplybandpassH5_list
+    if  len(args['preapplybandpassH5_list']) == 1 and \
+        args['preapplybandpassH5_list'][0] is not None and \
+        ('*' in args['preapplybandpassH5_list'][0] or '?' in args['preapplybandpassH5_list'][0]): 
+             args['preapplybandpassH5_list'] = glob.glob(args['preapplybandpassH5_list'][0])
+             assert len(args['preapplybandpassH5_list']) >= 1 # assert that something is found
+             print('Found these bandpass solutions', args['preapplybandpassH5_list'])
+    # copy bandpass h5s locally
+    for h5parm_id, h5parmdb in enumerate(args['preapplybandpassH5_list']):
+        if h5parmdb is not None:
+            os.system('cp ' + h5parmdb + ' .')  # make them local because source direction will be updated for merging
+            args['preapplybandpassH5_list'][h5parm_id] = h5parmdb.split('/')[-1]  # update input list to local location
 
     # reorder lists based on sorted(args['ms'])
     if type(args['skymodel']) is list:
@@ -10003,6 +10083,11 @@ def main():
             if (i == 0) or (i == args['start']):
                 mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'],
                                  start=i, dysco=args['dysco'])
+
+        # PRE-APPLY BANDPASS-TYPE SOLUTIONS
+        if (args['preapplybandpassH5_list'][0]) is not None and i == 0:
+            preapply_bandpass(args['preapplybandpassH5_list'], mslist, dysco=args['dysco'])
+
         # PRE-APPLY SOLUTIONS (from a nearby direction for example)
         if (args['preapplyH5_list'][0]) is not None and i == 0:
             preapply(args['preapplyH5_list'], mslist, dysco=args['dysco'])
