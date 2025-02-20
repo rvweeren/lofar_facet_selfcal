@@ -9723,6 +9723,7 @@ def early_stopping(station: str = 'international', cycle: int = None):
 
     if nn_model is not None:
         predict_score = predict_nn(images[cycle], nn_model)
+        logger.info(f"Neural network score: {predict_score}")
     else:
         predict_score = 1.0
 
@@ -9747,7 +9748,6 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal converged")
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-        logger.info(f"Neural network score: {predict_score}")
         logger.info(f'{mergedh5[cycle]} --> best_solutions.h5')
         os.system(f'cp {mergedh5[cycle]} best_solutions.h5')
         os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
