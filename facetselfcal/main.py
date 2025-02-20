@@ -9741,7 +9741,7 @@ def early_stopping(station: str = 'international', cycle: int = None):
     if (predict_score < 0.5 and df['phase'][cycle] < 0.1 and rms_ratio < 1.0 and minmax_ratio < 0.85) or \
         (predict_score < 0.5 and df['phase'][cycle] < 0.2 and rms_ratio < 0.9 and minmax_ratio < 0.5) or \
         (predict_score < 0.3 and df['phase'][cycle] < 0.05) or \
-        (df['phase'][cycle] < 0.005) or \
+        (df['phase'][cycle] < 0.005 and predict_score < 0.6) or \
         (df['phase'][cycle] < 0.1 and rms_ratio < 0.5 and minmax_ratio < 0.1 and predict_score == 1.0) or \
         (df['phase'][cycle] < 0.05 and minmax_ratio < 0.1 and rms_ratio < 0.5 and predict_score == 1.0):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal converged")
