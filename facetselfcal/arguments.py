@@ -244,6 +244,10 @@ def option_parser():
                                    type=arg_as_list,
                                    default=[None],
                                    help="Update April 2024: Avoid usage because of corrupt vs correct. List of H5 files to preapply (one for each MS). The default is [None].")
+    calibrationparser.add_argument("--preapplybandpassH5-list",
+                                   type=arg_as_list,
+                                   default=[None],
+                                   help="List of possible h5parm files to preapply. For each MS, the closest h5parm in time in the list will be the one that preapplied. Times do not have to overlap between the h5parm and the MS. WEIGHT_SPECTRUM will be updated based on the amplitude values (if present). It is assumed (and not checked) that there is 'perfect' frequency ovelap and the solutions are constant along the time-axis of the h5parm. Note that DATA will be overwritten via a correct step, and these h5parms are not merged in the merged output solutions files. A list of length 1 with a glob-like string containing * or ? is also allowed, e.g. ['mybandpass*.h5']")
     calibrationparser.add_argument('--normamps',
                                    help='Normalize global amplitudes to 1.0. The default is True (False if fulljones is used). Note that if set to False --normamps-list is ignored.',
                                    type=ast.literal_eval,
@@ -525,7 +529,7 @@ def option_parser():
                         default='scalarphase',
                         type=str)
     parser.add_argument('--stack',
-                        help='Stacking of visibility data for multiple sources to increase S/N - still under construction.',
+                        help='Stacking of visibility data for multiple sources to increase S/N. Solve on stacked MSs that have the same time axis and imaging all MSs with the same phase center together - still under construction.',
                         action='store_true')
 
     parser.add_argument('ms', nargs='+', help='msfile(s)')

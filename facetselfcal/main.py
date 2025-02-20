@@ -4,7 +4,6 @@
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
 # h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_weights=False) Needs to be propagate_weights to be fully correct, this is a h5_merger issue
-# check that MODEL_DATA_DD etc XY,YX are set to zero/or clean if wsclean predicts are used for Stokes I/dual
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
 # compression: blosc2
@@ -12,7 +11,6 @@
 # bdsf still steals the logger https://github.com/lofar-astron/PyBDSF/issues/176
 # add html summary overview
 # Stacking check that freq and time axes are identical
-# Add multi-run stacking
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
@@ -21,13 +19,17 @@
 # phase detrending.
 # log command into the FITS header
 # BLsmooth constant smooth for gain solves
-# stop selfcal  based on some metrics
 # use scalarphasediff sols stats for solints? test amplitude stats as well
 # parallel solving with DP3, given that DP3 often does not use all cores?
 # uvmin, uvmax, uvminim, uvmaxim per ms per soltype
 
 # antidx = 0
 # taql("select ANTENNA1,ANTENNA2,gntrue(FLAG)/(gntrue(FLAG)+gnfalse(FLAG)) as NFLAG from L656064_129_164MHz_uv_pre-cal.concat.ms WHERE (ANTENNA1=={:d} OR ANTENNA2=={:d}) AND ANTENNA1!=ANTENNA2".format(antidx, antidx)).getcol('NFLAG')
+#read_MeerKAT_wscleanmodel_5spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J1939-6342_UHF.txt','J1939-6342_UHF.skymodel')
+#read_MeerKAT_wscleanmodel_5spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J1939-6342_L.txt','J1939-6342_L.skymodel')
+#read_MeerKAT_wscleanmodel_4spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J0408-6545_UHF.txt','J0408-6545_UHF.skymodel')
+#read_MeerKAT_wscleanmodel_3spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J0408-6545_L.txt','J0408-6545_L.skymodel')
+
 
 # example:
 # python facetselfal.py -b box_18.reg --forwidefield --avgfreqstep=2 --avgtimestep=2 --smoothnessconstraint-list="[0.0,0.0,5.0]" --antennaconstraint-list="['core']" --solint-list=[1,20,120] --soltypecycles-list="[0,1,3]" --soltype-list="['tecandphase','tecandphase','scalarcomplexgain']" test.ms
@@ -150,7 +152,8 @@ def set_channelsout(mslist, factor=1):
     if telescope == 'LOFAR':
         channelsout = round_up_to_even(f_bw * 12 * factor)
     elif telescope == 'MeerKAT':
-        channelsout = round_up_to_even(f_bw * 16 * factor)
+        channelsout = round_up_to_even(f_bw * 13 * factor) 
+        # should result in channelsout=12 for L-band, with bandpass edges removed
     else:
         channelsout = round_up_to_even(f_bw * 12 * factor)
     return channelsout
@@ -425,7 +428,179 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
         for h5 in h5list_sols:
             os.system('rm -f ' + h5)
     return
+def read_MeerKAT_wscleanmodel_5spix(filename, outfile):
+    '''
+    Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
+    This model is for 5-spectral index terms
+    These are used by the SDP pipeline
+    (code can only handle the wsclean format models provided there)
+    The function reformats the file so it can be used in DP3 and/or makesourcedb
+    Parameters:
+    filename (str): input filename
+    outfile (str): ouptput filename
+    '''
+    assert filename !=  outfile # prevent overwriting the input
+    data = ascii.read(filename, delimiter=' ')
 
+    # remove these as they are part of the skymodel format
+    data.remove_column('col5')
+    data.remove_column('col6')
+    data.remove_column('col7')
+    
+    # make all sources type POINT
+    data['col2'][:] =  'POINT,'
+    
+    # replace : with . for the declination
+    data['col4'] = np.char.replace(data['col4'], ":", ".")
+    
+    # add , after the StokesI flux (first convert to str format)
+    data['col8'] = data['col8'].astype(str)
+    data['col8'] = np.char.add(data['col8'], ',')
+    
+    #add , after first spectral index element
+    data['col9'] = np.char.add(data['col9'], ',')    
+
+    #add , after second spectral index element    
+    data['col10'] = data['col10'].astype(str)
+    data['col10'] = np.char.add(data['col10'], ',')
+    
+    #add , after third spectral index element    
+    data['col11'] = data['col11'].astype(str)
+    data['col11'] = np.char.add(data['col11'], ',')
+
+    #add , after third spectral index element    
+    data['col12'] = data['col12'].astype(str)
+    data['col12'] = np.char.add(data['col12'], ',')
+    
+    #add , after third spectral index element    
+    data['col13'] = np.char.add(data['col13'], ',')
+    
+    #add , after LogarithmicSI element    
+    data['col14'] = np.char.add(data['col14'], ',')
+    
+    #add ,,, after ReferenceFrequency element (extra comma because there are no Gaussian components)    
+    data['col15'] = data['col15'].astype(str)
+    data['col15'] = np.char.add(data['col15'], ',,,')
+    
+    ascii.write(data, outfile, overwrite=True, format='fast_no_header')
+    
+    # add formatting line
+    formatstr = "'1iFormat = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation'"
+    os.system("sed -i " + formatstr + " " + outfile)
+    return    
+
+def read_MeerKAT_wscleanmodel_4spix(filename, outfile):
+    '''
+    Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
+    This model is for 4-spectral index terms
+    These are used by the SDP pipeline
+    (code can only handle the wsclean format models provided there)
+    The function reformats the file so it can be used in DP3 and/or makesourcedb
+    Parameters:
+    filename (str): input filename
+    outfile (str): ouptput filename
+    '''
+    assert filename !=  outfile # prevent overwriting the input
+    data = ascii.read(filename, delimiter=' ')
+
+    # remove these as they are part of the skymodel format
+    data.remove_column('col5')
+    data.remove_column('col6')
+    data.remove_column('col7')
+    
+    # make all sources type POINT
+    data['col2'][:] =  'POINT,'
+    
+    # replace : with . for the declination
+    data['col4'] = np.char.replace(data['col4'], ":", ".")
+    
+    # add , after the StokesI flux (first convert to str format)
+    data['col8'] = data['col8'].astype(str)
+    data['col8'] = np.char.add(data['col8'], ',')
+    
+    #add , after first spectral index element
+    data['col9'] = np.char.add(data['col9'], ',')    
+
+    #add , after second spectral index element    
+    data['col10'] = data['col10'].astype(str)
+    data['col10'] = np.char.add(data['col10'], ',')
+    
+    #add , after third spectral index element    
+    data['col11'] = data['col11'].astype(str)
+    data['col11'] = np.char.add(data['col11'], ',')
+    
+    #add , after third spectral index element    
+    data['col12'] = np.char.add(data['col12'], ',')
+    
+    #add , after LogarithmicSI element    
+    data['col13'] = np.char.add(data['col13'], ',')
+    
+    #add ,,, after ReferenceFrequency element (extra comma because there are no Gaussian components)    
+    data['col14'] = data['col14'].astype(str)
+    data['col14'] = np.char.add(data['col14'], ',,,')
+    
+    ascii.write(data, outfile, overwrite=True, format='fast_no_header')
+    
+    # add formatting line
+    formatstr = "'1iFormat = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation'"
+    os.system("sed -i " + formatstr + " " + outfile)
+    return    
+
+
+
+def read_MeerKAT_wscleanmodel_3spix(filename, outfile):
+    '''
+    Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
+    This model is for 3-spectral index terms
+    These are used by the SDP pipeline
+    (code can only handle the wsclean format models provided there)
+    The function reformats the file so it can be used in DP3 and/or makesourcedb
+    Parameters:
+    filename (str): input filename
+    outfile (str): ouptput filename
+    '''
+    assert filename !=  outfile # prevent overwriting the input
+    data = ascii.read(filename, delimiter=' ')
+
+    # remove these as they are part of the skymodel format
+    data.remove_column('col5')
+    data.remove_column('col6')
+    data.remove_column('col7')
+    
+    # make all sources type POINT
+    data['col2'][:] =  'POINT,'
+    
+    # replace : with . for the declination
+    data['col4'] = np.char.replace(data['col4'], ":", ".")
+    
+    # add , after the StokesI flux (first convert to str format)
+    data['col8'] = data['col8'].astype(str)
+    data['col8'] = np.char.add(data['col8'], ',')
+    
+    #add , after first spectral index element
+    data['col9'] = np.char.add(data['col9'], ',')    
+
+    #add , after second spectral index element    
+    data['col10'] = data['col10'].astype(str)
+    data['col10'] = np.char.add(data['col10'], ',')
+    
+    #add , after third spectral index element    
+    data['col11'] = np.char.add(data['col11'], ',')
+
+
+    #add , after LogarithmicSI element    
+    data['col12'] = np.char.add(data['col12'], ',')
+    
+    #add ,,, after ReferenceFrequency element (extra comma because there are no Gaussian components)    
+    data['col13'] = data['col13'].astype(str)
+    data['col13'] = np.char.add(data['col13'], ',,,')
+    
+    ascii.write(data, outfile, overwrite=True, format='fast_no_header')
+    
+    # add formatting line
+    formatstr = "'1iFormat = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation'"
+    os.system("sed -i " + formatstr + " " + outfile)
+    return    
 
 def copy_over_solutions_from_skipped_directions(modeldatacolumnsin, id_kept):
     """
@@ -1447,6 +1622,70 @@ def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
     return
 
 
+def preapply_bandpass(H5filelist, mslist, dysco=True, updateweights=True):
+    """ Pre-apply a given set of corrections to a list of measurement sets.
+
+    Args:
+        H5filelist (list): list of h5parms to apply.
+        mslist (list): list of measurement set to apply corrections to.
+        dysco (bool): dysco compress the CORRECTED_DATA column or not.
+        updateweights (bool): updateweights based on amplitudes in DP3
+    Returns:
+        None
+    """
+    for ms in mslist:
+        parmdb = find_closest_H5time_toms(H5filelist, ms)
+        # overwrite DATA here (!)
+        applycal(ms, parmdb, msincol='DATA', msoutcol='DATA', dysco=dysco, updateweights=updateweights)
+    return
+
+def find_closest_H5time_toms(H5filelist, ms):
+    """ Find the h5parms, from a given list, that overlap in time with the specified Measurement Set.
+
+    Args:
+        H5filelist (list): list of h5parms to apply.
+        ms (str): Measurement Set to match h5parms to.
+    Returns:
+        H5filematch (list): list of h5parms matching the measurement set.
+    """
+    with table(ms, ack=False) as t:
+        timesms = np.sort(np.unique(t.getcol('TIME')))
+    H5filematch = None
+    time_diff = float('inf')
+    
+    for H5file in H5filelist:
+        with tables.open_file(H5file, mode='r') as H:
+            times = None
+            for sol_type in ['amplitude000', 'rotation000', 'phase000', 'tec000', 'rotationmeasure000']:
+                try:
+                    times = np.sort(getattr(H.root.sol000, sol_type).time[:])
+                    break
+                except AttributeError:
+                    continue
+                
+            if times is not None:
+                time_diff_tmp = abs(np.diff(closest_arrayvals(times,timesms))[0])
+                if time_diff_tmp < time_diff:
+                    H5filematch = H5file
+                    time_diff = time_diff_tmp
+
+    if H5filematch is None or times is None:
+        print('find_closest_H5time_toms: Cannot find matching H5file and ms')
+        raise Exception('find_closest_H5time_toms: Cannot find matching H5file and ms')
+    print(H5filematch, 'is closest in time to', ms,  ' diff is', time_diff)
+    return H5filematch
+
+def closest_arrayvals(a, b):
+    result = None
+    min_diff = float('inf')
+    for x in a:
+        for y in b:
+            diff = abs(x - y)
+            if diff < min_diff:
+                min_diff = diff
+                result = [x, y]
+    return result
+
 def time_match_mstoH5(H5filelist, ms):
     """ Find the h5parms, from a given list, that overlap in time with the specified Measurement Set.
 
@@ -1463,7 +1702,7 @@ def time_match_mstoH5(H5filelist, ms):
     for H5file in H5filelist:
         with tables.open_file(H5file, mode='r') as H:
             times = None
-            for sol_type in ['amplitude000', 'rotation000', 'phase000', 'tec000']:
+            for sol_type in ['amplitude000', 'rotation000', 'phase000', 'tec000', 'rotationmeasure000']:
                 try:
                     times = getattr(H.root.sol000, sol_type).time[:]
                     break
@@ -1493,7 +1732,7 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
 
     logger.info('Version:                   ' + str(version))
     logger.info('Imsize:                    ' + str(args['imsize']))
-    logger.info('Pixelscale:                ' + str(args['pixelscale']))
+    logger.info('Pixelscale [arcsec]:       ' + str(args['pixelscale']))
     logger.info('Niter:                     ' + str(args['niter']))
     logger.info('Uvmin:                     ' + str(args['uvmin']))
     logger.info('Multiscale:                ' + str(args['multiscale']))
@@ -1510,6 +1749,25 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
     logger.info('User specified clean mask: ' + str(fitsmask))
     logger.info('Threshold for MakeMask:    ' + str(args['maskthreshold']))
     logger.info('Briggs robust:             ' + str(args['robust']))
+        
+    for ms in mslist:
+        logger.info(' === ' + ms + ' ===')
+        with table(mslist[0] + '/OBSERVATION', ack=False) as t:
+            telescope = t.getcol('TELESCOPE_NAME')[0]
+            logger.info('Telescope:                 ' + telescope)
+        with table(ms, readonly=True, ack=False) as t:            
+            time = np.unique(t.getcol('TIME'))
+            logger.info('Integration time [s]:      {:.2f}'.format(np.abs(time[1] - time[0])))
+            logger.info('Observation duration [hr]: {:.2f}'.format((np.max(time)-np.min(time))/3600.))
+        with table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False) as t:
+            chanw = np.median(t.getcol('CHAN_WIDTH'))
+            freqs = t.getcol('CHAN_FREQ')[0]
+            nfreq = len(t.getcol('CHAN_FREQ')[0])
+            logger.info('Number of channels:        {:.2f}'.format(nfreq))
+            logger.info('Bandwidth [MHz]:           {:.2f}'.format((np.max(freqs)-np.min(freqs))/1e6))
+            logger.info('Start frequnecy [MHz]:     {:.2f}'.format(np.min(freqs)/1e6))      
+            logger.info('End frequency [MHz]:       {:.2f}'.format(np.max(freqs)/1e6))
+        logger.info('================')
     return
 
 
@@ -1630,7 +1888,7 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE',
     return
 
 
-def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: str = 'DATA') -> None:
+def stackwrapper(inmslist: list, msout_prefix: str = 'stack', column_to_normalise: str = 'DATA') -> None:
     """ Wraps the stack
     Arguments
     ---------
@@ -1648,9 +1906,13 @@ def stackwrapper(inmslist: list, msout: str = 'stack.MS', column_to_normalise: s
     print('Stacking datasets')
 
     start = time.time()
-    stackMS_taql(inmslist, outputms=msout, incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
+    msout_stacks, mss_timestacks = stackMS_taql(inmslist, outputms_prefix=msout_prefix, incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM')
     now = time.time()
     print(f'Stacking took {now - start} seconds')
+
+    assert len(msout_stacks) == len(mss_timestacks)
+
+    return msout_stacks, mss_timestacks
 
 
 def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=False,
@@ -1805,7 +2067,8 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol=
 
 def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM',
             outcol_weight='WEIGHT_SPECTRUM', stepsize=1000000):
-    """ Stack a list of MSes.
+    """ Henrik Feb 2025: This function is not used currently and does not support ulti-timestack MS. Can be removed?
+    Stack a list of MSes.
 
     Arguments
     ---------
@@ -1844,15 +2107,15 @@ def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', wei
     taql('UPDATE stack.MS SET DATA=DATA/WEIGHT_SPECTRUM')
 
 
-def stackMS_taql(inmslist: list, outputms: str = 'stack.MS', incol: str = 'DATA_NORM', outcol: str = 'DATA',
+def stackMS_taql(inmslist: list, outputms_prefix: str = 'stack', incol: str = 'DATA_NORM', outcol: str = 'DATA',
                  weightref: str = 'WEIGHT_SPECTRUM_PM', outcol_weight: str = 'WEIGHT_SPECTRUM'):
-    """ Stack a list of MSes.
+    """ Stack a list of MSes - per group with same time axis, one stacked MS is created.
 
     Arguments
     ---------
     inmslist : list
         List of input Measurement Sets to stack.
-    outputms : str
+    outputms_prefix : str
         Name of the output MS.
     incol : str
         Column to stack from the individual MSes.
@@ -1862,32 +2125,62 @@ def stackMS_taql(inmslist: list, outputms: str = 'stack.MS', incol: str = 'DATA_
         Name of the weight column to stack from the individual files.
     outcol_weight : str
         Name of the stacked weight column in the output MS.
+    Returns
+    ---------
+    msout_stacked: list of stacked MS names
+    mss_timestacks: list of input MS grouped in timestacks
     """
-    print(f'Using input column {incol}')
-    print(f'Writing to {outputms}')
-    if not isinstance(inmslist, list):
-        os.system('cp -r {} {}'.format(inmslist, outputms))
-        print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
-        return True
-    if os.path.isdir(outputms):  # delete MS if it exists
-        os.system('rm -rf ' + outputms)
-    os.system('cp -r {} {}'.format(inmslist[0], outputms))
 
-    TAQLSTR = f'UPDATE {outputms} SET DATA = ('
-    sum_clause = ' + '.join(
-        [f'ms{idx:02d}.DATA_NORM * ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist) + 1)])
-    sum_weight_clause = ' + '.join([f'ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist) + 1)])
-    from_clause = ', '.join([f'{ms} AS ms{idx:02d}' for idx, ms in enumerate(inmslist, start=1)])
+    # identify which MSs share the same time axis:
+    starttimelist = [] # list of unique timestamps
+    mss_timestacks = [] # list of MSs stacks
+    for ms in inmslist:
+        with table(ms, ack=False) as t:
+            starttime = t.TIME[0]
+            try: # check if timestamps already exist and if yes, add to this stack
+                group = starttimelist.index(starttime)
+                print('group', group)
+                print(f'append {ms} to {starttime}: {mss_timestacks[group]}')
+                mss_timestacks[group].append(ms)
+            except ValueError: # add new list of MS for this timestamps if there is none already
+                starttimelist.append(starttime)
+                mss_timestacks.append([ms])
+            print(f'new list {ms} to {starttime}')
+    print(starttimelist)
+    print(f'Found {len(starttimelist)} groups of MSs with same time axis.')
+    print(f'Groups: {mss_timestacks}.')
 
-    taql_query = f'{TAQLSTR} {sum_clause}) / ({sum_weight_clause}) FROM {from_clause}'
+    msout_stacked = []
+    for timestack_id, inmslist_timestack in enumerate(mss_timestacks):
+        outputms = f'{outputms_prefix}_t{timestack_id:02d}.MS'
+        msout_stacked.append(outputms)
+        print(f'Using input column {incol}')
+        print(f'Writing to {outputms}')
+        if not isinstance(inmslist_timestack, list):
+            os.system('cp -r {} {}'.format(inmslist_timestack, outputms))
+            print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
+            return True
+        if os.path.isdir(outputms):  # delete MS if it exists
+            os.system('rm -rf ' + outputms)
+        os.system('cp -r {} {}'.format(inmslist_timestack[0], outputms))
 
-    print('Stacking DATA')
-    print(taql_query)
-    taql(taql_query)
+        TAQLSTR = f'UPDATE {outputms} SET DATA = ('
+        sum_clause = ' + '.join(
+            [f'ms{idx:02d}.DATA_NORM * ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist_timestack) + 1)])
+        sum_weight_clause = ' + '.join([f'ms{idx:02d}.WEIGHT_SPECTRUM_PM' for idx in range(1, len(inmslist_timestack) + 1)])
+        from_clause = ', '.join([f'{ms} AS ms{idx:02d}' for idx, ms in enumerate(inmslist_timestack, start=1)])
 
-    print('Stacking WEIGHT_SPECTRUM')
-    print(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
-    taql(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+        taql_query = f'{TAQLSTR} {sum_clause}) / ({sum_weight_clause}) FROM {from_clause}'
+
+        print('Stacking DATA')
+        print(taql_query)
+        taql(taql_query)
+
+        print('Stacking WEIGHT_SPECTRUM')
+        print(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+        taql(f'UPDATE {outputms} SET {outcol_weight} = ({sum_weight_clause}) FROM {from_clause}')
+
+    return msout_stacked, mss_timestacks
 
 
 def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True, stepsize=1000000):
@@ -2773,7 +3066,7 @@ def inputchecker(args, mslist):
          print(args['modelstoragemanager'])
          print('Wrong input for --modelstoragemanager, needs to be "stokes_i" or None')
          raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i or None')
-         
+
     for tmp in args['BLsmooth_list']:
         # print(args['BLsmooth_list'])
         if not (isinstance(tmp, bool)):
@@ -5097,7 +5390,7 @@ def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
     time = np.unique(t.getcol('TIME'))
     tint = np.abs(time[1] - time[0])
     print('Integration time visibilities', tint)
-    logger.info('Integration time visibilities: ' + str(tint))
+    logger.info('Integration time visibilities [s]: ' + str(tint))
     t.close()
 
     del data, flags, model
@@ -5776,6 +6069,45 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     return parset
 
 
+def create_losoto_bandpassparset(intype):
+    '''
+    Create losoto parset than takes median along the time axis
+    Can be used to create a bandpass
+    Parameters:
+    intype (str): set "phase" or "amplitude" or amplitude and phase ("a&p") smoothing, input should be one of these strings
+    '''
+    assert intype == 'phase' or intype == 'amplitude' or intype == 'a&p'
+    parset = 'losoto_bandpass.parset'
+    os.system('rm -f ' + parset)
+    f = open(parset, 'w')
+
+    f.write('soltab = [sol000/*]\n')
+    f.write('Ncpu = 0\n\n\n')
+
+    if intype == 'amplitude' or intype == 'a&p':
+        f.write('[bandpassamp]\n')
+        f.write('operation = SMOOTH\n')
+        f.write('soltab = [sol000/amplitude000]\n')
+        f.write('axesToSmooth = [time] # axes to smooth\n')
+        f.write('mode = median\n')
+        f.write('replace = False\n')
+        f.write('log = True\n')
+
+    if intype == 'phase' or intype == 'a&p':
+        f.write('[bandpassphase]\n')
+        f.write('operation = SMOOTH\n')
+        f.write('soltab = [sol000/phase000]\n')
+        f.write('axesToSmooth = [time] # axes to smooth\n')
+        f.write('mode = median\n')
+        f.write('replace = False\n')
+        f.write('log = False\n')
+
+    f.close()
+    return parset    
+    
+    
+    
+
 def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=True, refant='CS003HBA0',
                                      onechannel=False, outplotname='runningmedian'):
     parset = 'losoto_mediansmooth.parset'
@@ -5930,7 +6262,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         cmd += '--imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
         run(cmd)
         return
-    
+
     solints = None  # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
     soltypelist_includedir = None  # initialize
     if facetdirections is not None:
@@ -6277,25 +6609,25 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
 
         # do the stack and normalization
-        stackwrapper(mslist, msout='stack.MS', column_to_normalise='DATA')
+        # mslist_stacked = stacked MS (one per common time axis / timestack); mss_timestacks = list of MSs that were used to create each stack
+        mslist_stacked, mss_timestacks = stackwrapper(mslist, msout_prefix='stack', column_to_normalise='DATA')
         mslist_orig = mslist[:]  # so we can use it for the applycal
-        mslist = ['stack.MS']
+        mslist = mslist_stacked
 
-        # set MODEL_DATA to point source in stack
-        t = table('stack.MS', ack=False)
-        if 'MODEL_DATA' not in t.colnames():
-            t.close()
-            run('DP3 msin=stack.MS msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
-        else:
-            t.close()
-        print('Predict point source for stack.MS')
-        # do the predict with taql
-        run("taql" + " 'update stack.MS set MODEL_DATA[,0]=(1.0+ +0i)'", log=True)
-        run("taql" + " 'update stack.MS set MODEL_DATA[,3]=(1.0+ +0i)'", log=True)
-        run("taql" + " 'update stack.MS set MODEL_DATA[,1]=(0+0i)'", log=True)
-        run("taql" + " 'update stack.MS set MODEL_DATA[,2]=(0+0i)'", log=True)
-
-        print(mslist, mslist_orig)
+        # set MODEL_DATA to point source in stacks
+        for ms in mslist:
+            t = table(ms, ack=False)
+            if 'MODEL_DATA' not in t.colnames():
+                t.close()
+                run(f'DP3 msin={ms} msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
+            else:
+                t.close()
+            print(f'Predict point source for  {ms}')
+            # do the predict with taql
+            run(f"taql 'update {ms} set MODEL_DATA[,0]=(1.0+ +0i)'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA[,3]=(1.0+ +0i)'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA[,1]=(0+0i)'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA[,2]=(0+0i)'", log=True)
 
         # set all these to None to avoid skymodel predicts in runDPPPbase()
         skymodelpointsource = None
@@ -6523,6 +6855,13 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             run('losoto ' + parmdbmergename + ' ' + losotoparset)
             force_close(parmdbmergename)
 
+            ## --- start STACK code ---
+            if args['stack']:
+                # for each stacked MS (one per common time axis), apply the solutions to each direction MS
+                for orig_ms in mss_timestacks[msnumber]:
+                    applycal(orig_ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
+            ## --- end STACK code ---
+
     if QualityBasedWeights and selfcalcycle >= QualityBasedWeights_start:
         for ms in mslist:
             run('python3 NeReVar.py --filename=' + ms + \
@@ -6530,13 +6869,6 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 ' --DiagDir=plotlosoto' + ms + '/NeReVar/ --basename=_selfcalcycle' + str(selfcalcycle).zfill(
                 3) + ' --modelcol=MODEL_DATA')
 
-    ## --- start STACK code ---
-    if args['stack']:
-        for ms in mslist_orig:
-            applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
-            # note parmdbmergename should always be correct since we only had one MS (stack.MS) and so it does only "loop" over one MS.
-            # Future work: If there are mulitple time groups we probably want to use wsclean_h5list instead of parmdbmergename (as it contains a list of all merged h5 in order of mslist)
-    ## --- end STACK code ---
 
     if len(modeldatacolumns) > 0:
         np.save('wsclean_h5list' + str(selfcalcycle).zfill(3) + '.npy', wsclean_h5list)
@@ -9245,21 +9577,31 @@ def create_Ateam_seperation_plots(mslist, start=0):
             print(f"check_Ateam_separation.py does not exist")
     return
 
-
 def nested_mslistforimaging(mslist, stack=False):
-    """
-    Returns a nested list of measurement sets for imaging.
-    Examples:
-        nested_mslistforimaging(['ms1.ms', 'ms2.ms'], stack=False)
-        # returns: [['ms1.ms', 'ms2.ms']]
-
-        nested_mslistforimaging(['ms1.ms', 'ms2.ms'], stack=True)
-        # returns: [['ms1.ms'], ['ms2.ms']]
-    """
-    if stack:
-        return [[ms] for ms in mslist]
-    return [mslist]
-
+    if not stack:
+        return [mslist]  # has format [[ms1.ms,ms2.ms,....]]
+    else:
+        # sort MSs in groups with same phase center
+        for msid, ms in enumerate(mslist):
+            with table(f'{ms}::FIELD') as tf:
+                phasecenter = tf[0]['PHASE_DIR'][0]
+                if msid == 0:
+                    mslistreturn = [[ms]]
+                    phasecenterlist = [phasecenter]
+                else:
+                    image_id = None
+                    #iterate over already existing imaging groups
+                    for iid, image_phasecenter in enumerate(phasecenterlist):
+                        if np.linalg.norm(image_phasecenter-phasecenter) < 4.84e-8: # phase center distance less than 0.01 arcsec
+                            image_id = iid
+                    # if ms phase center already has an image list, add to that.
+                    if image_id is not None:
+                        mslistreturn[image_id].append(ms)
+                    else:
+                        phasecenterlist.append(phasecenter)
+                        mslistreturn.append([ms])
+        print(f'Found {len(mslistreturn)} imaging groups: ', mslistreturn)
+        return mslistreturn  # has format [[ms1.ms,..],[ms2.ms,..],[...]]
 
 def flag_autocorr(mslist):
     """
@@ -9478,7 +9820,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.2.0'
+    version = '12.4.0'
     print_title(version)
 
     global submodpath, datapath
@@ -9491,6 +9833,19 @@ def main():
         if h5parmdb is not None:
             os.system('cp ' + h5parmdb + ' .')  # make them local because source direction will be updated for merging
             args['preapplyH5_list'][h5parm_id] = h5parmdb.split('/')[-1]  # update input list to local location
+
+    # deal with glob-like string input for preapplybandpassH5_list
+    if  len(args['preapplybandpassH5_list']) == 1 and \
+        args['preapplybandpassH5_list'][0] is not None and \
+        ('*' in args['preapplybandpassH5_list'][0] or '?' in args['preapplybandpassH5_list'][0]): 
+             args['preapplybandpassH5_list'] = glob.glob(args['preapplybandpassH5_list'][0])
+             assert len(args['preapplybandpassH5_list']) >= 1 # assert that something is found
+             print('Found these bandpass solutions', args['preapplybandpassH5_list'])
+    # copy bandpass h5s locally
+    for h5parm_id, h5parmdb in enumerate(args['preapplybandpassH5_list']):
+        if h5parmdb is not None:
+            os.system('cp ' + h5parmdb + ' .')  # make them local because source direction will be updated for merging
+            args['preapplybandpassH5_list'][h5parm_id] = h5parmdb.split('/')[-1]  # update input list to local location
 
     # reorder lists based on sorted(args['ms'])
     if type(args['skymodel']) is list:
@@ -9732,6 +10087,11 @@ def main():
             if (i == 0) or (i == args['start']):
                 mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'],
                                  start=i, dysco=args['dysco'])
+
+        # PRE-APPLY BANDPASS-TYPE SOLUTIONS
+        if (args['preapplybandpassH5_list'][0]) is not None and i == 0:
+            preapply_bandpass(args['preapplybandpassH5_list'], mslist, dysco=args['dysco'])
+
         # PRE-APPLY SOLUTIONS (from a nearby direction for example)
         if (args['preapplyH5_list'][0]) is not None and i == 0:
             preapply(args['preapplyH5_list'], mslist, dysco=args['dysco'])
@@ -9805,7 +10165,7 @@ def main():
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
-            # re-create facets.reg here 
+            # re-create facets.reg here
             # in a restart the number of directions from the previous facets.reg might not match that in the h5
             create_facet_directions(args['imagename'], i, ms=mslist[0], imsize=args['imsize'],
                             pixelscale= args['pixelscale'], via_h5=True, h5=wsclean_h5list[0])
