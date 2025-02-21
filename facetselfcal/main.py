@@ -1277,21 +1277,24 @@ def fix_equidistant_times(mslist, dryrun, dysco=True):
     with table(mslist[0] + '/OBSERVATION', ack=False) as t:
         telescope = t.getcol('TELESCOPE_NAME')[0]
     mslist_return = []
-
+    mslist_splitting_performed = []
     for ms in mslist:
         if telescope != 'LOFAR':
             if check_equidistant_times([ms], stop=False, return_result=True):
                 print(ms + ' has a regular time axis')
                 mslist_return.append(ms)
+                mslist_splitting_performed.append(False)
             else:
                 ms_path = regularize_ms(ms, overwrite=True, dryrun=dryrun)
                 # Do the splitting
                 mslist_return = mslist_return + split_ms(ms_path, overwrite=True,
-                                                         prefix=ms_path, return_mslist=True,
+                                                         prefix=os.path.basename(ms_path), return_mslist=True,
                                                          dryrun=dryrun, dysco=dysco)
+                mslist_splitting_performed.append(True)
         else:
             mslist_return.append(ms)
-    return sorted(mslist_return)
+            mslist_splitting_performed.append(False)
+    return sorted(mslist_return), all(mslist_splitting_performed)
 
 
 def check_equidistant_times(mslist, stop=True, return_result=False):
@@ -1587,18 +1590,29 @@ def force_close(h5):
     return
 
 
-def create_mergeparmdbname(mslist, selfcalcycle):
+def create_mergeparmdbname(mslist, selfcalcycle, autofrequencyaverage_calspeedup=False, skymodelsolve=False):
     """ Merges the h5parms for a given list of measurement sets and selfcal cycle.
 
     Args:
         mslist (list): list of measurement sets to iterate over.
         selfcalcycle (int): the selfcal cycle for which to merge h5parms.
+        autofrequencyaverage_calspeedup (bool): add extra "avg" to h5parm name
+        skymodelsolve (bool): add extra "sky" to the name (for solves against a skymodel)
     Returns:
         parmdblist (list): list of names of the merged h5parms.
     """
+    
+    if autofrequencyaverage_calspeedup: 
+        tmpstr = '.avg.h5'
+    else:
+        tmpstr = '.h5'
+    
     parmdblist = mslist[:]
     for ms_id, ms in enumerate(mslist):
-        parmdblist[ms_id] = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + '.avg.h5'
+        if skymodelsolve:
+            parmdblist[ms_id] = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + tmpstr
+        else:    
+            parmdblist[ms_id] = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + tmpstr
     print('Created parmdblist', parmdblist)
     return parmdblist
 
@@ -3066,6 +3080,14 @@ def inputchecker(args, mslist):
          print(args['modelstoragemanager'])
          print('Wrong input for --modelstoragemanager, needs to be "stokes_i" or None')
          raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i or None')
+
+    if args['bandpassMeerKAT']:
+        if args['stack'] or args['DDE'] or args['stopafterskysolve'] or args['stopafterpreapply']:
+            print('--bandpassMeerKAT cannot be used with --stack, --DDE, --stopafterskysolve, or --stopafterpreapply')
+            raise Exception('--bandpassMeerKAT cannot be used with --stack or --DDE')
+        if args['skymodel'] is None and args['skymodelpointsource'] is None and args['wscleanskymodel'] is None:
+            print('skymodel, skymodelpointsource, or wscleanskymodel needs to be set')
+            raise Exception('skymodel, skymodelpointsource, or wscleanskymodel needs to be set')
 
     for tmp in args['BLsmooth_list']:
         # print(args['BLsmooth_list'])
@@ -9888,6 +9910,13 @@ def main():
         merge_splitted_h5_ordered(modeldatacolumnsin, 'test.h5', clean_up=False)
         sys.exit()
 
+    # fix irregular time axes or avoid bloated MS, do this first before any other step
+    # in case of multiple scans on the calibrator this avoids DP3 adding of lot flagged data in between
+    if args['bandpassMeerKAT']:
+        # args['skipbackup'] will set based on whether all MS were splitted
+        # in case all MS were splitted a backup is not needed anymore
+        mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, dysco=args['dysco'])
+
     # cut ms if there are flagged times at the start or end of the ms
     if args['remove_flagged_from_startend']:
         mslist = sorted(remove_flagged_data_startend(mslist))
@@ -9911,8 +9940,11 @@ def main():
     # fix UVW coordinates (for time averaging with MeerKAT data)
     if args['start'] == 0: fix_uvw(mslist)
        
-    # fix irregular time axes if needed (do this after flaging)
-    mslist = fix_equidistant_times(mslist, args['start'] != 0, dysco=args['dysco'])
+    # fix irregular time axes if needed (do this after flagging)
+    # in case --bandpassMeerKAT was set this step should not do anything because
+    # the MS were already splitted before in case of gaps (so they will be regular now)
+    # the [0] at the end is to avoid the extra output returned by fix_equidistant_times
+    mslist = fix_equidistant_times(mslist, args['start'] != 0, dysco=args['dysco'])[0]
 
     # reset weights if requested
     if args['resetweights']:
@@ -10038,11 +10070,14 @@ def main():
     # ----- START SELFCAL LOOP -----
     for i in range(args['start'], args['stop']):
 
-        # update removenegativefrommodel setting, for high dynamic range it is better to keep negative clean components (based on very clear 3C84 test case)
+        # update removenegativefrommodel setting, for high dynamic range it is better to keep negative clean components (based on a very clear 3C84 test case)
         if args['autoupdate_removenegativefrommodel'] and i > 1 and not args['DDE']:
             args['removenegativefrommodel'] = False
         if args['autoupdate_removenegativefrommodel'] and args[
             'DDE']:  # never remove negative clean components for a DDE solve
+            args['removenegativefrommodel'] = False
+        if args['autoupdate_removenegativefrommodel'] and telescope == 'MeerKAT':
+            # never remove negative clean components for MeerKAT as the image quality is already very good
             args['removenegativefrommodel'] = False
 
         # AUTOMATICALLY PICKUP PREVIOUS MASK (in case of a restart) and trigger multiscale
@@ -10075,7 +10110,7 @@ def main():
             mslist = average(mslist, freqstep=avgfreqstep, timestep=4, dysco=args['dysco'])
         if args['autofrequencyaverage_calspeedup'] and i == args['stop'] - 3:
             mslist = mslist_backup[:]  # reset back, note copy by slicing otherwise list refers to original
-            preapply(create_mergeparmdbname(mslist, i - 1), mslist, updateDATA=False,
+            preapply(create_mergeparmdbname(mslist, i - 1, autofrequencyaverage_calspeedup=True), mslist, updateDATA=False,
                      dysco=args['dysco'])  # do not overwrite DATA column
 
         # PHASE-UP if requested
@@ -10282,6 +10317,12 @@ def main():
                 for colname_remove in collist_del:
                     remove_column_ms(mslist, colname_remove)
             return
+        
+        if args['bandpassMeerKAT']: 
+            print('Stopping as requested via --bandpassMeerKAT and compute bandpass')
+            for parmdb in create_mergeparmdbname(mslist, 0, skymodelsolve=True):
+                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
+            return    
 
         # REDETERMINE SOLINTS IF REQUESTED
         if (i >= 0) and (args['usemodeldataforsolints']):
