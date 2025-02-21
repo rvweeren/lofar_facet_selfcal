@@ -497,6 +497,9 @@ def option_parser():
     parser.add_argument('--stopafterpreapply',
                         help='Stop after preapply of solutions',
                         action='store_true')
+    parser.add_argument('--bandpassMeerKAT',
+                        help='Stop calibration after solving against an external skymodel and compute bandpass on merged solution file. Requires an external skymodel to be provided.',
+                        action='store_true')
     parser.add_argument('--noarchive',
                         help='Do not archive the data.',
                         action='store_true')
