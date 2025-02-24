@@ -897,9 +897,9 @@ def check_for_BDPbug_longsolint(mslist, facetdirections):
         print('------------' + ms)
         ms_ntimes = len(time)
         # print(ms, ms_ntimes)
-        for solintcyle_id, tmpval in enumerate(solint_reformat[0]):
-            print(' --- ' + str('pertubation cycle=') + str(solintcyle_id) + '--- ')
-            solints_cycle = solint_reformat[:, solintcyle_id]
+        for solintcycle_id, tmpval in enumerate(solint_reformat[0]):
+            print(' --- ' + str('pertubation cycle=') + str(solintcycle_id) + '--- ')
+            solints_cycle = solint_reformat[:, solintcycle_id]
             solints = [int(format_solint(x, ms)) for x in solints_cycle]
             print('Solint unmodified per direction', solints)
             solints = tweak_solints(solints)
@@ -1610,9 +1610,9 @@ def create_mergeparmdbname(mslist, selfcalcycle, autofrequencyaverage_calspeedup
     parmdblist = mslist[:]
     for ms_id, ms in enumerate(mslist):
         if skymodelsolve:
-            parmdblist[ms_id] = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + tmpstr
+            parmdblist[ms_id] = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(3) + '_' + ms + tmpstr
         else:    
-            parmdblist[ms_id] = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + ms + tmpstr
+            parmdblist[ms_id] = 'merged_selfcalcycle' + str(selfcalcycle).zfill(3) + '_' + ms + tmpstr
     print('Created parmdblist', parmdblist)
     return parmdblist
 
@@ -2439,7 +2439,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
     return
 
 
-# reset_gains_noncore('merged_selfcalcyle11_testquick260.ms.avg.h5')
+# reset_gains_noncore('merged_selfcalcycle11_testquick260.ms.avg.h5')
 # sys.exit()
 
 
@@ -2779,7 +2779,10 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             outmslist.append(msout)
         else:
             outmslist.append(ms)  # so no averaging happened
-
+        
+    # fix MeerKAT UVW coordinates (needs to be done each time we average with DP3)
+    fix_uvw(outmslist) 
+   
     return outmslist
 
 
@@ -6570,11 +6573,10 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          longbaseline=False, flagslowphases=True,
                          flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None,
                          skymodelpointsource=None, wscleanskymodel=None, uvminscalarphasediff=0,
-                         docircular=False, mslist_beforephaseup=None, dysco=True, blsmooth_chunking_size=8,
+                         docircular=False, mslist_beforephaseup=None,
                          gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None,
-                         DDE_predict='WSCLEAN', QualityBasedWeights=False, QualityBasedWeights_start=5,
-                         QualityBasedWeights_dtime=10., QualityBasedWeights_dfreq=5., telescope='LOFAR',
-                         ncpu_max=24, mslist_beforeremoveinternational=None, soltypelist_includedir=None, modelstoragemanager=None):
+                         DDE_predict='WSCLEAN', telescope='LOFAR',
+                         mslist_beforeremoveinternational=None, soltypelist_includedir=None):
     ## --- start STACK code ---
     if args['stack']:
         # create MODEL_DATA because in case it does not exist (needed in case user gives external model(s))
@@ -6585,29 +6587,29 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 print('Doing sky predict for stacking...')
                 if skymodel is not None and type(skymodel) is str:
                     predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam,
-                               sources=skymodelsource, modelstoragemanager=modelstoragemanager)
+                               sources=skymodelsource, modelstoragemanager=args['modelstoragemanager'])
                 if skymodel is not None and type(skymodel) is list:
                     predictsky(ms, skymodel[ms_id], modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam,
-                               sources=skymodelsource, modelstoragemanager=modelstoragemanager)
+                               sources=skymodelsource, modelstoragemanager=args['modelstoragemanager'])
                 if wscleanskymodel is not None and type(wscleanskymodel) is str:
                     makeimage([ms], wscleanskymodel, 1., 1.,
                               len(glob.glob(wscleanskymodel + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
                               gapchanneldivision=gapchanneldivision,
-                              fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
+                              fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
                 if wscleanskymodel is not None and type(wscleanskymodel) is list:
                     makeimage([ms], wscleanskymodel[ms_id], 1., 1.,
                               len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
                               gapchanneldivision=gapchanneldivision,
-                              fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=modelstoragemanager)
+                              fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
                 if skymodelpointsource is not None and type(skymodelpointsource) is float:
                     # create MODEL_DATA (no dysco!)
-                    if modelstoragemanager is None:
+                    if args['modelstoragemanager'] is None:
                         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
                     else:
-                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + modelstoragemanager + ' steps=[]', log=True)                        
+                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + args['modelstoragemanager'] + ' steps=[]', log=True)                        
                     # do the predict with taql
                     run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'",
                         log=True)
@@ -6618,10 +6620,10 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
 
                 if skymodelpointsource is not None and type(skymodelpointsource) is list:
                     # create MODEL_DATA (no dysco!)
-                    if modelstoragemanager is None:
+                    if args['modelstoragemanager'] is None:
                         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
                     else:
-                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + modelstoragemanager + ' steps=[]', log=True)
+                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + args['modelstoragemanager'] + ' steps=[]', log=True)
                     # do the predict with taql
                     run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource[ms_id]) + "+0i)'",
                         log=True)
@@ -6696,10 +6698,10 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
 
                 if ((skymodel is not None) or (skymodelpointsource is not None) or (
                         wscleanskymodel is not None)) and selfcalcycle == 0:
-                    parmdb = soltype + str(soltypenumber) + '_skyselfcalcyle' + str(selfcalcycle).zfill(
+                    parmdb = soltype + str(soltypenumber) + '_skyselfcalcycle' + str(selfcalcycle).zfill(
                         3) + '_' + os.path.basename(ms) + '.h5'
                 else:
-                    parmdb = soltype + str(soltypenumber) + '_selfcalcyle' + str(selfcalcycle).zfill(
+                    parmdb = soltype + str(soltypenumber) + '_selfcalcycle' + str(selfcalcycle).zfill(
                         3) + '_' + os.path.basename(ms) + '.h5'
 
                 # set create_modeldata to False it was already prediceted before
@@ -6726,14 +6728,14 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,
                             iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'], uvminscalarphasediff=uvminscalarphasediff,
                             create_modeldata=create_modeldata,
-                            selfcalcycle=selfcalcycle, dysco=dysco, blsmooth_chunking_size=blsmooth_chunking_size,
+                            selfcalcycle=selfcalcycle, dysco=args['dysco'], blsmooth_chunking_size=args['blsmooth_chunking_size'],
                             gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,
                             clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],
                             clipsollow=args['clipsollow'], uvmax=args['uvmax'], modeldatacolumns=modeldatacolumns,
                             preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel,
-                            DDE_predict=DDE_predict, telescope=telescope, ncpu_max=ncpu_max, soltype_list=soltype_list,
+                            DDE_predict=DDE_predict, telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'], soltype_list=soltype_list,
                             DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir,
-                            normamps=normamps, modelstoragemanager=modelstoragemanager)
+                            normamps=normamps, modelstoragemanager=args['modelstoragemanager'])
 
                 parmdbmslist.append(parmdb)
                 parmdbmergelist[msnumber].append(parmdb)  # for h5_merge
@@ -6779,19 +6781,19 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     if soltypenumber == 0:
                         if len(modeldatacolumns) > 1:
                             if DDE_predict == 'WSCLEAN':
-                                corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns, modelstoragemanager=modelstoragemanager)  # For DDE
+                                corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns, modelstoragemanager=args['modelstoragemanager'])  # For DDE
                         else:
-                            corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'], modelstoragemanager=modelstoragemanager)  # Saves disk space
+                            corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'], modelstoragemanager=args['modelstoragemanager'])  # Saves disk space
                     else:
                         if len(modeldatacolumns) > 1:
                             if DDE_predict == 'WSCLEAN':
-                                corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns, modelstoragemanager=modelstoragemanager)  # For DDE
+                                corrupt_modelcolumns(ms, parmdbmslist[count], modeldatacolumns, modelstoragemanager=args['modelstoragemanager'])  # For DDE
                         else:
-                            corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'], modelstoragemanager=modelstoragemanager)  # Saves disk space
+                            corrupt_modelcolumns(ms, parmdbmslist[count], ['MODEL_DATA'], modelstoragemanager=args['modelstoragemanager'])  # Saves disk space
                 else:  # This is the last solve; no other perturbation
                     # Reverse solution tables ([::-1]) to switch from corrupt to correct; essential as fulljones and diagonal solutions do not commute
                     applycal(ms, parmdbmergelist[msnumber][::-1], msincol='DATA', msoutcol='CORRECTED_DATA',
-                             dysco=dysco, modeldatacolumns=modeldatacolumns)  # Saves disk space
+                             dysco=args['dysco'], modeldatacolumns=modeldatacolumns)  # Saves disk space
 
                 count += 1  # Extra counter because parmdbmslist can be shorter than mslist as soltypecycles_list goes per ms
 
@@ -6802,13 +6804,13 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
         for msnumber, ms in enumerate(mslist):
             if ((skymodel is not None) or (skymodelpointsource is not None) or (
                     wscleanskymodel is not None)) and selfcalcycle == 0:
-                parmdbmergename = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(
+                parmdbmergename = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(
                     ms) + '.h5'
-                parmdbmergename_pc = 'merged_skyselfcalcyle' + str(selfcalcycle).zfill(
+                parmdbmergename_pc = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(
                     3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
             else:
-                parmdbmergename = 'merged_selfcalcyle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
-                parmdbmergename_pc = 'merged_selfcalcyle' + str(selfcalcycle).zfill(
+                parmdbmergename = 'merged_selfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+                parmdbmergename_pc = 'merged_selfcalcycle' + str(selfcalcycle).zfill(
                     3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
             if os.path.isfile(parmdbmergename):
                 os.system('rm -f ' + parmdbmergename)
@@ -6843,8 +6845,8 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     single_pol_merge = True
                 else:
                     single_pol_merge = False
-                merge_h5(h5_out=parmdbmergename.replace("selfcalcyle",
-                                                        "addCS_selfcalcyle"), h5_tables=parmdbmergename,
+                merge_h5(h5_out=parmdbmergename.replace("selfcalcycle",
+                                                        "addCS_selfcalcycle"), h5_tables=parmdbmergename,
                          ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
                          merge_all_in_one=merge_all_in_one, single_pol=single_pol_merge,
                          propagate_weights=True, add_cs=True)
@@ -6855,8 +6857,8 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          propagate_weights=True)
                 # add CS stations back for superstation
                 if mslist_beforephaseup is not None:
-                    merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcyle",
-                                                               "addCS_selfcalcyle"),
+                    merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcycle",
+                                                               "addCS_selfcalcycle"),
                              h5_tables=parmdbmergename_pc,
                              ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
                              merge_all_in_one=merge_all_in_one,
@@ -6864,7 +6866,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
 
             if False:
                 # testing only to check if merged H5 file is correct and makes a good image
-                applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
+                applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
 
             # plot merged solution file
             losotoparset = create_losoto_flag_apgridparset(ms, flagging=False,
@@ -6881,13 +6883,13 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             if args['stack']:
                 # for each stacked MS (one per common time axis), apply the solutions to each direction MS
                 for orig_ms in mss_timestacks[msnumber]:
-                    applycal(orig_ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
+                    applycal(orig_ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
             ## --- end STACK code ---
 
-    if QualityBasedWeights and selfcalcycle >= QualityBasedWeights_start:
+    if args['QualityBasedWeights'] and selfcalcycle >= args['QualityBasedWeights_start']:
         for ms in mslist:
             run('python3 NeReVar.py --filename=' + ms + \
-                ' --dt=' + str(QualityBasedWeights_dtime) + ' --dnu=' + str(QualityBasedWeights_dfreq) + \
+                ' --dt=' + str(args['QualityBasedWeights_dtime']) + ' --dnu=' + str(args['QualityBasedWeights_dfreq']) + \
                 ' --DiagDir=plotlosoto' + ms + '/NeReVar/ --basename=_selfcalcycle' + str(selfcalcycle).zfill(
                 3) + ' --modelcol=MODEL_DATA')
 
@@ -7251,7 +7253,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if False:
         if selfcalcycle > 0 and (soltypein == "scalarphasediffFR" or soltypein == "scalarphasediff"):
-            h5_tocopy = soltypein + str(soltypenumber) + "_selfcalcyle000_" + os.path.basename(ms) + ".h5.scbackup"
+            h5_tocopy = soltypein + str(soltypenumber) + "_selfcalcycle000_" + os.path.basename(ms) + ".h5.scbackup"
             print("COPYING PREVIOUS SCALARPHASEDIFF SOLUTION")
             print('cp -r ' + h5_tocopy + ' ' + parmdb)
             os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
@@ -8418,15 +8420,35 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None,
     return
 
 
-def plotimage(fitsimagename, outplotname, mask=None, rmsnoiseimage=None, regionfile=None):
+def plotimage(selfcalcycle, stackstr='', mask=None, regionfile=None):
     """
     Tries to plot the image using astropy first, and falls back to aplpy if astropy fails.
+    Parameters:
+    selfcalcycle (int): selfcal cycle number so we can pick up the correct image
+    stackstr (str): basename string in case we are stacking (otherwise it is an empty string)
+    mask (str): fits clean mask image (will be overplot with red contours)
+    regionfile (str): DS9 facet region file for --DDE mode, facet layout will be shown in yellow
     """
+    if args['imager'] == 'WSCLEAN':
+        if args['idg']:
+            plotpngimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.png'
+            plotfitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '-MFS-image.fits'
+        else:
+            plotpngimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.png'
+            plotfitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '-MFS-image.fits'
+        if args['imager'] == 'DDFACET':
+           plotpngimage = args['imagename'] + str(selfcalcycle) + '.png'
+           plotfitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.app.restored.fits'
+
+        if args['channelsout'] == 1:
+            plotpngimage = plotpngimage.replace('-MFS', '').replace('-I', '')
+            plotfitsimage = plotfitsimage.replace('-MFS', '').replace('-I', '')    
+
     try:
-        plotimage_astropy(fitsimagename, outplotname, mask, rmsnoiseimage, regionfile=regionfile)
+        plotimage_astropy(plotfitsimage, plotpngimage, mask, plotfitsimage, regionfile=regionfile)
     except Exception as e:
         print(f"Astropy plotting failed with error: {e}. Switching to aplpy.")
-        plotimage_aplpy(fitsimagename, outplotname, mask, rmsnoiseimage)
+        plotimage_aplpy(plotfitsimage, plotpngimage, mask, plotfitsimage)
 
 
 def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
@@ -9796,7 +9818,7 @@ def early_stopping(station: str = 'international', cycle: int = None):
 ###############################
 
 def main():
-    # flagms_startend('P217+57_object.dysco.sub.shift.avg.weights.ms.archive0','tecandphase0_selfcalcyle1_P217+57_object.dysco.sub.shift.avg.weights.ms.archive0.h5',1)
+    # flagms_startend('P217+57_object.dysco.sub.shift.avg.weights.ms.archive0','tecandphase0_selfcalcycle1_P217+57_object.dysco.sub.shift.avg.weights.ms.archive0.h5',1)
     # sys.exit()
 
     options = option_parser()
@@ -10167,19 +10189,13 @@ def main():
                                                   wscleanskymodel=args['wscleanskymodel'],
                                                   uvminscalarphasediff=args['uvminscalarphasediff'],
                                                   docircular=args['docircular'],
-                                                  mslist_beforephaseup=mslist_beforephaseup, dysco=args['dysco'],
+                                                  mslist_beforephaseup=mslist_beforephaseup,
                                                   telescope=telescope,
-                                                  blsmooth_chunking_size=args['blsmooth_chunking_size'],
                                                   gapchanneldivision=args['gapchanneldivision'],
                                                   modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                                   DDE_predict=set_DDE_predict_skymodel_solve(args['wscleanskymodel']),
-                                                  QualityBasedWeights=args['QualityBasedWeights'],
-                                                  QualityBasedWeights_start=args['QualityBasedWeights_start'],
-                                                  QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],
-                                                  QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],
-                                                  ncpu_max=args['ncpu_max_DP3solve'],
                                                   mslist_beforeremoveinternational=mslist_beforeremoveinternational,
-                                                  soltypelist_includedir=soltypelist_includedir, modelstoragemanager=args['modelstoragemanager'])
+                                                  soltypelist_includedir=soltypelist_includedir)
 
         if args['phasediff_only']:
             return
@@ -10274,24 +10290,8 @@ def main():
                           groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
                           fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
-            # make figure
-            if args['imager'] == 'WSCLEAN':
-                if args['idg']:
-                    plotpngimage = args['imagename'] + str(i).zfill(3) + stackstr + '.png'
-                    plotfitsimage = args['imagename'] + str(i).zfill(3) + stackstr + '-MFS-image.fits'
-                else:
-                    plotpngimage = args['imagename'] + str(i).zfill(3) + stackstr + '.png'
-                    plotfitsimage = args['imagename'] + str(i).zfill(3) + stackstr + '-MFS-image.fits'
-            if args['imager'] == 'DDFACET':
-                plotpngimage = args['imagename'] + str(i) + '.png'
-                plotfitsimage = args['imagename'] + str(i).zfill(3) + stackstr + '.app.restored.fits'
-
-            if args['channelsout'] == 1:
-                plotpngimage = plotpngimage.replace('-MFS', '').replace('-I', '')
-                plotfitsimage = plotfitsimage.replace('-MFS', '').replace('-I', '')
-            plotimage(plotfitsimage, plotpngimage, mask=fitsmask_list[msim_id], 
-                      rmsnoiseimage=plotfitsimage, regionfile='facets.reg' if args['DDE'] else None)
-
+            # PLOT IMAGE
+            plotimage(i, stackstr, mask=fitsmask_list[msim_id], regionfile='facets.reg' if args['DDE'] else None)
         #  --- end imaging part ---
 
         modeldatacolumns = []
@@ -10363,18 +10363,11 @@ def main():
                                               flagslowamprms=args['flagslowamprms'],
                                               flagslowphaserms=args['flagslowphaserms'],                                              uvminscalarphasediff=args['uvminscalarphasediff'],
                                               docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup,
-                                              dysco=args['dysco'],
-                                              blsmooth_chunking_size=args['blsmooth_chunking_size'],
                                               gapchanneldivision=args['gapchanneldivision'],
                                               modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                               DDE_predict=args['DDE_predict'],
-                                              QualityBasedWeights=args['QualityBasedWeights'],
-                                              QualityBasedWeights_start=args['QualityBasedWeights_start'],
-                                              QualityBasedWeights_dtime=args['QualityBasedWeights_dtime'],
-                                              QualityBasedWeights_dfreq=args['QualityBasedWeights_dfreq'],
-                                              telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'],
                                               mslist_beforeremoveinternational=mslist_beforeremoveinternational,
-                                              soltypelist_includedir=soltypelist_includedir, modelstoragemanager=args['modelstoragemanager'])
+                                              soltypelist_includedir=soltypelist_includedir)
 
         # update uvmin if allowed/requested
         args['uvmin'] = update_uvmin(fitsmask, longbaseline, args, LBA)
@@ -10434,7 +10427,7 @@ def main():
     if not longbaseline and not args['noarchive']:
         if not LBA:
             if args['DDE']:
-                mergedh5_i = glob.glob('merged_selfcalcyle' + str(i).zfill(3) + '*.h5')
+                mergedh5_i = glob.glob('merged_selfcalcycle' + str(i).zfill(3) + '*.h5')
                 archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'],
                         mergedh5_i=mergedh5_i, facetregionfile=facetregionfile)
             else:
