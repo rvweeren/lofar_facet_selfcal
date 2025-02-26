@@ -9741,8 +9741,10 @@ def early_stopping(station: str = 'international', cycle: int = None):
     # Selection criteria (good image and stable solutions, if predict==1.0, no neural network is used)
     if (predict_score < 0.5 and df['phase'][cycle] < 0.1 and rms_ratio < 1.0 and minmax_ratio < 0.85) or \
         (predict_score < 0.5 and df['phase'][cycle] < 0.2 and rms_ratio < 0.9 and minmax_ratio < 0.5) or \
+        (predict_score < 0.5 and df['phase'][cycle] < 0.3 and rms_ratio < 0.95 and minmax_ratio < 0.3) or \
+        (predict_score < 0.15 and df['phase'][cycle] < 0.5 and rms_ratio < 1.0 and minmax_ratio < 1.0) or \
         (predict_score < 0.3 and df['phase'][cycle] < 0.05) or \
-        (df['phase'][cycle] < 0.005 and predict_score < 0.6) or \
+        (df['phase'][cycle] < 0.003) or \
         (df['phase'][cycle] < 0.1 and rms_ratio < 0.5 and minmax_ratio < 0.1 and predict_score == 1.0) or \
         (df['phase'][cycle] < 0.05 and minmax_ratio < 0.1 and rms_ratio < 0.5 and predict_score == 1.0):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal converged")
@@ -9757,7 +9759,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
             and df['rms'][cycle-3] < df['rms'][cycle] and df['min/max'][cycle-3] < df['min/max'][cycle]) or \
             (minmax_ratio > 1.0 and rms_ratio > 1.0) or \
             (df['phase'][cycle-1] < df['phase'][cycle] and df['phase'][cycle-2] < df['phase'][cycle]
-             and df['phase'][cycle-3] < df['phase'][cycle]):
+             and df['phase'][cycle-3] < df['phase'][cycle]) or \
+            (1.0 > predict_score > 0.85 and cycle > 10):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal starts to diverge...")
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
