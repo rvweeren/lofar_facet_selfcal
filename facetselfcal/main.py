@@ -205,7 +205,7 @@ def flag_antenna_taql(ms, antennaname):
     return
 
 
-def update_fitspectralpol(args):
+def update_fitspectralpol():
     """
     Update fit spectral pol in arguments
     """
@@ -292,7 +292,7 @@ def is_stokesi_modeltype_allowed(args, telescope):
 
 
 
-def update_channelsout(args, selfcalcycle, mslist):
+def update_channelsout(selfcalcycle, mslist):
     if args['update_channelsout']:
         t = table(mslist[0] + '/OBSERVATION', ack=False)
         telescope = t.getcol('TELESCOPE_NAME')[0]
@@ -971,11 +971,9 @@ def set_beamcor(ms, beamcor_var):
     t.close()
 
     # If we arrive here beamcor_var was set to auto and we are using a LOFAR observation
-    if not beam_keywords(ms):
-        # we have old prefactor data in this case, no beam keywords available
-        # assume beam was taken out in the field center only if user as set 'auto'
-        logger.info('Run DP3 applybeam: yes')
-        return True
+    # so we assume that beam was taken out in the field center only if user has set 'auto'
+    # In case we have old prefactor data and no beam keywords available beam_keywords(ms) will add these
+    tmpvar =  beam_keywords(ms) # just put output in tmp variable (not used)
 
     # now check if beam was taken out in the current phase center
     t = table(ms, readonly=True, ack=False)
@@ -5529,6 +5527,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
                 else:
                     if inantennaconstraint_list[soltype_id][ms_id] != 'alldutch':
                         inantennaconstraint_list[soltype_id][ms_id] = None  # or copy over input
+                        insoltypecycles_list[soltype_id + 1][ms_id] = 999
 
                 # round to nearest integer
                 solint = np.rint(solint_sf * ((noise / flux) ** 2) * (chanw / 390.625e3))
@@ -6573,7 +6572,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          longbaseline=False, flagslowphases=True,
                          flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None,
                          skymodelpointsource=None, wscleanskymodel=None, uvminscalarphasediff=0,
-                         docircular=False, mslist_beforephaseup=None,
+                         mslist_beforephaseup=None,
                          gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None,
                          DDE_predict='WSCLEAN', telescope='LOFAR',
                          mslist_beforeremoveinternational=None, soltypelist_includedir=None):
@@ -6852,7 +6851,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          propagate_weights=True, add_cs=True)
 
             # make LINEAR solutions from CIRCULAR (never do a single_pol merge here!)
-            if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or docircular:
+            if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or args['docircular']:
                 merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True,
                          propagate_weights=True)
                 # add CS stations back for superstation
@@ -8705,18 +8704,37 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
     return
 
 
-def beam_keywords(ms):
+def beam_keywords(ms, add_beamkeywords=True):
     """
     Check for beam application keywords in a measurement set (ms).
+    If add_beamkeywords True then add keywords in case they are missing
     """
+    
+    t = table(ms + '/OBSERVATION', ack=False)
+    telescope = t.getcol('TELESCOPE_NAME')[0]
+    t.close()
+    
     applybeam_info = False
     with table(ms, readonly=True, ack=False) as t:
         try:
             beammode = t.getcolkeyword('DATA', 'LOFAR_APPLIED_BEAM_MODE')
             applybeam_info = True
             print('DP3 applybeam was used')
-        except KeyError:
+        except:
+            applybeam_info = False
             print('No applybeam beam keywords were found. Possibly an old DP3 version was used in prefactor.')
+            print('Adding keywords manually assuming the beam was taken out in the pointing center')
+            logger.warning('No applybeam beam keywords were found. Possibly an old DP3 version was used in prefactor.')
+            logger.warning('Adding keywords manually assuming the beam was taken out in the pointing center')
+   
+    if not applybeam_info and add_beamkeywords and telescope == 'LOFAR':
+            with table(ms + '/FIELD', readonly=True, ack=False) as t:
+                ref_direction = t.getcol('REFERENCE_DIR').squeeze()
+            cmddppp = 'DP3 msin=' + ms + ' msout=. steps=[sb] sb.type=setbeam sb.beammode=default '  
+            cmddppp += 'sb.direction=['+  str(ref_direction[0]) +',' +  str(ref_direction[1]) + ']'
+            print(cmddppp)
+            run(cmddppp)
+            applybeam_info = True
 
     return applybeam_info
 
@@ -9234,7 +9252,7 @@ def niter_from_imsize(imsize):
     return niter
 
 
-def basicsetup(mslist, args):
+def basicsetup(mslist):
     longbaseline = checklongbaseline(mslist[0])
     if args['removeinternational']:
         print('Forcing longbaseline to False as --removeinternational has been specified')
@@ -9431,8 +9449,18 @@ def basicsetup(mslist, args):
         else:
             raise Exception("channelsout needs to be an integer or 'auto'")
 
+    if args['parallelgridding'] == 0: # means the user asks to set it out automatically
+        if args['imsize'] > 20000:
+            args['parallelgridding'] = 1
+        if args['imsize'] < 18000:
+            args['parallelgridding'] = 2
+        if args['imsize'] < 12500:
+            args['parallelgridding'] = 4
+        if args['imsize'] < 6000:
+            args['parallelgridding'] = 6
+
     return longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, \
-        maskthreshold_selfcalcycle, outtarname, telescope, args
+        maskthreshold_selfcalcycle, outtarname, telescope
 
 
 def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
@@ -9496,7 +9524,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
     return
 
 
-def multiscale_trigger(fitsmask, args):
+def multiscale_trigger(fitsmask):
     # update multiscale cleaning setting if allowed/requested
     multiscale = args['multiscale']
     if args['update_multiscale'] and fitsmask is not None:
@@ -9508,11 +9536,10 @@ def multiscale_trigger(fitsmask, args):
     return multiscale
 
 
-def update_uvmin(fitsmask, longbaseline, args, LBA):
+def update_uvmin(fitsmask, longbaseline, LBA):
     # update uvmin if allowed/requested
     if args['stack']:
-        return args['uvmin']
-    uvmin = args['uvmin']
+        return
     if not longbaseline and args['update_uvmin'] and fitsmask is not None:
         if getlargestislandsize(fitsmask) > 1000:
             print('Size of largest island [pixels]:', getlargestislandsize(fitsmask))
@@ -9525,7 +9552,7 @@ def update_uvmin(fitsmask, longbaseline, args, LBA):
                 print('Extended emission found, setting uvmin to 250 klambda')
                 logger.info('Extended emission found, setting uvmin to 250 klambda')
                 args['uvmin'] = 250
-    return uvmin
+    return
 
 
 def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, mslist):
@@ -9571,7 +9598,7 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
     return fitsmask, fitsmask_list, imagename
 
 
-def set_fitsmask_restart(args, i, mslist):
+def set_fitsmask_restart(i, mslist):
     fitsmask_list = []
     for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
         if args['stack']:
@@ -9870,7 +9897,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.4.0'
+    version = '12.5.0'
     print_title(version)
 
     global submodpath, datapath
@@ -9986,7 +10013,7 @@ def main():
 
     # SETUP VARIOUS PARAMETERS
     longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, maskthreshold_selfcalcycle, \
-        outtarname, telescope, args = basicsetup(mslist, args)
+        outtarname, telescope = basicsetup(mslist)
 
     # set model storagemanager
     if args['modelstoragemanager'] == 'stokes_i': # check if this request is possible
@@ -10114,15 +10141,15 @@ def main():
 
         # AUTOMATICALLY PICKUP PREVIOUS MASK (in case of a restart) and trigger multiscale
         if (i > 0) and (args['fitsmask'] is None):
-            fitsmask, fitsmask_list = set_fitsmask_restart(args, i, mslist)
+            fitsmask, fitsmask_list = set_fitsmask_restart(i, mslist)
             # update to multiscale cleaning if large island is present
-            args['multiscale'] = multiscale_trigger(fitsmask, args)
+            args['multiscale'] = multiscale_trigger(fitsmask)
             # update uvmin if allowed/requested
-            args['uvmin'] = update_uvmin(fitsmask, longbaseline, args, LBA)
+            update_uvmin(fitsmask, longbaseline, LBA)
             # update channelsout
-            args['channelsout'] = update_channelsout(args, i - 1, mslist)
+            args['channelsout'] = update_channelsout(i - 1, mslist)
             # update fitspectralpol
-            args['fitspectralpol'] = update_fitspectralpol(args)
+            args['fitspectralpol'] = update_fitspectralpol()
 
         # BEAM CORRECTION AND/OR CONVERT TO CIRCULAR/LINEAR CORRELATIONS
         for ms in mslist:
@@ -10198,7 +10225,6 @@ def main():
                                                   skymodelpointsource=args['skymodelpointsource'],
                                                   wscleanskymodel=args['wscleanskymodel'],
                                                   uvminscalarphasediff=args['uvminscalarphasediff'],
-                                                  docircular=args['docircular'],
                                                   mslist_beforephaseup=mslist_beforephaseup,
                                                   telescope=telescope,
                                                   gapchanneldivision=args['gapchanneldivision'],
@@ -10372,7 +10398,7 @@ def main():
                                               flagslowphases=args['doflagslowphases'],
                                               flagslowamprms=args['flagslowamprms'],
                                               flagslowphaserms=args['flagslowphaserms'],                                              uvminscalarphasediff=args['uvminscalarphasediff'],
-                                              docircular=args['docircular'], mslist_beforephaseup=mslist_beforephaseup,
+                                              mslist_beforephaseup=mslist_beforephaseup,
                                               gapchanneldivision=args['gapchanneldivision'],
                                               modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                               DDE_predict=args['DDE_predict'],
@@ -10380,19 +10406,19 @@ def main():
                                               soltypelist_includedir=soltypelist_includedir)
 
         # update uvmin if allowed/requested
-        args['uvmin'] = update_uvmin(fitsmask, longbaseline, args, LBA)
+        update_uvmin(fitsmask, longbaseline, LBA)
 
         # update fitsmake if allowed/requested
         fitsmask, fitsmask_list, imagename = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args, mslist)
 
         # update to multiscale cleaning if large island is present
-        args['multiscale'] = multiscale_trigger(fitsmask, args)
+        args['multiscale'] = multiscale_trigger(fitsmask)
 
         # update channelsout
-        args['channelsout'] = update_channelsout(args, i, mslist)
+        args['channelsout'] = update_channelsout(i, mslist)
 
         # update fitspectralpol
-        args['fitspectralpol'] = update_fitspectralpol(args)
+        args['fitspectralpol'] = update_fitspectralpol()
 
         # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
         if args['early_stopping'] and len(mslist)>1:
