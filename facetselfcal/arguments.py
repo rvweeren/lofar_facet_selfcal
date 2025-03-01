@@ -84,8 +84,8 @@ def option_parser():
                                default=0,
                                type=int)
     imagingparser.add_argument('--parallelgridding',
-                               help="Parallel-gridding for WSClean (see WSClean documentation). This is by default 1.",
-                               default=1,
+                               help="Parallel-gridding for WSClean (see WSClean documentation). The default is 0 which means it is set automatically",
+                               default=0,
                                type=int)
     imagingparser.add_argument('--deconvolutionchannels',
                                help="Deconvolution channels value for WSClean (see WSClean documentation). This is by default 0 (means deconvolution-channels equals channels-out).",
