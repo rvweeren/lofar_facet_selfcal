@@ -43,6 +43,9 @@ def option_parser():
     imagingparser.add_argument('--fitsmask',
                                help='Fits mask for deconvolution (needs to match image size). If this is not provided automasking is used in combination with MakeMask.py/breizorro. If set to "nofitsmask" then only WSCLean auto-masking is used',
                                type=str)
+    imagingparser.add_argument('--DS9cleanmaskregionfile',
+                               help='A DS9 region file (with WCS coordinates) that will be added to the clean mask used in combination with breizorro.',
+                               type=str)
     imagingparser.add_argument('--robust',
                                help='Briggs robust parameter for imagaging. The default is -0.5. Also allowed are the strings uniform or naturual which will override Briggs weighting.',
                                default=-0.5,
