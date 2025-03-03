@@ -10069,7 +10069,7 @@ def main():
 
     # extra flagging if requested
     if args['start'] == 0 and args['useaoflagger'] and not args['useaoflaggerbeforeavg']:
-        runaoflagger(mslist, strategy=f'{datapath}/flagging_strategies/' + args['aoflagger_strategy'])
+        runaoflagger(mslist, strategy=args['aoflagger_strategy'])
 
     # compute bandwidth smearing
     t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
