@@ -884,7 +884,7 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
 
 
 def check_for_BDPbug_longsolint(mslist, facetdirections):
-    dirs, solints, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)
+    dirs, solints, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)
 
     if solints is None:
         return
@@ -2821,7 +2821,10 @@ def runaoflagger(mslist, strategy=None):
     """
     for ms in mslist:
         if strategy is not None:
-            cmd = 'aoflagger -strategy ' + f'{datapath}/flagging_strategies/' + strategy + ' ' + ms
+            if os.path.isfile(strategy): # try full location first
+                cmd = 'aoflagger -strategy ' + strategy + ' ' + ms
+            else: # try strategy in flagging_strategies
+                cmd = 'aoflagger -strategy ' + f'{datapath}/flagging_strategies/' + strategy + ' ' + ms
         else:
             cmd = 'aoflagger ' + ms
         print(cmd)
@@ -6296,7 +6299,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     soltypelist_includedir = None  # initialize
     if facetdirections is not None:
         try:
-            PatchPositions_array, solints, soltypelist_includedir = parse_facetdirections(facetdirections, selfcalcycle)
+            PatchPositions_array, solints, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, selfcalcycle)
         except:
             try:
                 f = open(facetdirections, 'rb')
@@ -6386,6 +6389,11 @@ def parse_facetdirections(facetdirections, selfcalcycle):
         soltypelist_includedir = data['soltypelist_includedir']
     except KeyError:
         soltypelist_includedir = None
+    try:
+        smoothness = data['smoothness']
+    except KeyError:
+        smoothness = None
+
 
     # Only select ra/dec which are if they are in the selfcalcycle range
     a = np.where((start <= selfcalcycle))[0]
@@ -6405,17 +6413,18 @@ def parse_facetdirections(facetdirections, selfcalcycle):
     PatchPositions_array[:, 0] = (rasel * units.deg).to(units.rad).value
     PatchPositions_array[:, 1] = (decsel * units.deg).to(units.rad).value
 
-    if solints is not None:
+    # Case for smoothness is None
+    if solints is not None and smoothness is None:
         solintsel = solints[a]
         if soltypelist_includedir is not None:
-            return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], soltypelist_includedir_sel
+            return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], None, soltypelist_includedir_sel
         else:
-            return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], None
-    else:
+            return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], None, None
+    elif smoothness is None:
         if soltypelist_includedir is not None:
-            return PatchPositions_array, None, soltypelist_includedir_sel
+            return PatchPositions_array, None, None, soltypelist_includedir_sel
         else:
-            return PatchPositions_array, None, None
+            return PatchPositions_array, None, None, None
 
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist,
@@ -9963,7 +9972,7 @@ def main():
     if False:
         modeldatacolumnsin = ['MODEL_DATA_DD0', 'MODEL_DATA_DD1', 'MODEL_DATA_DD2', 'MODEL_DATA_DD3', 'MODEL_DATA_DD4']
         soltypenumber = 0
-        dirs, solints, soltypelist_includedir = parse_facetdirections(args['facetdirections'], 0)
+        dirs, solints, smoothness, soltypelist_includedir = parse_facetdirections(args['facetdirections'], 0)
         modeldatacolumns, sourcedir_removed, id_kept = updatemodelcols_includedir(modeldatacolumnsin, soltypenumber,
                                                                                   soltypelist_includedir, mslist[0],
                                                                                   dryrun=True)
