@@ -90,7 +90,7 @@ def get_facetselfcal_version_from_h5(h5parm: str = None, printversion: bool = Tr
 
 def is_valid_filename(filename):
     try:
-        with open(filename, "w") as f:
+        with open(filename, "r") as f:
             pass  # Try opening
         return True
     except OSError:
