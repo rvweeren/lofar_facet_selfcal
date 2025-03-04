@@ -97,6 +97,7 @@ from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, updat
 from submods.h5_helpers.general_utils import make_utf8
 from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
 from submods.source_selection.phasediff_output import GetSolint
+from submods.fair_log.config import add_config_to_h5, add_version_to_h5
 
 # Set logger
 logger = logging.getLogger(__name__)
@@ -9884,8 +9885,6 @@ def main():
     # If a config file exists, then read the information. Priotise specified config over default.
     if os.path.isfile(options.configpath):
         config = options.configpath
-    else:
-        config = "facetselfcal_config.txt"
 
     if os.path.isfile(config):
         print("A config file (%s) exists, using it. This contains:" % config)
@@ -9908,6 +9907,10 @@ def main():
                 setattr(options, k, ast.literal_eval(v))
     global args
     args = vars(options)
+
+    with open("full_config.txt", "w") as file:
+        for key, value in args.items():
+            file.write(f"{key} = {value}\n")
 
     if args['stack']:
         args[
@@ -10442,13 +10445,21 @@ def main():
             logger.info("WARNING: --early-stopping not yet developed for multiple input MeasurementSets.\nSkipping early-stopping evaluation.")
         elif args['early_stopping'] and early_stopping(station='international' if longbaseline else 'alldutch', cycle=i):
             if args['phaseupstations'] is not None:
-                merge_h5(h5_out='best_addCS_solutions.h5', h5_tables='best_solutions.h5', ms_files=mslist_beforephaseup[0], add_cs=True)
+                merge_h5(h5_out='best_addCS_solutions.h5', h5_tables='best_solutions.h5', ms_files=mslist_beforephaseup[0],
+                         add_cs=True, h5_time_freq='best_solutions.h5')
             break
+
+    # Write config file to merged h5parms
+    h5s = ['best_addCS_solutions.h5', 'best_solutions.h5'] if args['early_stopping'] else glob.glob("merged_*.h5")
+    for h5 in h5s:
+        # Write the user-specified configuration file to h5parm and otherwise all input parameters if config file not specified
+        add_config_to_h5(h5, args['configpath']) if args['configpath'] is not None else add_config_to_h5(h5, 'full_config.txt')
+        add_version_to_h5(h5, version)
 
     # remove sources outside central region after selfcal (to prepare for DDE solves)
     if args['remove_outside_center']:
         # make image after calibration so the calibration and images match
-        # normally we would finish with calirbation and not have the subsequent image, make this i+1 image here
+        # normally we would finish with calibration and not have the subsequent image, make this i+1 image here
         makeimage(mslistim, args['imagename'] + str(i + 1).zfill(3),
                   args['pixelscale'], args['imsize'],
                   args['channelsout'], args['niter'], args['robust'],
