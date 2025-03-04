@@ -6,7 +6,6 @@ __author__ = "Jurjen de Jong (jurjendejong@strw.leidenuniv.nl)"
 
 import tables
 from argparse import ArgumentParser
-import os
 
 
 def add_config_to_h5(h5parm: str = None, config: str = None):
