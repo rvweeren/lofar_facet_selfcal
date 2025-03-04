@@ -6,6 +6,7 @@ __author__ = "Jurjen de Jong (jurjendejong@strw.leidenuniv.nl)"
 
 import tables
 from argparse import ArgumentParser
+import os
 
 
 def add_config_to_h5(h5parm: str = None, config: str = None):
@@ -18,8 +19,11 @@ def add_config_to_h5(h5parm: str = None, config: str = None):
     """
 
     # Read the content of the config file
-    with open(config, "r") as f:
-        config_data = f.read()
+    if is_valid_filename(config):
+        with open(config, "r") as f:
+            config_data = f.read()
+    else:
+        config_data = config
 
     # Store it as an attribute in the h5parm file
     with tables.open_file(h5parm, mode="a") as h5f:
@@ -40,44 +44,58 @@ def add_version_to_h5(h5parm: str = None, version: str = None):
         h5f.root._v_attrs.facetselfcal_version = version
 
 
-def get_config_from_h5(h5parm: str = None, output: str = None):
+def get_config_from_h5(h5parm: str = None, output: str = None, printlog: bool = True):
     """
     Read/write configuration file from h5parm.
 
     Args:
         h5parm: h5parm solution file
         output: text file name for writing config file to
+        printlog: print the configuration file
     """
 
     # Read config file from h5parm
     with tables.open_file(h5parm, mode="r") as h5f:
         config = getattr(h5f.root._v_attrs, "config", None)
+        if config is None:
+            return config
 
         # Write configuration parameters to output txt file
         if output is not None:
             with open(output, "w") as file:
                 file.write(config)
         # Read only
-        else:
+        elif printlog:
             print(config)
 
     return config
 
 
-def get_facetselfcal_version_from_h5(h5parm: str = None):
+def get_facetselfcal_version_from_h5(h5parm: str = None, printversion: bool = True):
     """
     Read facetselfcal version from h5parm.
 
     Args:
         h5parm: h5parm solution file
+        printversion: print version name
     """
 
     # Read config file from h5parm
     with tables.open_file(h5parm, mode="r") as h5f:
         version = getattr(h5f.root._v_attrs, "facetselfcal_version", None)
-        print(f"facetselfcal version: "+version)
+        if version is not None and printversion:
+            print(f"facetselfcal version: "+version)
 
     return version
+
+
+def is_valid_filename(filename):
+    try:
+        with open(filename, "w") as f:
+            pass  # Try creating the file
+        return True
+    except OSError:
+        return False  # Invalid file name
 
 
 def parse_args():
