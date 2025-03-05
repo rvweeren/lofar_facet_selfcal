@@ -42,11 +42,13 @@ try:
     from .h5_helpers.slicing import get_slices, get_double_slice
     from .h5_helpers.general_utils import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
     from .h5_helpers.make_template_h5 import Template
+    from .fair_log.config import add_config_to_h5, add_version_to_h5, get_config_from_h5, get_facetselfcal_version_from_h5
 except ImportError:
     from h5_helpers.polchange import PolChange, overwrite_table
     from h5_helpers.slicing import get_slices, get_double_slice
     from h5_helpers.general_utils import remove_numbers, make_utf8, find_closest_indices, repack, running_mean, _degree_to_radian
     from h5_helpers.make_template_h5 import Template
+    from fair_log.config import add_config_to_h5, add_version_to_h5, get_config_from_h5, get_facetselfcal_version_from_h5
 
 warnings.filterwarnings('ignore')
 
@@ -2377,6 +2379,19 @@ def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, conv
         tables.file._open_files.close_all()
     except:
         pass
+
+    # Transfer facetselfcal parameters to multi-dir merged h5parm
+    if not merge_all_in_one and len(h5_tables) > 1:
+        try:
+            configs = ''
+            for h5 in h5_tables:
+                config = get_config_from_h5(h5, printlog=False)
+                configs+=f'Solution file ==> {h5}\n'+config+'\n'
+            add_config_to_h5(h5_out, configs)
+            add_version_to_h5(h5_out, get_facetselfcal_version_from_h5(h5_tables[0], False))
+        except:
+            # If no version logged in h5 (old h5_merger of facetselfcal)
+            pass
 
     repack(h5_out)
 
