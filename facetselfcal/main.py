@@ -7669,6 +7669,20 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                 os.system('rm -rf ' + ms + '.subtracted_ddcor')  
             applycal(ms + '.subtracted',h5list[ms_id], find_closestdir=True, 
                      msout=ms + '.subtracted_ddcor', dysco=dysco)
+            with table(ms + '.subtracted') as t:
+                if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if WEIGHT_SPECTRUM_SOLVE is present otherwise this is not needed
+                    print('Going to copy over WEIGHT_SPECTRUM_SOLVE:', cmd)
+                    # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
+                    with table(ms + '.subtracted_ddcor', readonly=False) as t2:
+                        print('Adding WEIGHT_SPECTRUM_SOLVE')
+                        desc = t2.getcoldesc('WEIGHT_SPECTRUM')
+                        desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
+                        t2.addcols(desc)
+                        imweights = t.getcol('WEIGHT_SPECTRUM_SOLVE')
+                        t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
+            # remove uncorrected file to save disk space
+            os.system('rm -rf ' + ms + '.subtracted')
+
             # remove uncorrected file to save disk space
             os.system('rm -rf ' + ms + '.subtracted')
     return
