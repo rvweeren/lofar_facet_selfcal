@@ -9885,6 +9885,8 @@ def main():
     # If a config file exists, then read the information. Priotise specified config over default.
     if os.path.isfile(options.configpath):
         config = options.configpath
+    else:
+        config = "facetselfcal_config.txt"
 
     if os.path.isfile(config):
         print("A config file (%s) exists, using it. This contains:" % config)
