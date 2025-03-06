@@ -7671,7 +7671,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                      msout=ms + '.subtracted_ddcor', dysco=dysco)
             with table(ms + '.subtracted') as t:
                 if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if WEIGHT_SPECTRUM_SOLVE is present otherwise this is not needed
-                    print('Going to copy over WEIGHT_SPECTRUM_SOLVE:', cmd)
+                    print('Going to copy over WEIGHT_SPECTRUM_SOLVE')
                     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
                     with table(ms + '.subtracted_ddcor', readonly=False) as t2:
                         print('Adding WEIGHT_SPECTRUM_SOLVE')
