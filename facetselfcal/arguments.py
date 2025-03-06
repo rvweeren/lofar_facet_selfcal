@@ -203,11 +203,11 @@ def option_parser():
     calibrationparser.add_argument("--smoothnessconstraint-list",
                                    type=arg_as_list,
                                    default=[0., 0., 5.],
-                                   help="List with frequency smoothness values (in same order as soltype-list input). The default is [0.,0.,5.].")
+                                   help="List with frequency smoothness values in MHz (in same order as soltype-list input). The default is [0.,0.,5.].")
     calibrationparser.add_argument("--smoothnessreffrequency-list",
                                    type=arg_as_list,
                                    default=[0., 0., 0.],
-                                   help="List with optional reference frequencies (in MHz) for the smoothness constraint (in same order as soltype-list input). When unequal to 0, the size of the smoothing kernel will vary over frequency by a factor of smoothnessreffrequency*(frequency^smoothnessspectralexponent). The default is [0.,0.,0.].")
+                                   help="List with optional reference frequencies in MHz for the smoothness constraint (in same order as soltype-list input). When unequal to 0, the size of the smoothing kernel will vary over frequency by a factor of smoothnessreffrequency*(frequency^smoothnessspectralexponent). The default is [0.,0.,0.].")
     calibrationparser.add_argument("--smoothnessspectralexponent-list",
                                    type=arg_as_list,
                                    default=[-1., -1., -1.],
