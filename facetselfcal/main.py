@@ -2517,6 +2517,17 @@ def compute_markersize(H5file):
         markersize = 10
     if ntimes < 50:
         markersize = 15
+    
+    if ntimes == 1:
+        markersize = 2
+        nfreqs = number_freqchan_h5(H5file)
+        if nfreqs < 450:
+            markersize = 4
+        if nfreqs < 100:
+            markersize = 10
+        if nfreqs < 50:
+            markersize = 15
+    
     return markersize
 
 
@@ -7536,7 +7547,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if soltype in ['rotation+scalarphase', 'rotation+diagonalphase']:
             losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                                outplotname=outplotname,
-                                                               refant=findrefant_core(parmdb),onetime=ntimesH5(parmdb)==1)  # phase matrix plot
+                                                               refant=findrefant_core(parmdb),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
             cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
             force_close(parmdb)
             print(cmdlosoto)
@@ -7546,7 +7557,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if soltype in ['phaseonly', 'scalarphase']:
         losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                            outplotname=outplotname,
-                                                           refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1)  # phase matrix plot
+                                                           refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
         force_close(parmdb)
         print(cmdlosoto)
@@ -7580,14 +7591,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                                                maxrmsphase=flagslowphaserms,
                                                                includesphase=includesphase, onechannel=onechannel,
                                                                medamp=medamp, flagphases=flagslowphases, onepol=onepol,
-                                                               outplotname=outplotname, refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1)
+                                                               outplotname=outplotname, refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1, markersize=compute_markersize(parmdb))
                 force_close(parmdb)
         else:
             losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase,
                                                            onechannel=onechannel, medamp=medamp, onepol=onepol,
                                                            outplotname=outplotname,
                                                            refant=findrefant_core(parmdb),
-                                                           fulljones=fulljonesparmdb(parmdb),onetime=ntimesH5(parmdb)==1)
+                                                           fulljones=fulljonesparmdb(parmdb),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))
             force_close(parmdb)
 
         # MAKE losoto command
