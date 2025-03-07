@@ -2517,6 +2517,17 @@ def compute_markersize(H5file):
         markersize = 10
     if ntimes < 50:
         markersize = 15
+    
+    if ntimes == 1:
+        markersize = 2
+        nfreqs = number_freqchan_h5(H5file)
+        if nfreqs < 450:
+            markersize = 4
+        if nfreqs < 100:
+            markersize = 10
+        if nfreqs < 50:
+            markersize = 15
+    
     return markersize
 
 
@@ -5920,7 +5931,7 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
     return parset
 
 
-def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onepol=False, outplotname='fastphase'):
+def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onepol=False, outplotname='fastphase', onetime=False, markersize=2):
     parset = 'losoto_plotfastphase.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
@@ -5933,11 +5944,16 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     f.write('operation = PLOT\n')
     f.write('soltab = [sol000/phase000]\n')
     if onechannel:
+        f.write('markerSize=%s\n' % int(markersize))
         f.write('axesInPlot = [time]\n')
         if not onepol:
             f.write('axisInCol = pol\n')
-
-    else:
+    if onetime:
+        f.write('markerSize=%s\n' % int(markersize))
+        f.write('axesInPlot = [freq]\n')
+        if not onepol:
+            f.write('axisInCol = pol\n')
+    if not onechannel and not onetime:
         f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
@@ -5950,8 +5966,12 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/phase000]\n')
         if onechannel:
+            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
-        else:
+        if onetime:
+            f.write('markerSize=%s\n' % int(markersize))
+            f.write('axesInPlot = [freq]\n')    
+        if not onechannel and not onetime:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
@@ -5964,9 +5984,12 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     return parset
 
 
+
+
+
 def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
                                     refant='CS003HBA0', onechannel=False, medamp=2.5, flagphases=True,
-                                    onepol=False, outplotname='slowamp', fulljones=False):
+                                    onepol=False, outplotname='slowamp', fulljones=False, onetime=False, markersize=2):
     parset = 'losoto_flag_apgrid.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
@@ -5979,10 +6002,16 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     f.write('operation = PLOT\n')
     f.write('soltab = [sol000/amplitude000]\n')
     if onechannel:
+        f.write('markerSize=%s\n' % int(markersize))
         f.write('axesInPlot = [time]\n')
         if not onepol:
             f.write('axisInCol = pol\n')
-    else:
+    if onetime:
+        f.write('axesInPlot = [freq]\n')
+        f.write('markerSize=%s\n' % int(markersize))
+        if not onepol:
+            f.write('axisInCol = pol\n')
+    if not onechannel and not onetime:
         f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     # if longbaseline:
@@ -5998,8 +6027,12 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('soltab = [sol000/amplitude000]\n')
         f.write('pol = [XY, YX]\n')
         if onechannel:
+            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
-        else:
+        if onetime:
+            f.write('markerSize=%s\n' % int(markersize))
+            f.write('axesInPlot = [freq]\n')   
+        if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [%s,%s]\n' % (str(0.0), str(0.5)))
@@ -6010,10 +6043,16 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/phase000]\n')
         if onechannel:
+            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
-        else:
+        if onetime:
+            f.write('markerSize=%s\n' % int(markersize))
+            f.write('axesInPlot = [freq]\n')
+            if not onepol:
+                f.write('axisInCol = pol\n')
+        if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
@@ -6025,8 +6064,12 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('operation = PLOT\n')
             f.write('soltab = [sol000/phase000]\n')
             if onechannel:
+                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [time]\n')
-            else:
+            if onetime:
+                f.write('markerSize=%s\n' % int(markersize))
+                f.write('axesInPlot = [freq]\n')  
+            if not onetime and not onechannel:
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
@@ -6041,7 +6084,10 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('operation = FLAG\n')
         if onechannel:
             f.write('axesToFlag = [time]\n')
-        else:
+        if onetime:
+            f.write('markerSize=%s\n' % int(markersize))
+            f.write('axesToFlag = [freq]\n')
+        if not onetime and not onechannel:
             f.write('axesToFlag = [time,freq]\n')
         f.write('mode = smooth\n')
         f.write('maxCycles = 3\n')
@@ -6049,7 +6095,9 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('maxRms = %s\n' % str(maxrms))
         if onechannel:
             f.write('order  = [5]\n\n\n')
-        else:
+        if onetime:
+            f.write('order  = [5]\n\n\n')
+        if not onetime and not onechannel:
             f.write('order  = [5,5]\n\n\n')
 
         if includesphase and flagphases:
@@ -6058,7 +6106,9 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('operation = FLAG\n')
             if onechannel:
                 f.write('axesToFlag = [time]\n')
-            else:
+            if onetime:
+                f.write('axesToFlag = [freq]\n')    
+            if not onetime and not onechannel:
                 f.write('axesToFlag = [time,freq]\n')
             f.write('mode = smooth\n')
             f.write('maxCycles = 3\n')
@@ -6066,17 +6116,25 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('maxRms = %s\n' % str(maxrmsphase))
             if onechannel:
                 f.write('order  = [5]\n\n\n')
-            else:
+            if onetime:
+                f.write('order  = [5]\n\n\n')
+            if not onetime and not onechannel:
                 f.write('order  = [5,5]\n\n\n')
 
         f.write('[plotampafter]\n')
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/amplitude000]\n')
         if onechannel:
+            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
-        else:
+        if onetime:
+            f.write('markerSize=%s\n' % int(markersize))
+            f.write('axesInPlot = [freq]\n')
+            if not onepol:
+                f.write('axisInCol = pol\n')
+        if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         # f.write('minmax = [0,2.5]\n')
@@ -6088,10 +6146,16 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('operation = PLOT\n')
             f.write('soltab = [sol000/phase000]\n')
             if onechannel:
+                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [time]\n')
                 if not onepol:
                     f.write('axisInCol = pol\n')
-            else:
+            if onetime:
+                f.write('markerSize=%s\n' % int(markersize))
+                f.write('axesInPlot = [freq]\n')
+                if not onepol:
+                    f.write('axisInCol = pol\n')
+            if not onetime and not onechannel:
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
@@ -6899,6 +6963,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
 
             # plot merged solution file
+            print('single_pol_merge',single_pol_merge)
             losotoparset = create_losoto_flag_apgridparset(ms, flagging=False,
                                                            medamp=get_median_amp(parmdbmergename),
                                                            outplotname=
@@ -7482,7 +7547,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if soltype in ['rotation+scalarphase', 'rotation+diagonalphase']:
             losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                                outplotname=outplotname,
-                                                               refant=findrefant_core(parmdb))  # phase matrix plot
+                                                               refant=findrefant_core(parmdb),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
             cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
             force_close(parmdb)
             print(cmdlosoto)
@@ -7492,7 +7557,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if soltype in ['phaseonly', 'scalarphase']:
         losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                            outplotname=outplotname,
-                                                           refant=findrefant_core(parmdb))  # phase matrix plot
+                                                           refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
         force_close(parmdb)
         print(cmdlosoto)
@@ -7515,10 +7580,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude',
                    'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude',
-                   'rotation+scalar', 'rotation+scalaramplitude'] and (
-            ntimesH5(parmdb) > 1):  # plotting/flagging fails if only 1 timeslot
+                   'rotation+scalar', 'rotation+scalaramplitude']:
         print('Do flagging?:', flagging)
-        if flagging and not onechannel:
+        if flagging and not onechannel and ntimesH5(parmdb) > 1 :
             if soltype == 'fulljones':
                 print('Fulljones and flagging not implemtened')
                 raise Exception('Fulljones and flagging not implemtened')
@@ -7527,14 +7591,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                                                maxrmsphase=flagslowphaserms,
                                                                includesphase=includesphase, onechannel=onechannel,
                                                                medamp=medamp, flagphases=flagslowphases, onepol=onepol,
-                                                               outplotname=outplotname, refant=findrefant_core(parmdb))
+                                                               outplotname=outplotname, refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1, markersize=compute_markersize(parmdb))
                 force_close(parmdb)
         else:
             losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase,
                                                            onechannel=onechannel, medamp=medamp, onepol=onepol,
                                                            outplotname=outplotname,
                                                            refant=findrefant_core(parmdb),
-                                                           fulljones=fulljonesparmdb(parmdb))
+                                                           fulljones=fulljonesparmdb(parmdb),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))
             force_close(parmdb)
 
         # MAKE losoto command
