@@ -6286,7 +6286,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     Create a facet region file based on an input image or file provided by the user
     if there is an image use lsmtool tessellation algorithm
 
-    This function also returns the solints obtained out of the facetdirections file (if avail). It is up to
+    This function also returns the solints and smoothness obtained out of the facetdirections file (if avail). It is up to
     the function that calls this to do something with it or not.
     """
     if via_h5: # this is quick call to ds9facetgenerator using an h5 file and a None return
@@ -6297,6 +6297,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         return
 
     solints = None  # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
+    smoothness = None  # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
     soltypelist_includedir = None  # initialize
     if facetdirections is not None:
         try:
@@ -6325,7 +6326,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             cmd += '--ms=' + ms + ' '
             cmd += '--h5=facetdirections.p --imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
             run(cmd)
-        return solints, soltypelist_includedir
+        return solints, smoothness, soltypelist_includedir
     elif selfcalcycle == 0:
         # Only run this if selfcalcycle==0 [elif]
         # Try to load previous facetdirections.skymodel
@@ -6365,16 +6366,16 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             cmd += '--ms=' + ms + ' '
             cmd += '--h5=facetdirections.p --imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
             run(cmd)
-        return solints, soltypelist_includedir
+        return solints, smoothness, soltypelist_includedir
     else:
-        return solints, soltypelist_includedir
+        return solints, smoothness, soltypelist_includedir
 
 
 def parse_facetdirections(facetdirections, selfcalcycle):
     """
        parse the facetdirections.txt file and return a list of facet directions
        for the given selfcalcycle. In the future, this function should also return a
-       list of solints, nchans and other things
+       list of solints, smoothness, nchans and other things
     """
     data = ascii.read(facetdirections, format='commented_header', comment="\\s*#")
     ra, dec = data['RA'], data['DEC']
@@ -6414,18 +6415,33 @@ def parse_facetdirections(facetdirections, selfcalcycle):
     PatchPositions_array[:, 0] = (rasel * units.deg).to(units.rad).value
     PatchPositions_array[:, 1] = (decsel * units.deg).to(units.rad).value
 
-    # Case for smoothness is None
+    # Case for smoothness is not set in the direction file
     if solints is not None and smoothness is None:
         solintsel = solints[a]
         if soltypelist_includedir is not None:
             return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], None, soltypelist_includedir_sel
         else:
             return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], None, None
-    elif smoothness is None:
+    if solints is None and smoothness is None:
         if soltypelist_includedir is not None:
             return PatchPositions_array, None, None, soltypelist_includedir_sel
         else:
             return PatchPositions_array, None, None, None
+
+    # Case for smoothness is set in the direction file
+    if solints is not None and smoothness is not None:
+        solintsel = solints[a]
+        smoothnesssel = smoothness[a]
+        if soltypelist_includedir is not None:
+            return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], [ast.literal_eval(sm) for sm in smoothnesssel], soltypelist_includedir_sel
+        else:
+            return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], [ast.literal_eval(sm) for sm in smoothnesssel], None
+    if solints is None and smoothness is not None: 
+        smoothnesssel = smoothness[a]
+        if soltypelist_includedir is not None:
+            return PatchPositions_array, None, [ast.literal_eval(sm) for sm in smoothnesssel], soltypelist_includedir_sel
+        else:
+            return PatchPositions_array, None, [ast.literal_eval(sm) for sm in smoothnesssel], None
 
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist,
@@ -6437,7 +6453,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
     else:
         idg = False
 
-    solints, soltypelist_includedir = create_facet_directions(imagebasename, selfcalcycle,
+    solints, smoothness, soltypelist_includedir = create_facet_directions(imagebasename, selfcalcycle,
                                                               targetFlux=args['targetFlux'], ms=mslist[0], imsize=args['imsize'],
                                                               pixelscale=args['pixelscale'], numClusters=args['Nfacets'],
                                                               facetdirections=args['facetdirections'], restart=restart)
@@ -6556,7 +6572,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
             else:
                 dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
-    return modeldatacolumns, dde_skymodel, solints, soltypelist_includedir
+    return modeldatacolumns, dde_skymodel, solints, smoothness, soltypelist_includedir
 
 
 def is_scalar_array_for_wsclean(h5list):
@@ -7235,8 +7251,16 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if antennaconstraint is not None:
         cmd += 'ddecal.antennaconstraint=' + antennaconstraintstr(antennaconstraint, antennasms, HBAorLBA,
                                                                   telescope=telescope) + ' '
-    if SMconstraint > 0.0 and nchan != 0:
-        cmd += 'ddecal.smoothnessconstraint=' + str(SMconstraint * 1e6) + ' '
+
+    if np.max(SMconstraint) > 0.0 and nchan != 0:
+        if type(SMconstraint) == list:
+            if len(dir_id_kept) > 0:
+                print(SMconstraint)
+                print(dir_id_kept)
+                SMconstraint = [SMconstraint[i] for i in dir_id_kept]  # overwrite SMconstraint, selecting on the directions kept
+            smoothness_dd_factors = [ ddsf/np.max(SMconstraint) for ddsf in SMconstraint]  
+            cmd += 'ddecal.smoothness_dd_factors=' + "'" + str(smoothness_dd_factors).replace(' ', '') + "' "
+        cmd += 'ddecal.smoothnessconstraint=' + str(np.max(SMconstraint) * 1e6) + ' '
         cmd += 'ddecal.smoothnessreffrequency=' + str(SMconstraintreffreq * 1e6) + ' '
         cmd += 'ddecal.smoothnessspectralexponent=' + str(SMconstraintspectralexponent) + ' '
         cmd += 'ddecal.smoothnessrefdistance=' + str(SMconstraintrefdistance * 1e3) + ' '  # input units in km
@@ -9933,7 +9957,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.5.0'
+    version = '12.6.0'
     print_title(version)
 
     global submodpath, datapath
@@ -10233,7 +10257,7 @@ def main():
             # add patches for DDE predict
             # also do prepare_DDE
             if args['DDE']:
-                modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
+                modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
                     prepare_DDE(args['skymodel'], i, mslist,
                                 DDE_predict='DP3', restart=False, skyview=tgssfitsfile,
                                 wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel']))
@@ -10241,6 +10265,9 @@ def main():
                 if candidate_solints is not None:
                     candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
                     solint_list = candidate_solints
+                if candidate_smoothness is not None:
+                    candidate_smoothness = np.swapaxes(np.array([candidate_smoothness] * len(mslist)), 1, 0).T.tolist()
+                    smoothnessconstraint_list = candidate_smoothness
             else:
                 dde_skymodel = None
             wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, args['soltype_list'],
@@ -10280,7 +10307,7 @@ def main():
 
         # RESTART FOR A DDE RUN, set modeldatacolumns and dde_skymodel
         if args['DDE'] and args['start'] != 0 and i == args['start']:
-            modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
+            modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
@@ -10368,13 +10395,16 @@ def main():
 
         modeldatacolumns = []
         if args['DDE']:
-            modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
+            modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], telescope=telescope))
 
             if candidate_solints is not None:
                 candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
                 solint_list = candidate_solints
+            if candidate_smoothness is not None:
+                candidate_smoothness = np.swapaxes(np.array([candidate_smoothness] * len(mslist)), 1, 0).T.tolist()
+                smoothnessconstraint_list = candidate_smoothness
         else:
             dde_skymodel = None
 
