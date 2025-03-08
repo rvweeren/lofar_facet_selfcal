@@ -8,7 +8,6 @@
 # BDA step DP3
 # compression: blosc2
 # useful? https://learning-python.com/thumbspage.html
-# bdsf still steals the logger https://github.com/lofar-astron/PyBDSF/issues/176
 # add html summary overview
 # Stacking check that freq and time axes are identical
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
@@ -6657,18 +6656,18 @@ def is_scalar_array_for_wsclean(h5list):
 
 # this version corrupts the MODEL_DATA column
 def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
-                         soltype_list, soltypecycles_list, smoothnessconstraint_list,
+                         soltypecycles_list, smoothnessconstraint_list,
                          smoothnessreffrequency_list, smoothnessspectralexponent_list,
                          smoothnessrefdistance_list,
                          antennaconstraint_list, resetsols_list, resetdir_list, normamps_list,
-                         BLsmooth_list, uvmin=0,
+                         BLsmooth_list,
                          normamps=False, normamps_per_ms=False, skymodel=None,
-                         predictskywithbeam=False, restoreflags=False, flagging=False,
-                         longbaseline=False, flagslowphases=True,
-                         flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None,
-                         skymodelpointsource=None, wscleanskymodel=None, uvminscalarphasediff=0,
+                         predictskywithbeam=False,
+                         longbaseline=False,
+                         skymodelsource=None,
+                         skymodelpointsource=None, wscleanskymodel=None,
                          mslist_beforephaseup=None,
-                         gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None,
+                         modeldatacolumns=[], dde_skymodel=None,
                          DDE_predict='WSCLEAN', telescope='LOFAR',
                          mslist_beforeremoveinternational=None, soltypelist_includedir=None):
     ## --- start STACK code ---
@@ -6689,13 +6688,13 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     makeimage([ms], wscleanskymodel, 1., 1.,
                               len(glob.glob(wscleanskymodel + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
-                              gapchanneldivision=gapchanneldivision,
+                              gapchanneldivision=args['gapchanneldivision'],
                               fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
                 if wscleanskymodel is not None and type(wscleanskymodel) is list:
                     makeimage([ms], wscleanskymodel[ms_id], 1., 1.,
                               len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
-                              gapchanneldivision=gapchanneldivision,
+                              gapchanneldivision=args['gapchanneldivision'],
                               fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
                 if skymodelpointsource is not None and type(skymodelpointsource) is float:
@@ -6766,14 +6765,14 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
     parmdbmergelist = [[] for _ in
                        range(len(mslist))]  # [[],[],[],[]] nested list length mslist used for Jurjen's h5_merge
     # LOOP OVER THE ENTIRE SOLTYPE LIST (so includes pertubations via a pre-applycal)
-    for soltypenumber, soltype in enumerate(soltype_list):
+    for soltypenumber, soltype in enumerate(args['soltype_list']):
         # SOLVE LOOP OVER MS
         parmdbmslist = []
         for msnumber, ms in enumerate(mslist):
             # check we are above far enough in the selfcal to solve for the extra pertubation
             if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]:
                 print('selfcalcycle, soltypenumber', selfcalcycle, soltypenumber)
-                if (soltypenumber < len(soltype_list) - 1):
+                if (soltypenumber < len(args['soltype_list']) - 1):
 
                     print(selfcalcycle, soltypecycles_list[soltypenumber + 1][msnumber])
                     print('_______________________')
@@ -6805,7 +6804,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
 
                 runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb,
                             soltype,
-                            uvmin=uvmin,
+                            uvmin=args['uvmin'],
                             SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber],
                             SMconstraintreffreq=smoothnessreffrequency_list[soltypenumber][msnumber],
                             SMconstraintspectralexponent=smoothnessspectralexponent_list[soltypenumber][msnumber],
@@ -6814,20 +6813,20 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             resetsols=resetsols_list[soltypenumber][msnumber],
                             resetsols_list=resetsols_list,
                             resetdir=resetdir_list[soltypenumber][msnumber],
-                            restoreflags=restoreflags, flagging=flagging, skymodel=skymodel,
-                            flagslowphases=flagslowphases, flagslowamprms=flagslowamprms,
-                            flagslowphaserms=flagslowphaserms,
+                            restoreflags=args['restoreflags'], flagging=args['doflagging'], skymodel=skymodel,
+                            flagslowphases=args['doflagslowphases'], flagslowamprms=args['flagslowamprms'],
+                            flagslowphaserms=args['flagslowphaserms'],
                             predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth_list[soltypenumber][msnumber],
                             skymodelsource=skymodelsource,
                             skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,
-                            iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'], uvminscalarphasediff=uvminscalarphasediff,
+                            iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],
                             create_modeldata=create_modeldata,
                             selfcalcycle=selfcalcycle, dysco=args['dysco'], blsmooth_chunking_size=args['blsmooth_chunking_size'],
-                            gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,
+                            gapchanneldivision=args['gapchanneldivision'], soltypenumber=soltypenumber,
                             clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],
                             clipsollow=args['clipsollow'], uvmax=args['uvmax'], modeldatacolumns=modeldatacolumns,
                             preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel,
-                            DDE_predict=DDE_predict, telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'], soltype_list=soltype_list,
+                            DDE_predict=DDE_predict, telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'], soltype_list=args['soltype_list'],
                             DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir,
                             normamps=normamps, modelstoragemanager=args['modelstoragemanager'])
 
@@ -6946,7 +6945,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          propagate_weights=True, add_cs=True)
 
             # make LINEAR solutions from CIRCULAR (never do a single_pol merge here!)
-            if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or args['docircular']:
+            if ('scalarphasediff' in args['soltype_list']) or ('scalarphasediffFR' in args['soltype_list']) or args['docircular']:
                 merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True,
                          propagate_weights=True)
                 # add CS stations back for superstation
@@ -10334,27 +10333,21 @@ def main():
                     smoothnessconstraint_list = candidate_smoothness
             else:
                 dde_skymodel = None
-            wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, args['soltype_list'],
+            wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, 
                                                   soltypecycles_list, smoothnessconstraint_list,
                                                   smoothnessreffrequency_list,
                                                   smoothnessspectralexponent_list, smoothnessrefdistance_list,
                                                   antennaconstraint_list, resetsols_list, resetdir_list,
                                                   normamps_list, BLsmooth_list,
-                                                  uvmin=args['uvmin'], normamps=args['normampsskymodel'],
+                                                  normamps=args['normampsskymodel'],
                                                   skymodel=args['skymodel'],
                                                   predictskywithbeam=args['predictskywithbeam'],
-                                                  restoreflags=args['restoreflags'], flagging=args['doflagging'],
                                                   longbaseline=longbaseline,
-                                                  flagslowphases=args['doflagslowphases'],
-                                                  flagslowamprms=args['flagslowamprms'],
-                                                  flagslowphaserms=args['flagslowphaserms'],
                                                   skymodelsource=args['skymodelsource'],
                                                   skymodelpointsource=args['skymodelpointsource'],
                                                   wscleanskymodel=args['wscleanskymodel'],
-                                                  uvminscalarphasediff=args['uvminscalarphasediff'],
                                                   mslist_beforephaseup=mslist_beforephaseup,
                                                   telescope=telescope,
-                                                  gapchanneldivision=args['gapchanneldivision'],
                                                   modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                                   DDE_predict=set_DDE_predict_skymodel_solve(args['wscleanskymodel']),
                                                   mslist_beforeremoveinternational=mslist_beforeremoveinternational,
@@ -10516,20 +10509,15 @@ def main():
                                       delaycal=args['delaycal'])
 
         # CALIBRATE AND APPLYCAL
-        wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, args['soltype_list'],
+        wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, 
                                               soltypecycles_list,
                                               smoothnessconstraint_list, smoothnessreffrequency_list,
                                               smoothnessspectralexponent_list, smoothnessrefdistance_list,
                                               antennaconstraint_list, resetsols_list, resetdir_list,
-                                              normamps_list, BLsmooth_list, uvmin=args['uvmin'],
+                                              normamps_list, BLsmooth_list,
                                               normamps=args['normamps'],
-                                              restoreflags=args['restoreflags'],
-                                              flagging=args['doflagging'], longbaseline=longbaseline,
-                                              flagslowphases=args['doflagslowphases'],
-                                              flagslowamprms=args['flagslowamprms'],
-                                              flagslowphaserms=args['flagslowphaserms'],                                              uvminscalarphasediff=args['uvminscalarphasediff'],
+                                              longbaseline=longbaseline,                                          
                                               mslist_beforephaseup=mslist_beforephaseup,
-                                              gapchanneldivision=args['gapchanneldivision'],
                                               modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                               DDE_predict=args['DDE_predict'],
                                               mslist_beforeremoveinternational=mslist_beforeremoveinternational,
