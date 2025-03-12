@@ -6688,13 +6688,11 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     makeimage([ms], wscleanskymodel, 1., 1.,
                               len(glob.glob(wscleanskymodel + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
-                              gapchanneldivision=args['gapchanneldivision'],
                               fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
                 if wscleanskymodel is not None and type(wscleanskymodel) is list:
                     makeimage([ms], wscleanskymodel[ms_id], 1., 1.,
                               len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
-                              gapchanneldivision=args['gapchanneldivision'],
                               fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
                 if skymodelpointsource is not None and type(skymodelpointsource) is float:
@@ -6822,7 +6820,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],
                             create_modeldata=create_modeldata,
                             selfcalcycle=selfcalcycle, dysco=args['dysco'], blsmooth_chunking_size=args['blsmooth_chunking_size'],
-                            gapchanneldivision=args['gapchanneldivision'], soltypenumber=soltypenumber,
+                            soltypenumber=soltypenumber,
                             clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],
                             clipsollow=args['clipsollow'], uvmax=args['uvmax'], modeldatacolumns=modeldatacolumns,
                             preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel,
@@ -7019,7 +7017,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None,
                 skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,
                 blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, selfcalcycle=0, dysco=True,
-                blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, create_modeldata=True,
+                blsmooth_chunking_size=8, soltypenumber=0, create_modeldata=True,
                 clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667,
                 ampresetvalfactor=10., uvmax=None,
                 modeldatacolumns=[], solveralgorithm='directioniterative', solveralgorithm_dde='directioniterative',
@@ -7053,7 +7051,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     # if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if wscleanskymodel is not None and create_modeldata and len(modeldatacolumns) == 0:
         makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')),
-                  0, 0.0, onlypredict=True, idg=False, gapchanneldivision=gapchanneldivision, modelstoragemanager=modelstoragemanager)
+                  0, 0.0, onlypredict=True, idg=False, modelstoragemanager=modelstoragemanager)
 
     # if skymodelpointsource is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if skymodelpointsource is not None and create_modeldata:
@@ -7781,7 +7779,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               imager='WSCLEAN', restoringbeam=15, automask=2.5,
               removenegativecc=True, usewgridder=True, paralleldeconvolution=0,
               deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8,
-              fullpol=False, taperinnertukey=None, gapchanneldivision=False,
+              fullpol=False,
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None,
               DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False,
               wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0,
@@ -7835,7 +7833,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             #  cmd += '-padding 1.8 '
             if channelsout > 1:
                 cmd += '-channels-out ' + str(channelsout) + ' '
-                if gapchanneldivision:
+                if args['gapchanneldivision']:
                     cmd += '-gap-channel-division '
             if idg:
                 cmd += '-gridder idg -idg-mode cpu '
@@ -7881,7 +7879,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         #  cmd += '-padding 1.8 '
         if channelsout > 1:
             cmd += '-channels-out ' + str(channelsout) + ' '
-            if gapchanneldivision:
+            if args['gapchanneldivision']:
                 cmd += '-gap-channel-division '
         if idg:
             cmd += '-gridder idg -idg-mode cpu '
@@ -7953,7 +7951,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             #  cmd += '-padding 1.8 '
             if channelsout > 1:
                 cmd += '-channels-out ' + str(channelsout) + ' '
-                if gapchanneldivision:
+                if args['gapchanneldivision']:
                     cmd += '-gap-channel-division '
             if idg:
                 cmd += '-gridder idg -idg-mode cpu '
@@ -8038,7 +8036,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         #  cmd += '-padding 1.4 '
         if channelsout > 1:
             cmd += ' -join-channels -channels-out ' + str(channelsout) + ' '
-            if gapchanneldivision:
+            if args['gapchanneldivision']:
                 cmd += '-gap-channel-division '
         if paralleldeconvolution > 0:
             cmd += '-parallel-deconvolution ' + str(paralleldeconvolution) + ' '
@@ -8073,8 +8071,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 raise Exception('fitsmask does not exist')
         if uvtaper is not None:
             cmd += '-taper-gaussian ' + uvtaper + ' '
-        if taperinnertukey is not None:
-            cmd += '-taper-inner-tukey ' + str(taperinnertukey) + ' '
+        if args['taperinnertukey'] is not None:
+            cmd += '-taper-inner-tukey ' + str(args['taperinnertukey']) + ' '
 
         if (fitspectralpol > 0) and not (fullpol):
             cmd += '-save-source-list '
@@ -8185,7 +8183,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             #     cmd += '-padding 1.8 '
             if channelsout > 1:
                 cmd += '-channels-out ' + str(channelsout) + ' '
-                if gapchanneldivision:
+                if args['gapchanneldivision']:
                     cmd += '-gap-channel-division '
             if idg:
                 cmd += '-gridder idg -idg-mode cpu '
@@ -10396,7 +10394,6 @@ def main():
                       paralleldeconvolution=args['paralleldeconvolution'],
                       deconvolutionchannels=args['deconvolutionchannels'],
                       parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
-                      taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
                       h5list=wsclean_h5list, localrmswindow=args['localrmswindow'],
                       facetregionfile=facetregionfile, DDEimaging=args['DDE'],
                       multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
@@ -10420,7 +10417,6 @@ def main():
                           paralleldeconvolution=args['paralleldeconvolution'],
                           deconvolutionchannels=args['deconvolutionchannels'],
                           parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
-                          taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
                           h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
@@ -10438,7 +10434,6 @@ def main():
                           deconvolutionchannels=args['deconvolutionchannels'],
                           parallelgridding=args['parallelgridding'],
                           multiscalescalebias=args['multiscalescalebias'], fullpol=True,
-                          taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
                           facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'],
                           multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
                           disable_primarybeam_image=args['disable_primary_beam'],
@@ -10569,7 +10564,6 @@ def main():
                   paralleldeconvolution=args['paralleldeconvolution'],
                   deconvolutionchannels=args['deconvolutionchannels'],
                   parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
-                  taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
                   h5list=wsclean_h5list, localrmswindow=args['localrmswindow'],
                   facetregionfile=facetregionfile, DDEimaging=args['DDE'],
                   multiscalemaxscales=args['multiscalemaxscales'],
