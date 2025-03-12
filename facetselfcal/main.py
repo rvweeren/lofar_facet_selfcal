@@ -1652,16 +1652,18 @@ def preapply_bandpass(H5filelist, mslist, dysco=True, updateweights=True):
     return
 
 def find_closest_H5time_toms(H5filelist, ms):
-    """ Find the h5parms, from a given list, that overlap in time with the specified Measurement Set.
+    """ Find the h5parms, from a given list, that falls closest to the time midpoint of the specified Measurement Set.
 
     Args:
         H5filelist (list): list of h5parms to apply.
         ms (str): Measurement Set to match h5parms to.
     Returns:
-        H5filematch (list): list of h5parms matching the measurement set.
+        H5filematch (str): h5parm that is closest in time to the measurement set.
     """
     with table(ms, ack=False) as t:
         timesms = np.sort(np.unique(t.getcol('TIME')))
+        obs_length = np.max(timesms) - np.min(timesms)
+        time_midpoint  = [(0.5*obs_length) + np.min(timesms)] # make list because closest_arrayvals needs to iterate over it
     H5filematch = None
     time_diff = float('inf')
     
@@ -1676,7 +1678,7 @@ def find_closest_H5time_toms(H5filelist, ms):
                     continue
                 
             if times is not None:
-                time_diff_tmp = abs(np.diff(closest_arrayvals(times,timesms))[0])
+                time_diff_tmp = abs(np.diff(closest_arrayvals(times,time_midpoint))[0])
                 if time_diff_tmp < time_diff:
                     H5filematch = H5file
                     time_diff = time_diff_tmp
@@ -1684,7 +1686,7 @@ def find_closest_H5time_toms(H5filelist, ms):
     if H5filematch is None or times is None:
         print('find_closest_H5time_toms: Cannot find matching H5file and ms')
         raise Exception('find_closest_H5time_toms: Cannot find matching H5file and ms')
-    print(H5filematch, 'is closest in time to', ms,  ' diff is', time_diff)
+    print(H5filematch, 'is closest in time to', ms,  ' diff to the midpoint of the ms is', time_diff, ' [s]')
     return H5filematch
 
 def closest_arrayvals(a, b):
@@ -4265,6 +4267,48 @@ def copyovergain(gaininh5, gainouth5, soltype):
     return
 
 
+def set_weights_h5_to_one(h5parm):
+    """
+    Set weights for the solutions that have valid numbers to 1.0
+    This is useful for bandpass solutions because the losoto time median preserves the time depedent flagging otherwise
+    Args:
+      h5parm: h5parm file
+    """
+    with tables.open_file(h5parm) as H:
+        soltabs = list(H.root.sol000._v_children.keys())
+    H = tables.open_file(h5parm, mode='a')
+    
+    if 'phase000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.phase000.val[:])
+         # update weights to 1.0
+         H.root.sol000.phase000.weight[goodvals] = 1.0
+
+    if 'amplitude000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.amplitude000.val[:])
+         # update weights to 1.0
+         H.root.sol000.amplitude000.weight[goodvals] = 1.0
+
+    if 'tec000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.tec000.val[:])
+         # update weights to 1.0
+         H.root.sol000.tec000.weight[goodvals] = 1.0
+
+    if 'rotation000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.rotation000.val[:])
+         # update weights to 1.0
+         H.root.sol000.rotation000.weight[goodvals] = 1.0
+
+    if 'rotationmeasure000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.rotationmeasure000.val[:])
+         # update weights to 1.0
+         H.root.sol000.rotationmeasure000.weight[goodvals] = 1.0
+
+    H.flush()
+    H.close()
+    return
+    
+    
+    
 def fix_phasereference(h5parm, refant):
     """ Phase reference values with respect to a reference station
     Args:
@@ -10476,6 +10520,7 @@ def main():
             print('Stopping as requested via --bandpassMeerKAT and compute bandpass')
             for parmdb in create_mergeparmdbname(mslist, 0, skymodelsolve=True):
                 run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
+                set_weights_h5_to_one(parmdb)
             return    
 
         # REDETERMINE SOLINTS IF REQUESTED
