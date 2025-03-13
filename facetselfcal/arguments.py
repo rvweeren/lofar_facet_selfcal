@@ -102,9 +102,8 @@ def option_parser():
                                default=3,
                                type=int)
     imagingparser.add_argument('--ddpsfgrid',
-                               help="Value for option -dd-psf-grid with WSClean (integer, by default this value is not set and the option is not used",
-                               type=int)
-
+                               help="Value for option -dd-psf-grid with WSClean (integer, by default this value is None and the option is not used",
+                               type=int, default=None)
     imagingparser.add_argument("--gapchanneldivision",
                                help='Use the -gap-channel-division option in wsclean imaging and predicts (default is not to use it)',
                                action='store_true')
