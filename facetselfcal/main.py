@@ -1648,7 +1648,7 @@ def preapply_bandpass(H5filelist, mslist, dysco=True, updateweights=True):
     for ms in mslist:
         parmdb = find_closest_H5time_toms(H5filelist, ms)
         # overwrite DATA here (!)
-        applycal(ms, parmdb, msincol='DATA', msoutcol='DATA', dysco=dysco, updateweights=updateweights)
+        applycal(ms, parmdb, msincol='DATA', msoutcol='DATA', dysco=dysco, updateweights=updateweights, missingantennabehavior='flag')
     return
 
 def find_closest_H5time_toms(H5filelist, ms):
@@ -2915,7 +2915,7 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None)
 
 def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
-             find_closestdir=False, updateweights=False, modelstoragemanager=None):
+             find_closestdir=False, updateweights=False, modelstoragemanager=None, missingantennabehavior='error'):
     """ Apply an H5parm to a Measurement Set.
 
     Args:
@@ -2930,6 +2930,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
         direction (str): Name of the direction in a multi-dir h5 for the applycal (find_closestdir needs to be False in this case)
         find_closestdir (bool): find closest direction (to phasedir MS) in multi-dir h5 file to apply
         updateweights (bool): Update WEIGHT_SPECTRUM in DP3
+        missingantennabehavior (str): for DP3, must be error or flag
     Returns:
         None
     """
@@ -2960,6 +2961,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
             direction = make_utf8(find_closest_ddsol(parmdb, ms))
             print('Applying direction:', direction)
         if fulljonesparmdb(parmdb):
+            cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
             cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
             cmd += 'ac' + str(count) + '.type=applycal '
             cmd += 'ac' + str(count) + '.correction=fulljones '
@@ -2980,6 +2982,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
             if not invert:  # so corrupt, rotation comes first in a rotation+diagonal apply
                 if 'rotation000' in soltabs:
                     # note that rotation comes before amplitude&phase for a corrupt (important if the solve was a rotation+diagonal one)
+                    cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                     cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                     cmd += 'ac' + str(count) + '.type=applycal '
                     cmd += 'ac' + str(count) + '.correction=rotation000 '
@@ -2993,6 +2996,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                     count = count + 1
 
             if 'phase000' in soltabs:
+                cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                 cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                 cmd += 'ac' + str(count) + '.type=applycal '
                 cmd += 'ac' + str(count) + '.correction=phase000 '
@@ -3007,6 +3011,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 count = count + 1
 
             if 'amplitude000' in soltabs:
+                cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                 cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                 cmd += 'ac' + str(count) + '.type=applycal '
                 cmd += 'ac' + str(count) + '.correction=amplitude000 '
@@ -3023,6 +3028,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 count = count + 1
 
             if 'tec000' in soltabs:
+                cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                 cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                 cmd += 'ac' + str(count) + '.type=applycal '
                 cmd += 'ac' + str(count) + '.correction=tec000 '
@@ -3038,6 +3044,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
 
             if invert:  # so applycal, rotation comes last in a rotation+diagonal apply
                 if 'rotation000' in soltabs:
+                    cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                     cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                     cmd += 'ac' + str(count) + '.type=applycal '
                     cmd += 'ac' + str(count) + '.correction=rotation000 '
@@ -7822,14 +7829,14 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               idg=False, uvminim=80, fitspectralpol=3,
               imager='WSCLEAN', restoringbeam=15, automask=2.5,
               removenegativecc=True, usewgridder=True, paralleldeconvolution=0,
-              deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8,
+              deconvolutionchannels=0, parallelgridding=1,
               fullpol=False,
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None,
               DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False,
               wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0,
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False,
-              facet_beam_update_time=120, groupms_h5facetspeedup=False,
-              singlefacetpredictspeedup=True, forceimagingwithfacets=True, ddpsfgrid=None,
+              facet_beam_update_time=120,
+              singlefacetpredictspeedup=True, forceimagingwithfacets=True,
               fulljones_h5_facetbeam=False, modelstoragemanager=None, sharedfacetreads=False):
     """
     forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
@@ -8093,14 +8100,14 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if localrmswindow > 0:
             cmd += '-local-rms-window ' + str(localrmswindow) + ' '
 
-        if ddpsfgrid is not None:
-            cmd += '-dd-psf-grid ' + str(ddpsfgrid) + ' ' + str(ddpsfgrid) + ' '
+        if args['ddpsfgrid'] is not None:
+            cmd += '-dd-psf-grid ' + str(args['ddpsfgrid']) + ' ' + str(args['ddpsfgrid']) + ' '
 
         if multiscale:
             # cmd += '-multiscale '+' -multiscale-scales 0,4,8,16,32,64 -multiscale-scale-bias 0.6 '
             # cmd += '-multiscale '+' -multiscale-scales 0,6,12,16,24,32,42,64,72,128,180,256,380,512,650 '
             cmd += '-multiscale '
-            cmd += '-multiscale-scale-bias ' + str(multiscalescalebias) + ' '
+            cmd += '-multiscale-scale-bias ' + str(args['multiscalescalebias']) + ' '
             if multiscalemaxscales == 0:
                 cmd += '-multiscale-max-scales ' + str(int(np.rint(np.log2(float(imsize)) - 3))) + ' '
             else:  # use value set by user
@@ -8152,7 +8159,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if len(h5list) > 0:
             cmd += '-facet-regions ' + facetregionfile + ' '
             if sharedfacetreads: cmd += '-shared-facet-reads '
-            if groupms_h5facetspeedup and len(mslist) > 1:
+            if args['groupms_h5facetspeedup'] and len(mslist) > 1:
                 mslist_concat, h5list_concat = concat_ms_wsclean_facetimaging(mslist, h5list=h5list, concatms=False)
                 cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list_concat)) + ' '
                 cmd += ' amplitude000,phase000 '
@@ -8185,7 +8192,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
 
         cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec '
-        if len(h5list) > 0 and groupms_h5facetspeedup and len(mslist) > 1:
+        if len(h5list) > 0 and args['groupms_h5facetspeedup'] and len(mslist) > 1:
             msliststring_concat = ' '.join(map(str, mslist_concat))
             print('WSCLEAN: ', cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring_concat)
             logger.info(cmd + ' -niter ' + str(niter) + ' ' + msliststring_concat)
@@ -10062,7 +10069,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.6.0'
+    version = '12.7.0'
     print_title(version)
 
     global submodpath, datapath
@@ -10437,13 +10444,12 @@ def main():
                       removenegativecc=args['removenegativefrommodel'],
                       paralleldeconvolution=args['paralleldeconvolution'],
                       deconvolutionchannels=args['deconvolutionchannels'],
-                      parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
+                      parallelgridding=args['parallelgridding'],
                       h5list=wsclean_h5list, localrmswindow=args['localrmswindow'],
                       facetregionfile=facetregionfile, DDEimaging=args['DDE'],
                       multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
                       disable_primarybeam_image=args['disable_primary_beam'],
                       disable_primarybeam_predict=args['disable_primary_beam'],
-                      groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
                       fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
             # args['idg'] = idgin # set back
             if args['makeimage_ILTlowres_HBA']:
@@ -10460,12 +10466,10 @@ def main():
                           predict=False,
                           paralleldeconvolution=args['paralleldeconvolution'],
                           deconvolutionchannels=args['deconvolutionchannels'],
-                          parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
+                          parallelgridding=args['parallelgridding'],
                           h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
-                          groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
-                          ddpsfgrid=args['ddpsfgrid'],
                           fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
             if args['makeimage_fullpol']:
                 makeimage(mslistim, args['imagename'] + 'fullpol' + str(i).zfill(3) + stackstr,
@@ -10477,12 +10481,11 @@ def main():
                           paralleldeconvolution=args['paralleldeconvolution'],
                           deconvolutionchannels=args['deconvolutionchannels'],
                           parallelgridding=args['parallelgridding'],
-                          multiscalescalebias=args['multiscalescalebias'], fullpol=True,
+                          fullpol=True,
                           facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'],
                           multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
-                          groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
                           fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
             # PLOT IMAGE
@@ -10608,14 +10611,13 @@ def main():
                   removenegativecc=args['removenegativefrommodel'],
                   paralleldeconvolution=args['paralleldeconvolution'],
                   deconvolutionchannels=args['deconvolutionchannels'],
-                  parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
+                  parallelgridding=args['parallelgridding'],
                   h5list=wsclean_h5list, localrmswindow=args['localrmswindow'],
                   facetregionfile=facetregionfile, DDEimaging=args['DDE'],
                   multiscalemaxscales=args['multiscalemaxscales'],
                   disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
-                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
-                  ddpsfgrid=args['ddpsfgrid'], fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
+                  fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
         remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), args['pixelscale'],
                            args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
