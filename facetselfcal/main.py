@@ -7827,13 +7827,13 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
 def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robust=-0.5,
               uvtaper=None, multiscale=False, predict=True, onlypredict=False, fitsmask=None,
               idg=False, uvminim=80, fitspectralpol=3,
-              imager='WSCLEAN', restoringbeam=15, automask=2.5,
+              restoringbeam=15, automask=2.5,
               removenegativecc=True, usewgridder=True, paralleldeconvolution=0,
-              deconvolutionchannels=0, parallelgridding=1,
+              parallelgridding=1,
               fullpol=False,
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None,
-              DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False,
-              wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0,
+              DDE_predict='WSCLEAN', DDEimaging=False,
+              wgridderaccuracy=1e-4, nosmallinversion=False,
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False,
               facet_beam_update_time=120,
               singlefacetpredictspeedup=True, forceimagingwithfacets=True,
@@ -8068,7 +8068,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
     baselineav = str(1.5e3 * 60000. * 2. * np.pi * 1.5 / (24. * 60. * 60 * float(imsize)))
 
-    if imager == 'WSCLEAN':
+    if args['imager'] == 'WSCLEAN':
         cmd = 'wsclean '
         cmd += '-no-update-model-required '
         cmd += '-minuv-l ' + str(uvminim) + ' '
@@ -8093,12 +8093,12 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             cmd += '-parallel-deconvolution ' + str(paralleldeconvolution) + ' '
         if parallelgridding > 1:
             cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
-        if deconvolutionchannels > 0 and channelsout > 1:
-            cmd += '-deconvolution-channels ' + str(deconvolutionchannels) + ' '
+        if args['deconvolutionchannels'] > 0 and channelsout > 1:
+            cmd += '-deconvolution-channels ' + str(args['deconvolutionchannels']) + ' '
         if automask > 0.5:
             cmd += '-auto-mask ' + str(automask) + ' -auto-threshold 0.5 '  # to avoid automask 0
-        if localrmswindow > 0:
-            cmd += '-local-rms-window ' + str(localrmswindow) + ' '
+        if args['localrmswindow'] > 0:
+            cmd += '-local-rms-window ' + str(args['localrmswindow']) + ' '
 
         if args['ddpsfgrid'] is not None:
             cmd += '-dd-psf-grid ' + str(args['ddpsfgrid']) + ' ' + str(args['ddpsfgrid']) + ' '
@@ -8108,10 +8108,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # cmd += '-multiscale '+' -multiscale-scales 0,6,12,16,24,32,42,64,72,128,180,256,380,512,650 '
             cmd += '-multiscale '
             cmd += '-multiscale-scale-bias ' + str(args['multiscalescalebias']) + ' '
-            if multiscalemaxscales == 0:
+            if args['multiscalemaxscales'] == 0:
                 cmd += '-multiscale-max-scales ' + str(int(np.rint(np.log2(float(imsize)) - 3))) + ' '
             else:  # use value set by user
-                cmd += '-multiscale-max-scales ' + str(int(multiscalemaxscales)) + ' '
+                cmd += '-multiscale-max-scales ' + str(int(args['multiscalemaxscales'])) + ' '
         if fitsmask is not None and fitsmask != 'nofitsmask':
             if os.path.isfile(fitsmask):
                 shape = get_image_size(fitsmask)
@@ -8268,7 +8268,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 print('PREDICT STEP: ', cmd)
                 run(cmd)
 
-        if imager == 'DDFACET':
+        if args['imager'] == 'DDFACET':
             makemslist(mslist)
             # restoringbeam = '15'
             cmd = 'DDF.py --Data-MS=mslist.txt --Deconv-PeakFactor=0.001 --Data-ColName=' + imcol + ' ' + \
@@ -10440,14 +10440,13 @@ def main():
                       multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id],
                       uvminim=args['uvminim'], predict=not args['stopafterskysolve'],
                       fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'],
-                      imager=args['imager'], restoringbeam=restoringbeam, automask=automask,
+                      restoringbeam=restoringbeam, automask=automask,
                       removenegativecc=args['removenegativefrommodel'],
                       paralleldeconvolution=args['paralleldeconvolution'],
-                      deconvolutionchannels=args['deconvolutionchannels'],
                       parallelgridding=args['parallelgridding'],
-                      h5list=wsclean_h5list, localrmswindow=args['localrmswindow'],
+                      h5list=wsclean_h5list,
                       facetregionfile=facetregionfile, DDEimaging=args['DDE'],
-                      multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
+                      stack=args['stack'],
                       disable_primarybeam_image=args['disable_primary_beam'],
                       disable_primarybeam_predict=args['disable_primary_beam'],
                       fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
@@ -10465,9 +10464,8 @@ def main():
                           automask=automask, removenegativecc=False,
                           predict=False,
                           paralleldeconvolution=args['paralleldeconvolution'],
-                          deconvolutionchannels=args['deconvolutionchannels'],
                           parallelgridding=args['parallelgridding'],
-                          h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
+                          h5list=wsclean_h5list, stack=args['stack'],
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
                           fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
@@ -10479,11 +10477,10 @@ def main():
                           uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=0,
                           automask=automask, removenegativecc=False, predict=False,
                           paralleldeconvolution=args['paralleldeconvolution'],
-                          deconvolutionchannels=args['deconvolutionchannels'],
                           parallelgridding=args['parallelgridding'],
                           fullpol=True,
-                          facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'],
-                          multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
+                          facetregionfile=facetregionfile,
+                          stack=args['stack'],
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
                           fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
@@ -10607,14 +10604,12 @@ def main():
                   multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask,
                   uvminim=args['uvminim'], predict=False,
                   fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'],
-                  imager=args['imager'], restoringbeam=restoringbeam, automask=automask,
+                  restoringbeam=restoringbeam, automask=automask,
                   removenegativecc=args['removenegativefrommodel'],
                   paralleldeconvolution=args['paralleldeconvolution'],
-                  deconvolutionchannels=args['deconvolutionchannels'],
                   parallelgridding=args['parallelgridding'],
-                  h5list=wsclean_h5list, localrmswindow=args['localrmswindow'],
+                  h5list=wsclean_h5list,
                   facetregionfile=facetregionfile, DDEimaging=args['DDE'],
-                  multiscalemaxscales=args['multiscalemaxscales'],
                   disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
                   fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
