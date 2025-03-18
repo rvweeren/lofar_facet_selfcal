@@ -70,6 +70,10 @@ def option_parser():
                                help='Number of channels out during imaging (see WSClean documentation). This is by default 6.',
                                default=6,
                                type=int)
+    imagingparser.add_argument('--mgain',
+                               help='Deconvolution --mgain setting for WSCLean, see WSClean documentation. The default value is 0.75',
+                               default=0.75,
+                               type=float)
     imagingparser.add_argument('--multiscale',
                                help='Use multiscale deconvolution (see WSClean documentation).',
                                action='store_true')
@@ -479,9 +483,9 @@ def option_parser():
                         type=ast.literal_eval,
                         default=True)
     parser.add_argument('--modelstoragemanager',
-                        help='String input option is "stokes_i" compression for MODEL_DATA. The default is None. This will be turned off (set to None) automatically if the solve types do not allow for stokes_i compression',
+                        help='String input option for the compression of MODEL_DATA. The default is stokes_i. This will be turned off (set to None) automatically if the solve types do not allow for stokes_i compression. Set to None if you want to turn off MODEL_DATA compression entirely.',
                         type=str,
-                        default=None)
+                        default='stokes_i')
     parser.add_argument('--resetweights',
                         help='If you want to ignore weight_spectrum_solve.',
                         action='store_true')
