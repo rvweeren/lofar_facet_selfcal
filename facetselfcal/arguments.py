@@ -102,9 +102,8 @@ def option_parser():
                                default=3,
                                type=int)
     imagingparser.add_argument('--ddpsfgrid',
-                               help="Value for option -dd-psf-grid with WSClean (integer, by default this value is not set and the option is not used",
-                               type=int)
-
+                               help="Value for option -dd-psf-grid with WSClean (integer, by default this value is None and the option is not used",
+                               type=int, default=None)
     imagingparser.add_argument("--gapchanneldivision",
                                help='Use the -gap-channel-division option in wsclean imaging and predicts (default is not to use it)',
                                action='store_true')
@@ -203,11 +202,11 @@ def option_parser():
     calibrationparser.add_argument("--smoothnessconstraint-list",
                                    type=arg_as_list,
                                    default=[0., 0., 5.],
-                                   help="List with frequency smoothness values (in same order as soltype-list input). The default is [0.,0.,5.].")
+                                   help="List with frequency smoothness values in MHz (in same order as soltype-list input). The default is [0.,0.,5.].")
     calibrationparser.add_argument("--smoothnessreffrequency-list",
                                    type=arg_as_list,
                                    default=[0., 0., 0.],
-                                   help="List with optional reference frequencies (in MHz) for the smoothness constraint (in same order as soltype-list input). When unequal to 0, the size of the smoothing kernel will vary over frequency by a factor of smoothnessreffrequency*(frequency^smoothnessspectralexponent). The default is [0.,0.,0.].")
+                                   help="List with optional reference frequencies in MHz for the smoothness constraint (in same order as soltype-list input). When unequal to 0, the size of the smoothing kernel will vary over frequency by a factor of smoothnessreffrequency*(frequency^smoothnessspectralexponent). The default is [0.,0.,0.].")
     calibrationparser.add_argument("--smoothnessspectralexponent-list",
                                    type=arg_as_list,
                                    default=[-1., -1., -1.],

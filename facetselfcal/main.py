@@ -8,7 +8,6 @@
 # BDA step DP3
 # compression: blosc2
 # useful? https://learning-python.com/thumbspage.html
-# bdsf still steals the logger https://github.com/lofar-astron/PyBDSF/issues/176
 # add html summary overview
 # Stacking check that freq and time axes are identical
 # scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
@@ -1649,20 +1648,22 @@ def preapply_bandpass(H5filelist, mslist, dysco=True, updateweights=True):
     for ms in mslist:
         parmdb = find_closest_H5time_toms(H5filelist, ms)
         # overwrite DATA here (!)
-        applycal(ms, parmdb, msincol='DATA', msoutcol='DATA', dysco=dysco, updateweights=updateweights)
+        applycal(ms, parmdb, msincol='DATA', msoutcol='DATA', dysco=dysco, updateweights=updateweights, missingantennabehavior='flag')
     return
 
 def find_closest_H5time_toms(H5filelist, ms):
-    """ Find the h5parms, from a given list, that overlap in time with the specified Measurement Set.
+    """ Find the h5parms, from a given list, that falls closest to the time midpoint of the specified Measurement Set.
 
     Args:
         H5filelist (list): list of h5parms to apply.
         ms (str): Measurement Set to match h5parms to.
     Returns:
-        H5filematch (list): list of h5parms matching the measurement set.
+        H5filematch (str): h5parm that is closest in time to the measurement set.
     """
     with table(ms, ack=False) as t:
         timesms = np.sort(np.unique(t.getcol('TIME')))
+        obs_length = np.max(timesms) - np.min(timesms)
+        time_midpoint  = [(0.5*obs_length) + np.min(timesms)] # make list because closest_arrayvals needs to iterate over it
     H5filematch = None
     time_diff = float('inf')
     
@@ -1677,7 +1678,7 @@ def find_closest_H5time_toms(H5filelist, ms):
                     continue
                 
             if times is not None:
-                time_diff_tmp = abs(np.diff(closest_arrayvals(times,timesms))[0])
+                time_diff_tmp = abs(np.diff(closest_arrayvals(times,time_midpoint))[0])
                 if time_diff_tmp < time_diff:
                     H5filematch = H5file
                     time_diff = time_diff_tmp
@@ -1685,7 +1686,7 @@ def find_closest_H5time_toms(H5filelist, ms):
     if H5filematch is None or times is None:
         print('find_closest_H5time_toms: Cannot find matching H5file and ms')
         raise Exception('find_closest_H5time_toms: Cannot find matching H5file and ms')
-    print(H5filematch, 'is closest in time to', ms,  ' diff is', time_diff)
+    print(H5filematch, 'is closest in time to', ms,  ' diff to the midpoint of the ms is', time_diff, ' [s]')
     return H5filematch
 
 def closest_arrayvals(a, b):
@@ -2517,6 +2518,17 @@ def compute_markersize(H5file):
         markersize = 10
     if ntimes < 50:
         markersize = 15
+    
+    if ntimes == 1:
+        markersize = 2
+        nfreqs = number_freqchan_h5(H5file)
+        if nfreqs < 450:
+            markersize = 4
+        if nfreqs < 100:
+            markersize = 10
+        if nfreqs < 50:
+            markersize = 15
+    
     return markersize
 
 
@@ -2903,7 +2915,7 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None)
 
 def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
-             find_closestdir=False, updateweights=False, modelstoragemanager=None):
+             find_closestdir=False, updateweights=False, modelstoragemanager=None, missingantennabehavior='error'):
     """ Apply an H5parm to a Measurement Set.
 
     Args:
@@ -2918,6 +2930,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
         direction (str): Name of the direction in a multi-dir h5 for the applycal (find_closestdir needs to be False in this case)
         find_closestdir (bool): find closest direction (to phasedir MS) in multi-dir h5 file to apply
         updateweights (bool): Update WEIGHT_SPECTRUM in DP3
+        missingantennabehavior (str): for DP3, must be error or flag
     Returns:
         None
     """
@@ -2948,6 +2961,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
             direction = make_utf8(find_closest_ddsol(parmdb, ms))
             print('Applying direction:', direction)
         if fulljonesparmdb(parmdb):
+            cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
             cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
             cmd += 'ac' + str(count) + '.type=applycal '
             cmd += 'ac' + str(count) + '.correction=fulljones '
@@ -2968,6 +2982,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
             if not invert:  # so corrupt, rotation comes first in a rotation+diagonal apply
                 if 'rotation000' in soltabs:
                     # note that rotation comes before amplitude&phase for a corrupt (important if the solve was a rotation+diagonal one)
+                    cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                     cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                     cmd += 'ac' + str(count) + '.type=applycal '
                     cmd += 'ac' + str(count) + '.correction=rotation000 '
@@ -2981,6 +2996,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                     count = count + 1
 
             if 'phase000' in soltabs:
+                cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                 cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                 cmd += 'ac' + str(count) + '.type=applycal '
                 cmd += 'ac' + str(count) + '.correction=phase000 '
@@ -2995,6 +3011,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 count = count + 1
 
             if 'amplitude000' in soltabs:
+                cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                 cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                 cmd += 'ac' + str(count) + '.type=applycal '
                 cmd += 'ac' + str(count) + '.correction=amplitude000 '
@@ -3011,6 +3028,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 count = count + 1
 
             if 'tec000' in soltabs:
+                cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                 cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                 cmd += 'ac' + str(count) + '.type=applycal '
                 cmd += 'ac' + str(count) + '.correction=tec000 '
@@ -3026,6 +3044,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
 
             if invert:  # so applycal, rotation comes last in a rotation+diagonal apply
                 if 'rotation000' in soltabs:
+                    cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                     cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                     cmd += 'ac' + str(count) + '.type=applycal '
                     cmd += 'ac' + str(count) + '.correction=rotation000 '
@@ -4255,6 +4274,48 @@ def copyovergain(gaininh5, gainouth5, soltype):
     return
 
 
+def set_weights_h5_to_one(h5parm):
+    """
+    Set weights for the solutions that have valid numbers to 1.0
+    This is useful for bandpass solutions because the losoto time median preserves the time depedent flagging otherwise
+    Args:
+      h5parm: h5parm file
+    """
+    with tables.open_file(h5parm) as H:
+        soltabs = list(H.root.sol000._v_children.keys())
+    H = tables.open_file(h5parm, mode='a')
+    
+    if 'phase000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.phase000.val[:])
+         # update weights to 1.0
+         H.root.sol000.phase000.weight[goodvals] = 1.0
+
+    if 'amplitude000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.amplitude000.val[:])
+         # update weights to 1.0
+         H.root.sol000.amplitude000.weight[goodvals] = 1.0
+
+    if 'tec000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.tec000.val[:])
+         # update weights to 1.0
+         H.root.sol000.tec000.weight[goodvals] = 1.0
+
+    if 'rotation000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.rotation000.val[:])
+         # update weights to 1.0
+         H.root.sol000.rotation000.weight[goodvals] = 1.0
+
+    if 'rotationmeasure000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.rotationmeasure000.val[:])
+         # update weights to 1.0
+         H.root.sol000.rotationmeasure000.weight[goodvals] = 1.0
+
+    H.flush()
+    H.close()
+    return
+    
+    
+    
 def fix_phasereference(h5parm, refant):
     """ Phase reference values with respect to a reference station
     Args:
@@ -5920,7 +5981,7 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
     return parset
 
 
-def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onepol=False, outplotname='fastphase'):
+def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onepol=False, outplotname='fastphase', onetime=False, markersize=2):
     parset = 'losoto_plotfastphase.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
@@ -5933,11 +5994,16 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     f.write('operation = PLOT\n')
     f.write('soltab = [sol000/phase000]\n')
     if onechannel:
+        f.write('markerSize=%s\n' % int(markersize))
         f.write('axesInPlot = [time]\n')
         if not onepol:
             f.write('axisInCol = pol\n')
-
-    else:
+    if onetime:
+        f.write('markerSize=%s\n' % int(markersize))
+        f.write('axesInPlot = [freq]\n')
+        if not onepol:
+            f.write('axisInCol = pol\n')
+    if not onechannel and not onetime:
         f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
@@ -5950,8 +6016,12 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/phase000]\n')
         if onechannel:
+            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
-        else:
+        if onetime:
+            f.write('markerSize=%s\n' % int(markersize))
+            f.write('axesInPlot = [freq]\n')    
+        if not onechannel and not onetime:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
@@ -5964,9 +6034,12 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     return parset
 
 
+
+
+
 def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
                                     refant='CS003HBA0', onechannel=False, medamp=2.5, flagphases=True,
-                                    onepol=False, outplotname='slowamp', fulljones=False):
+                                    onepol=False, outplotname='slowamp', fulljones=False, onetime=False, markersize=2):
     parset = 'losoto_flag_apgrid.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
@@ -5979,10 +6052,16 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     f.write('operation = PLOT\n')
     f.write('soltab = [sol000/amplitude000]\n')
     if onechannel:
+        f.write('markerSize=%s\n' % int(markersize))
         f.write('axesInPlot = [time]\n')
         if not onepol:
             f.write('axisInCol = pol\n')
-    else:
+    if onetime:
+        f.write('axesInPlot = [freq]\n')
+        f.write('markerSize=%s\n' % int(markersize))
+        if not onepol:
+            f.write('axisInCol = pol\n')
+    if not onechannel and not onetime:
         f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     # if longbaseline:
@@ -5998,8 +6077,12 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('soltab = [sol000/amplitude000]\n')
         f.write('pol = [XY, YX]\n')
         if onechannel:
+            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
-        else:
+        if onetime:
+            f.write('markerSize=%s\n' % int(markersize))
+            f.write('axesInPlot = [freq]\n')   
+        if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [%s,%s]\n' % (str(0.0), str(0.5)))
@@ -6010,10 +6093,16 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/phase000]\n')
         if onechannel:
+            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
-        else:
+        if onetime:
+            f.write('markerSize=%s\n' % int(markersize))
+            f.write('axesInPlot = [freq]\n')
+            if not onepol:
+                f.write('axisInCol = pol\n')
+        if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
@@ -6025,8 +6114,12 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('operation = PLOT\n')
             f.write('soltab = [sol000/phase000]\n')
             if onechannel:
+                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [time]\n')
-            else:
+            if onetime:
+                f.write('markerSize=%s\n' % int(markersize))
+                f.write('axesInPlot = [freq]\n')  
+            if not onetime and not onechannel:
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
@@ -6041,7 +6134,10 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('operation = FLAG\n')
         if onechannel:
             f.write('axesToFlag = [time]\n')
-        else:
+        if onetime:
+            f.write('markerSize=%s\n' % int(markersize))
+            f.write('axesToFlag = [freq]\n')
+        if not onetime and not onechannel:
             f.write('axesToFlag = [time,freq]\n')
         f.write('mode = smooth\n')
         f.write('maxCycles = 3\n')
@@ -6049,7 +6145,9 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('maxRms = %s\n' % str(maxrms))
         if onechannel:
             f.write('order  = [5]\n\n\n')
-        else:
+        if onetime:
+            f.write('order  = [5]\n\n\n')
+        if not onetime and not onechannel:
             f.write('order  = [5,5]\n\n\n')
 
         if includesphase and flagphases:
@@ -6058,7 +6156,9 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('operation = FLAG\n')
             if onechannel:
                 f.write('axesToFlag = [time]\n')
-            else:
+            if onetime:
+                f.write('axesToFlag = [freq]\n')    
+            if not onetime and not onechannel:
                 f.write('axesToFlag = [time,freq]\n')
             f.write('mode = smooth\n')
             f.write('maxCycles = 3\n')
@@ -6066,17 +6166,25 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('maxRms = %s\n' % str(maxrmsphase))
             if onechannel:
                 f.write('order  = [5]\n\n\n')
-            else:
+            if onetime:
+                f.write('order  = [5]\n\n\n')
+            if not onetime and not onechannel:
                 f.write('order  = [5,5]\n\n\n')
 
         f.write('[plotampafter]\n')
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/amplitude000]\n')
         if onechannel:
+            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
-        else:
+        if onetime:
+            f.write('markerSize=%s\n' % int(markersize))
+            f.write('axesInPlot = [freq]\n')
+            if not onepol:
+                f.write('axisInCol = pol\n')
+        if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         # f.write('minmax = [0,2.5]\n')
@@ -6088,10 +6196,16 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('operation = PLOT\n')
             f.write('soltab = [sol000/phase000]\n')
             if onechannel:
+                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [time]\n')
                 if not onepol:
                     f.write('axisInCol = pol\n')
-            else:
+            if onetime:
+                f.write('markerSize=%s\n' % int(markersize))
+                f.write('axesInPlot = [freq]\n')
+                if not onepol:
+                    f.write('axisInCol = pol\n')
+            if not onetime and not onechannel:
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
@@ -6286,7 +6400,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     Create a facet region file based on an input image or file provided by the user
     if there is an image use lsmtool tessellation algorithm
 
-    This function also returns the solints obtained out of the facetdirections file (if avail). It is up to
+    This function also returns the solints and smoothness obtained out of the facetdirections file (if avail). It is up to
     the function that calls this to do something with it or not.
     """
     if via_h5: # this is quick call to ds9facetgenerator using an h5 file and a None return
@@ -6297,6 +6411,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         return
 
     solints = None  # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
+    smoothness = None  # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
     soltypelist_includedir = None  # initialize
     if facetdirections is not None:
         try:
@@ -6325,7 +6440,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             cmd += '--ms=' + ms + ' '
             cmd += '--h5=facetdirections.p --imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
             run(cmd)
-        return solints, soltypelist_includedir
+        return solints, smoothness, soltypelist_includedir
     elif selfcalcycle == 0:
         # Only run this if selfcalcycle==0 [elif]
         # Try to load previous facetdirections.skymodel
@@ -6365,16 +6480,16 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             cmd += '--ms=' + ms + ' '
             cmd += '--h5=facetdirections.p --imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
             run(cmd)
-        return solints, soltypelist_includedir
+        return solints, smoothness, soltypelist_includedir
     else:
-        return solints, soltypelist_includedir
+        return solints, smoothness, soltypelist_includedir
 
 
 def parse_facetdirections(facetdirections, selfcalcycle):
     """
        parse the facetdirections.txt file and return a list of facet directions
        for the given selfcalcycle. In the future, this function should also return a
-       list of solints, nchans and other things
+       list of solints, smoothness, nchans and other things
     """
     data = ascii.read(facetdirections, format='commented_header', comment="\\s*#")
     ra, dec = data['RA'], data['DEC']
@@ -6414,18 +6529,33 @@ def parse_facetdirections(facetdirections, selfcalcycle):
     PatchPositions_array[:, 0] = (rasel * units.deg).to(units.rad).value
     PatchPositions_array[:, 1] = (decsel * units.deg).to(units.rad).value
 
-    # Case for smoothness is None
+    # Case for smoothness is not set in the direction file
     if solints is not None and smoothness is None:
         solintsel = solints[a]
         if soltypelist_includedir is not None:
             return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], None, soltypelist_includedir_sel
         else:
             return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], None, None
-    elif smoothness is None:
+    if solints is None and smoothness is None:
         if soltypelist_includedir is not None:
             return PatchPositions_array, None, None, soltypelist_includedir_sel
         else:
             return PatchPositions_array, None, None, None
+
+    # Case for smoothness is set in the direction file
+    if solints is not None and smoothness is not None:
+        solintsel = solints[a]
+        smoothnesssel = smoothness[a]
+        if soltypelist_includedir is not None:
+            return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], [ast.literal_eval(sm) for sm in smoothnesssel], soltypelist_includedir_sel
+        else:
+            return PatchPositions_array, [ast.literal_eval(solint) for solint in solintsel], [ast.literal_eval(sm) for sm in smoothnesssel], None
+    if solints is None and smoothness is not None: 
+        smoothnesssel = smoothness[a]
+        if soltypelist_includedir is not None:
+            return PatchPositions_array, None, [ast.literal_eval(sm) for sm in smoothnesssel], soltypelist_includedir_sel
+        else:
+            return PatchPositions_array, None, [ast.literal_eval(sm) for sm in smoothnesssel], None
 
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist,
@@ -6437,7 +6567,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
     else:
         idg = False
 
-    solints, soltypelist_includedir = create_facet_directions(imagebasename, selfcalcycle,
+    solints, smoothness, soltypelist_includedir = create_facet_directions(imagebasename, selfcalcycle,
                                                               targetFlux=args['targetFlux'], ms=mslist[0], imsize=args['imsize'],
                                                               pixelscale=args['pixelscale'], numClusters=args['Nfacets'],
                                                               facetdirections=args['facetdirections'], restart=restart)
@@ -6556,7 +6686,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
             else:
                 dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
-    return modeldatacolumns, dde_skymodel, solints, soltypelist_includedir
+    return modeldatacolumns, dde_skymodel, solints, smoothness, soltypelist_includedir
 
 
 def is_scalar_array_for_wsclean(h5list):
@@ -6577,18 +6707,18 @@ def is_scalar_array_for_wsclean(h5list):
 
 # this version corrupts the MODEL_DATA column
 def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
-                         soltype_list, soltypecycles_list, smoothnessconstraint_list,
+                         soltypecycles_list, smoothnessconstraint_list,
                          smoothnessreffrequency_list, smoothnessspectralexponent_list,
                          smoothnessrefdistance_list,
                          antennaconstraint_list, resetsols_list, resetdir_list, normamps_list,
-                         BLsmooth_list, uvmin=0,
+                         BLsmooth_list,
                          normamps=False, normamps_per_ms=False, skymodel=None,
-                         predictskywithbeam=False, restoreflags=False, flagging=False,
-                         longbaseline=False, flagslowphases=True,
-                         flagslowamprms=7.0, flagslowphaserms=7.0, skymodelsource=None,
-                         skymodelpointsource=None, wscleanskymodel=None, uvminscalarphasediff=0,
+                         predictskywithbeam=False,
+                         longbaseline=False,
+                         skymodelsource=None,
+                         skymodelpointsource=None, wscleanskymodel=None,
                          mslist_beforephaseup=None,
-                         gapchanneldivision=False, modeldatacolumns=[], dde_skymodel=None,
+                         modeldatacolumns=[], dde_skymodel=None,
                          DDE_predict='WSCLEAN', telescope='LOFAR',
                          mslist_beforeremoveinternational=None, soltypelist_includedir=None):
     ## --- start STACK code ---
@@ -6609,13 +6739,11 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     makeimage([ms], wscleanskymodel, 1., 1.,
                               len(glob.glob(wscleanskymodel + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
-                              gapchanneldivision=gapchanneldivision,
                               fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
                 if wscleanskymodel is not None and type(wscleanskymodel) is list:
                     makeimage([ms], wscleanskymodel[ms_id], 1., 1.,
                               len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
-                              gapchanneldivision=gapchanneldivision,
                               fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
                 if skymodelpointsource is not None and type(skymodelpointsource) is float:
@@ -6686,14 +6814,14 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
     parmdbmergelist = [[] for _ in
                        range(len(mslist))]  # [[],[],[],[]] nested list length mslist used for Jurjen's h5_merge
     # LOOP OVER THE ENTIRE SOLTYPE LIST (so includes pertubations via a pre-applycal)
-    for soltypenumber, soltype in enumerate(soltype_list):
+    for soltypenumber, soltype in enumerate(args['soltype_list']):
         # SOLVE LOOP OVER MS
         parmdbmslist = []
         for msnumber, ms in enumerate(mslist):
             # check we are above far enough in the selfcal to solve for the extra pertubation
             if selfcalcycle >= soltypecycles_list[soltypenumber][msnumber]:
                 print('selfcalcycle, soltypenumber', selfcalcycle, soltypenumber)
-                if (soltypenumber < len(soltype_list) - 1):
+                if (soltypenumber < len(args['soltype_list']) - 1):
 
                     print(selfcalcycle, soltypecycles_list[soltypenumber + 1][msnumber])
                     print('_______________________')
@@ -6725,7 +6853,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
 
                 runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb,
                             soltype,
-                            uvmin=uvmin,
+                            uvmin=args['uvmin'],
                             SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber],
                             SMconstraintreffreq=smoothnessreffrequency_list[soltypenumber][msnumber],
                             SMconstraintspectralexponent=smoothnessspectralexponent_list[soltypenumber][msnumber],
@@ -6734,20 +6862,20 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             resetsols=resetsols_list[soltypenumber][msnumber],
                             resetsols_list=resetsols_list,
                             resetdir=resetdir_list[soltypenumber][msnumber],
-                            restoreflags=restoreflags, flagging=flagging, skymodel=skymodel,
-                            flagslowphases=flagslowphases, flagslowamprms=flagslowamprms,
-                            flagslowphaserms=flagslowphaserms,
+                            restoreflags=args['restoreflags'], flagging=args['doflagging'], skymodel=skymodel,
+                            flagslowphases=args['doflagslowphases'], flagslowamprms=args['flagslowamprms'],
+                            flagslowphaserms=args['flagslowphaserms'],
                             predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth_list[soltypenumber][msnumber],
                             skymodelsource=skymodelsource,
                             skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,
-                            iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'], uvminscalarphasediff=uvminscalarphasediff,
+                            iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],
                             create_modeldata=create_modeldata,
                             selfcalcycle=selfcalcycle, dysco=args['dysco'], blsmooth_chunking_size=args['blsmooth_chunking_size'],
-                            gapchanneldivision=gapchanneldivision, soltypenumber=soltypenumber,
+                            soltypenumber=soltypenumber,
                             clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],
                             clipsollow=args['clipsollow'], uvmax=args['uvmax'], modeldatacolumns=modeldatacolumns,
                             preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel,
-                            DDE_predict=DDE_predict, telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'], soltype_list=soltype_list,
+                            DDE_predict=DDE_predict, telescope=telescope, ncpu_max=args['ncpu_max_DP3solve'], soltype_list=args['soltype_list'],
                             DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir,
                             normamps=normamps, modelstoragemanager=args['modelstoragemanager'])
 
@@ -6866,7 +6994,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          propagate_weights=True, add_cs=True)
 
             # make LINEAR solutions from CIRCULAR (never do a single_pol merge here!)
-            if ('scalarphasediff' in soltype_list) or ('scalarphasediffFR' in soltype_list) or args['docircular']:
+            if ('scalarphasediff' in args['soltype_list']) or ('scalarphasediffFR' in args['soltype_list']) or args['docircular']:
                 merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True,
                          propagate_weights=True)
                 # add CS stations back for superstation
@@ -6883,6 +7011,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
 
             # plot merged solution file
+            print('single_pol_merge',single_pol_merge)
             losotoparset = create_losoto_flag_apgridparset(ms, flagging=False,
                                                            medamp=get_median_amp(parmdbmergename),
                                                            outplotname=
@@ -6939,7 +7068,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 predictskywithbeam=False, BLsmooth=False, skymodelsource=None,
                 skymodelpointsource=None, wscleanskymodel=None, iontimefactor=0.01, ionfreqfactor=1.0,
                 blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, selfcalcycle=0, dysco=True,
-                blsmooth_chunking_size=8, gapchanneldivision=False, soltypenumber=0, create_modeldata=True,
+                blsmooth_chunking_size=8, soltypenumber=0, create_modeldata=True,
                 clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667,
                 ampresetvalfactor=10., uvmax=None,
                 modeldatacolumns=[], solveralgorithm='directioniterative', solveralgorithm_dde='directioniterative',
@@ -6973,7 +7102,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     # if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if wscleanskymodel is not None and create_modeldata and len(modeldatacolumns) == 0:
         makeimage([ms], wscleanskymodel, 1., 1., len(glob.glob(wscleanskymodel + '-????-model.fits')),
-                  0, 0.0, onlypredict=True, idg=False, gapchanneldivision=gapchanneldivision, modelstoragemanager=modelstoragemanager)
+                  0, 0.0, onlypredict=True, idg=False, modelstoragemanager=modelstoragemanager)
 
     # if skymodelpointsource is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if skymodelpointsource is not None and create_modeldata:
@@ -7235,8 +7364,16 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if antennaconstraint is not None:
         cmd += 'ddecal.antennaconstraint=' + antennaconstraintstr(antennaconstraint, antennasms, HBAorLBA,
                                                                   telescope=telescope) + ' '
-    if SMconstraint > 0.0 and nchan != 0:
-        cmd += 'ddecal.smoothnessconstraint=' + str(SMconstraint * 1e6) + ' '
+
+    if np.max(SMconstraint) > 0.0 and nchan != 0:
+        if type(SMconstraint) == list:
+            if len(dir_id_kept) > 0:
+                print(SMconstraint)
+                print(dir_id_kept)
+                SMconstraint = [SMconstraint[i] for i in dir_id_kept]  # overwrite SMconstraint, selecting on the directions kept
+            smoothness_dd_factors = [ ddsf/np.max(SMconstraint) for ddsf in SMconstraint]  
+            cmd += 'ddecal.smoothness_dd_factors=' + "'" + str(smoothness_dd_factors).replace(' ', '') + "' "
+        cmd += 'ddecal.smoothnessconstraint=' + str(np.max(SMconstraint) * 1e6) + ' '
         cmd += 'ddecal.smoothnessreffrequency=' + str(SMconstraintreffreq * 1e6) + ' '
         cmd += 'ddecal.smoothnessspectralexponent=' + str(SMconstraintspectralexponent) + ' '
         cmd += 'ddecal.smoothnessrefdistance=' + str(SMconstraintrefdistance * 1e3) + ' '  # input units in km
@@ -7458,7 +7595,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if soltype in ['rotation+scalarphase', 'rotation+diagonalphase']:
             losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                                outplotname=outplotname,
-                                                               refant=findrefant_core(parmdb))  # phase matrix plot
+                                                               refant=findrefant_core(parmdb),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
             cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
             force_close(parmdb)
             print(cmdlosoto)
@@ -7468,7 +7605,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if soltype in ['phaseonly', 'scalarphase']:
         losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                            outplotname=outplotname,
-                                                           refant=findrefant_core(parmdb))  # phase matrix plot
+                                                           refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
         force_close(parmdb)
         print(cmdlosoto)
@@ -7491,10 +7628,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude',
                    'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude',
-                   'rotation+scalar', 'rotation+scalaramplitude'] and (
-            ntimesH5(parmdb) > 1):  # plotting/flagging fails if only 1 timeslot
+                   'rotation+scalar', 'rotation+scalaramplitude']:
         print('Do flagging?:', flagging)
-        if flagging and not onechannel:
+        if flagging and not onechannel and ntimesH5(parmdb) > 1 :
             if soltype == 'fulljones':
                 print('Fulljones and flagging not implemtened')
                 raise Exception('Fulljones and flagging not implemtened')
@@ -7503,14 +7639,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                                                maxrmsphase=flagslowphaserms,
                                                                includesphase=includesphase, onechannel=onechannel,
                                                                medamp=medamp, flagphases=flagslowphases, onepol=onepol,
-                                                               outplotname=outplotname, refant=findrefant_core(parmdb))
+                                                               outplotname=outplotname, refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1, markersize=compute_markersize(parmdb))
                 force_close(parmdb)
         else:
             losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase,
                                                            onechannel=onechannel, medamp=medamp, onepol=onepol,
                                                            outplotname=outplotname,
                                                            refant=findrefant_core(parmdb),
-                                                           fulljones=fulljonesparmdb(parmdb))
+                                                           fulljones=fulljonesparmdb(parmdb),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))
             force_close(parmdb)
 
         # MAKE losoto command
@@ -7669,6 +7805,20 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                 os.system('rm -rf ' + ms + '.subtracted_ddcor')  
             applycal(ms + '.subtracted',h5list[ms_id], find_closestdir=True, 
                      msout=ms + '.subtracted_ddcor', dysco=dysco)
+            with table(ms + '.subtracted') as t:
+                if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if WEIGHT_SPECTRUM_SOLVE is present otherwise this is not needed
+                    print('Going to copy over WEIGHT_SPECTRUM_SOLVE')
+                    # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
+                    with table(ms + '.subtracted_ddcor', readonly=False) as t2:
+                        print('Adding WEIGHT_SPECTRUM_SOLVE')
+                        desc = t2.getcoldesc('WEIGHT_SPECTRUM')
+                        desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
+                        t2.addcols(desc)
+                        imweights = t.getcol('WEIGHT_SPECTRUM_SOLVE')
+                        t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
+            # remove uncorrected file to save disk space
+            os.system('rm -rf ' + ms + '.subtracted')
+
             # remove uncorrected file to save disk space
             os.system('rm -rf ' + ms + '.subtracted')
     return
@@ -7677,16 +7827,16 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
 def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robust=-0.5,
               uvtaper=None, multiscale=False, predict=True, onlypredict=False, fitsmask=None,
               idg=False, uvminim=80, fitspectralpol=3,
-              imager='WSCLEAN', restoringbeam=15, automask=2.5,
+              restoringbeam=15, automask=2.5,
               removenegativecc=True, usewgridder=True, paralleldeconvolution=0,
-              deconvolutionchannels=0, parallelgridding=1, multiscalescalebias=0.8,
-              fullpol=False, taperinnertukey=None, gapchanneldivision=False,
+              parallelgridding=1,
+              fullpol=False,
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None,
-              DDE_predict='WSCLEAN', localrmswindow=0, DDEimaging=False,
-              wgridderaccuracy=1e-4, nosmallinversion=False, multiscalemaxscales=0,
+              DDE_predict='WSCLEAN', DDEimaging=False,
+              wgridderaccuracy=1e-4, nosmallinversion=False,
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False,
-              facet_beam_update_time=120, groupms_h5facetspeedup=False,
-              singlefacetpredictspeedup=True, forceimagingwithfacets=True, ddpsfgrid=None,
+              facet_beam_update_time=120,
+              singlefacetpredictspeedup=True, forceimagingwithfacets=True,
               fulljones_h5_facetbeam=False, modelstoragemanager=None, sharedfacetreads=False):
     """
     forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
@@ -7734,7 +7884,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             #  cmd += '-padding 1.8 '
             if channelsout > 1:
                 cmd += '-channels-out ' + str(channelsout) + ' '
-                if gapchanneldivision:
+                if args['gapchanneldivision']:
                     cmd += '-gap-channel-division '
             if idg:
                 cmd += '-gridder idg -idg-mode cpu '
@@ -7780,7 +7930,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         #  cmd += '-padding 1.8 '
         if channelsout > 1:
             cmd += '-channels-out ' + str(channelsout) + ' '
-            if gapchanneldivision:
+            if args['gapchanneldivision']:
                 cmd += '-gap-channel-division '
         if idg:
             cmd += '-gridder idg -idg-mode cpu '
@@ -7852,7 +8002,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             #  cmd += '-padding 1.8 '
             if channelsout > 1:
                 cmd += '-channels-out ' + str(channelsout) + ' '
-                if gapchanneldivision:
+                if args['gapchanneldivision']:
                     cmd += '-gap-channel-division '
             if idg:
                 cmd += '-gridder idg -idg-mode cpu '
@@ -7918,7 +8068,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
     baselineav = str(1.5e3 * 60000. * 2. * np.pi * 1.5 / (24. * 60. * 60 * float(imsize)))
 
-    if imager == 'WSCLEAN':
+    if args['imager'] == 'WSCLEAN':
         cmd = 'wsclean '
         cmd += '-no-update-model-required '
         cmd += '-minuv-l ' + str(uvminim) + ' '
@@ -7937,31 +8087,31 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         #  cmd += '-padding 1.4 '
         if channelsout > 1:
             cmd += ' -join-channels -channels-out ' + str(channelsout) + ' '
-            if gapchanneldivision:
+            if args['gapchanneldivision']:
                 cmd += '-gap-channel-division '
         if paralleldeconvolution > 0:
             cmd += '-parallel-deconvolution ' + str(paralleldeconvolution) + ' '
         if parallelgridding > 1:
             cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
-        if deconvolutionchannels > 0 and channelsout > 1:
-            cmd += '-deconvolution-channels ' + str(deconvolutionchannels) + ' '
+        if args['deconvolutionchannels'] > 0 and channelsout > 1:
+            cmd += '-deconvolution-channels ' + str(args['deconvolutionchannels']) + ' '
         if automask > 0.5:
             cmd += '-auto-mask ' + str(automask) + ' -auto-threshold 0.5 '  # to avoid automask 0
-        if localrmswindow > 0:
-            cmd += '-local-rms-window ' + str(localrmswindow) + ' '
+        if args['localrmswindow'] > 0:
+            cmd += '-local-rms-window ' + str(args['localrmswindow']) + ' '
 
-        if ddpsfgrid is not None:
-            cmd += '-dd-psf-grid ' + str(ddpsfgrid) + ' ' + str(ddpsfgrid) + ' '
+        if args['ddpsfgrid'] is not None:
+            cmd += '-dd-psf-grid ' + str(args['ddpsfgrid']) + ' ' + str(args['ddpsfgrid']) + ' '
 
         if multiscale:
             # cmd += '-multiscale '+' -multiscale-scales 0,4,8,16,32,64 -multiscale-scale-bias 0.6 '
             # cmd += '-multiscale '+' -multiscale-scales 0,6,12,16,24,32,42,64,72,128,180,256,380,512,650 '
             cmd += '-multiscale '
-            cmd += '-multiscale-scale-bias ' + str(multiscalescalebias) + ' '
-            if multiscalemaxscales == 0:
+            cmd += '-multiscale-scale-bias ' + str(args['multiscalescalebias']) + ' '
+            if args['multiscalemaxscales'] == 0:
                 cmd += '-multiscale-max-scales ' + str(int(np.rint(np.log2(float(imsize)) - 3))) + ' '
             else:  # use value set by user
-                cmd += '-multiscale-max-scales ' + str(int(multiscalemaxscales)) + ' '
+                cmd += '-multiscale-max-scales ' + str(int(args['multiscalemaxscales'])) + ' '
         if fitsmask is not None and fitsmask != 'nofitsmask':
             if os.path.isfile(fitsmask):
                 shape = get_image_size(fitsmask)
@@ -7972,8 +8122,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 raise Exception('fitsmask does not exist')
         if uvtaper is not None:
             cmd += '-taper-gaussian ' + uvtaper + ' '
-        if taperinnertukey is not None:
-            cmd += '-taper-inner-tukey ' + str(taperinnertukey) + ' '
+        if args['taperinnertukey'] is not None:
+            cmd += '-taper-inner-tukey ' + str(args['taperinnertukey']) + ' '
 
         if (fitspectralpol > 0) and not (fullpol):
             cmd += '-save-source-list '
@@ -8009,7 +8159,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if len(h5list) > 0:
             cmd += '-facet-regions ' + facetregionfile + ' '
             if sharedfacetreads: cmd += '-shared-facet-reads '
-            if groupms_h5facetspeedup and len(mslist) > 1:
+            if args['groupms_h5facetspeedup'] and len(mslist) > 1:
                 mslist_concat, h5list_concat = concat_ms_wsclean_facetimaging(mslist, h5list=h5list, concatms=False)
                 cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list_concat)) + ' '
                 cmd += ' amplitude000,phase000 '
@@ -8042,7 +8192,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
 
         cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec '
-        if len(h5list) > 0 and groupms_h5facetspeedup and len(mslist) > 1:
+        if len(h5list) > 0 and args['groupms_h5facetspeedup'] and len(mslist) > 1:
             msliststring_concat = ' '.join(map(str, mslist_concat))
             print('WSCLEAN: ', cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring_concat)
             logger.info(cmd + ' -niter ' + str(niter) + ' ' + msliststring_concat)
@@ -8084,7 +8234,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             #     cmd += '-padding 1.8 '
             if channelsout > 1:
                 cmd += '-channels-out ' + str(channelsout) + ' '
-                if gapchanneldivision:
+                if args['gapchanneldivision']:
                     cmd += '-gap-channel-division '
             if idg:
                 cmd += '-gridder idg -idg-mode cpu '
@@ -8118,7 +8268,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 print('PREDICT STEP: ', cmd)
                 run(cmd)
 
-        if imager == 'DDFACET':
+        if args['imager'] == 'DDFACET':
             makemslist(mslist)
             # restoringbeam = '15'
             cmd = 'DDF.py --Data-MS=mslist.txt --Deconv-PeakFactor=0.001 --Data-ColName=' + imcol + ' ' + \
@@ -9919,7 +10069,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.5.0'
+    version = '12.7.0'
     print_title(version)
 
     global submodpath, datapath
@@ -10219,7 +10369,7 @@ def main():
             # add patches for DDE predict
             # also do prepare_DDE
             if args['DDE']:
-                modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
+                modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
                     prepare_DDE(args['skymodel'], i, mslist,
                                 DDE_predict='DP3', restart=False, skyview=tgssfitsfile,
                                 wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel']))
@@ -10227,29 +10377,26 @@ def main():
                 if candidate_solints is not None:
                     candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
                     solint_list = candidate_solints
+                if candidate_smoothness is not None:
+                    candidate_smoothness = np.swapaxes(np.array([candidate_smoothness] * len(mslist)), 1, 0).T.tolist()
+                    smoothnessconstraint_list = candidate_smoothness
             else:
                 dde_skymodel = None
-            wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, args['soltype_list'],
+            wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, 
                                                   soltypecycles_list, smoothnessconstraint_list,
                                                   smoothnessreffrequency_list,
                                                   smoothnessspectralexponent_list, smoothnessrefdistance_list,
                                                   antennaconstraint_list, resetsols_list, resetdir_list,
                                                   normamps_list, BLsmooth_list,
-                                                  uvmin=args['uvmin'], normamps=args['normampsskymodel'],
+                                                  normamps=args['normampsskymodel'],
                                                   skymodel=args['skymodel'],
                                                   predictskywithbeam=args['predictskywithbeam'],
-                                                  restoreflags=args['restoreflags'], flagging=args['doflagging'],
                                                   longbaseline=longbaseline,
-                                                  flagslowphases=args['doflagslowphases'],
-                                                  flagslowamprms=args['flagslowamprms'],
-                                                  flagslowphaserms=args['flagslowphaserms'],
                                                   skymodelsource=args['skymodelsource'],
                                                   skymodelpointsource=args['skymodelpointsource'],
                                                   wscleanskymodel=args['wscleanskymodel'],
-                                                  uvminscalarphasediff=args['uvminscalarphasediff'],
                                                   mslist_beforephaseup=mslist_beforephaseup,
                                                   telescope=telescope,
-                                                  gapchanneldivision=args['gapchanneldivision'],
                                                   modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                                   DDE_predict=set_DDE_predict_skymodel_solve(args['wscleanskymodel']),
                                                   mslist_beforeremoveinternational=mslist_beforeremoveinternational,
@@ -10266,7 +10413,7 @@ def main():
 
         # RESTART FOR A DDE RUN, set modeldatacolumns and dde_skymodel
         if args['DDE'] and args['start'] != 0 and i == args['start']:
-            modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
+            modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
@@ -10293,18 +10440,15 @@ def main():
                       multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id],
                       uvminim=args['uvminim'], predict=not args['stopafterskysolve'],
                       fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'],
-                      imager=args['imager'], restoringbeam=restoringbeam, automask=automask,
+                      restoringbeam=restoringbeam, automask=automask,
                       removenegativecc=args['removenegativefrommodel'],
                       paralleldeconvolution=args['paralleldeconvolution'],
-                      deconvolutionchannels=args['deconvolutionchannels'],
-                      parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
-                      taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
-                      h5list=wsclean_h5list, localrmswindow=args['localrmswindow'],
+                      parallelgridding=args['parallelgridding'],
+                      h5list=wsclean_h5list,
                       facetregionfile=facetregionfile, DDEimaging=args['DDE'],
-                      multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
+                      stack=args['stack'],
                       disable_primarybeam_image=args['disable_primary_beam'],
                       disable_primarybeam_predict=args['disable_primary_beam'],
-                      groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
                       fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
             # args['idg'] = idgin # set back
             if args['makeimage_ILTlowres_HBA']:
@@ -10320,14 +10464,10 @@ def main():
                           automask=automask, removenegativecc=False,
                           predict=False,
                           paralleldeconvolution=args['paralleldeconvolution'],
-                          deconvolutionchannels=args['deconvolutionchannels'],
-                          parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
-                          taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
-                          h5list=wsclean_h5list, multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
+                          parallelgridding=args['parallelgridding'],
+                          h5list=wsclean_h5list, stack=args['stack'],
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
-                          groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
-                          ddpsfgrid=args['ddpsfgrid'],
                           fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
             if args['makeimage_fullpol']:
                 makeimage(mslistim, args['imagename'] + 'fullpol' + str(i).zfill(3) + stackstr,
@@ -10337,15 +10477,12 @@ def main():
                           uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=0,
                           automask=automask, removenegativecc=False, predict=False,
                           paralleldeconvolution=args['paralleldeconvolution'],
-                          deconvolutionchannels=args['deconvolutionchannels'],
                           parallelgridding=args['parallelgridding'],
-                          multiscalescalebias=args['multiscalescalebias'], fullpol=True,
-                          taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
-                          facetregionfile=facetregionfile, localrmswindow=args['localrmswindow'],
-                          multiscalemaxscales=args['multiscalemaxscales'], stack=args['stack'],
+                          fullpol=True,
+                          facetregionfile=facetregionfile,
+                          stack=args['stack'],
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
-                          groupms_h5facetspeedup=args['groupms_h5facetspeedup'], ddpsfgrid=args['ddpsfgrid'],
                           fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
             # PLOT IMAGE
@@ -10354,13 +10491,16 @@ def main():
 
         modeldatacolumns = []
         if args['DDE']:
-            modeldatacolumns, dde_skymodel, candidate_solints, soltypelist_includedir = (
+            modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], telescope=telescope))
 
             if candidate_solints is not None:
                 candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
                 solint_list = candidate_solints
+            if candidate_smoothness is not None:
+                candidate_smoothness = np.swapaxes(np.array([candidate_smoothness] * len(mslist)), 1, 0).T.tolist()
+                smoothnessconstraint_list = candidate_smoothness
         else:
             dde_skymodel = None
 
@@ -10380,6 +10520,7 @@ def main():
             print('Stopping as requested via --bandpassMeerKAT and compute bandpass')
             for parmdb in create_mergeparmdbname(mslist, 0, skymodelsolve=True):
                 run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
+                set_weights_h5_to_one(parmdb)
             return    
 
         # REDETERMINE SOLINTS IF REQUESTED
@@ -10408,20 +10549,15 @@ def main():
                                       delaycal=args['delaycal'])
 
         # CALIBRATE AND APPLYCAL
-        wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, args['soltype_list'],
+        wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, 
                                               soltypecycles_list,
                                               smoothnessconstraint_list, smoothnessreffrequency_list,
                                               smoothnessspectralexponent_list, smoothnessrefdistance_list,
                                               antennaconstraint_list, resetsols_list, resetdir_list,
-                                              normamps_list, BLsmooth_list, uvmin=args['uvmin'],
+                                              normamps_list, BLsmooth_list,
                                               normamps=args['normamps'],
-                                              restoreflags=args['restoreflags'],
-                                              flagging=args['doflagging'], longbaseline=longbaseline,
-                                              flagslowphases=args['doflagslowphases'],
-                                              flagslowamprms=args['flagslowamprms'],
-                                              flagslowphaserms=args['flagslowphaserms'],                                              uvminscalarphasediff=args['uvminscalarphasediff'],
+                                              longbaseline=longbaseline,                                          
                                               mslist_beforephaseup=mslist_beforephaseup,
-                                              gapchanneldivision=args['gapchanneldivision'],
                                               modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                               DDE_predict=args['DDE_predict'],
                                               mslist_beforeremoveinternational=mslist_beforeremoveinternational,
@@ -10468,19 +10604,15 @@ def main():
                   multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask,
                   uvminim=args['uvminim'], predict=False,
                   fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'],
-                  imager=args['imager'], restoringbeam=restoringbeam, automask=automask,
+                  restoringbeam=restoringbeam, automask=automask,
                   removenegativecc=args['removenegativefrommodel'],
                   paralleldeconvolution=args['paralleldeconvolution'],
-                  deconvolutionchannels=args['deconvolutionchannels'],
-                  parallelgridding=args['parallelgridding'], multiscalescalebias=args['multiscalescalebias'],
-                  taperinnertukey=args['taperinnertukey'], gapchanneldivision=args['gapchanneldivision'],
-                  h5list=wsclean_h5list, localrmswindow=args['localrmswindow'],
+                  parallelgridding=args['parallelgridding'],
+                  h5list=wsclean_h5list,
                   facetregionfile=facetregionfile, DDEimaging=args['DDE'],
-                  multiscalemaxscales=args['multiscalemaxscales'],
                   disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
-                  groupms_h5facetspeedup=args['groupms_h5facetspeedup'],
-                  ddpsfgrid=args['ddpsfgrid'], fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
+                  fulljones_h5_facetbeam=not args['single_dual_speedup'], modelstoragemanager=args['modelstoragemanager'])
 
         remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), args['pixelscale'],
                            args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
