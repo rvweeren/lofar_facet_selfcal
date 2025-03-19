@@ -1,10 +1,8 @@
 name: Test --help in Singularity
 
 on:
-  push:
-    branches:
-      - main  # Change if using another branch
-  pull_request:
+  push:  # Run on any branch push
+  pull_request:  # Run on any PR
 
 jobs:
   test:
