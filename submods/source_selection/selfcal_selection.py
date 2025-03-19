@@ -293,8 +293,8 @@ def parse_source_from_h5(h5):
                 output = (re.sub(r'(\D)\d{3}_', '', h5).
                           replace("merged_", "").
                           replace('addCS_', '').
-                          replace('selfcalcyl', '').
-                          replace('selfcalcyle', '').
+                          replace('selfcalcycl', '').
+                          replace('selfcalcycle', '').
                           replace('.ms', '').
                           replace('.copy', '').
                           replace('.phaseup', '').
@@ -307,16 +307,16 @@ def parse_source_from_h5(h5):
                 print('Parsed into ' + h5)
                 return output
         output = matches[0]
-    elif 'selfcalcyle' in h5:
-        matches = re.findall(r'selfcalcyle\d+_(.*?)\.', h5)
+    elif 'selfcalcycle' in h5:
+        matches = re.findall(r'selfcalcycle\d+_(.*?)\.', h5)
         output = matches[0]
     else:
         print("WARNING: Difficulty with parsing the source name form "+h5)
         output = (re.sub(r'(\D)\d{3}_', '', h5).
                   replace("merged_", "").
                   replace('addCS_', '').
-                  replace('selfcalcyl', '').
-                  replace('selfcalcyle', '').
+                  replace('selfcalcycl', '').
+                  replace('selfcalcycle', '').
                   replace('.ms', '').
                   replace('.copy', '').
                   replace('.phaseup', '').
@@ -458,7 +458,7 @@ def get_cycle_num(fitsfile: str = None) -> int:
     :param fitsfile: fits file name
     """
 
-    cycle_num = int(float(re.findall(r"selfcalcyle(\d+)", fitsfile.split('/')[-1])[0]))
+    cycle_num = int(float(re.findall(r"selfcalcycle(\d+)", fitsfile.split('/')[-1])[0]))
     assert cycle_num >= 0
     return cycle_num
 
