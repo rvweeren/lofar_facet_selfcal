@@ -12,7 +12,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Disable Microsoft Repo temporarily
+      - name: Disable Microsoft Repo
         run: |
           sudo sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update
@@ -21,10 +21,10 @@ jobs:
         run: |
           sudo apt-get install -y singularity-container
 
-      - name: Download Singularity Image
+      - name: Download flocs Singularity
         run: |
           singularity pull flocs.sif https://lofar-webdav.grid.sara.nl/software/shub_mirror/tikk3r/lofar-grid-hpccloud/intel/flocs_v5.0.0_generic_x86-64.sif
 
-      - name: Run --help Test
+      - name: Run --help on main.py
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif python /repo/facetselfcal/main.py --help
