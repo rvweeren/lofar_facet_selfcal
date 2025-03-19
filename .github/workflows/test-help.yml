@@ -1,4 +1,4 @@
-name: Test --help in Singularity
+name: Test --help
 
 on:
   push:  # Run on any branch push
