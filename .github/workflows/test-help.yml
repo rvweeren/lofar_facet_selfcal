@@ -1,0 +1,28 @@
+name: Test --help in Singularity
+
+on:
+  push:
+    branches:
+      - main  # Change if using another branch
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Singularity
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y singularity-container
+
+      - name: Download Singularity Image
+        run: |
+          singularity pull flocs.sif https://lofar-webdav.grid.sara.nl/software/shub_mirror/tikk3r/lofar-grid-hpccloud/intel/flocs_v5.0.0_generic_x86-64.sif
+
+      - name: Run --help Test
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif python /repo/facetselfcal/main.py --help
