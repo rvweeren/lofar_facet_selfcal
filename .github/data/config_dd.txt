@@ -21,3 +21,5 @@ parallelgridding                = 6
 normamps                        = True
 useaoflagger                    = True
 testing                         = True
+channelsout                     = 2
+fitspectralpol                  = 1

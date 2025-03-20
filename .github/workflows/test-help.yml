@@ -60,7 +60,7 @@ jobs:
       - name: Run --auto with facetselfcal
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
-          python /repo/facetselfcal.py --auto --testing --stop 2 /repo/.github/data/test.ms
+          python /repo/facetselfcal.py --auto --testing --stop 2 --channelsout 2 --fitspectralpol 1 /repo/.github/data/test.ms
 
       - name: Run configtest with facetselfcal
         run: |
@@ -89,6 +89,8 @@ jobs:
           --forwidefield \
           --docircular \
           --skipbackup \
+          --channelsout 2 \
+          --fitspectralpol 1 \
           --uvminscalarphasediff=0 \
           --makeimage-ILTlowres-HBA \
           --makeimage-fullpol \
