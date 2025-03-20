@@ -97,5 +97,5 @@ jobs:
           --stop=1 \
           --stopafterskysolve \
           --test \
-          test.ms
+          /repo/.github/data/test.ms
       
