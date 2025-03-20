@@ -1,7 +1,6 @@
 name: Test facetselfcal
 
 on:
-  push:  # Run on any branch push
   pull_request:  # Run on any PR
 
 jobs:
