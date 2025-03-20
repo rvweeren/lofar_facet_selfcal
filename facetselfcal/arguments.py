@@ -74,6 +74,10 @@ def option_parser():
                                help='Deconvolution --mgain setting for WSCLean, see WSClean documentation. The default value is 0.75',
                                default=0.75,
                                type=float)
+    imagingparser.add_argument('--nmiter',
+                               help='Deconvolution --nmiter setting for WSCLean, see WSClean documentation. The default value is 12',
+                               default=12,
+                               type=int)    
     imagingparser.add_argument('--multiscale',
                                help='Use multiscale deconvolution (see WSClean documentation).',
                                action='store_true')
