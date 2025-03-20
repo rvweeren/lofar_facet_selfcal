@@ -44,7 +44,7 @@ jobs:
       - name: Run --auto test on main.py
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
-          python /repo/facetselfcal.py --auto /repo/.github/data/test.ms
+          python /repo/facetselfcal.py --auto --testing /repo/.github/data/test.ms
 
       - name: Run configtest on main.py
         run: |

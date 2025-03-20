@@ -20,3 +20,4 @@ compute_phasediffstat           = True
 parallelgridding                = 6
 normamps                        = True
 useaoflagger                    = True
+testing                         = True
