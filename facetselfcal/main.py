@@ -9950,7 +9950,7 @@ def set_skymodels_external_surveys(args, mslist):
         if args['startfromimage'] and args['start'] == 0:
             if args['skymodel'].endswith('.fits') and args['skymodelpointsource'] is None:
                 skymodel_list.append(makeBBSmodelforFITS(args['skymodel'], extrastrname=str(mstmp_id)))
-            elif args['skymodel'].endswith('.fits') and args['skymodelpointsource'] is not None:
+            elif args['skymodel'].endswith('.fits') and (args['skymodelpointsource'] is not None):
                 print('You cannot provide skymodelpointsource manually while using --startfromimage')
                 raise Exception('You cannot provide skymodelpointsource manually while using --startfromimage')
             elif (not args['skymodel'].endswith('.fits')) and args['skymodelpointsource'] is None:
@@ -9959,6 +9959,9 @@ def set_skymodels_external_surveys(args, mslist):
             else:
                 print('Something unknown went wrong. Please check your input.')
                 raise Exception('Something unknown went wrong. Please check your input.')
+        elif (not args['startfromimage']) and args['skymodel'].lower().endswith('.fits'):
+            print('Option --startfromimage must be set if using a FITS image as skymodel.')
+            raise Exception('Option --startfromimage must be set if using a FITS image as skymodel.')
 
     # note if skymodel_list is not set (len==0), args['skymodel'] keeps it value from argparse
     if len(skymodel_list) > 1:  # so startfromtgss or startfromvlass was done and --stack was true
