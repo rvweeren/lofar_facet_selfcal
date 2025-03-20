@@ -87,7 +87,6 @@ jobs:
           --smoothnessreffrequency-list="[120.,120.,0.,0.]" \
           --antennaconstraint-list="['core',None,None,'alldutch']" \
           --forwidefield \
-          --docircular \
           --skipbackup \
           --channelsout 2 \
           --fitspectralpol 1 \
