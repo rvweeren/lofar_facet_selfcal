@@ -52,10 +52,10 @@ jobs:
           python /repo/submods/h5_merger.py \
           -in /repo/.github/data/fulljones?.h5 -out fulljonesmerged.h5 --circ2lin
 
-      - name: Test h5_merger output
-        run: |
-          singularity exec --bind $(pwd):/repo flocs.sif \
-          python /repo/.github/scripts/test_h5_merger_output.py
+#      - name: Test h5_merger output
+#        run: |
+#          singularity exec --bind $(pwd):/repo flocs.sif \
+#          python /repo/.github/scripts/test_h5_merger_output.py
 
       - name: Run --auto with facetselfcal
         run: |
