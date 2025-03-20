@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# run with less disk-space usage, remove all but merged h5, remove columns
+# run with less disk-space usage, remove dirty, psf, residual, etc., images remove all but merged h5, remove columns
 # clean up model  columns always, also for DI runs?
 # add standard tests to lofar_facet_selfcal to ensure clean development
 # continue splitting functions in facetselfcal in separate modules
@@ -3867,13 +3867,6 @@ def calculate_restoringbeam(mslist, LBA):
 
 def print_title(version):
     print(r"""
-              __        ______    _______    ___      .______      
-             |  |      /  __  \  |   ____|  /   \     |   _  \     
-             |  |     |  |  |  | |  |__    /  ^  \    |  |_)  |    
-             |  |     |  |  |  | |   __|  /  /_\  \   |      /     
-             |  `----.|  `--'  | |  |    /  _____  \  |  |\  \----.
-             |_______| \______/  |__|   /__/     \__\ | _| `._____|
-
                _______    ___       ______  _______ .___________.
               |   ____|  /   \     /      ||   ____||           |
               |  |__    /  ^  \   |  ,----'|  |__   `---|  |----`
@@ -10166,12 +10159,13 @@ def main():
     mslist = mslist_tmp[:]  # .copy()
 
     # remove ms which are too short (to catch Elais-N1 case of 600s of data)
-    if not args['testing']:
-        check_valid_ms(mslist)
-        # check if ms channels are equidistant in freuqency (to confirm DP3 concat was used properly)
-        check_equidistant_freqs(mslist)
-        # do some input checking
-        inputchecker(args, mslist)
+    check_valid_ms(mslist)
+
+    # check if ms channels are equidistant in freuqency (to confirm DP3 concat was used properly)
+    check_equidistant_freqs(mslist)
+
+    # do some input checking
+    inputchecker(args, mslist)
 
     # TEST ONLY REMOVE
     if False:
