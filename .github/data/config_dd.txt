@@ -16,7 +16,6 @@ paralleldeconvolution           = 1024
 targetcalILT                    = "scalarphase"
 stop                            = 2
 flagtimesmeared                 = True
-compute_phasediffstat           = True
 parallelgridding                = 6
 normamps                        = True
 useaoflagger                    = True

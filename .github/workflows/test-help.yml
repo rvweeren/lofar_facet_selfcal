@@ -60,12 +60,12 @@ jobs:
       - name: Run --auto with facetselfcal
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
-          python /repo/facetselfcal.py --auto --testing --stop 2 --channelsout 2 --fitspectralpol 1 /repo/.github/data/test_dd.ms
+          python /repo/facetselfcal.py --auto --testing --stop 2 --channelsout 2 --fitspectralpol 1 /repo/.github/data/test.ms
 
       - name: Run configtest with facetselfcal
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
-          python /repo/facetselfcal.py --configpath /repo/.github/data/config_dd.txt /repo/.github/data/test_dd.ms
+          python /repo/facetselfcal.py --configpath /repo/.github/data/config_dd.txt /repo/.github/data/test.ms
 
       - name: Run dical test on main.py
         run: |
@@ -87,7 +87,6 @@ jobs:
           --smoothnessreffrequency-list="[120.,120.,0.,0.]" \
           --antennaconstraint-list="['core',None,None,'alldutch']" \
           --forwidefield \
-          --docircular \
           --skipbackup \
           --channelsout 2 \
           --fitspectralpol 1 \
