@@ -41,12 +41,61 @@ jobs:
           singularity exec --bind $(pwd):/repo flocs.sif \
           python /repo/submods/ds9facetgenerator.py --help
 
-      - name: Run --auto test on main.py
+      - name: Test multidir merge h5_merger
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
-          python /repo/facetselfcal.py --auto --testing /repo/.github/data/test.ms
+          python /repo/submods/h5_merger.py \
+          -in /repo/.github/data/dir?.h5 -out merged.h5 --single_pol --add_directions [0,0]
 
-      - name: Run configtest on main.py
+      - name: Test fulljones merge h5_merger
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/submods/h5_merger.py \
+          -in /repo/.github/data/fulljones?.h5 -out fulljonesmerged.h5 --circ2lin
+
+      - name: Test h5_merger output
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/.github/scripts/test_h5_merger_output.py
+
+      - name: Run --auto with facetselfcal
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/facetselfcal.py --auto --testing --stop 2 /repo/.github/data/test.ms
+
+      - name: Run configtest with facetselfcal
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
           python /repo/facetselfcal.py --configpath /repo/.github/data/config_dd.txt /repo/.github/data/test.ms
+
+      - name: Run dical test on main.py
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/facetselfcal.py \
+          --imsize=1600 \
+          -i testdi \
+          --pixelscale=0.075 \
+          --uvmin=20000 \
+          --robust=-1.5 \
+          --uvminim=1500 \
+          --skymodel=/repo/.github/data/test.skymodel \
+          --soltype-list="['scalarphasediff','scalarphase','scalarcomplexgain','fulljones']" \
+          --soltypecycles-list="[0,0,0,0]" \
+          --solint-list="['8min','32s','20min','20min']" \
+          --nchan-list="[1,1,1,1]" \
+          --smoothnessconstraint-list="[10.0,1.25,7.5,5.0]" \
+          --normamps=False \
+          --smoothnessreffrequency-list="[120.,120.,0.,0.]" \
+          --antennaconstraint-list="['core',None,None,'alldutch']" \
+          --forwidefield \
+          --docircular \
+          --skipbackup \
+          --uvminscalarphasediff=0 \
+          --makeimage-ILTlowres-HBA \
+          --makeimage-fullpol \
+          --resetsols-list="[None,'alldutch',None,None]" \
+          --stop=1 \
+          --stopafterskysolve \
+          --test \
+          test.ms
+      

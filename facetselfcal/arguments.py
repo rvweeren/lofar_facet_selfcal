@@ -537,7 +537,7 @@ def option_parser():
                         help='Stacking of visibility data for multiple sources to increase S/N. Solve on stacked MSs that have the same time axis and imaging all MSs with the same phase center together - still under construction.',
                         action='store_true')
     parser.add_argument('--testing',
-                        help='Skip MS validation tests for code testing.',
+                        help='Skip MS validation for code testing.',
                         action='store_true')
     parser.add_argument('ms', nargs='+', help='msfile(s)')
 

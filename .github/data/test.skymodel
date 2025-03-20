@@ -1,0 +1,4 @@
+format = Name, Type, Patch, Ra, Dec, I, Q, U, V, MajorAxis, MinorAxis, Orientation, ReferenceFrequency='1.41e+08', SpectralIndex='[]'
+
+, , selfcal_round13_LBCS_003-MFS-image_patch, 00:00:00, +00.00.00
+selfcal_round13_LBCS_003-MFS-image_w0_i0_s0_g0, GAUSSIAN, selfcal_round13_LBCS_003-MFS-image_patch, 16:06:7.618670, +55.21.35.418533, 2.808e-01, 0.0, 0.0, 0.0, 2.94485e-01, 2.06515e-01, 1.97044e+01, 1.41e+08, [1.11,-2.25]
