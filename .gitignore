@@ -7,3 +7,6 @@ lofar_facet_selfcal.egg-info
 #astro data
 *.ms
 *.fits
+
+# Exception: Allow .github/data/test.ms for testing
+!.github/data/test.ms

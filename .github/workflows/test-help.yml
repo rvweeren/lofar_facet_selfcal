@@ -1,0 +1,101 @@
+name: Test facetselfcal
+
+on:
+  pull_request:  # Run on any PR
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Disable Microsoft Repo
+        run: |
+          sudo sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/microsoft-prod.list
+          sudo apt-get update
+
+      - name: Install Singularity
+        run: |
+          sudo apt-get install -y singularity-container
+
+      - name: Download flocs Singularity
+        run: |
+          singularity pull flocs.sif \
+          https://lofar-webdav.grid.sara.nl/software/shub_mirror/tikk3r/lofar-grid-hpccloud/intel/flocs_v5.0.0_generic_x86-64.sif
+
+      - name: Run --help on main.py
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/facetselfcal/main.py --help
+
+      - name: Run --help on h5_merger
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/submods/h5_merger.py --help
+
+      - name: Run --help on ds9facetgenerator
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/submods/ds9facetgenerator.py --help
+
+      - name: Test multidir merge h5_merger
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/submods/h5_merger.py \
+          -in /repo/.github/data/dirtest?.h5 -out merged.h5 --single_pol --add_directions [0,0]
+
+      - name: Test fulljones merge h5_merger
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/submods/h5_merger.py \
+          -in /repo/.github/data/fulljones?.h5 -out fulljonesmerged.h5 --circ2lin
+
+#      - name: Test h5_merger output
+#        run: |
+#          singularity exec --bind $(pwd):/repo flocs.sif \
+#          python /repo/.github/scripts/test_h5_merger_output.py
+
+      - name: Run --auto with facetselfcal
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/facetselfcal.py --auto --testing --stop 2 --channelsout 2 --fitspectralpol 1 /repo/.github/data/test.ms
+
+      - name: Run configtest with facetselfcal
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/facetselfcal.py --configpath /repo/.github/data/config_dd.txt /repo/.github/data/test.ms
+
+      - name: Run dical test on main.py
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/facetselfcal.py \
+          --imsize=1600 \
+          -i testdi \
+          --pixelscale=0.075 \
+          --uvmin=20000 \
+          --robust=-1.5 \
+          --uvminim=1500 \
+          --skymodel=/repo/.github/data/test.skymodel \
+          --soltype-list="['scalarphasediff','scalarphase','scalarcomplexgain','fulljones']" \
+          --soltypecycles-list="[0,0,0,0]" \
+          --solint-list="['8min','32s','20min','20min']" \
+          --nchan-list="[1,1,1,1]" \
+          --smoothnessconstraint-list="[10.0,1.25,7.5,5.0]" \
+          --normamps=False \
+          --smoothnessreffrequency-list="[120.,120.,0.,0.]" \
+          --antennaconstraint-list="['core',None,None,'alldutch']" \
+          --forwidefield \
+          --skipbackup \
+          --channelsout 2 \
+          --fitspectralpol 1 \
+          --uvminscalarphasediff=0 \
+          --makeimage-ILTlowres-HBA \
+          --makeimage-fullpol \
+          --resetsols-list="[None,'alldutch',None,None]" \
+          --stop=1 \
+          --stopafterskysolve \
+          --test \
+          /repo/.github/data/test.ms
+      

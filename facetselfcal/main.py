@@ -10115,13 +10115,12 @@ def main():
     mslist = mslist_tmp[:]  # .copy()
 
     # remove ms which are too short (to catch Elais-N1 case of 600s of data)
-    check_valid_ms(mslist)
-
-    # check if ms channels are equidistant in freuqency (to confirm DP3 concat was used properly)
-    check_equidistant_freqs(mslist)
-
-    # do some input checking
-    inputchecker(args, mslist)
+    if not args['testing']:
+        check_valid_ms(mslist)
+        # check if ms channels are equidistant in freuqency (to confirm DP3 concat was used properly)
+        check_equidistant_freqs(mslist)
+        # do some input checking
+        inputchecker(args, mslist)
 
     # TEST ONLY REMOVE
     if False:
