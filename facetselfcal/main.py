@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 
-
-# deal with stokes_i compression for restarts where new solve-type is added
-# run with less disk-space usage, remove dirty, psf, residual, etc., images remove all but merged h5
-# clean up model  columns always, also for DI runs
+# run with less disk-space usage, remove all but merged h5, remove columns
+# clean up model  columns always, also for DI runs?
 # add standard tests to lofar_facet_selfcal to ensure clean development
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
@@ -161,6 +159,23 @@ def set_channelsout(mslist, factor=1):
     else:
         channelsout = round_up_to_even(f_bw * 12 * factor)
     return channelsout
+
+def clean_up_images(imagename):
+    """
+    Remeoves psf, residual, beam, and dirty channel images after a WSClean run to save disk space
+    
+    Parameters:
+    -----------
+    ms : str
+        The image basename used in the WSClean run
+    """
+    imagelist = sorted(glob.glob(imagename + '-????-*residual*.fits'))  
+    imagelist += sorted(glob.glob(imagename + '-????-*dirty*.fits')) 
+    imagelist += sorted(glob.glob(imagename + '-????-*psf*.fits')) 
+    imagelist += sorted(glob.glob(imagename + '-????-*beam*.fits')) 
+    for image in imagelist:
+        os.system('rm -f ' + image)
+    return
 
 def flag_antenna_taql(ms, antennaname):
     """
@@ -7811,6 +7826,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         average(mslist, freqstep=[1] * len(mslist), timestep=1,
                 phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True,
                 dataincolumn=outcol)
+        remove_column_ms(mslist, outcol) # remove SUBTRACTED_DATA to free up space
     else:  # so have have "keepall", no subtract, just a copy
         average(mslist, freqstep=[1] * len(mslist), timestep=1,
                 phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True,
@@ -8212,14 +8228,16 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec '
         if len(h5list) > 0 and args['groupms_h5facetspeedup'] and len(mslist) > 1:
             msliststring_concat = ' '.join(map(str, mslist_concat))
-            print('WSCLEAN: ', cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring_concat)
+            print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
             logger.info(cmd + ' -niter ' + str(niter) + ' ' + msliststring_concat)
-            run(cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring_concat)
+            run(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
         else:
-            print('WSCLEAN: ', cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)
+            print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
             logger.info(cmd + ' -niter ' + str(niter) + ' ' + msliststring)
-            run(cmd + '-nmiter 12 -niter ' + str(niter) + ' ' + msliststring)
+            run(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
 
+        clean_up_images(imageout)
+        
         # REMOVE nagetive model components, these are artifacts (only for Stokes I)
         if removenegativecc:
             if idg:
@@ -9784,6 +9802,23 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
     return fitsmask, fitsmask_list, imagename
 
 
+
+def remove_model_columns(mslist):
+    """
+    Clean up model columns in a MS
+    Input: mslist list of ms
+    """
+    print('Clean up MODEL_DATA type columns')
+    for ms in mslist:
+        t = table(ms)
+        colnames = t.colnames()
+        t.close()
+        collist_del = [xdel for xdel in colnames if re.match('MODEL_DATA*', xdel)]
+        for colname_remove in collist_del:
+            remove_column_ms(ms, colname_remove)
+    return
+
+
 def set_fitsmask_restart(i, mslist):
     fitsmask_list = []
     for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
@@ -10085,7 +10120,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.8.0'
+    version = '12.9.0'
     print_title(version)
 
     global submodpath, datapath
@@ -10385,6 +10420,10 @@ def main():
             print('Stopping as requested via --stopafterpreapply')
             return
 
+        # REMOVE EXISTING MODEL COLUMNS IN CASE OF a RESTART:
+        # this can be important in case the model column storage manager has changed
+        if args['start'] != 0: remove_model_columns(mslist)
+        
         # CALIBRATE AGAINST THE INITAL SKYMODEL (selfcalcycle 0) IF REQUESTED
         if (args['skymodel'] is not None or args['skymodelpointsource'] is not None
             or args['wscleanskymodel'] is not None) and (i == 0):
@@ -10531,12 +10570,7 @@ def main():
             print('Stopping as requested via --stopafterskysolve')
             if args['DDE']:
                 print('Clean up MODEL_DATA_DD columns')
-                t = table(mslist[0])
-                colnames = t.colnames()
-                t.close()
-                collist_del = [xdel for xdel in colnames if re.match('MODEL_DATA*', xdel)]
-                for colname_remove in collist_del:
-                    remove_column_ms(mslist, colname_remove)
+                remove_model_columns(mslist)
             return
         
         if args['bandpassMeerKAT']: 
