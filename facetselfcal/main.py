@@ -3867,13 +3867,6 @@ def calculate_restoringbeam(mslist, LBA):
 
 def print_title(version):
     print(r"""
-              __        ______    _______    ___      .______      
-             |  |      /  __  \  |   ____|  /   \     |   _  \     
-             |  |     |  |  |  | |  |__    /  ^  \    |  |_)  |    
-             |  |     |  |  |  | |   __|  /  /_\  \   |      /     
-             |  `----.|  `--'  | |  |    /  _____  \  |  |\  \----.
-             |_______| \______/  |__|   /__/     \__\ | _| `._____|
-
                _______    ___       ______  _______ .___________.
               |   ____|  /   \     /      ||   ____||           |
               |  |__    /  ^  \   |  ,----'|  |__   `---|  |----`
@@ -3897,7 +3890,6 @@ def print_title(version):
     print('\n\nVERSION: ' + version + '\n\n')
     logger.info('VERSION: ' + version)
     return
-
 
 def makemslist(mslist):
     """ Create the input list for e.g. ddf-pipeline.
