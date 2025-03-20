@@ -31,6 +31,16 @@ jobs:
           singularity exec --bind $(pwd):/repo flocs.sif \
           python /repo/facetselfcal/main.py --help
 
+      - name: Run --help on h5_merger
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/submods/h5_merger.py --help
+
+      - name: Run --help on ds9facetgenerator
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sif \
+          python /repo/submods/ds9facetgenerator.py --help
+
       - name: Run --auto test on main.py
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
