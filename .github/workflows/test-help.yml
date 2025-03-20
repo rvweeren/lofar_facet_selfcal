@@ -44,7 +44,7 @@ jobs:
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
           python /repo/submods/h5_merger.py \
-          -in /repo/.github/data/dir?.h5 -out merged.h5 --single_pol --add_directions [0,0]
+          -in /repo/.github/data/dirtest?.h5 -out merged.h5 --single_pol --add_directions [0,0]
 
       - name: Test fulljones merge h5_merger
         run: |
