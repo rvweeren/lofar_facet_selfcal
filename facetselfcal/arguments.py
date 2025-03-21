@@ -516,6 +516,9 @@ def option_parser():
     parser.add_argument('--skipbackup',
                         help='Leave the original MS intact and work always work on a DP3 copied dataset.',
                         action='store_true')
+    parser.add_argument('--keepmodelcolumns',
+                        help='Leave the MODEL_DATA-type columns in the MS. By default these are removed to save disk space.',
+                        action='store_true')
     parser.add_argument('--phasediff_only',
                         help='For finding only the phase difference, we want to stop after calibrating and before imaging',
                         action='store_true')
