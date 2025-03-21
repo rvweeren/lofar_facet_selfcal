@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 # run with less disk-space usage, remove all but merged h5, remove columns
-# clean up model  columns always, also for DI runs?
 # add standard tests to lofar_facet_selfcal to ensure clean development
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
@@ -9959,9 +9958,10 @@ def set_skymodels_external_surveys(args, mslist):
             else:
                 print('Something unknown went wrong. Please check your input.')
                 raise Exception('Something unknown went wrong. Please check your input.')
-        elif (not args['startfromimage']) and args['skymodel'].lower().endswith('.fits'):
-            print('Option --startfromimage must be set if using a FITS image as skymodel.')
-            raise Exception('Option --startfromimage must be set if using a FITS image as skymodel.')
+        elif args['skymodel'] is not None:
+            if not (args['startfromimage']) and args['skymodel'].lower().endswith('.fits'):
+                print('Option --startfromimage must be set if using a FITS image as skymodel.')
+                raise Exception('Option --startfromimage must be set if using a FITS image as skymodel.')
 
     # note if skymodel_list is not set (len==0), args['skymodel'] keeps it value from argparse
     if len(skymodel_list) > 1:  # so startfromtgss or startfromvlass was done and --stack was true
