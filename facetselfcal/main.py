@@ -10459,6 +10459,7 @@ def main():
                                                   soltypelist_includedir=soltypelist_includedir)
 
         if args['phasediff_only']:
+            if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
 
         # SET MULTISCALE
@@ -10562,9 +10563,7 @@ def main():
 
         if args['stopafterskysolve']:
             print('Stopping as requested via --stopafterskysolve')
-            if args['DDE']:
-                print('Clean up MODEL_DATA_DD columns')
-                remove_model_columns(mslist)
+            if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
         
         if args['bandpassMeerKAT']: 
@@ -10572,6 +10571,7 @@ def main():
             for parmdb in create_mergeparmdbname(mslist, 0, skymodelsolve=True):
                 run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
                 set_weights_h5_to_one(parmdb)
+            if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return    
 
         # REDETERMINE SOLINTS IF REQUESTED
@@ -10672,6 +10672,9 @@ def main():
                            h5list=wsclean_h5list, facetregionfile=facetregionfile,
                            disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
 
+    # REMOVE MODEL_DATA type columns after selfcal
+    if not args['keepmodelcolumns']: remove_model_columns(mslist)
+    
     # ARCHIVE DATA AFTER SELFCAL if requested
     if not longbaseline and not args['noarchive']:
         if not LBA:
