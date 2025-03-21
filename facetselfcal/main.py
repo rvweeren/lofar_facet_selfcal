@@ -11,7 +11,7 @@
 # useful? https://learning-python.com/thumbspage.html
 # add html summary overview
 # Stacking check that freq and time axes are identical
-# scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
+# scalarphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
 # fix RR-LL referencing for flaged solutions, check for possible superterp reference station
@@ -302,7 +302,7 @@ def is_stokesi_modeltype_allowed(args, telescope):
             if not args['disable_primary_beam']:
                 return False # so in this case we want the keep the primary beam polarization information    
     
-    notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'phaseonly_phmin', 'rotation_phmin', 'phaseonly_slope']
+    notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'phaseonly_phmin', 'rotation_phmin', 'phaseonly_slope','scalarphasediff','scalarphasediffFR']
     for soltype in args['soltype_list']:
         if soltype in notallowed_list: return False
     return True
@@ -10243,6 +10243,8 @@ def main():
             args['modelstoragemanager'] = None
     else:
         args['modelstoragemanager'] = None  # we are here because wsclean does not support -model-storage-manager   
+
+    print(args['modelstoragemanager'])
 
     # check if we could average more
     avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
