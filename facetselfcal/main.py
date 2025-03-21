@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 # run with less disk-space usage, remove all but merged h5, remove columns
-# clean up model  columns always, also for DI runs?
 # add standard tests to lofar_facet_selfcal to ensure clean development
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
@@ -12,7 +11,7 @@
 # useful? https://learning-python.com/thumbspage.html
 # add html summary overview
 # Stacking check that freq and time axes are identical
-# scalaraphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
+# scalarphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
 # fix RR-LL referencing for flaged solutions, check for possible superterp reference station
@@ -303,7 +302,7 @@ def is_stokesi_modeltype_allowed(args, telescope):
             if not args['disable_primary_beam']:
                 return False # so in this case we want the keep the primary beam polarization information    
     
-    notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'phaseonly_phmin', 'rotation_phmin', 'phaseonly_slope']
+    notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'phaseonly_phmin', 'rotation_phmin', 'phaseonly_slope','scalarphasediff','scalarphasediffFR']
     for soltype in args['soltype_list']:
         if soltype in notallowed_list: return False
     return True
@@ -9959,9 +9958,10 @@ def set_skymodels_external_surveys(args, mslist):
             else:
                 print('Something unknown went wrong. Please check your input.')
                 raise Exception('Something unknown went wrong. Please check your input.')
-        elif (not args['startfromimage']) and args['skymodel'].lower().endswith('.fits'):
-            print('Option --startfromimage must be set if using a FITS image as skymodel.')
-            raise Exception('Option --startfromimage must be set if using a FITS image as skymodel.')
+        elif args['skymodel'] is not None:
+            if not (args['startfromimage']) and args['skymodel'].lower().endswith('.fits'):
+                print('Option --startfromimage must be set if using a FITS image as skymodel.')
+                raise Exception('Option --startfromimage must be set if using a FITS image as skymodel.')
 
     # note if skymodel_list is not set (len==0), args['skymodel'] keeps it value from argparse
     if len(skymodel_list) > 1:  # so startfromtgss or startfromvlass was done and --stack was true
@@ -10244,6 +10244,8 @@ def main():
     else:
         args['modelstoragemanager'] = None  # we are here because wsclean does not support -model-storage-manager   
 
+    print(args['modelstoragemanager'])
+
     # check if we could average more
     avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
     for ms in mslist:
@@ -10459,6 +10461,7 @@ def main():
                                                   soltypelist_includedir=soltypelist_includedir)
 
         if args['phasediff_only']:
+            if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
 
         # SET MULTISCALE
@@ -10562,9 +10565,7 @@ def main():
 
         if args['stopafterskysolve']:
             print('Stopping as requested via --stopafterskysolve')
-            if args['DDE']:
-                print('Clean up MODEL_DATA_DD columns')
-                remove_model_columns(mslist)
+            if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
         
         if args['bandpassMeerKAT']: 
@@ -10572,6 +10573,7 @@ def main():
             for parmdb in create_mergeparmdbname(mslist, 0, skymodelsolve=True):
                 run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
                 set_weights_h5_to_one(parmdb)
+            if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return    
 
         # REDETERMINE SOLINTS IF REQUESTED
@@ -10672,6 +10674,9 @@ def main():
                            h5list=wsclean_h5list, facetregionfile=facetregionfile,
                            disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
 
+    # REMOVE MODEL_DATA type columns after selfcal
+    if not args['keepmodelcolumns']: remove_model_columns(mslist)
+    
     # ARCHIVE DATA AFTER SELFCAL if requested
     if not longbaseline and not args['noarchive']:
         if not LBA:
