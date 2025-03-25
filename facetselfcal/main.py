@@ -2481,6 +2481,8 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
         cmd = "DP3 msin=" + ms + " steps=[add,filter] "
         cmd += "msout=" + msout + " msin.datacolumn=" + datacolumn + " "
         cmd += "filter.type=filter filter.remove=True "
+        # Do not set to true: DP3's UVW compression does not work with the StationAdder (yet).
+        cmd += "msout.uvwcompression=False "
         if dysco:
             cmd += "msout.storagemanager=dysco "
             cmd += 'msout.storagemanager.weightbitrate=16 '
