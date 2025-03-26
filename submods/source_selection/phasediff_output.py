@@ -285,7 +285,7 @@ def parse_args():
     parser.add_argument('--station', help='for one specific station', default=None)
     parser.add_argument('--all_stations', action='store_true', help='for all stations specifically')
     parser.add_argument('--make_plot', action='store_true', help='make phasediff plot')
-    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.75, type=float)
+    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=2.3, type=float)
     return parser.parse_args()
 
 
