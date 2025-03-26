@@ -82,7 +82,7 @@ class GetSolint:
         self.cstd = 0
         self.C = None
         self.station = station
-        self.limit = np.pi*2
+        self.limit = np.pi
 
     def plot_C(self, title: str = None, saveas: str = None, extrapoints: Union[list, tuple] = None):
         """
@@ -90,17 +90,18 @@ class GetSolint:
         """
 
         plt.figure(figsize=(10, 7), dpi=120)
-        normal_sigmas = [n / 1000 for n in range(1, 10000)]
-        values = [circstd(normal(0, n, 300)) for n in normal_sigmas]
-        x = (self.C * self.limit ** 2) / (np.array(normal_sigmas) ** 2)
-        plt.plot(x, values, alpha=0.5)
+        # normal_sigmas = np.array([n / 1000 for n in range(1, 10000)])/100
+        # values = [circstd(normal(0, n, 300)) for n in normal_sigmas]
+        # x = (self.C * self.limit ** 2) / (np.array(normal_sigmas) ** 2)
+        # plt.plot(x, values, alpha=0.5)
 
         bestsolint = self.best_solint
         solints = np.array(range(1, int(max(bestsolint * 200, self.ref_solint * 150)))) / 100
         y = [self.theoretical_curve(float(t)) for t in solints if self.theoretical_curve(float(t))]
         mask = [False if v>np.pi else True for v in y]
         plt.plot(np.array(solints)[mask], np.array(y)[mask],
-                 color='#2ca02c', linewidth=2, label='Theoretical Curve')
+                 color='#2ca02c', linewidth=2, linestyle='--')
+        plt.plot([0, 1000], [1.75, 1.75], linestyle='dotted', linewidth=2, color='black')
         plt.scatter([self.ref_solint], [self.cstd], label=f'Solint={int(round(self.ref_solint, 0))}min',
                     s=250, marker='X', edgecolor='darkblue', zorder=5, alpha=0.8, color='black')
         plt.scatter([bestsolint], [self.optimal_score], color='#d62728', label=f'Solint={round(self.best_solint,2)}min',
@@ -148,7 +149,7 @@ class GetSolint:
 
         if self.cstd == 0:
             self.get_phasediff_score(station=self.station)
-        return self._get_circvar(self.cstd ** 2) * self.ref_solint
+        return self._get_circvar(self.cstd ** 2) * np.sqrt(self.ref_solint)
 
     def get_phasediff_score(self, station: str = None):
         """
@@ -166,8 +167,7 @@ class GetSolint:
                             ('RS' not in stion) &
                             ('ST' not in stion) &
                             ('CS' not in stion) &
-                            ('DE' not in stion) &
-                            ('PL' not in stion)]
+                            ('DE' not in stion)]
         else:
             stations_idx = [stations.index(station)]
 
@@ -214,7 +214,7 @@ class GetSolint:
             self.get_phasediff_score(station=self.station)
         self.C = self._get_C
         optimal_cirvar = self.optimal_score ** 2
-        return self.C / (self._get_circvar(optimal_cirvar))
+        return (self.C / (self._get_circvar(optimal_cirvar)))**2
 
     def theoretical_curve(self, t):
         """
@@ -224,7 +224,7 @@ class GetSolint:
 
         if self.C is None:
             self.C = self._get_C
-        return self.limit * np.sqrt(1 - np.exp(-(self.C / t)))
+        return self.limit * np.sqrt(1 - np.exp(-(self.C / np.sqrt(t))))
 
 def get_phasediff_score(h5, station=False):
     """
