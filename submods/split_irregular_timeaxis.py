@@ -12,17 +12,18 @@ import argparse
 
 def regularize_ms(ms_path, overwrite=False, dryrun=False):
     regularised = False
-    if ".reg" in ms_path:
+    if ".regularised" in ms_path:
         regularised = True
 
     if not regularised and not dryrun:
-        if os.path.isdir(ms_path.replace(".ms", ".reg.ms")) and overwrite:
-            os.system('rm -rf ' + ms_path.replace(".ms", ".reg.ms"))
+        if os.path.isdir(ms_path + '.regularised') and overwrite:
+            print('rm -rf ' + ms_path + '.regularised')
+            os.system('rm -rf ' + ms_path + '.regularised')
         try:
             # Apply the msregularize function to make the MS regular
-            msregularize(ms_path, ms_path.replace(".ms", ".reg.ms"))
+            msregularize(ms_path, ms_path + '.regularised')
             print(f"Measurement Set {ms_path} has been regularized.")
-            ms_path = ms_path.replace(".ms", ".reg.ms")
+            ms_path = ms_path + '.regularised'
         except:
             pass
     return ms_path
