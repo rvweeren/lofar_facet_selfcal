@@ -2481,6 +2481,8 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
         cmd = "DP3 msin=" + ms + " steps=[add,filter] "
         cmd += "msout=" + msout + " msin.datacolumn=" + datacolumn + " "
         cmd += "filter.type=filter filter.remove=True "
+        # Do not set to true: DP3's UVW compression does not work with the StationAdder (yet).
+        cmd += "msout.uvwcompression=False "
         if dysco:
             cmd += "msout.storagemanager=dysco "
             cmd += 'msout.storagemanager.weightbitrate=16 '
@@ -2674,6 +2676,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
 
             msout = os.path.basename(msout)
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
+            if check_phaseup_station(ms):
+                cmd += 'msout.uvwcompression=False '
             cmd += 'msout=' + msout + ' msin.weightcolumn=WEIGHT_SPECTRUM '
             cmd += 'msin.datacolumn=' + dataincolumn + ' '
             if dysco:
@@ -2752,6 +2756,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             msouttmp = ms + '.avgtmp'
             msouttmp = os.path.basename(msouttmp)
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
+            if check_phaseup_station(ms):
+                cmd += 'msout.uvwcompression=False '
             if removeinternational:
                 cmd += ' steps=[f,av] '
                 cmd += " f.type=filter f.baseline='[CR]S*&' f.remove=True "
