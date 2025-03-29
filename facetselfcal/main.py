@@ -2676,6 +2676,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
 
             msout = os.path.basename(msout)
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
+            if check_phaseup_station(ms):
+                cmd += 'msout.uvwcompression=False '
             cmd += 'msout=' + msout + ' msin.weightcolumn=WEIGHT_SPECTRUM '
             cmd += 'msin.datacolumn=' + dataincolumn + ' '
             if dysco:
@@ -2754,6 +2756,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             msouttmp = ms + '.avgtmp'
             msouttmp = os.path.basename(msouttmp)
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
+            if check_phaseup_station(ms):
+                cmd += 'msout.uvwcompression=False '
             if removeinternational:
                 cmd += ' steps=[f,av] '
                 cmd += " f.type=filter f.baseline='[CR]S*&' f.remove=True "
