@@ -205,8 +205,8 @@ def option_parser():
                                    help="Solution interval corresponding to solution types (in same order as soltype-list input). The default is [1,1,120].")
     calibrationparser.add_argument("--nchan-list",
                                    type=arg_as_list,
-                                   default=[1, 1, 10],
-                                   help="Number of channels corresponding to solution types (in same order as soltype-list input). The default is [1,1,10].")
+                                   default=[1, 1, 1],
+                                   help="Number of channels corresponding to solution types (in same order as soltype-list input). The default is [1,1,1].")
     calibrationparser.add_argument("--smoothnessconstraint-list",
                                    type=arg_as_list,
                                    default=[0., 0., 5.],
