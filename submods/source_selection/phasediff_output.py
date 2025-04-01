@@ -10,7 +10,7 @@ import tables
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import circstd
+from scipy.stats import circstd, circvar
 from glob import glob
 import csv
 import sys
@@ -199,6 +199,7 @@ class GetSolint:
         phasemod[phasemod == 0] = np.nan
 
         self.cstd = circstd(phasemod, nan_policy='omit')
+        self.cvar = circvar(phasemod, nan_policy='omit')
 
         return circstd(phasemod, nan_policy='omit')
 
@@ -225,6 +226,7 @@ class GetSolint:
         if self.C is None:
             self.C = self._get_C
         return self.limit * np.sqrt(1 - np.exp(-(self.C / np.sqrt(t))))
+
 
 def get_phasediff_score(h5, station=False):
     """
