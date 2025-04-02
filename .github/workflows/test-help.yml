@@ -23,7 +23,7 @@ jobs:
       - name: Download flocs Singularity
         run: |
           singularity pull flocs.sif \
-          https://lofar-webdav.grid.sara.nl/software/shub_mirror/tikk3r/lofar-grid-hpccloud/intel/flocs_v5.0.0_generic_x86-64.sif
+          https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_v5.5.1_sandybridge_sandybridge.sif
 
       - name: Run --help on main.py
         run: |
