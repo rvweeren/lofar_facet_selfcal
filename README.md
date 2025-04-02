@@ -44,7 +44,7 @@ LBA Dutch baselines
 - Support for UHF, L-band, and S-band
 - direction-independent and direction-dependent self-calibration
 
-**Direction indepedent selfcalibration examples** 
+**Direction independent selfcalibration examples** 
 
 L-band example from SDP-pipeline output:
 `python /<path>/lofar_facet_selfcal/facetselfcal.py -i imageDI --forwidefield --noarchive --fitspectralpol=9 --solint-list="['1min']" --soltype-list="['scalarphase']" --soltypecycles-list=[0] --smoothnessconstraint-list=[100. --imsize=12000 --channelsout=12 --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=default_StokesQUV.lua --multiscale-start=0 --parallelgridding=2 --msinnchan=3600 --msinstartchan=60 --avgfreqstep=2 MyTarget.ms` 
