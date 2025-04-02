@@ -4,7 +4,6 @@
 # add standard tests to lofar_facet_selfcal to ensure clean development
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
-# h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_weights=False) Needs to be propagate_weights to be fully correct, this is a h5_merger issue
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
 # compression: blosc2
@@ -88,6 +87,7 @@ from submods.split_irregular_timeaxis import regularize_ms, split_ms
 from submods.h5_helpers.reset_structure import fix_h5
 from submods.h5_merger import merge_h5
 from submods.h5_helpers.split_h5 import split_multidir
+from submods.h5_helpers.multidir_h5 import same_weights_multidir, is_multidir
 from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
 from submods.h5_helpers.modify_amplitude import get_median_amp, normamplitudes, normslope_withmatrix, normamplitudes_withmatrix
 from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, fix_rotationreference
@@ -7680,6 +7680,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         print(cmdlosoto)
         logger.info(cmdlosoto)
         run(cmdlosoto)
+    
+    if is_multidir(parmdb):
+        same_weights_multidir(parmdb)
+    
     if len(tables.file._open_files.filenames) >= 1:  # for debugging
         print('End runDPPPbase, some HDF5 files are not closed:', tables.file._open_files.filenames)
         force_close(parmdb)
