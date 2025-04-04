@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-
+#python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy.subtracted
 # run with less disk-space usage, remove all but merged h5, remove columns
 # add standard tests to lofar_facet_selfcal to ensure clean development
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
+# h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_weights=False) Needs to be propagate_weights to be fully correct, this is a h5_merger issue
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
 # compression: blosc2
@@ -6431,7 +6432,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     if via_h5: # this is quick call to ds9facetgenerator using an h5 file and a None return
         cmd = f'python {submodpath}/ds9facetgenerator.py '
         cmd += '--ms=' + ms + ' --h5=' + h5 + ' '
-        cmd += '--imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
+        cmd += '--imsize=' + str(imsize + int(imsize*0.15)) + ' --pixelscale=' + str(pixelscale)
         run(cmd)
         return
 
@@ -6463,7 +6464,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         if ms is not None and imsize is not None and pixelscale is not None and not restart:
             cmd = f'python {submodpath}/ds9facetgenerator.py '
             cmd += '--ms=' + ms + ' '
-            cmd += '--h5=facetdirections.p --imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
+            cmd += '--h5=facetdirections.p --imsize=' + str(imsize + int(imsize*0.15)) + ' --pixelscale=' + str(pixelscale)
             run(cmd)
         return solints, smoothness, soltypelist_includedir
     elif selfcalcycle == 0:
@@ -6503,7 +6504,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         if ms is not None and imsize is not None and pixelscale is not None:
             cmd = f'python {submodpath}/ds9facetgenerator.py '
             cmd += '--ms=' + ms + ' '
-            cmd += '--h5=facetdirections.p --imsize=' + str(imsize + imsizemargin) + ' --pixelscale=' + str(pixelscale)
+            cmd += '--h5=facetdirections.p --imsize=' + str(imsize + int(imsize*0.15)) + ' --pixelscale=' + str(pixelscale)
             run(cmd)
         return solints, smoothness, soltypelist_includedir
     else:
