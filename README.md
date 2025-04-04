@@ -52,7 +52,7 @@ python /<path>/lofar_facet_selfcal/facetselfcal.py -i imageDI --forwidefield --n
    --fitspectralpol=9 --solint-list="['1min']" --soltype-list="['scalarphase']" 
    --soltypecycles-list=[0] --smoothnessconstraint-list=[100.] --imsize=12000 --channelsout=12 
    --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=default_StokesQUV.lua 
-   --multiscale-start=0 --parallelgridding=2 --msinnchan=3600 --msinstartchan=60 
+   --multiscale-start=0 --parallelgridding=2 --msinnchan=3576 --msinstartchan=80 
    --avgfreqstep=2 MyTarget.ms 
 ```
 
@@ -62,7 +62,7 @@ python /<path>/lofar_facet_selfcal/facetselfcal.py -i imageDI --forwidefield --n
    --fitspectralpol=9 --solint-list="['1min']" --soltype-list="['scalarphase']"
    --soltypecycles-list=[0] --smoothnessconstraint-list=[100.] --imsize=12000 --channelsout=12
    --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=default_StokesQUV.lua
-   --multiscale-start=0 --parallelgridding=2 --msinnchan=1800 --msinstartchan=30 MyTarget.ms 
+   --multiscale-start=0 --parallelgridding=2 --msinnchan=1788 --msinstartchan=40 MyTarget.ms 
 ```
 
 UHF-band example from SDP-pipeline output:
