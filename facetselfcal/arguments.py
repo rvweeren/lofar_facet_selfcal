@@ -41,7 +41,10 @@ def option_parser():
                                type=ast.literal_eval,
                                default=True)
     imagingparser.add_argument('--fitsmask',
-                               help='Fits mask for deconvolution (needs to match image size). If this is not provided automasking is used in combination with MakeMask.py/breizorro. If set to "nofitsmask" then only WSCLean auto-masking is used',
+                               help='Fits mask for deconvolution (needs to match image size). The fitsmask stays fixed during selfcal. If this is not provided automasking is used in combination with MakeMask.py/breizorro. If set to "nofitsmask" then only WSCLean auto-masking is used.',
+                               type=str)
+    imagingparser.add_argument('--fitsmask-start',
+                               help='Fits mask for deconvolution for image000 (needs to match image size). For subsequent selfcal cycles automasking is used with MakeMask.py/breizorro.',
                                type=str)
     imagingparser.add_argument('--DS9cleanmaskregionfile',
                                help='A DS9 region file (with WCS coordinates) that will be added to the clean mask used in combination with breizorro.',
