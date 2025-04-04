@@ -8177,7 +8177,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 cmd += '-pol iquv -join-polarizations '
             else:
                 cmd += '-pol i '
-            if len(h5list) == 0 and facetregionfile is None:  # only use baseline-averaging without facets
+            if len(h5list) == 0:  # only use baseline-averaging if there are no h5 facet-solutions
                 # if not forceimagingwithfacets:
                 cmd += '-baseline-averaging ' + baselineav + ' '
             if usewgridder:
