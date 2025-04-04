@@ -2986,6 +2986,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
 
     cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), 8])) + ' msin=' + ms
     cmd += ' msout=' + msout + ' '
+    if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
     cmd += 'msin.datacolumn=' + msincol + ' '
     if msout == '.':
         cmd += 'msout.datacolumn=' + msoutcol + ' '
@@ -5091,6 +5092,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
         os.system('rm -rf ' + ms + '.cuttmp')
 
     cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cut '
+    if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
     if dysco:
         cmd += 'msout.storagemanager=dysco '
         cmd += 'msout.storagemanager.weightbitrate=16 '
@@ -5103,6 +5105,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     run(cmd)
 
     cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cuttmp '
+    if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
     if dysco:
         cmd += 'msout.storagemanager=dysco '
         cmd += 'msout.storagemanager.weightbitrate=16 '
@@ -5151,6 +5154,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
         if os.path.isdir(msout):
             os.system('rm -rf ' + msout)
         cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msout=' + msout + ' '
+        if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
         cmd += 'msin.datacolumn=CORRECTED_DATA steps=[] '
         if dysco:
             cmd += 'msout.storagemanager=dysco '
@@ -8791,6 +8795,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
         cmddppp = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
         cmddppp += 'msout=' + msout + ' '
         cmddppp += 'msin.weightcolumn=WEIGHT_SPECTRUM '
+        if check_phaseup_station(ms): cmddppp += 'msout.uvwcompression=False '
         if msout == '.':
             cmddppp += 'msout.datacolumn=CORRECTED_DATA '
         if (lin2circ or circ2lin) and beam:
@@ -8841,6 +8846,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
     else:
         cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
         cmd += 'msout=' + msout + ' '
+        if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
         if msout == '.':
             cmd += 'msout.datacolumn=CORRECTED_DATA '
