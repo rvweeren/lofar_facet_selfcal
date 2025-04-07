@@ -3442,6 +3442,11 @@ def inputchecker(args, mslist):
             print('Cannot find fitsmask, file does not exist')
             raise Exception('Cannot find fitsmask, file does not exist')
 
+    if args['fitsmask'] is not None and args['fitsmask_start'] is not None:
+        if not (os.path.isfile(args['fitsmask'])):
+            print('Cannot set fitsmask and fitsmask-start at the same time')
+            raise Exception('Cannot set fitsmask and fitsmask-start at the same time')
+
     if args['DS9cleanmaskregionfile'] is not None: 
         if not (os.path.isfile(args['DS9cleanmaskregionfile'])):
             print('Cannot find DS9cleanmaskregionfile, file does not exist')
@@ -5001,6 +5006,49 @@ def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFac
 
 # losotolofarbeam('P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive_templatejones.h5', 'amplitude000', 'P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive', inverse=False, useElementResponse=False, useArrayFactor=True, useChanFreq=True)
 
+def set_MeerKAT_bandpass_skymodel(ms):
+    """ Set skymodel for bandpass calibrator
+    
+    Args:
+        ms: MS file
+    """
+    skymodpath = '/'.join(datapath.split('/')[0:-1])+'/facetselfcal/data'
+    
+    skymodel = None
+    Lband = False
+    UHF = False
+    Sband = False
+    cJ0408_6545 = np.array([1.08358621, -1.1475981])
+    cJ1939_6342 = np.array([5.1461782, -1.11199629])
+
+    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        midfreq = np.mean(t.getcol('CHAN_FREQ')[0])
+
+    if (midfreq > 500e6) and (midfreq < 1.0e9):  # UHF-band
+        UHF = True
+    if (midfreq >= 1.0e9) and (midfreq < 1.7e9):  # L-band
+        Lband = True
+    if (midfreq >= 1.7e9) and (midfreq < 4.0e9):  # S-band
+        Sband = True
+
+    with table(ms + '/FIELD', ack=False) as t:
+        adir = t.getcol('DELAY_DIR')[0][0][:]
+    cdatta = SkyCoord(adir[0]*u.deg, adir[0]*u.deg, frame='icrs')
+
+    if (cdatta.separation(SkyCoord(cJ0408_6545[0]*u.deg, cJ0408_6545[1]*u.deg, frame='icrs'))) < 0.05*u.deg:
+        if Lband: skymodel = skymodpath + '/J0408-6545_L.skymodel'
+        if UHF: skymodel = skymodpath + '/J0408-6545_UHF.skymodel'
+
+    if (cdatta.separation(SkyCoord(cJ1939_6342[0]*u.deg, cJ1939_6342[1]*u.deg, frame='icrs'))) < 0.05*u.deg:
+        if Lband: skymodel = skymodpath + '/J1939-6342_L.skymodel'
+        if UHF: skymodel = skymodpath + '/J1939-6342_UHF.skymodel'
+
+    if Sband:
+        raise Exception('Cannot set skymodel for Sband')
+    if skymodel is None:
+        raise Exception('Could not find matching skymodel (options are J0408-6545 or J1939-6342)')
+    print('skymodel is set to: ', skymodel)
+    return skymodel
 
 def cleanup(mslist):
     """ Clean up directory
@@ -9627,7 +9675,10 @@ def basicsetup(mslist):
     if args['fitsmask'] is not None:
         fitsmask = args['fitsmask']
     else:
-        fitsmask = None
+        if args['fitsmask_start'] is not None and args['start'] == 0:
+            fitsmask = args['fitsmask_start']
+        else:    
+            fitsmask = None
 
     if args['boxfile'] is not None:
         outtarname = (args['boxfile'].split('/')[-1]).split('.reg')[0] + '.tar.gz'
@@ -10208,6 +10259,8 @@ def main():
     if args['bandpassMeerKAT']:
         # args['skipbackup'] will set based on whether all MS were splitted
         # in case all MS were splitted a backup is not needed anymore
+        if args['skymodel'] is None: 
+            args['skymodel'] = set_MeerKAT_bandpass_skymodel(mslist[0]) # try to set skymodel automatically    
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, dysco=args['dysco'])
 
     # cut ms if there are flagged times at the start or end of the ms
