@@ -131,6 +131,9 @@ def option_parser():
     imagingparser.add_argument('--groupms-h5facetspeedup',
                                help='Speed up DDE imaging with h5s',
                                action='store_true')
+    imagingparser.add_argument('--DP3-BDA-imaging',
+                               help='Speed up DDE facet-imaging by compressing MS with time-BDA.',
+                               action='store_true')
     imagingparser.add_argument("--update-channelsout",
                                help='Change --channelsout automatically if there is high peak flux.',
                                action='store_true')

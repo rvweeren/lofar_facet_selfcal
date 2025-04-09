@@ -728,6 +728,52 @@ def set_DDE_predict_skymodel_solve(wscleanskymodel):
     else:
         return 'DP3'
 
+def timebase(fov, ms, tau=0.995):
+    """
+    Find DP3 timebase value for BDA
+    
+    FoV: field of view in degrees
+    ms: Measurement set
+    tau: Peak flux loss factor
+
+    Using formulas from Bridle & Schwab (1999)
+    """
+
+    with table(ms+"::SPECTRAL_WINDOW", ack=False) as t:
+        f = t.getcol("CHAN_FREQ").max()
+        
+    with table(ms, ack=False) as t:
+        time = np.unique(t.getcol('TIME'))
+        dt = np.abs(time[1] - time[0])
+
+    tb = 5.*10**14*np.sqrt(1-tau)/(f*fov*dt)
+    
+    return tb
+
+def bda_mslist(mslist, pixsize, imsize, dryrun=False):
+    """
+    BDA compress list of MS with DP3
+    
+    pixsize: pixel size in arcsec
+    imsize: image size in pixels
+    mslist: list of Measurement sets
+    dryrun: create the actual MS (otherwise only bda_mslist is made)
+    
+    returns
+    bda_mslist: list of BDA Measurement sets
+    """
+    bda_mslist = []
+    for ms in mslist:
+        cmd = 'DP3 msin=' + ms + ' steps=[bda] bda.type=bdaaverage msout=' + ms + '.bda '
+        cmd += 'bda.maxinterval=300 '
+        cmd += 'bda.timebase=' + str(timebase(imsize*pixelsize/3600.,ms)) + ' '
+        print(cmd)
+        if not dryrun:
+            if os.path.isdir(ms + '.bda'):
+                os.system('rm -rf ' + ms + '.bda')
+            run(cmd)
+        bda_mslist.append(ms + '.bda')
+    return bda_mslist
 
 def getAntennas(ms):
     """
@@ -3134,6 +3180,13 @@ def inputchecker(args, mslist):
     # if telescope != 'LOFAR':
     #    check_equidistant_times(mslist)
 
+    if args['DP3_BDA_imaging'] and not args['DDE']:
+        print('--DP3-BDA-imaging can only be used in combination with --DDE')
+        raise Exception('--DP3-BDA-imaging can only be used in combination with --DDE')
+
+    if args['DP3_BDA_imaging'] and args['groupms_h5facetspeedup']:
+        print('--DP3-BDA-imaging cannot be used together with --groupms-h5facetspeedup')
+        raise Exception('--DP3-BDA-imaging cannot be used together with --groupms-h5facetspeedup')
 
     if True in args['BLsmooth_list']:
         if len(args['soltypecycles_list']) != len(args['BLsmooth_list']):
@@ -10183,7 +10236,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '12.9.0'
+    version = '13.0.0'
     print_title(version)
 
     global submodpath, datapath
@@ -10422,6 +10475,13 @@ def main():
                                 pixelscale=args['pixelscale'], facetdirections=args['facetdirections'])
         facetregionfile = 'facets.reg'  # so when making image000 we can use it without having h5 DDE solutions
 
+    if args['start'] > 0 and  args['stop'] == args['start'] and args['remove_outside_center']:
+        print('Only doing an imaging and extract step')
+        args['stop'] = args['stop'] + 1 # increase stop so we go into the selfcal loop
+        remove_outside_center_only = True
+    else:
+        remove_outside_center_only = False
+
     # ----- START SELFCAL LOOP -----
     for i in range(args['start'], args['stop']):
 
@@ -10579,6 +10639,17 @@ def main():
                       disable_primarybeam_image=args['disable_primary_beam'],
                       disable_primarybeam_predict=args['disable_primary_beam'],
                       fulljones_h5_facetbeam=not args['single_dual_speedup'])
+            
+            if remove_outside_center_only:
+                remove_outside_box(mslist, args['imagename'] + str(i).zfill(3), args['pixelscale'],
+                    args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
+                    dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'],
+                    h5list=wsclean_h5list, facetregionfile=facetregionfile,
+                    disable_primary_beam=args['disable_primary_beam'], 
+                    modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
+                if not args['keepmodelcolumns']: remove_model_columns(mslist)
+                return
+            
             # args['idg'] = idgin # set back
             if args['makeimage_ILTlowres_HBA']:
                 if args['phaseupstations'] is None:
