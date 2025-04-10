@@ -113,6 +113,30 @@ matplotlib.use('Agg')
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
+def frequencies_from_models(model_basename):
+    '''This function takes a wsclean model basename string and returns the 
+    frequency list string wsclean should use for -channel-division-frequencies and the same as a np array
+    
+    Parameters:
+    -----------
+    model_basename: str
+        wsclean model basename to search for
+    '''
+    models = sorted(glob.glob(model_basename + '-????-model.fits'))
+
+    freqs = [] # Target freqs = Central_freq - (delta/2)
+    for model in models:
+        tmp_head = fits.getheader(model)
+        central_freq = float(tmp_head['CRVAL3'])
+        freq_width = float(tmp_head['CDELT3'])
+        freqs.append(central_freq-(freq_width/2))
+
+    freq_string = [str(x/1e6)+"e6" for x in freqs]
+
+    freq_string = ",".join(freq_string)
+
+    return freq_string, np.array(freqs)
+
 def MeerKAT_antconstraint(antfile=None, ctype='all'):
     if antfile is None:
         antfile = f'{datapath}/data/MeerKATlayout.csv'
