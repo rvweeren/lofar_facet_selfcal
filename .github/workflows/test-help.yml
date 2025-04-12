@@ -101,7 +101,7 @@ jobs:
       
       - name: Run multi-facet calibration
         run: |
-          singularity exec --bind $(pwd):/repo flocs.sift \
+          singularity exec --bind $(pwd):/repo flocs.sif \
           python /repo/facetselfcal.py \
           -i image_A1775_DD \
           --forwidefield \
