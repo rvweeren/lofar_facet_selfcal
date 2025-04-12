@@ -5086,13 +5086,13 @@ def set_MeerKAT_bandpass_skymodel(ms):
 
     with table(ms + '/FIELD', ack=False) as t:
         adir = t.getcol('DELAY_DIR')[0][0][:]
-    cdatta = SkyCoord(adir[0]*u.deg, adir[0]*u.deg, frame='icrs')
+    cdatta = SkyCoord(adir[0]*units.deg, adir[0]*units.deg, frame='icrs')
 
-    if (cdatta.separation(SkyCoord(cJ0408_6545[0]*u.deg, cJ0408_6545[1]*u.deg, frame='icrs'))) < 0.05*u.deg:
+    if (cdatta.separation(SkyCoord(cJ0408_6545[0]*units.deg, cJ0408_6545[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
         if Lband: skymodel = skymodpath + '/J0408-6545_L.skymodel'
         if UHF: skymodel = skymodpath + '/J0408-6545_UHF.skymodel'
 
-    if (cdatta.separation(SkyCoord(cJ1939_6342[0]*u.deg, cJ1939_6342[1]*u.deg, frame='icrs'))) < 0.05*u.deg:
+    if (cdatta.separation(SkyCoord(cJ1939_6342[0]*units.deg, cJ1939_6342[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
         if Lband: skymodel = skymodpath + '/J1939-6342_L.skymodel'
         if UHF: skymodel = skymodpath + '/J1939-6342_UHF.skymodel'
 
@@ -7942,6 +7942,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     # applycal of closest direction (in multidir h5)
     if len(h5list) != 0 and ddcor and userbox != 'keepall':
         for ms_id, ms in enumerate(mslist):
+            ms = os.path.basename(ms)
             if os.path.isdir(ms + '.subtracted_ddcor'):
                 os.system('rm -rf ' + ms + '.subtracted_ddcor')  
             applycal(ms + '.subtracted',h5list[ms_id], find_closestdir=True, 
