@@ -54,7 +54,7 @@ jobs:
 
       - name: Copy data
         run: |
-          cp -r /repo/.github/data/test*.ms .
+          cp -r $(pwd):/repo/.github/data/test*.ms .
 
 #      - name: Test h5_merger output
 #        run: |
