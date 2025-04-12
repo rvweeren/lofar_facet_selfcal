@@ -1,0 +1,4 @@
+#RA DEC start solints smoothness soltypelist_includedir
+205.4589541 26.3718832 0 ['32s','60min'] [10,10] [True,True]
+205.4905193 26.0968803 0 ['1min','60min'] [10,10] [True,False]
+205.2408246 26.6167094 0 ['3min','60min'] [30,10] [True,False]

@@ -99,3 +99,32 @@ jobs:
           --test \
           /repo/.github/data/test.ms
       
+      - name: Run full fov calibration test
+        run: |
+          singularity exec --bind $(pwd):/repo flocs.sift \
+          python /repo/facetselfcal.py \
+          -i image_A1775_DD \
+          --forwidefield \
+          --noarchive \
+          --skipbackup \
+          --solint-list="['2min','30min']" \
+          --avgfreqstep=4 \
+          --avgtimestep=4 \
+          --soltype-list="['scalarphase','scalarcomplexgain']" \
+          --soltypecycles-list=[0,2] \
+          --smoothnessconstraint-list=[10.,10.] \
+          --niter=15000 \
+          --stop=2 \
+          --multiscale \
+          --multiscale-start=0 \
+          --DDE \
+          --facetdirection=/repo/.github/data/directions.txt \
+          --uvmin=750 \
+          --boxfile=/repo/.github/data/PSZ2G031.93+78.71.ds9.reg \
+          --antennaconstraint-list="['core',None]" \
+          --resetdir-list="[None,None]" \
+          --fitspectralpol=5 \
+          --remove-outside-center \
+          --remove-outside-center-box=/repo/.github/data/A1775ddbox.reg \
+          --test \
+          /repo/.github/data/test2.ms
