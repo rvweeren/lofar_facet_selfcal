@@ -23,7 +23,7 @@ jobs:
       - name: Download flocs Singularity
         run: |
           singularity pull flocs.sif \
-          https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_v5.5.1_sandybridge_sandybridge.sif
+          https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif
 
       - name: Run --help on main.py
         run: |
