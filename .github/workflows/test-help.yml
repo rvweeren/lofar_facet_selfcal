@@ -40,17 +40,21 @@ jobs:
           singularity exec --bind $(pwd):/repo flocs.sif \
           python /repo/submods/ds9facetgenerator.py --help
 
-      - name: Test multidir merge h5_merger
+      - name: Multi-directional merge h5_merger
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
           python /repo/submods/h5_merger.py \
           -in /repo/.github/data/dirtest?.h5 -out merged.h5 --single_pol --add_directions [0,0]
 
-      - name: Test fulljones merge h5_merger
+      - name: Full-Jones merge h5_merger
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
           python /repo/submods/h5_merger.py \
           -in /repo/.github/data/fulljones?.h5 -out fulljonesmerged.h5 --circ2lin
+
+      - name: Copy data
+        run: |
+          cp -r /repo/.github/data/test*.ms .
 
 #      - name: Test h5_merger output
 #        run: |
@@ -60,14 +64,14 @@ jobs:
       - name: Run --auto with facetselfcal
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
-          python /repo/facetselfcal.py --auto --testing --stop 2 --channelsout 2 --fitspectralpol 1 /repo/.github/data/test.ms
+          python /repo/facetselfcal.py --auto --testing --stop 2 --channelsout 2 --fitspectralpol 1 test.ms
 
-      - name: Run configtest with facetselfcal
+      - name: Run self-calibration with config file
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
-          python /repo/facetselfcal.py --configpath /repo/.github/data/config_dd.txt /repo/.github/data/test.ms
+          python /repo/facetselfcal.py --configpath /repo/.github/data/config_dd.txt test.ms
 
-      - name: Run dical test on main.py
+      - name: Run calibration with skymodel
         run: |
           singularity exec --bind $(pwd):/repo flocs.sif \
           python /repo/facetselfcal.py \
@@ -97,9 +101,9 @@ jobs:
           --stop=1 \
           --stopafterskysolve \
           --test \
-          /repo/.github/data/test.ms
+          test.ms
       
-      - name: Run full fov calibration test
+      - name: Run multi-facet calibration
         run: |
           singularity exec --bind $(pwd):/repo flocs.sift \
           python /repo/facetselfcal.py \
@@ -108,8 +112,6 @@ jobs:
           --noarchive \
           --skipbackup \
           --solint-list="['2min','30min']" \
-          --avgfreqstep=4 \
-          --avgtimestep=4 \
           --soltype-list="['scalarphase','scalarcomplexgain']" \
           --soltypecycles-list=[0,2] \
           --smoothnessconstraint-list=[10.,10.] \
@@ -123,8 +125,9 @@ jobs:
           --boxfile=/repo/.github/data/PSZ2G031.93+78.71.ds9.reg \
           --antennaconstraint-list="['core',None]" \
           --resetdir-list="[None,None]" \
-          --fitspectralpol=5 \
+          --fitspectralpol=1 \
+          --channelsout=2 \
           --remove-outside-center \
           --remove-outside-center-box=/repo/.github/data/A1775ddbox.reg \
           --test \
-          /repo/.github/data/test2.ms
+          test2.ms

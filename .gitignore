@@ -8,5 +8,9 @@ lofar_facet_selfcal.egg-info
 *.ms
 *.fits
 
+#test data
+.github/data/*.tmp
+
 # Exception: Allow .github/data/test.ms for testing
 !.github/data/test.ms
+!.github/data/test2.ms
