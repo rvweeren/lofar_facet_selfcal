@@ -114,14 +114,23 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 def frequencies_from_models(model_basename):
-    '''This function takes a wsclean model basename string and returns the 
+    """
+    This function takes a wsclean model basename string and returns the 
     frequency list string wsclean should use for -channel-division-frequencies and the same as a np array
     
     Parameters:
     -----------
     model_basename: str
         wsclean model basename to search for
-    '''
+
+    Returns:
+    --------
+    freq_string: str
+        String of frequency breaks to pass into wsclean
+    freqs: np.array
+        Array of frequencies needed for further checking
+    """
+
     models = sorted(glob.glob(model_basename + '-????-model.fits'))
 
     freqs = [] # Target freqs = Central_freq - (delta/2)
@@ -136,6 +145,48 @@ def frequencies_from_models(model_basename):
     freq_string = ",".join(freq_string)
 
     return freq_string, np.array(freqs)
+
+def modify_freqs_from_ms(ms, freqs):
+    """
+    This function takes a frequency array and trims it according to the frequencies available within an ms
+
+    Parameters:
+    -----------
+    ms: str
+        Path to ms to get frequency limits
+    freqs: np.array
+        Array containing frequency breaks for wsclean
+
+    Returns:
+    --------
+    mod_freq_string: str
+        String for wsclean with frequency cuts corrected by ms
+    mod_freqs: np.array
+        Array with modified frequencies matching string
+    """
+
+    t = table(ms, readonly = True)
+    ms_chan_freqs = t.SPECTRAL_WINDOW.CHAN_FREQ[::][0] # This provides the frequencies of all channels in the MS
+
+    # Fix max frequency first
+    max_ms_freq = ms_chan_freqs[-1]
+
+    while max_ms_freq < freqs[-1]:
+        freqs = freqs[:-1]
+
+    # Fix min frequency 
+    min_ms_freq = ms_chan_freqs[0]
+
+    while min_ms_freq > freqs[1]:
+        freqs = freqs[1:]
+
+    mod_freq_string = [str(x/1e6)+"e6" for x in freqs]
+
+    mod_freq_string = ",".join(mod_freq_string)
+
+    return mod_freq_string, np.array(freqs)
+
+
 
 def MeerKAT_antconstraint(antfile=None, ctype='all'):
     if antfile is None:
