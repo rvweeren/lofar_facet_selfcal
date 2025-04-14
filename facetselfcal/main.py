@@ -174,11 +174,15 @@ def modify_freqs_from_ms(ms, freqs):
     while max_ms_freq < freqs[-1]:
         freqs = freqs[:-1]
 
-    # Fix min frequency 
+    # Fix min frequency - Requires model renaming
     min_ms_freq = ms_chan_freqs[0]
-
+    rename_no = 0
     while min_ms_freq > freqs[1]:
         freqs = freqs[1:]
+        rename_no += 1
+    
+    if rename_no > 0:
+        rename_models(args['wscleanskymodel'], rename_no, model_prefix = "tmp_")
 
     mod_freq_string = [str(x/1e6)+"e6" for x in freqs]
 
@@ -186,7 +190,42 @@ def modify_freqs_from_ms(ms, freqs):
 
     return mod_freq_string, np.array(freqs)
 
+def rename_models(model_basename, rename_no, model_prefix = "tmp_"):
+    """
+    Function renames args['wscleanskymodel'] based on the integer number that need to be renamed and a new prefix to append.
+    Update argument parameter at the end
 
+
+    Parameters:
+    -----------
+    model_basename: str
+        Basename of wscleanskymodels that need to be shifted
+    rename_no: int
+        Number of models that need to be renamed (2 -> Shift all basename models down 2)
+    model_prefix: str
+        Prefix to apppend to the new model names
+    """
+
+    models = sorted(glob.glob(model_basename + '-????-model.fits'))
+
+    # Remove not needed models 
+    models = models[rename_no:]
+
+
+    # Rename all models
+    for model in models:
+        split_number = model.split("-model.fits")[0]
+        number = int(split_number[-4:])
+        number_shift = str((number-2)).zfill(4)
+
+        split_number = split_number[:-4] + number_shift 
+
+        model_out = model_prefix + split_number + "-model.fits"
+
+        command = f'cp {model} {model_out}'
+        os.system(command)
+
+    args['wscleanskymodel'] = model_prefix + model_basename
 
 def MeerKAT_antconstraint(antfile=None, ctype='all'):
     if antfile is None:
