@@ -130,8 +130,13 @@ def frequencies_from_models(model_basename):
     freqs: np.array
         Array of frequencies needed for further checking
     """
-
-    models = sorted(glob.glob(model_basename + '-????-model.fits'))
+    nonpblist = sorted(glob.glob(model_basename + '-????-model.fits'))
+    pblist = sorted(glob.glob(model_basename + '-????-model-pb.fits'))
+    # If pb and models
+    if len(pblist) > 0:
+        models = pblist
+    else:
+        models = nonpblist
 
     freqs = [] # Target freqs = Central_freq - (delta/2)
     for model in models:
@@ -182,7 +187,7 @@ def modify_freqs_from_ms(ms, freqs):
         rename_no += 1
     
     if rename_no > 0:
-        rename_models(args['wscleanskymodel'], rename_no, model_prefix = "tmp_")
+        rename_models(agrs['wscleanskymodel'], rename_no, model_prefix = "tmp_")
 
     mod_freq_string = [str(x/1e6)+"e6" for x in freqs]
 
@@ -198,34 +203,49 @@ def rename_models(model_basename, rename_no, model_prefix = "tmp_"):
 
     Parameters:
     -----------
-    model_basename: str
-        Basename of wscleanskymodels that need to be shifted
     rename_no: int
         Number of models that need to be renamed (2 -> Shift all basename models down 2)
     model_prefix: str
         Prefix to apppend to the new model names
     """
 
-    models = sorted(glob.glob(model_basename + '-????-model.fits'))
+    nonpblist = sorted(glob.glob(model_basename + '-????-model.fits'))
+    pblist = sorted(glob.glob(model_basename + '-????-model-pb.fits'))
 
-    # Remove not needed models 
-    models = models[rename_no:]
+    
 
+    if len(nonpblist) > 0:
+        # Remove not needed models 
+        nonpblist = nonpblist[rename_no:]
+        for model in nonpblist:
+            split_number = model.split("-model.fits")[0]
+            number = int(split_number[-4:])
+            number_shift = str((number-2)).zfill(4)
 
-    # Rename all models
-    for model in models:
-        split_number = model.split("-model.fits")[0]
-        number = int(split_number[-4:])
-        number_shift = str((number-2)).zfill(4)
+            split_number = split_number[:-4] + number_shift 
 
-        split_number = split_number[:-4] + number_shift 
+            model_out = model_prefix + split_number + "-model.fits"
 
-        model_out = model_prefix + split_number + "-model.fits"
+            command = f'cp {model} {model_out}'
+            os.system(command)
+    
+    if len(pblist) > 0:
+        # Remove not needed models
+        pblist = pblist[rename_no:]
+        for model in pblist:
+            split_number = model.split("-model-pb.fits")[0]
+            number = int(split_number[-4:])
+            number_shift = str((number-2)).zfill(4)
 
-        command = f'cp {model} {model_out}'
-        os.system(command)
+            split_number = split_number[:-4] + number_shift 
 
-    args['wscleanskymodel'] = model_prefix + model_basename
+            model_out = model_prefix + split_number + "-model-pb.fits"
+
+            command = f'cp {model} {model_out}'
+            os.system(command)
+
+    # Still need to update args['wscleanskymodel'] to include prefix
+
 
 def MeerKAT_antconstraint(antfile=None, ctype='all'):
     if antfile is None:
