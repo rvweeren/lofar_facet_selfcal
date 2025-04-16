@@ -9966,7 +9966,7 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
             if args['DS9cleanmaskregionfile'] is not None: 
                 mask_mergelist.append(args['DS9cleanmaskregionfile'])
             if maskthreshold_selfcalcycle[selfcalcycle] > 0.0:
-                if args['mask_extended'] and i >= args['mask_extended_start'] and \
+                if args['mask_extended'] and selfcalcycle >= args['mask_extended_start'] and \
                    args['imsize'] >= 1600 and (telescope == 'LOFAR' or telescope == 'MeerKAT') \
                    and not longbaseline:
                     if telescope == 'LOFAR':
