@@ -28,6 +28,13 @@ def option_parser():
                                help="Mask noise thresholds used from image 1 to N made by MakeMask.py/breizorro. This is by default [5.0,4.5,4.5,4.5,4.0].",
                                default=[5.0, 4.5, 4.5, 4.5, 4.0],
                                type=arg_as_list)
+    imagingparser.add_argument('--mask-extended',
+                               help='Add an extra masking step for very extended emission. For LOFAR-NL and MeerKAT only. Image size needs to be at least 1600x1600 pixels',
+                               action='store_true')
+    imagingparser.add_argument('--mask-extended-start',
+                               help='Start --mask-extended emission at this selfcal cycle. Default 2.',
+                               default=2,
+                               type=int)
     imagingparser.add_argument('--localrmswindow',
                                help="local-rms-window parameter for automasking in WSClean (in units of psfs), default=0 (0 means it is not used; suggested value 50)",
                                default=0,
