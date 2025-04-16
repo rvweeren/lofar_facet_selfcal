@@ -1993,6 +1993,72 @@ def stackwrapper(inmslist: list, msout_prefix: str = 'stack', column_to_normalis
 
     return msout_stacks, mss_timestacks
 
+def makemask_extended(fitsimage, outputfitsfile, kernel_size=21, rebin=None, threshold=7.5):
+    """
+    Generate a binary mask from a FITS image by applying a median filter 
+    to remove small-scale structures and thresholding to identify significant emission.
+
+    This function is useful for creating masks of extended emission regions 
+    in radio or astronomical images. It optionally downsamples the image before 
+    median filtering (for performance on large images), then thresholds the 
+    filtered image based on a user-defined sigma level to generate a binary mask. 
+    The mask is written to a new FITS file.
+
+    Parameters
+    ----------
+    fitsimage : str
+        Path to the input FITS file containing the image data.
+    outputfitsfile : str
+        Path to the output FITS file where the binary mask will be saved.
+    kernel_size : int, optional
+        Size of the square kernel used in the 2D median filter (default is 21).
+    rebin : int or None, optional
+        Factor by which to downsample the image before filtering, to speed up processing.
+        The image is upsampled back to the original size after filtering. If `None`, no rebinning is performed.
+    threshold : float, optional
+        Sigma threshold (in units of the image RMS) for generating the binary mask (default is 7.5).
+
+    Notes
+    -----
+    - The mask is applied on a flattened version of the original data (assumes 4D shape [1, 1, y, x]).
+    - The filtered and thresholded image is stored back into the FITS file in place.
+    - Assumes the presence of a helper function `findrms` and a `flatten` function to reduce FITS HDUs.
+    - Requires `scipy`, `skimage`, `numpy`, and `astropy.io.fits`.
+
+    Returns
+    -------
+    None
+        The result is saved directly to the specified output FITS file.
+    """
+    from skimage.transform import rescale
+    
+    hdulist = fits.open(fitsimage) 
+    hduflat = flatten(hdulist)
+
+    print(hduflat.data.shape, hdulist[0].data.shape)
+    datashape = hduflat.data.shape
+
+    # create median filtered image where emission on small scales is removed
+    if rebin is not None:
+        # needed for large images as scipy.signal.medfilt2d takes too long
+        image_data = rescale(hduflat.data, 1./rebin, anti_aliasing=True) # downsample
+        image_data = scipy.signal.medfilt2d(image_data, kernel_size=kernel_size)
+        image_data = scipy.ndimage.zoom(image_data, float(hduflat.data.shape[0]/image_data.shape[0])) # upsample
+        
+        imagenoise = findrms(np.ndarray.flatten(image_data))
+        print(datashape, image_data.shape)
+        assert datashape == image_data.shape
+    else:
+        image_data = scipy.signal.medfilt2d(hduflat.data, kernel_size=kernel_size)
+        imagenoise = findrms(np.ndarray.flatten(image_data))
+
+    # do the masking
+    image_data[image_data >= threshold*imagenoise] = 1.0    
+    image_data[image_data < threshold*imagenoise] = 0.
+    #hduflat.data = image_data
+    hdulist[0].data[0,0,:,:] = image_data
+    hdulist.writeto(outputfitsfile, overwrite=True)
+    return
 
 def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=False,
                                       originalmodel='MODEL_DATA', newmodel='MODEL_DATA_PHASE_SLOPE', backup=True):
@@ -6847,7 +6913,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          BLsmooth_list,
                          normamps=False, normamps_per_ms=False, skymodel=None,
                          predictskywithbeam=False,
-                         longbaseline=False,
+                         longbaseline=False, reduce_h5size=False,
                          skymodelsource=None,
                          skymodelpointsource=None, wscleanskymodel=None,
                          mslist_beforephaseup=None,
@@ -7110,9 +7176,14 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 fix_h5(parmdbmergelist[msnumber])
 
             print(parmdbmergename, parmdbmergelist[msnumber], ms)
-            merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1], ms_files=ms,
-                     convert_tec=True, merge_all_in_one=merge_all_in_one,
-                     propagate_weights=True, single_pol=single_pol_merge)
+            if reduce_h5size and ('tec' not in args['soltype_list']) and ('tecandphase' not in args['soltype_list']): 
+                merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1],
+                         merge_all_in_one=merge_all_in_one,
+                         propagate_weights=True, single_pol=single_pol_merge)    
+            else:
+                merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1], ms_files=ms,
+                         convert_tec=True, merge_all_in_one=merge_all_in_one,
+                         propagate_weights=True, single_pol=single_pol_merge)
             # add CS stations back for superstation
             if mslist_beforephaseup is not None:
                 print('mslist_beforephaseup: ' + mslist_beforephaseup[msnumber])
