@@ -9940,7 +9940,7 @@ def update_uvmin(fitsmask, longbaseline, LBA):
     return
 
 
-def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, mslist):
+def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, mslist, telescope, longbaseline):
     # MAKE MASK IF REQUESTED
     fitsmask_list = []
     for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
@@ -9962,12 +9962,24 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
 
         # check if we need/can do masking & mask
         if args['fitsmask'] is None:
+            mask_mergelist = []
+            if args['DS9cleanmaskregionfile'] is not None: 
+                mask_mergelist.append(args['DS9cleanmaskregionfile'])
             if maskthreshold_selfcalcycle[selfcalcycle] > 0.0:
+                if args['mask_extended'] and i >= args['mask_extended_start'] and \
+                   args['imsize'] >= 1600 and (telescope == 'LOFAR' or telescope == 'MeerKAT') \
+                   and not longbaseline:
+                    if telescope == 'LOFAR':
+                        makemask_extended(imagename,'mask_extended.fits',kernel_size=39,rebin=8, threshold=7.5)
+                    if telescope == 'MeerKAT':
+                        makemask_extended(imagename,'mask_extended.fits',kernel_size=25,rebin=5, threshold=10.)   
+                    mask_mergelist.append('mask_extended.fits')
+                
                 if which('breizorro') is not None:
                     cmdm = 'breizorro --make-binary --fill-holes --threshold=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
                        ' --restored-image=' + imagename + ' --boxsize=30 --outfile=' + imagename + '.mask.fits'
-                    if args['DS9cleanmaskregionfile'] is not None:
-                        cmdm += ' --merge=' + args['DS9cleanmaskregionfile']
+                    if len(mask_mergelist) > 0:
+                        cmdm += ' --merge=' + ','.join(map(str, mask_mergelist))
                 else:
                     cmdm = 'MakeMask.py --Th=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
                        ' --RestoredIm=' + imagename
@@ -10833,7 +10845,7 @@ def main():
         update_uvmin(fitsmask, longbaseline, LBA)
 
         # update fitsmake if allowed/requested
-        fitsmask, fitsmask_list, imagename = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args, mslist)
+        fitsmask, fitsmask_list, imagename = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args, mslist, telescope, longbaseline)
 
         # update to multiscale cleaning if large island is present
         args['multiscale'] = multiscale_trigger(fitsmask)
