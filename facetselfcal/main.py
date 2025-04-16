@@ -176,6 +176,8 @@ def modify_freqs_from_ms(ms, freqs):
     # Fix max frequency first
     max_ms_freq = ms_chan_freqs[-1]
 
+    gap = freqs[-1] - freqs[-2]
+
     while max_ms_freq < freqs[-1]:
         freqs = freqs[:-1]
 
@@ -8158,6 +8160,18 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # if not usewgridder and not idg:
             #  cmd += '-padding 1.8 '
             if channelsout > 1:
+
+                if args['fix_model_frequencies']: # Implementing model manipulation
+                    freq_string, freqs = frequencies_from_models(args['wscleanskymodel']) # Get frequency info from models
+                    mod_freq_string, mod_freqs = modify_freqs_from_ms(mslist[0], freqs) # Adjust models to fit incoming ms
+                    #Overwrite relevant args if needed 
+                    if len(glob.glob("tmp_" + args['wscleanskymodel'] + "*")) > 0:
+                        args['wscleanskymodel'] = "tmp_" + args['wscleanskymodel']
+                        imageout = args['wscleanskymodel']
+                    channelsout = len(mod_freqs)
+                    print(freqs, mod_freqs, channelsout)
+                    cmd += '-channel-division-frequencies ' + mod_freq_string + ' '
+                
                 cmd += '-channels-out ' + str(channelsout) + ' '
                 if args['gapchanneldivision']:
                     cmd += '-gap-channel-division '
@@ -8361,6 +8375,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         # if not usewgridder and not idg:
         #  cmd += '-padding 1.4 '
         if channelsout > 1:
+            if args['fix_model_frequencies']: # Implementing model manipulation
+                freq_string, freqs = frequencies_from_models(args['wscleanskymodel']) # Get frequency info from models
+                mod_freq_string, freqs = modify_freqs_from_ms(mslist[0], freqs) # Adjust models to fit incoming ms
+                #Overwrite relevant args
+                args['wscleanskymodel'] = "tmp_" + args['wscleanskymodel']
+                channelsout = len(freqs)
+                cmd += '-channel-division-frequencies ' + mod_freq_string + ' '
             cmd += ' -join-channels -channels-out ' + str(channelsout) + ' '
             if args['gapchanneldivision']:
                 cmd += '-gap-channel-division '
@@ -8510,6 +8531,14 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # if not usewgridder and not idg:
             #     cmd += '-padding 1.8 '
             if channelsout > 1:
+                if args['fix_model_frequencies']: # Implementing model manipulation
+                    freq_string, freqs = frequencies_from_models(args['wscleanskymodel']) # Get frequency info from models
+                    mod_freq_string, freqs = modify_freqs_from_ms(mslist[0], freqs) # Adjust models to fit incoming ms
+                    #Overwrite relevant args
+                    args['wscleanskymodel'] = "tmp_" + args['wscleanskymodel']
+                    channelsout = len(freqs)
+                    cmd += '-channel-division-frequencies ' + mod_freq_string + ' '
+
                 cmd += '-channels-out ' + str(channelsout) + ' '
                 if args['gapchanneldivision']:
                     cmd += '-gap-channel-division '
