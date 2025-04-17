@@ -6688,7 +6688,25 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         return solints, smoothness, soltypelist_includedir
 
 
-def parse_facetdirections(facetdirections, selfcalcycle):
+def write_ds9_regions(ra_array, dec_array, filename="directions.reg", radius=120.0, color="red"):
+    """
+    Writes DS9 region file entries for each RA, DEC pair.
+
+    Parameters:
+    - ra_array (np.ndarray): 1D array of Right Ascension values (in degrees)
+    - dec_array (np.ndarray): 1D array of Declination values (in degrees)
+    - filename (str): Output text file name
+    - radius (float): Radius of the circle in arcseconds
+    - color (str): Color to use in DS9 region entries
+    """
+    with open(filename, "w") as f:
+        f.write('# Region file format: DS9 version 4.1\n')
+        f.write('global color=green dashlist=8 3 width=1 font="helvetica 10 normal roman" select=1\n')
+        f.write('fk5\n')
+        for i, (ra, dec) in enumerate(zip(ra_array, dec_array)):
+            f.write(f"circle({ra},{dec},{radius:.3f}\") # color={color} text={{Dir{i:02d}}}\n")
+
+def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True):
     """
        parse the facetdirections.txt file and return a list of facet directions
        for the given selfcalcycle. In the future, this function should also return a
@@ -6713,7 +6731,8 @@ def parse_facetdirections(facetdirections, selfcalcycle):
     except KeyError:
         smoothness = None
 
-
+    if writeregioncircles:
+        write_ds9_regions(ra, dec, filename="facet_centers.reg", radius=120.0, color="red")
     # Only select ra/dec which are if they are in the selfcalcycle range
     a = np.where((start <= selfcalcycle))[0]
     rasel = ra[a]
@@ -10320,7 +10339,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '13.0.0'
+    version = '13.2.0'
     print_title(version)
 
     global submodpath, datapath
