@@ -57,6 +57,7 @@ import astropy.units as units
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.io import ascii
+from astropy.table import Table
 from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
 from astropy.time import Time
 from astroquery.skyview import SkyView
@@ -976,7 +977,7 @@ def check_for_BDPbug_longsolint(mslist, facetdirections):
             print('Solint passed to DP3 would be:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
             if lcm > ms_ntimes:
                 print('Bad divisor for solutions_per_direction DDE solve. DP3 Solint > number of timeslots in the MS')
-                sys.exit()
+                #sys.exit()
         print('------------')
 
     return
@@ -6669,7 +6670,6 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         for patch_id, patch in enumerate(PatchPositions.keys()):
             PatchPositions_array[patch_id, 0] = PatchPositions[patch][0].to(units.rad).value  # RA
             PatchPositions_array[patch_id, 1] = PatchPositions[patch][1].to(units.rad).value  # Dec
-        # else: PatchPostioins=LSM.load('facetdirections.skymodel').getPatchPositions)
         # Run code below for if and elif
         if os.path.isfile('facetdirections.p'):
             os.system('rm -f facetdirections.p')
@@ -6811,12 +6811,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
 
     if restart:  # in that case we also have a previous image avaialble
         os.system('cp ' + imagebasename + str(selfcalcycle - 1).zfill(3) + '-MFS-image.fits' + ' facets.fits')
-        # else:
-    #   if selfcalcycle == 0 and wscleanskymodel is not None:
-    #     os.system('cp ' + glob.glob(wscleanskymodel + '-????-*model*.fits')[0] + ' facets.fits')
 
-    # else:
-    #  os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) +'-MFS-image.fits' + ' facets.fits')
     # --- end CREATE facets.fits -----
 
     # FILL in facets.fits with values, every facets get a constant value, for lsmtool
@@ -6932,7 +6927,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          BLsmooth_list,
                          normamps=False, normamps_per_ms=False, skymodel=None,
                          predictskywithbeam=False,
-                         longbaseline=False, reduce_h5size=False,
+                         longbaseline=False,
                          skymodelsource=None,
                          skymodelpointsource=None, wscleanskymodel=None,
                          mslist_beforephaseup=None,
@@ -7195,7 +7190,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 fix_h5(parmdbmergelist[msnumber])
 
             print(parmdbmergename, parmdbmergelist[msnumber], ms)
-            if reduce_h5size and ('tec' not in args['soltype_list']) and ('tecandphase' not in args['soltype_list']): 
+            if args['reduce_h5size'] and ('tec' not in args['soltype_list']) and ('tecandphase' not in args['soltype_list']): 
                 merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1],
                          merge_all_in_one=merge_all_in_one,
                          propagate_weights=True, single_pol=single_pol_merge)    
@@ -8379,7 +8374,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 cmd += '-pol iquv -join-polarizations '
             else:
                 cmd += '-pol i '
-            if len(h5list) == 0:  # only use baseline-averaging if there are no h5 facet-solutions
+            if len(h5list) == 0 and not args['groupms_h5facetspeedup']:  # only use baseline-averaging if there are no h5 facet-solutions
                 # if not forceimagingwithfacets:
                 cmd += '-baseline-averaging ' + baselineav + ' '
             if usewgridder:
@@ -8409,6 +8404,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                     cmd += '-use-differential-lofar-beam '
         elif forceimagingwithfacets and facetregionfile is not None:  # so h5list is zero, but we still want facet imaging
+            if args['groupms_h5facetspeedup'] and len(mslist) > 1:
+                mslist_concat, h5list_concat_tmp = concat_ms_wsclean_facetimaging(mslist, concatms=False)
             cmd += '-facet-regions ' + facetregionfile + ' '
             if sharedfacetreads: cmd += '-shared-facet-reads '
             if telescope == 'LOFAR' and not disable_primarybeam_image:
@@ -8424,11 +8421,12 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
 
         cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec '
-        if len(h5list) > 0 and args['groupms_h5facetspeedup'] and len(mslist) > 1:
+        if args['groupms_h5facetspeedup'] and len(mslist) > 1 and facetregionfile is not None:
             msliststring_concat = ' '.join(map(str, mslist_concat))
             print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
             logger.info(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
             run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
+
         else:
             print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
             logger.info(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
@@ -10339,7 +10337,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '13.2.0'
+    version = '13.3.0'
     print_title(version)
 
     global submodpath, datapath

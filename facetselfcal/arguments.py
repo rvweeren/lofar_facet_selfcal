@@ -340,7 +340,7 @@ def option_parser():
                                    type=float,
                                    default=2.0)
     calibrationparser.add_argument('--facetdirections',
-                                   help='Experts only. ASCII csv file containing facet directions. File needs two columns with decimal degree RA and Dec. Default is None.',
+                                   help='Experts only. ASCII csv file containing facet directions. File needs at least two columns with decimal degree RA and Dec. Default is None.',
                                    type=str,
                                    default=None)
     calibrationparser.add_argument('--DDE-predict',
@@ -350,7 +350,10 @@ def option_parser():
     calibrationparser.add_argument('--disable-primary-beam',
                                    help='For WSCLEAN imaging and predicts disable the primary beam corrections (so run with "apparent" images only)',
                                    action='store_true')
-
+    calibrationparser.add_argument('--reduce-h5size',
+                                   help='Save h5 file at the highest time and freqeuency grid based on the solints, instead of the time and freqeuency resolution of the MS (the default). This option is ignored for tec/tecandphase solves. Enabling this option can potentially reduce the accuracy of the solutions applied. For example if solint 3min and 4min are combined, the 4min solutions cannot be sampled perfectly onto a 3min soltion grid.',
+                                   action='store_true')
+    
     blsmoothparser = parser.add_argument_group("-------------------------BLSmooth Settings-------------------------")
     # BLsmooth settings
     blsmoothparser.add_argument("--iontimefactor",
