@@ -86,7 +86,7 @@ sys.path.append(current_dir)
 from arguments import option_parser
 from submods.source_selection.selfcal_selection import get_images_solutions, main as quality_check
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
-from submods.h5_helpers.reset_structure import fix_h5
+from submods.h5_helpers.reset_h5parm_structure import fix_h5
 from submods.h5_merger import merge_h5
 from submods.h5_helpers.split_h5 import split_multidir
 from submods.h5_helpers.multidir_h5 import same_weights_multidir, is_multidir
@@ -7185,10 +7185,9 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             else:
                 single_pol_merge = False
 
-
-            # remove this once h5 merger is fixed
-            if not merge_all_in_one:  # so only for a DDE solve
-                fix_h5(parmdbmergelist[msnumber])
+            # reset h5parm structure
+            if not merge_all_in_one:  # only for a DDE solve
+                parmdbmergelist[msnumber] = fix_h5(parmdbmergelist[msnumber])
 
             print(parmdbmergename, parmdbmergelist[msnumber], ms)
             if args['reduce_h5size'] and ('tec' not in args['soltype_list']) and ('tecandphase' not in args['soltype_list']): 

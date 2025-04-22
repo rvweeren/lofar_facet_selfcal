@@ -1,18 +1,3 @@
-"""
-h5parm merger script for merging h5parms containing phase and/or amplitude solutions for calibrating LOFAR observations.
-
-This script is a standalone script, such that it is easy to copy-paste it to other pipelines.
-
-For examples to run this script from the command line, please have a look at:
-https://github.com/jurjen93/lofar_helpers/blob/master/h5_merger_examples.md
-
-It is a work in progress, so for any bug reports or suggestions for improvements:
-please contact jurjendejong@strw.leidenuniv.nl (or find me on LOFAR slack pages)
-"""
-
-__author__ = "Jurjen de Jong (jurjendejong@strw.leidenuniv.nl)"
-
-# Standard library imports
 import os
 import sys
 import warnings
@@ -21,11 +6,10 @@ from argparse import ArgumentParser
 from collections import OrderedDict
 import ast
 
-# Third-party imports
 from numpy import (
     zeros, ones, round, unique, array_equal, append, isfinite, complex128,
     expand_dims, pi, array, all, exp, angle, sort, sum, take,
-    diff, transpose, abs, cos, sin, float32)
+    diff, transpose, abs, cos, sin, float32, arange)
 from scipy.interpolate import interp1d
 import tables
 from astropy.coordinates import SkyCoord
@@ -34,7 +18,6 @@ from casacore import tables as ct
 from losoto.h5parm import h5parm
 from losoto.lib_operations import reorderAxes
 
-# Required for running python package with relative imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 try:
@@ -52,9 +35,9 @@ except ImportError:
     from h5_helpers.multidir_h5 import same_weights_multidir, is_multidir
     from fair_log.config import add_config_to_h5, add_version_to_h5, get_config_from_h5, get_facetselfcal_version_from_h5
 
-warnings.filterwarnings('ignore')
-
 __all__ = ['merge_h5', 'output_check', 'move_source_in_sourcetable', 'h5_check']
+
+__author__ = "Jurjen de Jong (jurjendejong@strw.leidenuniv.nl)"
 
 diagdiag_math = r"""
 Diagonal times Diagonal
@@ -176,20 +159,23 @@ def coordinate_distance(c1, c2):
 class MergeH5:
     """Merge multiple h5 tables"""
 
-    def __init__(self, h5_out, h5_tables=None, ms_files=None, h5_time_freq=None, convert_tec=True,
-                 merge_all_in_one=False, solset='sol000', filtered_dir=None, no_antenna_crash=None,
+    def __init__(self, h5_out, h5_tables=None, ms_files=None, h5_time_freq=None, freq_res=None, time_res=None,
+                 convert_tec=True, merge_all_in_one=False, solset='sol000', filtered_dir=None, no_antenna_crash=None,
                  freq_concat=None, time_concat=None):
         """
         :param h5_out: name of merged output h5 table
         :param h5_tables: h5 tables to merge, can be both list and string
         :param ms_files: read time and frequency from measurement set
         :param h5_time_freq: read time and frequency from h5
+        :param freq_res: frequency resolution in kHz
+        :param time_res: time resolution in seconds
         :param convert_tec: convert TEC to phase or not
         :param merge_all_in_one: merge all in one direction
         :param solset: solset name
         :param filtered_dir: directions to filter (needs to be list with indices)
         :param no_antenna_crash: do not crash if antenna tables are not the same between h5s
         :param freq_concat: merging tables with different frequencies
+        :param time_concat: merging tables with different time chunks
         """
         self.h5name_out = h5_out
         self.solset = solset
@@ -288,6 +274,18 @@ class MergeH5:
                                 self.ax_freq = sort(unique(append(self.ax_freq, freq)))
                             else:
                                 print('No freq axes in ' + h5_name + '/' + solset + '/' + soltab)
+
+        if time_res is not None:
+            if self.ax_time.min() == self.ax_time.max():
+                print("WARNING: Only one time value in input --> Cannot use `time_res`.")
+            else:
+                self.ax_time = arange(self.ax_time.min(), self.ax_time.max(), time_res)
+
+        if freq_res is not None:
+            if self.ax_freq.min() == self.ax_freq.max():
+                print("WARNING: Only one frequency value in input --> Cannot use `freq_res`.")
+            else:
+                self.ax_freq = arange(self.ax_freq.min(), self.ax_freq.max(), freq_res*1000)
 
         # get polarization output axis and check number of error and tec tables in merge list
         self.polarizations, polarizations = [], []
@@ -706,6 +704,10 @@ class MergeH5:
             for _ in range(len(interp_to) - 1):
                 new_vals = append(new_vals, x, axis=axis)
         else:
+            if x.shape[axis] != interp_from.shape[0]:
+                sys.exit(f"ERROR: {x.shape[axis]}!={interp_from.shape[0]} during interpolation.\n"
+                         f"Issue related to axes shape mismatch between different h5 input.\n"
+                         f"This can be fixed, with submods/h5_helpers/reset_h5parm_structure.py/fix_h5")
             interp_vals = interp1d(interp_from, x, axis=axis, kind='nearest', fill_value=fill_value, bounds_error=False)
             new_vals = interp_vals(interp_to)
         return new_vals
@@ -1622,6 +1624,7 @@ class MergeH5:
                             st2 = T.root._f_get_child(solset)._f_get_child(soltab)
                             axes = make_utf8(st2.val.attrs["AXES"]).split(',')
                             weight = st2.weight[:]
+                            weight[(weight>0) & (weight<1)] = 1
                             weight = reorderAxes(weight, axes, [a for a in axes_new if a in axes])
 
                             # important to do the following in case the input tables are not all different directions
@@ -2148,7 +2151,7 @@ def check_overlap(h5_tables, check_type='freq'):
     return
 
 
-def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, convert_tec=True, merge_all_in_one=False,
+def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, time_res=None, freq_res=None, convert_tec=True, merge_all_in_one=False,
              lin2circ=False, circ2lin=False, add_directions=None, single_pol=None, no_pol=None, use_solset='sol000',
              filtered_dir=None, add_cs=None, add_ms_stations=None, check_output=None, freq_av=None, time_av=None,
              propagate_weights=True, freq_concat=None, time_concat=None, no_antenna_crash=None,
@@ -2256,8 +2259,9 @@ def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, conv
 
     # Merge class setup
     merge = MergeH5(h5_out=h5_out, h5_tables=h5_tables, ms_files=ms_files, convert_tec=convert_tec,
-                    merge_all_in_one=merge_all_in_one, h5_time_freq=h5_time_freq, filtered_dir=filtered_dir,
-                    no_antenna_crash=no_antenna_crash, freq_concat=freq_concat, time_concat=time_concat)
+                    merge_all_in_one=merge_all_in_one, h5_time_freq=h5_time_freq, time_res=time_res, freq_res=freq_res,
+                    filtered_dir=filtered_dir, no_antenna_crash=no_antenna_crash, freq_concat=freq_concat,
+                    time_concat=time_concat)
 
     # Time averaging
     if time_av:
@@ -2419,6 +2423,8 @@ def parse_input():
     parser.add_argument('-ms', '--ms', type=str, help='Measurement Set input files (can be both given as list with wildcard or string).')
     parser.add_argument('--h5_time_freq', type=str, help='Solution file to use time and frequency arrays from. This is useful if the input solution files do not have the preferred time/freq resolution. '
                              'Input can be boolean (true/fals or 1/0) to use all h5 files or input can be 1 specific h5 file (<H5.h5>).')
+    parser.add_argument('--time_res', type=float, help='Time resolution of output h5parm in seconds.')
+    parser.add_argument('--freq_res', type=float, help='Frequency resolution of output h5parm in kHz.')
     parser.add_argument('--time_av', type=int, help='Time averaging factor.')
     parser.add_argument('--freq_av', type=int, help='Frequency averaging factor.')
     parser.add_argument('--keep_tec', action='store_true', help='Do not convert TEC to phase.')
@@ -2512,6 +2518,8 @@ def main():
              h5_tables=args.h5_tables,
              ms_files=args.ms,
              h5_time_freq=args.h5_time_freq,
+             time_res=args.time_res,
+             freq_res=args.freq_res,
              convert_tec=not args.keep_tec,
              merge_all_in_one=args.merge_all_in_one,
              lin2circ=args.lin2circ,
