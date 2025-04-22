@@ -57,7 +57,7 @@ import astropy.units as units
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.io import ascii
-from astropy.table import Table
+from astropy.table import Table, vstack
 from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
 from astropy.time import Time
 from astroquery.skyview import SkyView
@@ -442,7 +442,7 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
         print('separation direction entry and h5 entry is:', distance, matchging_h5)
         assert abs(distance) < 0.00001  # there should always be a close to perfect match
 
-    merge_h5(h5_out=parmdb_out, h5_tables=parmdb_merge_list, propagate_weights=True)
+    merge_h5(h5_out=parmdb_out, h5_tables=parmdb_merge_list, propagate_weights=True, convert_tec=False)
 
     if clean_up:
         for h5 in h5list_sols:
@@ -7186,7 +7186,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 single_pol_merge = False
 
             # reset h5parm structure
-            if not merge_all_in_one:  # so only for a DDE solve
+            if not merge_all_in_one:  # only for a DDE solve
                 parmdbmergelist[msnumber] = fix_h5(parmdbmergelist[msnumber])
 
             print(parmdbmergename, parmdbmergelist[msnumber], ms)
@@ -7643,7 +7643,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         outparmdb = 'adddirback' + parmdb
         if os.path.isfile(outparmdb):
             os.system('rm -f ' + outparmdb)
-        merge_h5(h5_out=outparmdb, h5_tables=parmdb, add_directions=sourcedir_removed.tolist(), propagate_weights=False)
+        merge_h5(h5_out=outparmdb, h5_tables=parmdb, add_directions=sourcedir_removed.tolist(), propagate_weights=False, convert_tec=False)
 
         # now we split them all into separate h5 per direction so we can reorder and fill them
         print('Splitting directions into separate h5')
@@ -10337,7 +10337,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '13.3.0'
+    version = '13.4.0'
     print_title(version)
 
     global submodpath, datapath
@@ -10787,7 +10787,7 @@ def main():
                           fulljones_h5_facetbeam=not args['single_dual_speedup'])
 
             # PLOT IMAGE
-            plotimage(i, stackstr, mask=fitsmask_list[msim_id], regionfile='facets.reg' if args['DDE'] else None)
+            plotimage(i, stackstr, mask=fitsmask_list[msim_id], regionfile='facets.reg' if (args['DDE'] and facetregionfile is not None) else None)
         #  --- end imaging part ---
 
         modeldatacolumns = []
