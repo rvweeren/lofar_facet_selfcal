@@ -147,6 +147,9 @@ def option_parser():
     imagingparser.add_argument("--update-fitspectralpol",
                                help='Change --fitspectralpol automatically if there is high peak flux.',
                                action='store_true')
+    imagingparser.add_argument("--use-sva",
+                               help="Use sidereal visibility averaging to average visibilities with similar baseline coordinates",
+                               action='store_true')
 
     calibrationparser = parser.add_argument_group(
         "-------------------------Calibration Settings-------------------------")

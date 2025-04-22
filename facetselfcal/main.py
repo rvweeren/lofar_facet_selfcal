@@ -100,6 +100,7 @@ from submods.h5_helpers.general_utils import make_utf8
 from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
 from submods.source_selection.phasediff_output import GetSolint
 from submods.fair_log.config import add_config_to_h5, add_version_to_h5
+from submods.speedups.sva.py import sva_stack
 
 # Set logger
 logger = logging.getLogger(__name__)
