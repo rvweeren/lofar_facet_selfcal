@@ -553,6 +553,9 @@ def option_parser():
     parser.add_argument('--auto',
                         help='Trigger fully automated processing (HBA only for now).',
                         action='store_true')
+    parser.add_argument('--auto-directions',
+                        help='Automatically determine directions for DD solves (under development).',
+                        action='store_true')
     parser.add_argument('--delaycal',
                         help='Trigger settings suitable for ILT delay calibration, HBA-ILT only - still under construction.',
                         action='store_true')
