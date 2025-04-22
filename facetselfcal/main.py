@@ -151,14 +151,14 @@ def frequencies_from_models(model_basename):
 
     return freq_string, np.array(freqs)
 
-def modify_freqs_from_ms(ms, freqs):
+def modify_freqs_from_ms(mslist, freqs):
     """
     This function takes a frequency array and trims it according to the frequencies available within an ms
 
     Parameters:
     -----------
-    ms: str
-        Path to ms to get frequency limits
+    mslist: [str]
+        Paths to MSs to get frequency limits
     freqs: np.array
         Array containing frequency breaks for wsclean
 
@@ -169,18 +169,22 @@ def modify_freqs_from_ms(ms, freqs):
     mod_freqs: np.array
         Array with modified frequencies matching string
     """
+    ms_chan_freqs = []
+    for ms in mslist:
+        t = table(ms, readonly = True)
+        t_chan_freqs = t.SPECTRAL_WINDOW.CHAN_FREQ[::][0] # This provides the frequencies of all channels in the MS
+        ms_chan_freqs.append(t_chan_freqs)
 
-    t = table(ms, readonly = True)
-    ms_chan_freqs = t.SPECTRAL_WINDOW.CHAN_FREQ[::][0] # This provides the frequencies of all channels in the MS
-
+    #Flatten Array
+    ms_chan_freqs = np.concatenate(ms_chan_freqs, axis = None)
     # Fix max frequency first
-    max_ms_freq = ms_chan_freqs[-1]
+    max_ms_freq = np.max(ms_chan_freqs)
 
     while max_ms_freq < freqs[-1]:
         freqs = freqs[:-1]
 
     # Fix min frequency - Requires model renaming
-    min_ms_freq = ms_chan_freqs[0]
+    min_ms_freq = np.min(ms_chan_freqs)
     rename_no = 0
     while min_ms_freq > freqs[1]:
         freqs = freqs[1:]
@@ -8161,7 +8165,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
                 if args['fix_model_frequencies']: # Implementing model manipulation
                     freq_string, freqs = frequencies_from_models(args['wscleanskymodel']) # Get frequency info from models
-                    mod_freq_string, mod_freqs = modify_freqs_from_ms(mslist[0], freqs) # Adjust models to fit incoming ms
+                    mod_freq_string, mod_freqs = modify_freqs_from_ms(mslist, freqs) # Adjust models to fit incoming ms
                     #Overwrite relevant args if needed 
                     if len(glob.glob("tmp_" + args['wscleanskymodel'] + "*")) > 0:
                         args['wscleanskymodel'] = "tmp_" + args['wscleanskymodel']
@@ -8374,7 +8378,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if channelsout > 1:
             if args['fix_model_frequencies']: # Implementing model manipulation
                 freq_string, freqs = frequencies_from_models(args['wscleanskymodel']) # Get frequency info from models
-                mod_freq_string, mod_freqs = modify_freqs_from_ms(mslist[0], freqs) # Adjust models to fit incoming ms
+                mod_freq_string, mod_freqs = modify_freqs_from_ms(mslist, freqs) # Adjust models to fit incoming ms
                 #Overwrite relevant args
                 if len(glob.glob("tmp_" + args['wscleanskymodel'] + "*")) > 0:
                     args['wscleanskymodel'] = "tmp_" + args['wscleanskymodel']
@@ -8532,7 +8536,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             if channelsout > 1:
                 if args['fix_model_frequencies']: # Implementing model manipulation
                     freq_string, freqs = frequencies_from_models(args['wscleanskymodel']) # Get frequency info from models
-                    mod_freq_string, mod_freqs = modify_freqs_from_ms(mslist[0], freqs) # Adjust models to fit incoming ms
+                    mod_freq_string, mod_freqs = modify_freqs_from_ms(mslist, freqs) # Adjust models to fit incoming ms
                     #Overwrite relevant args
                     if len(glob.glob("tmp_" + args['wscleanskymodel'] + "*")) > 0:
                         args['wscleanskymodel'] = "tmp_" + args['wscleanskymodel']
