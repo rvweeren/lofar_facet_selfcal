@@ -11,7 +11,7 @@ def fix_h5(h5_list):
         if os.path.isfile(outparmdb):
             os.system('rm -f ' + outparmdb)
         # copy to get a clean h5 with standard dimensions
-        merge_h5(h5_out=outparmdb, h5_tables=h5file, propagate_weights=True)
+        merge_h5(h5_out=outparmdb, h5_tables=h5file, propagate_weights=True, convert_tec=False)
 
         # overwrite original
         os.system('cp -f ' + outparmdb + ' ' + h5file)
