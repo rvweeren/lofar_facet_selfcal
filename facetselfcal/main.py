@@ -114,6 +114,144 @@ matplotlib.use('Agg')
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
+def frequencies_from_models(model_basename):
+    """
+    This function takes a wsclean model basename string and returns the 
+    frequency list string wsclean should use for -channel-division-frequencies and the same as a np array
+    
+    Parameters:
+    -----------
+    model_basename: str
+        wsclean model basename to search for
+
+    Returns:
+    --------
+    freq_string: str
+        String of frequency breaks to pass into wsclean
+    freqs: np.array
+        Array of frequencies needed for further checking
+    """
+    nonpblist = sorted(glob.glob(model_basename + '-????-model.fits'))
+    pblist = sorted(glob.glob(model_basename + '-????-model-pb.fits'))
+    # If pb and models
+    if len(pblist) > 0:
+        models = pblist
+    else:
+        models = nonpblist
+
+    freqs = [] # Target freqs = Central_freq - (delta/2)
+    for model in models:
+        tmp_head = fits.getheader(model)
+        central_freq = float(tmp_head['CRVAL3'])
+        freq_width = float(tmp_head['CDELT3'])
+        freqs.append(central_freq-(freq_width/2))
+
+    freq_string = [str(x/1e6)+"e6" for x in freqs]
+
+    freq_string = ",".join(freq_string)
+
+    return freq_string, np.array(freqs)
+
+def modify_freqs_from_ms(mslist, freqs):
+    """
+    This function takes a frequency array and trims it according to the frequencies available within an ms
+
+    Parameters:
+    -----------
+    mslist: [str]
+        Paths to MSs to get frequency limits
+    freqs: np.array
+        Array containing frequency breaks for wsclean
+
+    Returns:
+    --------
+    mod_freq_string: str
+        String for wsclean with frequency cuts corrected by ms
+    mod_freqs: np.array
+        Array with modified frequencies matching string
+    """
+    ms_chan_freqs = []
+    for ms in mslist:
+        t = table(ms, readonly = True)
+        t_chan_freqs = t.SPECTRAL_WINDOW.CHAN_FREQ[::][0] # This provides the frequencies of all channels in the MS
+        ms_chan_freqs.append(t_chan_freqs)
+
+    #Flatten Array
+    ms_chan_freqs = np.concatenate(ms_chan_freqs, axis = None)
+    # Fix max frequency first
+    max_ms_freq = np.max(ms_chan_freqs)
+
+    while max_ms_freq < freqs[-1]:
+        freqs = freqs[:-1]
+
+    # Fix min frequency - Requires model renaming
+    min_ms_freq = np.min(ms_chan_freqs)
+    rename_no = 0
+    while min_ms_freq > freqs[1]:
+        freqs = freqs[1:]
+        rename_no += 1
+    
+    if rename_no > 0:
+        rename_models(agrs['wscleanskymodel'], rename_no, model_prefix = "tmp_")
+
+    mod_freq_string = [str(x/1e6)+"e6" for x in freqs]
+
+    mod_freq_string = ",".join(mod_freq_string)
+
+    return mod_freq_string, np.array(freqs)
+
+def rename_models(model_basename, rename_no, model_prefix = "tmp_"):
+    """
+    Function renames args['wscleanskymodel'] based on the integer number that need to be renamed and a new prefix to append.
+    Update argument parameter at the end
+
+
+    Parameters:
+    -----------
+    rename_no: int
+        Number of models that need to be renamed (2 -> Shift all basename models down 2)
+    model_prefix: str
+        Prefix to apppend to the new model names
+    """
+
+    nonpblist = sorted(glob.glob(model_basename + '-????-model.fits'))
+    pblist = sorted(glob.glob(model_basename + '-????-model-pb.fits'))
+
+    
+
+    if len(nonpblist) > 0:
+        # Remove not needed models 
+        nonpblist = nonpblist[rename_no:]
+        for model in nonpblist:
+            split_number = model.split("-model.fits")[0]
+            number = int(split_number[-4:])
+            number_shift = str((number-2)).zfill(4)
+
+            split_number = split_number[:-4] + number_shift 
+
+            model_out = model_prefix + split_number + "-model.fits"
+
+            command = f'cp {model} {model_out}'
+            os.system(command)
+    
+    if len(pblist) > 0:
+        # Remove not needed models
+        pblist = pblist[rename_no:]
+        for model in pblist:
+            split_number = model.split("-model-pb.fits")[0]
+            number = int(split_number[-4:])
+            number_shift = str((number-2)).zfill(4)
+
+            split_number = split_number[:-4] + number_shift 
+
+            model_out = model_prefix + split_number + "-model-pb.fits"
+
+            command = f'cp {model} {model_out}'
+            os.system(command)
+
+    # Still need to update args['wscleanskymodel'] to include prefix
+
+
 def MeerKAT_antconstraint(antfile=None, ctype='all'):
     if antfile is None:
         antfile = f'{datapath}/data/MeerKATlayout.csv'
@@ -8362,6 +8500,17 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # if not usewgridder and not idg:
             #  cmd += '-padding 1.8 '
             if channelsout > 1:
+
+                if args['fix_model_frequencies']: # Implementing model manipulation
+                    freq_string, freqs = frequencies_from_models(args['wscleanskymodel']) # Get frequency info from models
+                    mod_freq_string, mod_freqs = modify_freqs_from_ms(mslist, freqs) # Adjust models to fit incoming ms
+                    #Overwrite relevant args if needed 
+                    if len(glob.glob("tmp_" + args['wscleanskymodel'] + "*")) > 0:
+                        args['wscleanskymodel'] = "tmp_" + args['wscleanskymodel']
+                        imageout = args['wscleanskymodel']
+                    channelsout = len(mod_freqs)
+                    cmd += '-channel-division-frequencies ' + mod_freq_string + ' '
+                
                 cmd += '-channels-out ' + str(channelsout) + ' '
                 if args['gapchanneldivision']:
                     cmd += '-gap-channel-division '
@@ -8568,6 +8717,15 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         # if not usewgridder and not idg:
         #  cmd += '-padding 1.4 '
         if channelsout > 1:
+            if args['fix_model_frequencies']: # Implementing model manipulation
+                freq_string, freqs = frequencies_from_models(args['wscleanskymodel']) # Get frequency info from models
+                mod_freq_string, mod_freqs = modify_freqs_from_ms(mslist, freqs) # Adjust models to fit incoming ms
+                #Overwrite relevant args
+                if len(glob.glob("tmp_" + args['wscleanskymodel'] + "*")) > 0:
+                    args['wscleanskymodel'] = "tmp_" + args['wscleanskymodel']
+                    imageout = args['wscleanskymodel']
+                channelsout = len(mod_freqs)
+                cmd += '-channel-division-frequencies ' + mod_freq_string + ' '
             cmd += ' -join-channels -channels-out ' + str(channelsout) + ' '
             if args['gapchanneldivision']:
                 cmd += '-gap-channel-division '
@@ -8720,6 +8878,16 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # if not usewgridder and not idg:
             #     cmd += '-padding 1.8 '
             if channelsout > 1:
+                if args['fix_model_frequencies']: # Implementing model manipulation
+                    freq_string, freqs = frequencies_from_models(args['wscleanskymodel']) # Get frequency info from models
+                    mod_freq_string, mod_freqs = modify_freqs_from_ms(mslist, freqs) # Adjust models to fit incoming ms
+                    #Overwrite relevant args
+                    if len(glob.glob("tmp_" + args['wscleanskymodel'] + "*")) > 0:
+                        args['wscleanskymodel'] = "tmp_" + args['wscleanskymodel']
+                        imageout = args['wscleanskymodel']
+                    channelsout = len(mod_freqs)
+                    cmd += '-channel-division-frequencies ' + mod_freq_string + ' '
+
                 cmd += '-channels-out ' + str(channelsout) + ' '
                 if args['gapchanneldivision']:
                     cmd += '-gap-channel-division '

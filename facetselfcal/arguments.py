@@ -446,6 +446,9 @@ def option_parser():
                                   help='WSclean basename for model images (for a WSClean predict). The default is None.',
                                   type=arg_as_str_or_list,
                                   default=None)
+    startmodelparser.add_argument('--fix-model-frequencies',
+                                  help='Force predict and imaging wsclean commands to divide on freqencies set by wsclean skymodel',
+                                  action='store_true')
     startmodelparser.add_argument('--predictskywithbeam',
                                   help='Predict the skymodel with the beam array factor.',
                                   action='store_true')
