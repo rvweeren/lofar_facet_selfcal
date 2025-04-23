@@ -2615,6 +2615,40 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
         del data
     return
 
+def fix_fpb_images(modelimagebasename):
+    """
+    Ensures that a set of "flat primary beam" (fpb) images exists for each corresponding
+    "primary beam" (pb) image by copying pb images to fpb filenames if needed.
+
+    Parameters
+    ----------
+    modelimagebasename : str
+        The base filename for model images (e.g., 'myimage' if files are named like
+        'myimage-0001-model-pb.fits').
+
+    Behavior
+    --------
+    - Scans for all filenames matching '<basename>-????-model-pb.fits' and
+      '<basename>-????-model-fpb.fits'.
+    - If the number of pb and fpb images is equal, nothing is done.
+    - If no fpb images exist, each pb image is copied to an fpb file by replacing
+      the '-model-pb.fits' suffix with '-model-fpb.fits'.
+    - If some but not all fpb images exist, an assertion error is raised.
+
+    Notes
+    -----
+    This function uses `os.system` to perform file copying and prints the copy commands.
+    """
+    pblist = glob.glob(modelimagebasename + '-????-model-pb.fits')
+    fpblist = glob.glob(modelimagebasename + '-????-model-fpb.fits')
+    
+    if len(pblist) == len(fpblist): return # nothing is needed
+    assert len(fpblist) == 0 # if we are here we should not have any fpb images
+    for image in pblist:
+       print('cp ' + image + ' ' + image.replace('-model-pb.fits','-model-fpb.fits'))
+       os.system('cp ' + image + ' ' + image.replace('-model-pb.fits','-model-fpb.fits'))
+   
+   
 
 def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
     """ Creates the MODEL_DATA_PDIFF column.
@@ -7055,7 +7089,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      DDE_predict='DP3',
                                      disable_primarybeam_image=args['disable_primary_beam'],
                                      disable_primarybeam_predict=args['disable_primary_beam'],
-                                     fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'])
+                                     fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         # selfcalcycle-1 because makeimage has not yet produced an image at this point
         if args['fitspectralpol'] > 0 and DDE_predict == 'DP3':
             dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle - 1).zfill(3) + '-sources.txt', 'facets.fits')
@@ -7068,7 +7102,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      DDE_predict=DDE_predict,
                                      disable_primarybeam_image=args['disable_primary_beam'],
                                      disable_primarybeam_predict=args['disable_primary_beam'],
-                                     fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'])
+                                     fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         if args['fitspectralpol'] > 0:
             dde_skymodel = groupskymodel(imagebasename, 'facets.fits')  # imagebasename
         else:
@@ -7090,7 +7124,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      DDE_predict='WSCLEAN', idg=idg,
                                      disable_primarybeam_image=args['disable_primary_beam'],
                                      disable_primarybeam_predict=args['disable_primary_beam'],
-                                     fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'])
+                                     fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         # assume there is no model for DDE wscleanskymodel solve at the start
         # since we are making image000 afterwards anyway setting a dummy now is ok
         dde_skymodel = 'dummy.skymodel'
@@ -7102,7 +7136,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      DDE_predict=DDE_predict, idg=idg,
                                      disable_primarybeam_image=args['disable_primary_beam'],
                                      disable_primarybeam_predict=args['disable_primary_beam'],
-                                     fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'])
+                                     fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         if args['fitspectralpol'] > 0 and DDE_predict == 'DP3':
             dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'facets.fits')
         else:
@@ -8275,7 +8309,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               restoringbeam=15, automask=2.5,
               removenegativecc=True, usewgridder=True, paralleldeconvolution=0,
               parallelgridding=1,
-              fullpol=False,
+              fullpol=False, selfcalcycle=None,
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None,
               DDE_predict='WSCLEAN', DDEimaging=False,
               wgridderaccuracy=1e-4, nosmallinversion=False,
@@ -8472,6 +8506,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 cmd += '-facet-regions ' + 'facet' + str(facet_id) + '.reg' + ' '
                 if telescope == 'LOFAR':
                     if not disable_primarybeam_predict:
+                        # check if -model-fpb.fits is there for image000 (in case image000 was made without facets)
+                        if selfcalcycle == 0:
+                            fix_fpb_images(imageout)    
                         cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                         cmd += '-use-differential-lofar-beam '
                         if not fulljones_h5_facetbeam:
