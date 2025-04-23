@@ -17,10 +17,11 @@ def same_weights_multidir(h5: str = None):
     with tables.open_file(h5, "r+") as H:
         for soltab in H.root.sol000._v_groups.keys():
             st = H.root.sol000._f_get_child(soltab)
-            weights = st.weight
-            axes = weights.attrs["AXES"].decode("utf8").split(',')
+            weights = st.weight[:]
+            weights[(weights > 0) & (weights < 1)] = 1 # convert small weights to 1
+            axes = st.weight.attrs["AXES"].decode("utf8").split(',')
             if 'dir' in axes:
-                H.root.sol000._f_get_child(soltab).weight[:] = np.prod(weights[:], axis=axes.index("dir"), keepdims=True)
+                H.root.sol000._f_get_child(soltab).weight[:] = np.prod(weights, axis=axes.index("dir"), keepdims=True)
             else:
                 print(f"WARNING: no directions in solution table: {h5}/{soltab}")
 
