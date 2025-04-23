@@ -2384,6 +2384,7 @@ def calibration_error_map(fitsimage, outputfitsfile, kernelsize=31, rebin=None):
         image_data = image_data[np.newaxis, np.newaxis, :, :]
         hdu = fits.PrimaryHDU(image_data, header=header)
         hdu.writeto(outputfitsfile, overwrite=True)
+    hdulist.close()
     return
 
 
@@ -2391,12 +2392,14 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5,thresh_is
     img = bdsf.process_image(filename,mean_map='const', rms_map=True, \
                              rms_box=(35,5), thresh_pix=thresh_pix,thresh_isl=thresh_isl)
     img.write_catalog(format='fits', outfile=outfile, catalog_type='srl', clobber=True)
+    del img
     return
 
 def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., keep_N_brightest=20, previous_catalog=None):
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
     print(catalog.columns)
+    hdu_list.close()
     
     # sort catalog at Peak flux
     idx = catalog.argsort(keys='Peak_flux', reverse=True)
@@ -2412,7 +2415,8 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
          # combine catalogs
          # always put previous entries first in order
          catalog = vstack([catalog_prev, catalog]).copy()
-    
+         hdu_list_prev.close()
+         
     # remove sources that are too nearby others, and duplicates from merging with previous catalog (if applicable)   
     new_catalog = catalog.copy()
     for source_id, source in enumerate(catalog[:-1]):
@@ -7021,6 +7025,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             img = bdsf.process_image(imagename + str(selfcalcycle).zfill(3) + '-MFS-image.fits', mean_map='zero',
                                      rms_map=True, rms_box=(160, 40))
             img.write_catalog(format='bbs', bbs_patches=None, outfile='facetdirections.skymodel', clobber=True)
+            del img
         else:
             os.system('cp -r {} facetdirections.skymodel'.format(imagename))
         LSM = lsmtool.load('facetdirections.skymodel')
@@ -7179,11 +7184,12 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
     else:
         idg = False
 
+   
     solints, smoothness, soltypelist_includedir = create_facet_directions(imagebasename, selfcalcycle,
                                                               targetFlux=args['targetFlux'], ms=mslist[0], imsize=args['imsize'],
                                                               pixelscale=args['pixelscale'], numClusters=args['Nfacets'],
                                                               facetdirections=args['facetdirections'], restart=restart)
-
+    
     # --- start CREATE facets.fits -----
     # remove previous facets.fits if needed
     if os.path.isfile('facets.fits'):
@@ -7198,7 +7204,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
             create_empty_fitsimage(mslist[0], int(args['imsize']), float(args['pixelscale']), 'facets.fits')
     else:
         os.system('cp ' + skyview + ' facets.fits')
-
+    
     if restart:  # in that case we also have a previous image avaialble
         os.system('cp ' + imagebasename + str(selfcalcycle - 1).zfill(3) + '-MFS-image.fits' + ' facets.fits')
 
@@ -7208,9 +7214,11 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
     hdu = fits.open('facets.fits')
     hduflat = flatten(hdu)
     region = pyregion.open('facets.reg')
+    
     for facet_id, facet in enumerate(region):
         region[facet_id:facet_id + 1].write('facet' + str(facet_id) + '.reg')  # split facet from region file
         r = pyregion.open('facet' + str(facet_id) + '.reg')
+        print('Filling facets.fits with:', 'facet' + str(facet_id) + '.reg')
         manualmask = r.get_mask(hdu=hduflat)
         if len(hdu[0].data.shape) == 4:
             hdu[0].data[0][0][np.where(manualmask == True)] = facet_id
@@ -11141,6 +11149,8 @@ def main():
 
         # RESTART FOR A DDE RUN, set modeldatacolumns and dde_skymodel
         if args['DDE'] and args['start'] != 0 and i == args['start']:
+            if args['auto_directions']: args['facetdirections'] = 'directions_' + str(i-1).zfill(3) + '.txt'
+           
             modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope))
