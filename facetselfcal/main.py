@@ -2503,7 +2503,7 @@ def auto_direction(selfcalcycle=0):
     imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
     plotminmax = [-2.*imagenoise, 35.*imagenoise]
     hdulist.close()
-    plotimage_astropy(outputerrormap, outplotname, mask=None, rmsnoiseimage=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
+    plotimage_astropy(outputerrormap, outplotname, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
     return facetdirections
 
 
@@ -9177,15 +9177,8 @@ def _add_astropy_beam(fitsname):
     return ellipse
 
 
-def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None, regionfile=None, \
+def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
                       cmap='bone', regioncolor='yellow', minmax=None, regionalpha=0.6):
-    # image noise for plotting
-    if rmsnoiseimage is None:
-        hdulist = fits.open(fitsimagename)
-    else:
-        hdulist = fits.open(rmsnoiseimage)
-    imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
-    hdulist.close()
 
     # image noise info
     hdulist = fits.open(fitsimagename)
@@ -9206,12 +9199,18 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None,
     f = plt.figure()
     ax = f.add_subplot(111, projection=WCS(hdulist.header) ) #, slices=('x', 'y', 0, 0))
     if minmax is None:
-        img = ax.imshow(data[0, 0, :, :], cmap=cmap, vmax=16 * imagenoise, vmin=-6 * imagenoise)
-        ax.set_title(fitsimagename + ' (noise = {} mJy/beam)'.format(round(imagenoiseinfo * 1e3, 3)))
+        img = ax.imshow(data[0, 0, :, :], cmap=cmap, vmax=16 * imagenoiseinfo, vmin=-6 * imagenoiseinfo)
+        ax.set_title(fitsimagename + ' (noise = {} mJy/beam)'.format(round(imagenoiseinfo * 1e3, 3)),fontsize=6)
     else:
         img = ax.imshow(data[0, 0, :, :], cmap=cmap, vmax=minmax[1], vmin=minmax[0])
-        ax.set_title(fitsimagename)
+        #ax.set_title(fitsimagename, fontsize=6)
+        ax.set_title(fitsimagename + ' (noise = {} mJy/beam)'.format(round(imagenoiseinfo * 1e3, 3)),fontsize=6)
+    
     ax.grid(True)
+    ax.coords[0].set_axislabel_position('b') # for some reason this needs to be hardcoded, otherwise RA gets on top axis
+    ax.coords[0].set_ticks_position('bt')
+    ax.coords[0].set_ticklabel_position('b') # for some reason this needs to be hardcoded, otherwise RA gets on top axis
+    
     ax.set_xlabel('Right Ascension (J2000)')
     ax.set_ylabel('Declination (J2000)')
     try:
@@ -9258,19 +9257,29 @@ def plotimage(selfcalcycle, stackstr='', mask=None, regionfile=None):
         if args['idg']:
             plotpngimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.png'
             plotfitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '-MFS-image.fits'
+            plotfitsimage000 = args['imagename'] + str(0).zfill(3) + stackstr + '-MFS-image.fits'
         else:
             plotpngimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.png'
             plotfitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '-MFS-image.fits'
+            plotfitsimage000 = args['imagename'] + str(0).zfill(3) + stackstr + '-MFS-image.fits'
         if args['imager'] == 'DDFACET':
-           plotpngimage = args['imagename'] + str(selfcalcycle) + '.png'
-           plotfitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.app.restored.fits'
+            plotpngimage = args['imagename'] + str(selfcalcycle) + '.png'
+            plotfitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.app.restored.fits'
+            plotfitsimage000 = args['imagename'] + str(0).zfill(3) + stackstr + '.app.restored.fits'
 
         if args['channelsout'] == 1:
             plotpngimage = plotpngimage.replace('-MFS', '').replace('-I', '')
             plotfitsimage = plotfitsimage.replace('-MFS', '').replace('-I', '')    
+            plotfitsimage000 = plotfitsimage000.replace('-MFS', '').replace('-I', '')
+
+    # find noise of image000, so we can directly compare images between selfcal cycles by having a hardcoded range
+    hdulist = fits.open(plotfitsimage000) 
+    imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
+    plotminmax = [-3.*imagenoise, 10.*imagenoise]
+    hdulist.close()
 
     try:
-        plotimage_astropy(plotfitsimage, plotpngimage, mask, plotfitsimage, regionfile=regionfile)
+        plotimage_astropy(plotfitsimage, plotpngimage, mask, regionfile=regionfile, minmax=plotminmax)
     except Exception as e:
         print(f"Astropy plotting failed with error: {e}. Switching to aplpy.")
         plotimage_aplpy(plotfitsimage, plotpngimage, mask, plotfitsimage)
