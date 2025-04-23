@@ -9243,7 +9243,7 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
         
     if mask is not None:
         maskdata = fits.getdata(mask)[0, 0, :, :]
-        ax.contour(maskdata, colors='red', levels=[0.1 * imagenoise], filled=False, alpha=0.6, linewidths=1)
+        ax.contour(maskdata, colors='red', levels=[0.1 * imagenoiseinfo], filled=False, alpha=0.6, linewidths=1)
 
     if os.path.isfile(outplotname + '.png'):
         os.system('rm -f ' + outplotname + '.png')
