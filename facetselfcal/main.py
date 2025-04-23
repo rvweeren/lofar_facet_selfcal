@@ -2173,6 +2173,202 @@ def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False,
         print('Mean weights change factor', change_factor)
         print()
 
+def calibration_error_map(fitsimage, outputfitsfile, kernelsize=31, rebin=None):
+    """
+    Generate a calibration error map for a radio interferometric image.
+
+    This function estimates calibration artifacts around bright sources using 
+    a morphological filtering technique described in Rudnick (2002, PASP, 114, 427).
+    It computes the negative of the "Open map", which enhances regions of negative
+    emission typically associated with calibration residuals.
+
+    Parameters
+    ----------
+    fitsimage : str
+        Path to the input FITS image file. The file must be a 2D or 4D FITS cube 
+        with dimensions compatible with [1,1,NAXIS1,NAXIS2].
+    
+    outputfitsfile : str
+        Path where the resulting calibration error map (as a FITS file) will be saved.
+    
+    kernelsize : int, optional
+        Size of the filtering kernel (in pixels) used to compute the morphological
+        opening (default is 31). This determines the spatial scale of the filtering.
+    
+    rebin : int or None, optional
+        If specified, the output image will be rebinned by this factor to reduce 
+        resolution and file size. If None, the original resolution is preserved.
+
+    Notes
+    -----
+    - The algorithm applies a minimum filter followed by a maximum filter to the 
+      input image data, effectively performing a morphological opening.
+    - The resulting "Open map" is then inverted to emphasize negative features 
+      (i.e., residual calibration errors).
+    - If rebinning is applied, the header's WCS information is appropriately updated.
+    
+    References
+    ----------
+    Rudnick, L. (2002). "Diffuse radio emission in and around clusters." PASP, 114, 427.
+
+    Returns
+    -------
+    None
+        The output is written directly to a FITS file specified by `outputfitsfile`.
+    """
+
+    hdulist = fits.open(fitsimage) 
+    header  = hdulist[0].header.copy()
+
+    hduflat = flatten(hdulist)
+        
+    mins = scipy.ndimage.minimum_filter(hduflat.data, size=(kernelsize, kernelsize))
+    openmap = -1.*scipy.ndimage.maximum_filter(mins, size=(kernelsize, kernelsize)) # -1* to make negative errors postive
+
+    if rebin is None:
+        hdulist[0].data[0,0,:,:] = openmap 
+        hdulist.writeto(outputfitsfile, overwrite=True)
+    else:
+        from skimage.transform import rescale
+        image_data = rescale(openmap, 1./rebin, anti_aliasing=True)
+        header['BMAJ'] = header['BMAJ']*float(kernelsize)                                                 
+        header['BMIN'] = header['BMIN']*float(kernelsize)                                                 
+        header['BPA'] = 0.
+
+        header['NAXIS1'] = openmap.shape[1]
+        header['NAXIS2'] = openmap.shape[0]
+        header['CRPIX1'] = header['CRPIX1']/float(rebin)                                                  
+        header['CDELT1'] = header['CDELT1']*float(rebin) 
+        header['CRPIX2'] = header['CRPIX2']/float(rebin)                                                  
+        header['CDELT2'] = header['CDELT2']*float(rebin) 
+        
+        # add back extra 1,1 dimensions [1,1,NAXIS1,NAXIS2]
+        image_data = image_data[np.newaxis, np.newaxis, :, :]
+        hdu = fits.PrimaryHDU(image_data, header=header)
+        hdu.writeto(outputfitsfile, overwrite=True)
+    return
+
+
+def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5,thresh_isl=7.5):
+    img = bdsf.process_image(filename,mean_map='const', rms_map=True, \
+                             rms_box=(35,5), thresh_pix=thresh_pix,thresh_isl=thresh_isl)
+    img.write_catalog(format='fits', outfile=outfile, catalog_type='srl', clobber=True)
+    return
+
+def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., keep_N_brightest=20, previous_catalog=None):
+    hdu_list = fits.open(catalogfile)
+    catalog = Table(hdu_list[1].data)
+    print(catalog.columns)
+    
+    # sort catalog at Peak flux
+    idx = catalog.argsort(keys='Peak_flux', reverse=True)
+    catalog = catalog[idx]
+    
+    if len(catalog) > keep_N_brightest:
+        catalog = catalog[0:keep_N_brightest]
+    
+    # merge with previous catalog
+    if previous_catalog is not None:
+         hdu_list_prev = fits.open(previous_catalog)
+         catalog_prev = Table(hdu_list_prev[1].data)
+         # combine catalogs
+         # always put previous entries first in order
+         catalog = vstack([catalog_prev, catalog]).copy()
+    
+    # remove sources that are too nearby others, and duplicates from merging with previous catalog (if applicable)   
+    new_catalog = catalog.copy()
+    for source_id, source in enumerate(catalog[:-1]):
+        c1 = SkyCoord(source['RA']*units.degree, source['DEC']*units.degree, frame='icrs')
+        print('Trying to find sources too close to SOURCE ID', source_id)
+        for faintersource_id, faintersource in enumerate(catalog[source_id+1:]): # take only sources with a higher index, skip last one
+            c2 = SkyCoord(faintersource['RA']*units.degree, faintersource['DEC']*units.degree, frame='icrs')
+            if c1.separation(c2).to(units.arcmin).value < distance:
+                print('Found close source with ID', faintersource['Source_id'])
+                removeidx = np.where((new_catalog['Peak_flux'] == faintersource['Peak_flux']) & (new_catalog['Source_id'] == faintersource['Source_id']))[0] # do a double comparson because the vstack from catalog_prev can merger sources with the same source_id
+                assert len(removeidx) <= 1
+                if len(removeidx) > 0:
+                    new_catalog.remove_row(removeidx[0])
+                 
+    print('Catalog entries before and after removal', len(catalog), len(new_catalog))
+    new_catalog.write(outcatalogfile, format='fits', overwrite=True)
+
+
+def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_region='directions.reg'):
+    hdu_list = fits.open(catalogfile)
+    catalog = Table(hdu_list[1].data)
+    #print(catalog.columns)
+    #print(catalog['Peak_flux'])
+    hdu_list.close()
+    selfcalcycle = 0 # hard coded at zero is ok
+    solints_bright = ["'32sec'", "'2min'", "'10min'"]
+    solints = ["'32sec'", "'2min'", "'20min'"]
+    smoothing_bright = [10,25,5]
+    smoothing = [10,25,15]
+    N_bright = 4
+    inclusion_flags = [True,True,True]
+    write_ds9_regions(catalog['RA'], catalog['DEC'], filename=ds9_region) 
+  
+    with open(facetdirections,"w") as f:
+        f.write('#RA DEC start solints smoothness soltypelist_includedir\n')
+        for source_counter,source in enumerate(catalog):
+            if source_counter < N_bright: 
+                smoothnessvals = smoothing_bright
+                solintvals    = solints_bright
+            else:
+                smoothnessvals = smoothing
+                solintvals = solints
+            line = f"{source['RA']} {source['DEC']} {selfcalcycle} " \
+                   f"[{','.join(solintvals)}] " \
+                   f"[{','.join(str(s) for s in smoothnessvals)}] " \
+                   f"[{','.join(str(i) for i in inclusion_flags)}] " \
+                   f"# direction Dir{source_counter:02d}\n"
+            f.write(line)
+
+def auto_direction(selfcalcycle=0):
+    
+    # set image name input to compute error map
+    if args['idg']:
+        fitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + '-MFS-image.fits'
+    else:
+        fitsimage = args['imagename'] + str(selfcalcycle).zfill(3) +  '-MFS-image.fits'    
+    if args['channelsout'] == 1:
+        fitsimage = plotfitsimage.replace('-MFS', '').replace('-I', '')    
+   
+    # set input/output names
+    outputerrormap =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.fits'
+    outputcatalog  =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.srl.fits'
+    outputcatalog_filtered =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.srl.filtered.fits'
+    facetdirections = 'directions_' + str(selfcalcycle).zfill(3) + '.txt'
+    directions_reg =  'directions_' + str(selfcalcycle).zfill(3) + '.reg'
+    outplotname =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.png'
+    
+    if selfcalcycle > 0:
+        previous_catalog =  args['imagename'] + str(selfcalcycle-1).zfill(3) + '-errormap.srl.filtered.fits'
+    else:
+        previous_catalog = None  
+    
+    # make the error map
+    print('Making artifact map from:', fitsimage)
+    calibration_error_map(fitsimage,  outputerrormap, kernelsize=31, rebin=31)
+    
+    # create the artifact sources catalog 
+    create_calibration_error_catalog(outputerrormap, outputcatalog, thresh_pix=7.5,thresh_isl=7.5)
+    
+    # update the artifact catalog (keep only N-brightest, remove closely seperated sources, merge with previous catalog)
+    update_calibration_error_catalog(outputcatalog,outputcatalog_filtered, distance=20., keep_N_brightest=19, previous_catalog=previous_catalog)
+    
+    # write facet direction file (for facetselfcal), also output directions.reg for visualization
+    write_facet_directions(outputcatalog_filtered, facetdirections=facetdirections, ds9_region=directions_reg)
+
+    # plot, # hardcode minmax to always usage image000 so it is easier to compare
+    hdulist = fits.open(args['imagename'] + str(0).zfill(3) + '-errormap.fits') 
+    imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
+    plotminmax = [-2.*imagenoise, 35.*imagenoise]
+    hdulist.close()
+    plotimage_astropy(outputerrormap, outplotname, mask=None, rmsnoiseimage=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
+    return facetdirections
+
+
 
 def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol='MODEL_DATA', stepsize=1000000):
     """
@@ -6712,8 +6908,29 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
        for the given selfcalcycle. In the future, this function should also return a
        list of solints, smoothness, nchans and other things
     """
-    data = ascii.read(facetdirections, format='commented_header', comment="\\s*#")
+    
+    # Preprocess the file to strip inline comments
+    clean_lines = []
+    with open(facetdirections, 'r') as f:
+        for i, line in enumerate(f):
+            stripped = line.strip()
+            if i == 0:
+                # Always keep the first line (commented header)
+                clean_lines.append(stripped)
+                continue
+            if stripped.startswith('#'):
+                continue  # skip other full-line comments
+            if '#' in stripped:
+                stripped = stripped.split('#')[0].strip()  # remove inline comments
+            if stripped:
+                clean_lines.append(stripped)
+
+    # Read the cleaned data using astropy
+    cleaned_data = '\n'.join(clean_lines)
+    
+    data = ascii.read(cleaned_data, format='commented_header', comment="\\s*#")
     ra, dec = data['RA'], data['DEC']
+
     try:
         start = data['start']
     except KeyError:
@@ -6778,6 +6995,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
             return PatchPositions_array, None, [ast.literal_eval(sm) for sm in smoothnesssel], soltypelist_includedir_sel
         else:
             return PatchPositions_array, None, [ast.literal_eval(sm) for sm in smoothnesssel], None
+
 
 
 def prepare_DDE(imagebasename, selfcalcycle, mslist,
@@ -8754,7 +8972,8 @@ def _add_astropy_beam(fitsname):
     return ellipse
 
 
-def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None, regionfile=None):
+def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None, regionfile=None, \
+                      cmap='bone', regioncolor='yellow', minmax=None, regionalpha=0.6):
     # image noise for plotting
     if rmsnoiseimage is None:
         hdulist = fits.open(fitsimagename)
@@ -8768,9 +8987,10 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None,
     imagenoiseinfo = findrms(np.ndarray.flatten(hdulist[0].data))
     
     try:
-        logger.info(fitsimagename + ' Max image: ' + str(np.max(np.ndarray.flatten(hdulist[0].data))))
-        logger.info(fitsimagename + ' Min image: ' + str(np.min(np.ndarray.flatten(hdulist[0].data))))
-        logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
+        if minmax is None:
+            logger.info(fitsimagename + ' Max image: ' + str(np.max(np.ndarray.flatten(hdulist[0].data))))
+            logger.info(fitsimagename + ' Min image: ' + str(np.min(np.ndarray.flatten(hdulist[0].data))))
+            logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
     except:
         pass # so we can also use the function without a logger open
 
@@ -8780,8 +9000,12 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None,
     head = fits.getheader(fitsimagename)
     f = plt.figure()
     ax = f.add_subplot(111, projection=WCS(hdulist.header) ) #, slices=('x', 'y', 0, 0))
-    img = ax.imshow(data[0, 0, :, :], cmap='bone', vmax=16 * imagenoise, vmin=-6 * imagenoise)
-    ax.set_title(fitsimagename + ' (noise = {} mJy/beam)'.format(round(imagenoiseinfo * 1e3, 3)))
+    if minmax is None:
+        img = ax.imshow(data[0, 0, :, :], cmap=cmap, vmax=16 * imagenoise, vmin=-6 * imagenoise)
+        ax.set_title(fitsimagename + ' (noise = {} mJy/beam)'.format(round(imagenoiseinfo * 1e3, 3)))
+    else:
+        img = ax.imshow(data[0, 0, :, :], cmap=cmap, vmax=minmax[1], vmin=minmax[0])
+        ax.set_title(fitsimagename)
     ax.grid(True)
     ax.set_xlabel('Right Ascension (J2000)')
     ax.set_ylabel('Declination (J2000)')
@@ -8801,7 +9025,7 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None,
             ds9regions = regions.Regions.read(regionfile, format='ds9')
             for ds9region in ds9regions:
                 reg = ds9region.to_pixel(WCS(hdulist.header))
-                reg.plot(ax=ax, color='yellow', alpha=0.5)
+                reg.plot(ax=ax, color=regioncolor, alpha=regionalpha)
     except Exception as e:
         print(f"Cannot overplot facets, failed with error: {e}. Skipping.")
         
@@ -10792,6 +11016,7 @@ def main():
 
         modeldatacolumns = []
         if args['DDE']:
+            if args['auto_directions']: args['facetdirections'] = auto_direction(i)
             modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], telescope=telescope))
