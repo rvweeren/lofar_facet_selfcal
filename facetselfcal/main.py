@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 #python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy.subtracted
 # run with less disk-space usage, remove all but merged h5, remove columns
-# add standard tests to lofar_facet_selfcal to ensure clean development
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
-# h5_merger.merge_h5(h5_out=outparmdb,h5_tables=parmdb,add_directions=sourcedir_removed.tolist(),propagate_weights=False) Needs to be propagate_weights to be fully correct, this is a h5_merger issue
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
 # compression: blosc2
@@ -113,6 +111,109 @@ matplotlib.use('Agg')
 
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+
+
+
+def MeerKAT_pbcor_Lband(fitsimage, outfile, freq=None, ms=None): 
+    """
+    Apply a MeerKAT primary beam correction to a L-band FITS image.
+
+    Parameters
+    ----------
+    fitsimage : str
+        Path to the input FITS image that needs to be corrected.
+    
+    outfile : str
+        Path where the primary-beam-corrected FITS image will be saved.
+    
+    freq : float, optional
+        Observing frequency in GHz. If not provided, the function will attempt to
+        read the frequency from the FITS header (CRVAL3 keyword, assumed to be in Hz).
+    
+    ms : str, optional
+        Path to the Measurement Set (MS). If provided, the pointing center will be
+        read from the 'REFERENCE_DIR' column of the MS. If not provided, the center 
+        of the image will be assumed to be the pointing center.
+
+    Returns
+    -------
+    outfile : str
+        Path to the corrected FITS image written to disk.
+
+    Notes
+    -----
+    - This function applies a primary beam correction for MeerKAT L-band observations
+      using the polynomial model published by T. Mauch et al. (2020, ApJ, 888, 61).
+    - The correction is based on the distance from the pointing center and observing
+      frequency, using a 10th-order polynomial model with coefficients:
+
+        G1 = -0.3514e-3
+        G2 =  0.5600e-7
+        G3 = -0.0474e-10
+        G4 =  0.00078e-13
+        G5 =  0.00019e-16
+
+    - The beam correction formula follows the AIPS PBCOR convention.
+
+    References
+    ----------
+    - T. Mauch et al. 2020, "The 1.28 GHz MeerKAT DEEP2 Image," ApJ, 888, 61.
+    - AIPS PBCOR: http://www.aips.nrao.edu/cgi-bin/ZXHLP2.PL?PBCOR
+
+    Warnings
+    --------
+    - If the image center is not the actual pointing center and no MS is provided,
+      the beam correction may be incorrectly applied. Ensure correct pointing 
+      information is used when available.
+
+    """
+    G1 =-0.3514e-3
+    G2 = 0.5600e-7
+    G3 =-0.0474e-10
+    G4 = 0.00078e-13
+    G5 = 0.00019e-16
+ 
+    if freq is None:
+        hdul = fits.open(fitsimage)
+        header = hdul[0].header
+        freq = header['CRVAL3']/1e9
+        print('Frequency found from the FITS image [GHz]:', freq)
+        hdul.close()
+ 
+    hdu = fits.open(fitsimage,  ignore_missing_end=True)
+    hduflat = flatten(hdu)
+    img = hduflat.data   
+    print('IMAGE shape',img.shape)
+    x, y = np.indices((img.shape))
+  
+    w = WCS(hduflat.header)
+    if ms is not None:
+        print('Taking pointing center from the ms')
+        with table(ms + '/FIELD', readonly=True, ack=False) as t:
+            ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze()
+        center = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')   
+    else:
+        center = w.pixel_to_world(img.shape[0]/2., img.shape[1]/2.)   
+        print('Assume image center is the pointing center')
+        print('Make sure this it correct, if not provide the ms to the function')
+        print('CENTER image:',center)
+       
+
+    coordinates =  w.pixel_to_world(np.ravel(x),np.ravel(y))   
+    sep = center.separation(coordinates)
+    seprad = sep.arcmin # convert to arcmin
+   
+    separray = seprad.reshape(img.shape)
+    X = freq*separray
+    #separray = radius in arcminutes
+    #freq = frequency in GHz.
+    pb = 1. + G1*(X**2) + G2*(X**4) + G3*(X**6)  + G4*(X**8)  + G5*(X**10)
+
+    hdu[0].data[0,0,:,:] = img/pb
+
+    astropy.io.fits.writeto(outfile, hdu[0].data, hdu[0].header, overwrite=True)
+    return outfile
+
 
 def frequencies_from_models(model_basename):
     """
@@ -490,6 +591,24 @@ def update_channelsout(selfcalcycle, mslist):
 
 
 def set_fitspectralpol(channelsout):
+    """
+    Determine the fitspectralpol value based on the number of output channels.
+
+    Parameters
+    ----------
+    channelsout : int
+        The number of output channels.
+
+    Returns
+    -------
+    fitspectralpol : int
+        The fitspectralpol value corresponding to the number of output channels.
+
+    Raises
+    ------
+    Exception
+        If the channelsout value is invalid.
+    """
     if channelsout == 1:
         fitspectralpol = 1
     elif channelsout == 2:
@@ -504,7 +623,7 @@ def set_fitspectralpol(channelsout):
         fitspectralpol = 9
     else:
         print('channelsout', channelsout)
-        raise Exception('channelsout has an invalid value')
+        raise Exception(f'channelsout has an invalid value: {channelsout}')
     return fitspectralpol
 
 
@@ -586,6 +705,7 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
         for h5 in h5list_sols:
             os.system('rm -f ' + h5)
     return
+
 def read_MeerKAT_wscleanmodel_5spix(filename, outfile):
     '''
     Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
@@ -813,6 +933,20 @@ def copy_over_solutions_from_skipped_directions(modeldatacolumnsin, id_kept):
 
 
 def filter_baseline_str_removestations(stationlist):
+    """
+    Generates a baseline filter string to exclude specific stations from processing.
+
+    This function constructs a string that can be used to filter out baselines 
+    involving specific stations in a radio interferometry dataset. The filter 
+    string is formatted to exclude baselines that include any of the stations 
+    provided in the input list.
+
+    Args:
+        stationlist (list of str): A list of station names to be excluded.
+
+    Returns:
+        str: A formatted baseline filter string that excludes the specified stations.
+    """
     fbaseline = "'"
     for station_id, station in enumerate(stationlist):
         fbaseline = fbaseline + "!" + station + "&&*"
@@ -822,7 +956,28 @@ def filter_baseline_str_removestations(stationlist):
 
 
 def return_antennas_highflaggingpercentage(ms, percentage=0.85):
-    ### Find all antennas with more than 80% flagged data
+    """
+    Identifies antennas with a high percentage of flagged data in a Measurement Set (MS).
+
+    This function queries the provided Measurement Set (MS) to find antennas where the 
+    percentage of flagged data exceeds the specified threshold. It uses the TaQL (Table Query 
+    Language) to perform the query and returns a list of antenna names that meet the criteria.
+
+    Args:
+        ms (str): The path to the Measurement Set (MS) to be analyzed.
+        percentage (float, optional): The flagging percentage threshold. Antennas with a 
+            flagging percentage greater than this value will be returned. Default is 0.85 
+            (85%).
+
+    Returns:
+        list: A list of antenna names (str) that have a flagging percentage above the specified 
+        threshold.
+
+    Example:
+        >>> flagged_antennas = return_antennas_highflaggingpercentage("path/to/ms", 0.9)
+        Finding stations with a flagging percentage above 90.0 ....
+        Found: ['ANT1', 'ANT2']
+    """
     print('Finding stations with a flagging percentage above ' + str(100 * percentage) + ' ....')
     t = taql(""" SELECT antname, gsum(numflagged) AS numflagged, gsum(numvis) AS numvis,
        gsum(numflagged)/gsum(numvis) as percflagged FROM [[ SELECT mscal.ant1name() AS antname, ntrue(FLAG) AS numflagged, count(FLAG) AS numvis FROM """ + ms + """ ],[ SELECT mscal.ant2name() AS antname, ntrue(FLAG) AS numflagged, count(FLAG) AS numvis FROM """ + ms + """ ] ] GROUP BY antname HAVING percflagged > """ + str(
@@ -836,8 +991,26 @@ def return_antennas_highflaggingpercentage(ms, percentage=0.85):
 
 def create_empty_fitsimage(ms, imsize, pixelsize, outfile):
     """
-    Create emtpy (zeros) FITS file with size imsize and pixelsize
-    Image center coincides with the phase center of the provided ms
+    Create an empty FITS image with specified size and pixel scale.
+
+    This function generates a FITS file filled with zeros, with the image center
+    aligned to the phase center of the provided measurement set (MS). The FITS
+    header is populated with appropriate WCS (World Coordinate System) information.
+
+    Parameters:
+        ms (str): Path to the measurement set (MS) file. Used to determine the
+                  phase center coordinates.
+        imsize (int): Size of the image in pixels (assumes a square image).
+        pixelsize (float): Pixel size in arcseconds.
+        outfile (str): Path to the output FITS file.
+
+    Returns:
+        None: The function writes the FITS file to the specified output path.
+
+    Notes:
+        - The WCS projection used is SIN (Sine projection).
+        - The pixel scale is set in degrees, derived from the provided pixel size
+          in arcseconds.
     """
     data = np.zeros((imsize, imsize))
 
@@ -862,6 +1035,17 @@ def create_empty_fitsimage(ms, imsize, pixelsize, outfile):
 
 
 def set_DDE_predict_skymodel_solve(wscleanskymodel):
+    """
+    Determines the tool to use for DDE (Direction Dependent Effects) prediction 
+    and solving based on the provided sky model.
+
+    Parameters:
+        wscleanskymodel (str): The sky model string. If not None, WSCLEAN 
+                                  will be used; otherwise, DP3 will be used.
+
+    Returns:
+        str: 'WSCLEAN' if a sky model is provided, otherwise 'DP3'.
+    """
     if wscleanskymodel is not None:
         return 'WSCLEAN'
     else:
@@ -916,8 +1100,18 @@ def bda_mslist(mslist, pixsize, imsize, dryrun=False):
 
 def getAntennas(ms):
     """
-   Return a list of antenna names
-   """
+    Retrieve a list of antenna names from a Measurement Set (MS).
+
+    Args:
+        ms (str): The path to the Measurement Set (MS) directory.
+
+    Returns:
+        list: A list of antenna names as strings.
+
+    Notes:
+        This function accesses the 'ANTENNA' table within the provided
+        Measurement Set to extract the antenna names.
+    """
     t = table(ms + "/ANTENNA", readonly=True, ack=False)
     antennas = t.getcol('NAME')
     t.close()
@@ -1106,22 +1300,43 @@ def check_for_BDPbug_longsolint(mslist, facetdirections):
             solints_cycle = solint_reformat[:, solintcycle_id]
             solints = [int(format_solint(x, ms)) for x in solints_cycle]
             print('Solint unmodified per direction', solints)
-            solints = tweak_solints(solints)
+            solints = tweak_solints(solints,  ms_ntimes=ms_ntimes)
             print('Solint tweaked per direction   ', solints)
 
             lcm = math.lcm(*solints)
             divisors = [int(lcm / i) for i in solints]
 
+        #solints = [int(format_solint(x, ms)) for x in solint]
+        #solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
+        #lcm = math.lcm(*solints)
+        #divisors = [int(lcm / i) for i in solints]
+        #cmd += 'ddecal.solint=' + str(lcm) + ' '
+        #cmd += 'ddecal.solutions_per_direction=' + "'" + str(divisors).replace(' ', '') + "' "
+
             print('Solint passed to DP3 would be:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
-            if lcm > ms_ntimes:
+            if lcm > int(1.5*ms_ntimes):
                 print('Bad divisor for solutions_per_direction DDE solve. DP3 Solint > number of timeslots in the MS')
-                #sys.exit()
+                sys.exit()
         print('------------')
 
     return
 
 
 def selfcal_animatedgif(fitsstr, outname):
+    """
+    Generates an animated GIF from a FITS file using the DS9 visualization tool.
+
+    This function constructs a command to run DS9 with specific parameters to 
+    create an animated GIF from the provided FITS file. The GIF is saved to the 
+    specified output file.
+
+    Args:
+        fitsstr (str): The path to the input FITS file.
+        outname (str): The name of the output GIF file.
+
+    Returns:
+        None
+    """
     limit_min = -250e-6
     limit_max = 2.5e-2
     cmd = 'ds9 ' + fitsstr + ' '
@@ -1134,10 +1349,28 @@ def selfcal_animatedgif(fitsstr, outname):
     return
 
 
-def find_closest_ddsol(h5, ms):  #
+def find_closest_ddsol(h5, ms):
     """
-   find closest direction in multidir h5 files to the phasecenter of the ms
-   """
+    Find the closest direction in a multi-directional H5 file to the phase center of a Measurement Set (MS).
+
+    Parameters
+    ----------
+    h5 : str
+        Path to the H5 file containing directional solutions.
+    ms : str
+        Path to the Measurement Set (MS) whose phase center is used for comparison.
+
+    Returns
+    -------
+    str
+        The name of the closest direction in the H5 file to the phase center of the MS.
+
+    Notes
+    -----
+    - This function uses the SkyCoord class from Astropy to calculate angular separations.
+    - The closest direction is determined based on the smallest angular separation.
+    """
+
     t2 = table(ms + '::FIELD', ack=False)
     phasedir = t2.getcol('PHASE_DIR').squeeze()
     t2.close()
@@ -1158,8 +1391,34 @@ def find_closest_ddsol(h5, ms):  #
 
 def set_beamcor(ms, beamcor_var):
     """
-    Determine whether to do beam correction or note
+    Determines whether to apply beam correction for a measurement set (MS).
+
+    Parameters:
+    ms (str): The path to the measurement set (MS) file.
+    beamcor_var (str): A string indicating whether to apply beam correction. 
+                       Possible values are:
+                       - 'no': Do not apply beam correction.
+                       - 'yes': Apply beam correction.
+                       - 'auto': Automatically determine based on observation data.
+
+    Returns:
+    bool: True if beam correction should be applied, False otherwise.
+
+    Behavior:
+    - If `beamcor_var` is 'no', beam correction is not applied.
+    - If `beamcor_var` is 'yes', beam correction is applied.
+    - If `beamcor_var` is 'auto', the function checks:
+        - If the telescope is not LOFAR, beam correction is not applied.
+        - If the telescope is LOFAR, it calculates the angular separation between 
+          the phase center and the applied beam direction. If the separation is 
+          less than 10 arcseconds, beam correction is not applied; otherwise, it is applied.
+
+    Notes:
+    - The function uses the `astropy.coordinates.SkyCoord` class to calculate angular separation.
+    - Beam keywords are added to the MS if they are missing, using the `beam_keywords` function.
+    - Logs information about the decision process and angular separation.
     """
+
     if beamcor_var == 'no':
         logger.info('Run DP3 applybeam: no')
         return False
@@ -1190,6 +1449,7 @@ def set_beamcor(ms, beamcor_var):
 
     c1 = SkyCoord(beamdir['m0']['value'] * units.radian, beamdir['m1']['value'] * units.radian, frame='icrs')
     c2 = SkyCoord(phasedir[0] * units.radian, phasedir[1] * units.radian, frame='icrs')
+    # Calculate angular separation between phase center and direction in arcseconds
     angsep = c1.separation(c2).to(units.arcsec)
 
     # angular_separation is recent astropy functionality, do not use, instead use the older SkyCoord.seperation
@@ -1229,7 +1489,23 @@ def parse_history(ms, hist_item):
 
 
 def find_prime_factors(n):
-    """Find prime factors"""
+    """
+    Find the prime factors of a given integer.
+
+    This function computes the prime factors of the input integer `n` 
+    and returns them as a list. It first extracts all factors of 2, 
+    then iterates through odd numbers to find other prime factors.
+
+    Args:
+        n (int): The integer to factorize. Must be greater than 0.
+
+    Returns:
+        list: A list of integers representing the prime factors of `n`.
+
+    Example:
+        >>> find_prime_factors(28)
+        [2, 2, 7]
+    """
     factorlist = []
     num = n
     while n % 2 == 0:
@@ -1246,6 +1522,19 @@ def find_prime_factors(n):
 
 
 def tweak_solintsold(solints, solval=20):
+    """
+    Adjusts a list of solution intervals by rounding up values greater than a 
+    specified threshold to the nearest even number.
+
+    Parameters:
+    solints (list of int): A list of solution intervals to be adjusted.
+    solval (int, optional): The threshold value. Solution intervals greater 
+        than this value will be rounded up to the nearest even number. 
+        Defaults to 20.
+
+    Returns:
+    list of int: A list of adjusted solution intervals.
+    """
     solints_return = []
     for sol in solints:
         soltmp = sol
@@ -1262,18 +1551,49 @@ def tweak_solints(solints, solvalthresh=11, ms_ntimes=None):
     solints_return = []
     if np.max(solints) < solvalthresh:
         return solints
+    
+    # shorten solint to length of MS at most
+    if ms_ntimes is not None:
+        solints_copy = []
+        for solint in solints:
+            if solint > ms_ntimes:
+                solints_copy.append(ms_ntimes)
+            else:
+                solints_copy.append(solint)
+        solints = solints_copy
+        
     possible_solints = listof2and3prime(startval=2, stopval=10000)
     if ms_ntimes is not None:
         possible_solints = remove_bad_endrounding(possible_solints, ms_ntimes)
-
+    
     for sol in solints:
         solints_return.append(find_nearest(possible_solints, sol))
+
     return solints_return
 
 
 def tweak_solints_single(solint, ms_ntimes, solvalthresh=11, ):
     """
-    Returns modified solint that avoids a short number of left over timeslots near the end of the ms
+    def tweak_solints_single(solint, ms_ntimes, solvalthresh=11):
+        Adjusts the given solution interval (`solint`) to avoid having a small number 
+        of leftover time slots near the end of the measurement set (ms).
+
+        Parameters:
+        -----------
+        solint : int
+            The initial solution interval to be adjusted.
+        ms_ntimes : int
+            The total number of time slots in the measurement set.
+        solvalthresh : int, optional
+            Threshold value for the solution interval. If `solint` is less than this 
+            threshold, it is returned unchanged. Default is 11.
+
+        Returns:
+        --------
+        int
+            A modified solution interval that minimizes leftover time slots while 
+            being as close as possible to the original `solint`.
+
     """
     if np.max(solint) < solvalthresh:
         return solint
@@ -1286,9 +1606,19 @@ def tweak_solints_single(solint, ms_ntimes, solvalthresh=11, ):
 
 def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
     """
-    list of possible solints to start with
-    ms_ntimes: number of timeslots in the MS
-    if ignorelessthan then do not use this extra option
+    Filters a list of solution intervals (solints) to remove those that result in 
+    significant rounding errors when dividing the total number of timeslots (ms_ntimes) 
+    by the solution interval. Additionally, excludes solution intervals smaller than 
+    a specified threshold.
+
+    Args:
+        solints (list of int): A list of possible solution intervals to evaluate.
+        ms_ntimes (int): The total number of timeslots in the measurement set (MS).
+        ignorelessthan (int, optional): The minimum solution interval to consider. 
+            Solution intervals smaller than this value will be excluded. Defaults to 11.
+
+    Returns:
+        list of int: A filtered list of solution intervals that meet the criteria.
     """
     solints_out = []
     for solint in solints:
@@ -2395,7 +2725,7 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5,thresh_is
     del img
     return
 
-def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., keep_N_brightest=20, previous_catalog=None):
+def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., keep_N_brightest=20, previous_catalog=None, N_dir_max=45):
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
     print(catalog.columns)
@@ -2431,7 +2761,12 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
                 if len(removeidx) > 0:
                     new_catalog.remove_row(removeidx[0])
                  
-    print('Catalog entries before and after removal', len(catalog), len(new_catalog))
+    print('Catalog entries before / after removal of closely separated directions', len(catalog), len(new_catalog))
+    
+    # ensure catalog does not go over N_dir_max limit
+    if len(new_catalog) > N_dir_max:
+        new_catalog = new_catalog[0:N_dir_max]
+        print('Kept only N_dir_max directions:', N_dir_max)
     new_catalog.write(outcatalogfile, format='fits', overwrite=True)
 
 
@@ -2442,12 +2777,16 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
     #print(catalog['Peak_flux'])
     hdu_list.close()
     selfcalcycle = 0 # hard coded at zero is ok
-    solints_bright = ["'32sec'", "'2min'", "'10min'"]
-    solints = ["'32sec'", "'2min'", "'20min'"]
-    smoothing_bright = [10,25,5]
-    smoothing = [10,25,15]
-    N_bright = 4
-    inclusion_flags = [True,True,True]
+    solints_bright = ["'32sec'", "'2min'", "'10min'","'192sec'"]
+    solints = ["'32sec'", "'2min'", "'20min'","'192sec'"]
+    smoothing_bright = [10,25,5,25]
+    smoothing = [10,25,15,25]
+    N_bright = 4 # first N_bright get less smoothness and solint
+    N_normal = 35 # beyond this we have pertubative directions
+    
+    inclusion_flags = [True,True,True,True]
+    inclusion_flags_faint = [False,False,False,True]
+    
     write_ds9_regions(catalog['RA'], catalog['DEC'], filename=ds9_region) 
   
     with open(facetdirections,"w") as f:
@@ -2459,14 +2798,54 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
             else:
                 smoothnessvals = smoothing
                 solintvals = solints
+            if source_counter < N_normal:
+                inclusion_flagsvals = inclusion_flags
+            else:
+                inclusion_flagsvals = inclusion_flags_faint
+                
             line = f"{source['RA']} {source['DEC']} {selfcalcycle} " \
                    f"[{','.join(solintvals)}] " \
                    f"[{','.join(str(s) for s in smoothnessvals)}] " \
-                   f"[{','.join(str(i) for i in inclusion_flags)}] " \
+                   f"[{','.join(str(i) for i in inclusion_flagsvals)}] " \
                    f"# direction Dir{source_counter:02d}\n"
             f.write(line)
 
+
 def auto_direction(selfcalcycle=0):
+    
+    if selfcalcycle == 0:
+        keep_N_brightest = 15
+        distance = 20
+        N_dir_max = 15
+    if selfcalcycle == 1:
+        keep_N_brightest = 20 
+        distance = 20
+        N_dir_max = 25
+    if selfcalcycle == 2:
+        keep_N_brightest = 30
+        distance = 15
+        N_dir_max = 35
+    if selfcalcycle == 3:
+        keep_N_brightest = 40   
+        distance = 15
+        N_dir_max = 40
+    if selfcalcycle == 4:
+        keep_N_brightest = 40   
+        distance = 15
+        N_dir_max = 50
+    if selfcalcycle == 5:
+        keep_N_brightest = 50   
+        distance = 10
+        N_dir_max = 60
+    if selfcalcycle == 6:
+        keep_N_brightest = 60   
+        distance = 10
+        N_dir_max = 70
+    if selfcalcycle >= 7:
+        keep_N_brightest = 70   
+        distance = 10
+        N_dir_max = 100
+
     
     # set image name input to compute error map
     if args['idg']:
@@ -2497,7 +2876,7 @@ def auto_direction(selfcalcycle=0):
     create_calibration_error_catalog(outputerrormap, outputcatalog, thresh_pix=7.5,thresh_isl=7.5)
     
     # update the artifact catalog (keep only N-brightest, remove closely seperated sources, merge with previous catalog)
-    update_calibration_error_catalog(outputcatalog,outputcatalog_filtered, distance=20., keep_N_brightest=19, previous_catalog=previous_catalog)
+    update_calibration_error_catalog(outputcatalog,outputcatalog_filtered, distance=distance, keep_N_brightest=keep_N_brightest, previous_catalog=previous_catalog, N_dir_max=N_dir_max)
     
     # write facet direction file (for facetselfcal), also output directions.reg for visualization
     write_facet_directions(outputcatalog_filtered, facetdirections=facetdirections, ds9_region=directions_reg)
@@ -3616,8 +3995,14 @@ def inputchecker(args, mslist):
     # set telescope
     with table(mslist[0] + '/OBSERVATION', ack=False) as t:
         telescope = t.getcol('TELESCOPE_NAME')[0]
-    # if telescope != 'LOFAR':
-    #    check_equidistant_times(mslist)
+
+    if args['auto_directions'] and not args['DDE']:
+       print('--auto_directions can only be used in combination with --DDE')
+       raise Exception('--auto_directions can only be used in combination with --DDE')
+
+    if args['auto_directions'] and telescope != 'LOFAR':
+       print('--auto_directions can only be used with LOFAR observations for now')
+       raise Exception('--auto_directions can only be used with LOFAR observations for now')
 
     if args['DP3_BDA_imaging'] and not args['DDE']:
         print('--DP3-BDA-imaging can only be used in combination with --DDE')
@@ -8596,10 +8981,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 cmd += '-scalar-visibilities '  # scalar solutions
 
-        if telescope == 'LOFAR':
+        if telescope == 'LOFAR' or telescope == 'MeerKAT':
             if not disable_primarybeam_predict:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
-                cmd += '-use-differential-lofar-beam '
+                if telescope == 'LOFAR': cmd += '-use-differential-lofar-beam '
 
         if args['modelstoragemanager'] is not None:
             cmd += '-model-storage-manager ' + modelstoragemanagerwsclean + ' '
@@ -8661,13 +9046,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # NEW CODE FOR SPEEDUP
             if singlefacetpredictspeedup:
                 cmd += '-facet-regions ' + 'facet' + str(facet_id) + '.reg' + ' '
-                if telescope == 'LOFAR':
+                if telescope == 'LOFAR' or telescope == 'MeerKAT':
                     if not disable_primarybeam_predict:
                         # check if -model-fpb.fits is there for image000 (in case image000 was made without facets)
                         if selfcalcycle == 0:
                             fix_fpb_images(imageout)    
                         cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
-                        cmd += '-use-differential-lofar-beam '
+                        if telescope == 'LOFAR': cmd += '-use-differential-lofar-beam '
                         if not fulljones_h5_facetbeam:
                             # cmd += '-diagonal-visibilities ' # different XX and YY solutions
                             cmd += '-scalar-visibilities '  # scalar solutions
@@ -8820,18 +9205,18 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 else:
                     cmd += '-scalar-visibilities '  # scalar solutions
 
-            if telescope == 'LOFAR':
+            if telescope == 'LOFAR' or telescope == 'MeerKAT':
                 if not disable_primarybeam_image:
                     cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
-                    cmd += '-use-differential-lofar-beam '
+                    if telescope == 'LOFAR': cmd += '-use-differential-lofar-beam '
         elif forceimagingwithfacets and facetregionfile is not None:  # so h5list is zero, but we still want facet imaging
             if args['groupms_h5facetspeedup'] and len(mslist) > 1:
                 mslist_concat, h5list_concat_tmp = concat_ms_wsclean_facetimaging(mslist, concatms=False)
             cmd += '-facet-regions ' + facetregionfile + ' '
             if sharedfacetreads: cmd += '-shared-facet-reads '
-            if telescope == 'LOFAR' and not disable_primarybeam_image:
+            if (telescope == 'LOFAR' or telescope == 'MeerKAT') and not disable_primarybeam_image:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
-                cmd += '-use-differential-lofar-beam '
+                if telescope == 'LOFAR': cmd += '-use-differential-lofar-beam '
                 if not fulljones_h5_facetbeam:
                     # cmd += '-diagonal-visibilities ' # different XX and YY solutions
                     cmd += '-scalar-visibilities '  # scalar solutions
@@ -10783,7 +11168,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '13.4.0'
+    version = '14.0.0'
     print_title(version)
 
     global submodpath, datapath
