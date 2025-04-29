@@ -293,7 +293,7 @@ def modify_freqs_from_ms(mslist, freqs):
         rename_no += 1
     
     if rename_no > 0:
-        rename_models(agrs['wscleanskymodel'], rename_no, model_prefix = "tmp_")
+        rename_models(args['wscleanskymodel'], rename_no, model_prefix = "tmp_")
 
     mod_freq_string = [str(x/1e6)+"e6" for x in freqs]
 
@@ -1089,7 +1089,7 @@ def bda_mslist(mslist, pixsize, imsize, dryrun=False):
     for ms in mslist:
         cmd = 'DP3 msin=' + ms + ' steps=[bda] bda.type=bdaaverage msout=' + ms + '.bda '
         cmd += 'bda.maxinterval=300 '
-        cmd += 'bda.timebase=' + str(timebase(imsize*pixelsize/3600.,ms)) + ' '
+        cmd += 'bda.timebase=' + str(timebase(imsize*pixsize/3600.,ms)) + ' '
         print(cmd)
         if not dryrun:
             if os.path.isdir(ms + '.bda'):
@@ -1629,6 +1629,17 @@ def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
 
 
 def listof2and3prime(startval=2, stopval=10000):
+    """
+    Generate a list of integers between `startval` and `stopval` (exclusive) 
+    whose largest prime factor is either 2 or 3.
+
+    Args:
+        startval (int, optional): The starting value of the range (inclusive). Defaults to 2.
+        stopval (int, optional): The ending value of the range (exclusive). Defaults to 10000.
+
+    Returns:
+        list: A list of integers satisfying the condition, including the initial value 1.
+    """
     solint = [1]
     for i in np.arange(startval, stopval):
         factors = find_prime_factors(i)
@@ -1639,6 +1650,16 @@ def listof2and3prime(startval=2, stopval=10000):
 
 
 def find_nearest(array, value):
+    """
+    Find the nearest value in an array to a given target value.
+
+    Parameters:
+    array (array-like): The input array to search. It will be converted to a NumPy array if not already one.
+    value (float or int): The target value to find the closest match for in the array.
+
+    Returns:
+    float or int: The value from the array that is closest to the target value.
+    """
     array = np.asarray(array)
     idx = (np.abs(array - value)).argmin()
     return array[idx]
@@ -1744,7 +1765,31 @@ def number_of_unique_obsids(msfiles):
 
 def getobsmslist(msfiles, observationnumber):
     """
-    make a list of ms beloning to the same observation
+    Generate a list of measurement sets (MS) belonging to the same observation.
+
+    This function groups measurement sets by their observation ID, which is 
+    extracted from the filenames of the provided MS files. It then returns 
+    the list of MS files corresponding to the specified observation number.
+
+    Parameters:
+    -----------
+    msfiles : list of str
+        A list of file paths to the measurement sets (MS).
+    observationnumber : int
+        The index of the observation to extract (0-based).
+
+    Returns:
+    --------
+    list of str
+        A list of file paths to the measurement sets belonging to the 
+        specified observation.
+
+    Notes:
+    ------
+    - The observation ID is assumed to be the first part of the filename, 
+      separated by an underscore ('_').
+    - The `observationnumber` parameter corresponds to the index of the 
+      unique observation IDs in the order they appear in the input list.
     """
     obsids = []
     for ms in msfiles:
@@ -1758,7 +1803,24 @@ def getobsmslist(msfiles, observationnumber):
 
 
 def mscolexist(ms, colname):
-    """ Check if a colname exists in the measurement set ms, returns either True or False """
+    """
+    Check if a column exists in a measurement set.
+
+    This function verifies whether a specified column name exists in a given
+    measurement set directory. It returns `True` if the column exists and `False`
+    otherwise.
+
+    Args:
+        ms (str): The path to the measurement set directory.
+        colname (str): The name of the column to check for existence.
+
+    Returns:
+        bool: `True` if the column exists in the measurement set, `False` otherwise.
+
+    Raises:
+        None: This function does not raise any exceptions, but it assumes that the
+        `os` module and `table` class from `casacore.tables` are properly imported.
+    """
     if os.path.isdir(ms):
         with table(ms, readonly=True, ack=False) as t:
             colnames = t.colnames()
@@ -2719,6 +2781,18 @@ def calibration_error_map(fitsimage, outputfitsfile, kernelsize=31, rebin=None):
 
 
 def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5,thresh_isl=7.5):
+    """
+    Creates a calibration error catalog from a given image file using the PyBDSF library.
+
+    Parameters:
+        filename (str): Path to the input image file to be processed.
+        outfile (str): Path to the output file where the catalog will be saved in FITS format.
+        thresh_pix (float, optional): Pixel threshold for source detection. Default is 7.5.
+        thresh_isl (float, optional): Island threshold for source detection. Default is 7.5.
+
+    Returns:
+        None
+    """
     img = bdsf.process_image(filename,mean_map='const', rms_map=True, \
                              rms_box=(35,5), thresh_pix=thresh_pix,thresh_isl=thresh_isl)
     img.write_catalog(format='fits', outfile=outfile, catalog_type='srl', clobber=True)
@@ -2726,6 +2800,34 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5,thresh_is
     return
 
 def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., keep_N_brightest=20, previous_catalog=None, N_dir_max=45):
+    """
+    Updates a calibration error catalog by filtering, merging, and removing nearby sources.
+    Parameters:
+    -----------
+    catalogfile : str
+        Path to the input catalog file in FITS format.
+    outcatalogfile : str
+        Path to the output catalog file in FITS format.
+    distance : float, optional
+        Minimum separation distance (in arcminutes) to consider sources as distinct. Default is 20 arcminutes.
+    keep_N_brightest : int, optional
+        Number of brightest sources to retain from the input catalog. Default is 20.
+    previous_catalog : str, optional
+        Path to a previous catalog file in FITS format to merge with the current catalog. Default is None.
+    N_dir_max : int, optional
+        Maximum number of directions (sources) to retain in the final catalog. Default is 45.
+    Returns:
+    --------
+    None
+        The updated catalog is written to the specified output file.
+    Notes:
+    ------
+    - The function sorts the catalog by peak flux and retains the brightest sources.
+    - If a previous catalog is provided, it merges the two catalogs, ensuring that entries from the previous catalog are prioritized.
+    - Sources that are too close to each other (based on the `distance` parameter) are removed to avoid duplicates or closely separated directions.
+    - The final catalog is limited to `N_dir_max` entries if it exceeds this limit.
+    - The output catalog is saved in FITS format, overwriting any existing file at the specified path.
+    """
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
     print(catalog.columns)
@@ -2771,6 +2873,38 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
 
 
 def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_region='directions.reg'):
+    """
+    Writes facet directions to a text file and generates a DS9 region file.
+    This function processes a FITS catalog file to extract source information 
+    (RA and DEC) and writes it to a specified text file in a format suitable 
+    for self-calibration. It also generates a DS9 region file for visualization.
+    Parameters:
+    -----------
+    catalogfile : str
+        Path to the FITS catalog file containing source information.
+    facetdirections : str, optional
+        Name of the output text file containing facet directions. 
+        Default is 'directions.txt'.
+    ds9_region : str, optional
+        Name of the output DS9 region file. Default is 'directions.reg'.
+    Outputs:
+    --------
+    - A text file (`facetdirections`) containing RA, DEC, self-calibration 
+        cycle, solution intervals, smoothness values, inclusion flags, and 
+        direction labels for each source.
+    - A DS9 region file (`ds9_region`) for visualizing the source positions.
+    Notes:
+    ------
+    - The function uses hardcoded values for self-calibration cycles, solution 
+        intervals, smoothness values, and inclusion flags.
+    - The first `N_bright` sources are treated with different solution intervals 
+        and smoothness values compared to the rest.
+    - Beyond `N_normal` sources, a different set of inclusion flags is applied.
+    - The function assumes the FITS catalog contains columns 'RA' and 'DEC'.
+    Example:
+    --------
+    write_facet_directions('source_catalog.fits', 'output_directions.txt', 'output_regions.reg')
+    """
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
     #print(catalog.columns)
@@ -2785,6 +2919,7 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
     N_normal = 35 # beyond this we have pertubative directions
     
     inclusion_flags = [True,True,True,True]
+    inclusion_flags_no_amps = [True,True,False,True]
     inclusion_flags_faint = [False,False,False,True]
     
     write_ds9_regions(catalog['RA'], catalog['DEC'], filename=ds9_region) 
@@ -2812,6 +2947,40 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
 
 
 def auto_direction(selfcalcycle=0):
+    """
+    Automatically determines and processes calibration directions for self-calibration cycles.
+    Parameters:
+    -----------
+    selfcalcycle : int, optional
+        The self-calibration cycle number (default is 0). Determines the parameters for 
+        artifact catalog creation and filtering.
+    Returns:
+    --------
+    str
+        The filename of the facet directions text file generated for the given self-calibration cycle.
+    Description:
+    ------------
+    This function performs the following steps:
+    1. Sets parameters (`keep_N_brightest`, `distance`, `N_dir_max`) based on the self-calibration cycle.
+    2. Constructs filenames for input and output files, including error maps, catalogs, and plots.
+    3. Generates an error map from the input image.
+    4. Creates an artifact sources catalog from the error map.
+    5. Updates the artifact catalog by filtering sources based on brightness, distance, and merging with 
+       the previous catalog.
+    6. Writes facet direction files for self-calibration and visualization.
+    7. Plots the error map with overlaid artifact directions.
+    Notes:
+    ------
+    - The function uses global `args` to retrieve input parameters such as `imagename`, `idg`, and `channelsout`.
+    - The error map and artifact catalog are processed using external helper functions:
+      `calibration_error_map`, `create_calibration_error_catalog`, `update_calibration_error_catalog`, 
+      `write_facet_directions`, and `plotimage_astropy`.
+    - The plot uses the noise level from the first error map (`imagename000-errormap.fits`) for consistent scaling.
+    Dependencies:
+    -------------
+    - Requires the `astropy.io.fits` module for handling FITS files.
+    - Assumes the presence of helper functions for error map generation, catalog creation, and plotting.
+    """
     
     if selfcalcycle == 0:
         keep_N_brightest = 15
@@ -2853,7 +3022,7 @@ def auto_direction(selfcalcycle=0):
     else:
         fitsimage = args['imagename'] + str(selfcalcycle).zfill(3) +  '-MFS-image.fits'    
     if args['channelsout'] == 1:
-        fitsimage = plotfitsimage.replace('-MFS', '').replace('-I', '')    
+        fitsimage = fitsimage.replace('-MFS', '').replace('-I', '')    
    
     # set input/output names
     outputerrormap =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.fits'
@@ -6011,6 +6180,36 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
 
 
 def removestartendms(ms, starttime=None, endtime=None, dysco=True):
+    """
+    Removes the start and/or end times from a Measurement Set (MS) and processes it using DP3.
+
+    This function creates a new MS with the specified time range removed and optionally applies
+    DYSCO compression. It also creates a WEIGHT_SPECTRUM_SOLVE column based on the processed data.
+
+    Args:
+        ms (str): The path to the input Measurement Set (MS).
+        starttime (str, optional): The start time to cut from the MS in a format recognized by DP3.
+                                   If None, no start time is specified. Defaults to None.
+        endtime (str, optional): The end time to cut from the MS in a format recognized by DP3.
+                                 If None, no end time is specified. Defaults to None.
+        dysco (bool, optional): Whether to use DYSCO compression for the output MS. Defaults to True.
+
+    Returns:
+        None
+
+    Side Effects:
+        - Creates a new MS with the '.cut' suffix.
+        - Temporarily creates a '.cuttmp' MS, which is removed after processing.
+        - Adds a new column 'WEIGHT_SPECTRUM_SOLVE' to the '.cut' MS.
+        - Prints the DP3 commands executed.
+        - Removes any pre-existing '.cut' or '.cuttmp' directories.
+
+    Notes:
+        - The function uses the DP3 tool for processing the MS.
+        - The `check_phaseup_station` function is used to determine if UVW compression should be disabled.
+        - The `run` function is used to execute the DP3 commands.
+        - The `table` function from the casacore library is used to manipulate the MS columns.
+    """
     # chdeck if output is already there and remove
     if os.path.isdir(ms + '.cut'):
         os.system('rm -rf ' + ms + '.cut')
@@ -6459,6 +6658,18 @@ def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
 
 
 def return_soltype_index(soltype_list, soltype, occurence=1, onetectypeoccurence=False):
+    """
+    Returns the index of a specified solution type in a list of solution types.
+
+    Parameters:
+        soltype_list (list of str): A list of solution types.
+        soltype (str): The solution type to search for.
+        occurence (int, optional): The occurrence of the solution type to find. Defaults to 1.
+        onetectypeoccurence (bool, optional): If True, treats 'tecandphase' and 'tec' as equivalent. Defaults to False.
+
+    Returns:
+        int or None: The index of the specified solution type in the list, or None if not found.
+    """
     if onetectypeoccurence:
         if soltype == 'tecandphase' or soltype == 'tec':
             soltype_list = [sol.replace('tecandphase', 'tec') for sol in soltype_list]
