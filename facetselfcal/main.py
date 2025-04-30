@@ -2916,11 +2916,12 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
     smoothing_bright = [10,25,5,25]
     smoothing = [10,25,15,25]
     N_bright = 4 # first N_bright get less smoothness and solint
-    N_normal = 35 # beyond this we have pertubative directions
+    N_normal = 45 # beyond this we have pertubative directions
+    N_amps   = 35 # directions for scalarcomplexgain solve
     
     inclusion_flags = [True,True,True,True]
     inclusion_flags_no_amps = [True,True,False,True]
-    inclusion_flags_faint = [False,False,False,True]
+    inclusion_flags_pert = [False,False,False,True]
     
     write_ds9_regions(catalog['RA'], catalog['DEC'], filename=ds9_region) 
   
@@ -2933,10 +2934,12 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
             else:
                 smoothnessvals = smoothing
                 solintvals = solints
-            if source_counter < N_normal:
-                inclusion_flagsvals = inclusion_flags
+            if source_counter < N_amps:
+                inclusion_flagsvals = inclusion_flags # include all solve types
+            elif source_counter >= N_amps and source_counter < N_normal: 
+                inclusion_flagsvals = inclusion_flags_no_amps # skip amp solving, but include first phases
             else:
-                inclusion_flagsvals = inclusion_flags_faint
+                inclusion_flagsvals = inclusion_flags_pert # pertubative phases only
                 
             line = f"{source['RA']} {source['DEC']} {selfcalcycle} " \
                    f"[{','.join(solintvals)}] " \
@@ -2997,11 +3000,11 @@ def auto_direction(selfcalcycle=0):
     if selfcalcycle == 3:
         keep_N_brightest = 40   
         distance = 15
-        N_dir_max = 40
+        N_dir_max = 45
     if selfcalcycle == 4:
         keep_N_brightest = 40   
         distance = 15
-        N_dir_max = 50
+        N_dir_max = 45
     if selfcalcycle == 5:
         keep_N_brightest = 50   
         distance = 10
@@ -3034,6 +3037,9 @@ def auto_direction(selfcalcycle=0):
     
     if selfcalcycle > 0:
         previous_catalog =  args['imagename'] + str(selfcalcycle-1).zfill(3) + '-errormap.srl.filtered.fits'
+        if not os.path.isfile(previous_catalog) or not os.path.isfile(args['imagename'] + str(0).zfill(3) + '-errormap.fits'):
+            print('One of both of these files are missing:',previous_catalog, args['imagename'] + str(0).zfill(3) + '-errormap.fits')    
+            raise Exception('Missing files')
     else:
         previous_catalog = None  
     
