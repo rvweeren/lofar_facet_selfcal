@@ -111,7 +111,7 @@ class GetSolint:
                 s=80, marker='o', edgecolor='black', zorder=5, alpha=0.7)
         plt.xlim(0, max(bestsolint * 1.5, self.ref_solint * 1.5))
         plt.xlabel("Solint (min)", fontsize=14)
-        plt.ylabel("$\sigma_{c}$ (rad)", fontsize=16)
+        plt.ylabel(r"$\sigma_{c}$ (rad)", fontsize=16)
 
         plt.xticks(fontsize=13)  # Setting the font size for x-ticks
         plt.yticks(fontsize=13)  # Setting the font size for y-ticks
