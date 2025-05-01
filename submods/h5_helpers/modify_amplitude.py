@@ -68,7 +68,8 @@ def get_all_antennas_from_h5list(h5list):
         'amplitude000': True,
         'phase000': True,
         'tec000': True,
-        'rotation000': True
+        'rotation000': True,
+        'rotationmeasure000': True
     }
 
     antennas = []
