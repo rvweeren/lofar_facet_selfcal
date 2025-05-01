@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# rotationmeasure updates
 #python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy.subtracted
 # run with less disk-space usage, remove all but merged h5, remove columns
 # continue splitting functions in facetselfcal in separate modules
@@ -90,7 +91,7 @@ from submods.h5_helpers.split_h5 import split_multidir
 from submods.h5_helpers.multidir_h5 import same_weights_multidir, is_multidir
 from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
 from submods.h5_helpers.modify_amplitude import get_median_amp, normamplitudes, normslope_withmatrix, normamplitudes_withmatrix
-from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5, fix_rotationreference
+from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5,  fix_rotationreference, fix_weights_rotationmeasureh5, fix_rotationmeasurereference
 from submods.h5_helpers.modify_tec import fix_tecreference
 from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
 from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
@@ -543,7 +544,7 @@ def is_stokesi_modeltype_allowed(args, telescope):
             if not args['disable_primary_beam']:
                 return False # so in this case we want the keep the primary beam polarization information    
     
-    notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'phaseonly_phmin', 'rotation_phmin', 'phaseonly_slope','scalarphasediff','scalarphasediffFR']
+    notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'phaseonly_phmin', 'rotation_phmin', 'phaseonly_slope', 'scalarphasediff', 'scalarphasediffFR', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']
     for soltype in args['soltype_list']:
         if soltype in notallowed_list: return False
     return True
@@ -920,7 +921,7 @@ def copy_over_solutions_from_skipped_directions(modeldatacolumnsin, id_kept):
         # copy over the values
         with tables.open_file(matchging_h5, mode='r') as hmatch:
 
-            for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000']:
+            for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000', 'rotationmeasure000']:
                 try:
                     getattr(hempty.root.sol000, sol_type).val[:] = np.copy(getattr(hmatch.root.sol000, sol_type).val[:])
                     print(f'Copied over {sol_type}')
@@ -3397,7 +3398,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
       None
     """
     fulljones = fulljonesparmdb(h5parm)  # True/False
-    hasphase, hasamps, hasrotation, hastec = check_soltabs(h5parm)
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
 
     with tables.open_file(h5parm) as H:
 
@@ -3417,6 +3418,10 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
             rotation = H.root.sol000.rotation000.val[:]
             antennas = H.root.sol000.rotation000.ant[:]
             axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+        if hasrotationmeasure:
+            faradayrotation = H.root.sol000.rotationmeasure000.val[:]
+            antennas = H.root.sol000.rotationmeasure000.ant[:]
+            axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
 
         for antennaid, antenna in enumerate(antennas):
             if antenna[0:2] != keepanntennastr:
@@ -3483,7 +3488,20 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                         rotation[:, :, :, antennaid, ...] = 0.0
                     if antennaxis == 4:
                         rotation[:, :, :, :, antennaid, ...] = 0.0
-
+                if hasrotationmeasure000:
+                    antennaxis = axisn.index('ant')
+                    axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+                    print('Resetting faradayrotation', antenna, 'Axis entry number', axisn.index('ant'))
+                    if antennaxis == 0:
+                        faradayrotation[antennaid, ...] = 0.0
+                    if antennaxis == 1:
+                        faradayrotation[:, antennaid, ...] = 0.0
+                    if antennaxis == 2:
+                        faradayrotation[:, :, antennaid, ...] = 0.0
+                    if antennaxis == 3:
+                        faradayrotation[:, :, :, antennaid, ...] = 0.0
+                    if antennaxis == 4:
+                        faradayrotation[:, :, :, :, antennaid, ...] = 0.0
                         # fill values back in
         if hasphase:
             H.root.sol000.phase000.val[:] = np.copy(phase)
@@ -3493,6 +3511,8 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
             H.root.sol000.tec000.val[:] = np.copy(tec)
         if hasrotation:
             H.root.sol000.rotation000.val[:] = np.copy(rotation)
+        if hasrotationmeasure:
+            H.root.sol000.rotationmeasure000.val[:] = np.copy(faradayrotation)
 
     return
 
@@ -3971,7 +3991,7 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None)
     special_DIL = False
     with tables.open_file(h5parm, mode='r') as H:
         dirnames = None
-        for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000']:
+        for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000','rotationmeasure000']:
             try:
                 dirnames = getattr(H.root.sol000, sol_type).dir[:]
                 break  # Stop if dirnames is found
@@ -4060,12 +4080,13 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 soltabs = list(H.root.sol000._v_children.keys())
 
             if not invert:  # so corrupt, rotation comes first in a rotation+diagonal apply
-                if 'rotation000' in soltabs:
+                if 'rotation000' in soltabs or 'rotationmeasure000' in soltabs:
                     # note that rotation comes before amplitude&phase for a corrupt (important if the solve was a rotation+diagonal one)
                     cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                     cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                     cmd += 'ac' + str(count) + '.type=applycal '
-                    cmd += 'ac' + str(count) + '.correction=rotation000 '
+                    if 'rotation000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotation000 '
+                    if 'rotationmeasure000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotationmeasure000 '
                     cmd += 'ac' + str(count) + '.invert=False '
                     if direction is not None:
                         if direction.startswith(
@@ -4123,11 +4144,12 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 count = count + 1
 
             if invert:  # so applycal, rotation comes last in a rotation+diagonal apply
-                if 'rotation000' in soltabs:
+                if 'rotation000' in soltabs or 'rotationmeasure000' in soltabs:
                     cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                     cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                     cmd += 'ac' + str(count) + '.type=applycal '
-                    cmd += 'ac' + str(count) + '.correction=rotation000 '
+                    if 'rotation000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotation000 '
+                    if 'rotationmeasure000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotationmeasure000 '
                     cmd += 'ac' + str(
                         count) + '.invert=True '  # by default True but set here as a reminder because order matters for rotation+diagonal in this DP3 step depending on invert=True/False
                     if direction is not None:
@@ -4363,6 +4385,10 @@ def inputchecker(args, mslist):
         print('beamcor is not auto, yes, or no')
         raise Exception('Invalid input, beamcor is not auto, yes, or no')
 
+    if args['beamcor'] != 'auto' and telescope != 'LOFAR':
+        print('beamcor is a LOFAR specific option, keep this at "auto"')
+        raise Exception('beamcor is a LOFAR specific option, keep this at "auto"')
+
     if args['DDE_predict'] not in ['DP3', 'WSCLEAN']:
         print('DDE-predict is not DP3 or WSCLEAN')
         raise Exception('DDE-predict is not DP3 or WSCLEAN')
@@ -4411,7 +4437,11 @@ def inputchecker(args, mslist):
                            'tecandphase', 'scalarphase',
                            'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin',
                            'rotation_phmin', 'tec_phmin',
-                           'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope']:
+                           'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope',
+                           'phaseonly_slope', 'faradayrotation', 'faradayrotation+diagonal',
+                           'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',
+                           'faradayrotation+scalar', 'faradayrotation+scalaramplitude',
+                           'faradayrotation+scalarphase']:
             print('Invalid soltype input')
             raise Exception('Invalid soltype input')
 
@@ -4460,6 +4490,29 @@ def inputchecker(args, mslist):
         if 'rotation+scalaramplitude' in args['soltype_list']:
             print('Invalid soltype input in combination with --DDE')
             raise Exception('Invalid soltype input in combination with --DDE')
+        if 'faradayrotation' in args['soltype_list']:
+            print('Invalid soltype input in combination with --DDE')
+            raise Exception('Invalid soltype input in combination with --DDE')
+        if 'faradayrotation+diagonal' in args['soltype_list']:
+            print('Invalid soltype input in combination with --DDE')
+            raise Exception('Invalid soltype input in combination with --DDE')
+        if 'faradayrotation+diagonalamplitude' in args['soltype_list']:
+            print('Invalid soltype input in combination with --DDE')
+            raise Exception('Invalid soltype input in combination with --DDE')
+        if 'faradayrotation+diagonalphase' in args['soltype_list']:
+            print('Invalid soltype input in combination with --DDE')
+            raise Exception('Invalid soltype input in combination with --DDE')
+        if 'faradayrotation+scalar' in args['soltype_list']:
+            print('Invalid soltype input in combination with --DDE')
+            raise Exception('Invalid soltype input in combination with --DDE')
+        if 'faradayrotation+scalarphase' in args['soltype_list']:
+            print('Invalid soltype input in combination with --DDE')
+            raise Exception('Invalid soltype input in combination with --DDE')
+        if 'faradayrotation+scalaramplitude' in args['soltype_list']:
+            print('Invalid soltype input in combination with --DDE')
+            raise Exception('Invalid soltype input in combination with --DDE')
+
+
         if args['wscleanskymodel'] is not None and args['facetdirections'] is None:
             print('If --DDE and --wscleanskymodel are set provide a direction file via --facetdirections')
             raise Exception('DDE with a wscleanskymodel requires a user-specified facetdirections')
@@ -4898,7 +4951,7 @@ def number_freqchan_h5(h5parmin):
         int: Number of frequency channels in the H5 file.
     """
     freq = []
-    solution_types = ['phase000', 'amplitude000', 'rotation000', 'tec000']
+    solution_types = ['phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000']
 
     with tables.open_file(h5parmin) as H:
         for sol_type in solution_types:
@@ -5453,7 +5506,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
     """
     print(h5parm, stationlist)
     fulljones = fulljonesparmdb(h5parm)  # True/False
-    hasphase, hasamps, hasrotation, hastec = check_soltabs(h5parm)
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
 
     H = tables.open_file(h5parm, 'r+')
 
@@ -5473,6 +5526,11 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
         antennas = H.root.sol000.rotation000.ant[:]
         axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
 
+    elif hasrotationmeasure:
+        antennas = H.root.sol000.rotationmeasure000.ant[:]
+        axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+
+
     # in case refant is None but h5 still has phase
     # this can happen with a scalaramplitude and soltypelist_includedir is used
     # in this case we have pertubative direction
@@ -5484,6 +5542,12 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
     # should not be needed as h5_merger does not create rotation000
     # keep this code in case of future h5_merger updates so we are safe
     if refant is None and hasrotation:
+        refant = findrefant_core(h5parm)
+        force_close(h5parm)
+
+    # should not be needed as h5_merger does not create rotationmeasure000
+    # keep this code in case of future h5_merger updates so we are safe
+    if refant is None and hasrotationmeasure:
         refant = findrefant_core(h5parm)
         force_close(h5parm)
 
@@ -5550,6 +5614,26 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
         if antennaxis == 4:
             rotationn = rotation - rotation[:, :, :, :, refant_idx[0], ...]
         rotation = np.copy(rotationn)
+
+    if hasrotationmeasure:
+        faradayrotation = H.root.sol000.rotationmeasure000.val[:]
+        refant_idx = np.where(H.root.sol000.rotationmeasure000.ant[:].astype(str) == refant)  # to deal with byte strings
+        print(refant_idx, refant)
+        antennaxis = axisn.index('ant')
+        axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+        print('Referencing faradayrotation to ', refant, 'Axis entry number', axisn.index('ant'))
+        if antennaxis == 0:
+            faradayrotationn = faradayrotation - faradayrotation[refant_idx[0], ...]
+        if antennaxis == 1:
+            faradayrotationn = faradayrotation - faradayrotation[:, refant_idx[0], ...]
+        if antennaxis == 2:
+            faradayrotationn = faradayrotation - faradayrotation[:, :, refant_idx[0], ...]
+        if antennaxis == 3:
+            faradayrotationn = faradayrotation - faradayrotation[:, :, :, refant_idx[0], ...]
+        if antennaxis == 4:
+            faradayrotationn = faradayrotation - faradayrotation[:, :, :, :, refant_idx[0], ...]
+        faradayrotation = np.copy(faradayrotationn)
+
 
     for antennaid, antenna in enumerate(antennas.astype(str)):  # to deal with byte formatted array
         # if not isinstance(antenna, str):
@@ -5644,6 +5728,20 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
                     rotation[:, :, :, antennaid, ...] = 0.0
                 if antennaxis == 4:
                     rotation[:, :, :, :, antennaid, ...] = 0.0
+            if hasrotationmeasure:
+                antennaxis = axisn.index('ant')
+                axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+                print('Resetting faradayrotation', antenna, 'Axis entry number', axisn.index('ant'))
+                if antennaxis == 0:
+                    faradayrotation[antennaid, ...] = 0.0
+                if antennaxis == 1:
+                    faradayrotation[:, antennaid, ...] = 0.0
+                if antennaxis == 2:
+                    faradayrotation[:, :, antennaid, ...] = 0.0
+                if antennaxis == 3:
+                    faradayrotation[:, :, :, antennaid, ...] = 0.0
+                if antennaxis == 4:
+                    faradayrotation[:, :, :, :, antennaid, ...] = 0.0
 
     # fill values back in
     if hasphase:
@@ -5654,6 +5752,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
         H.root.sol000.tec000.val[:] = np.copy(tec)
     if hasrotation:
         H.root.sol000.rotation000.val[:] = np.copy(rotation)
+    if hasrotationmeasure:
+        H.root.sol000.rotationmeasure000.val[:] = np.copy(faradayrotation)
 
     H.flush()
     H.close()
@@ -5665,7 +5765,7 @@ def check_soltabs(h5parm):
     Check the presence of various solution types in an h5 file.
     Returns if phase, amplitude, tec, and rotation are in h5.
     """
-    hasphase = hasamps = hasrotation = hastec = False
+    hasphase = hasamps = hasrotation = hastec = hasrotationmeasure = False
 
     with tables.open_file(h5parm) as H:
         soltabs = list(H.root.sol000._v_children.keys())
@@ -5678,8 +5778,10 @@ def check_soltabs(h5parm):
             hastec = True
         elif 'rotation' in s:
             hasrotation = True
+        elif 'rotationmeasure' in s:
+            hasrotationmeasure = True
 
-    return hasphase, hasamps, hasrotation, hastec
+    return hasphase, hasamps, hasrotation, hastec, hasrotationmeasure
 
 
 def resetsolsfordir(h5parm, dirlist, refant=None):
@@ -5692,7 +5794,7 @@ def resetsolsfordir(h5parm, dirlist, refant=None):
     """
     print(h5parm, dirlist)
     fulljones = fulljonesparmdb(h5parm)
-    hasphase, hasamps, hasrotation, hastec = check_soltabs(h5parm)
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
 
     # in case refant is None but h5 still has phase
     # this can happen with a scalaramplitude and soltypelist_includedir is used
@@ -5705,6 +5807,12 @@ def resetsolsfordir(h5parm, dirlist, refant=None):
     # should not be needed as h5_merger does not create rotation000
     # keep this code in case of future h5_merger updates so we are safe
     if refant is None and hasrotation:
+        refant = findrefant_core(h5parm)
+        force_close(h5parm)
+
+    # should not be needed as h5_merger does not create hasrotationmeasure000
+    # keep this code in case of future h5_merger updates so we are safe
+    if refant is None and hasrotationmeasure:
         refant = findrefant_core(h5parm)
         force_close(h5parm)
 
@@ -5731,6 +5839,10 @@ def resetsolsfordir(h5parm, dirlist, refant=None):
     elif hasrotation:
         directions = H.root.sol000.rotation000.dir[:]
         axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+
+    elif hasrotationmeasure:
+        directions = H.root.sol000.rotationmeasure000.dir[:]
+        axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
 
     if hasamps:
         amp = H.root.sol000.amplitude000.val[:]
@@ -5790,6 +5902,25 @@ def resetsolsfordir(h5parm, dirlist, refant=None):
         if antennaxis == 4:
             rotationn = rotation - rotation[:, :, :, :, refant_idx[0], ...]
         rotation = np.copy(rotationn)
+
+    if hasrotationmeasure:
+        faradayrotation = H.root.sol000.rotationmeasure000.val[:]
+        refant_idx = np.where(H.root.sol000.rotationmeasure000.ant[:].astype(str) == refant)  # to deal with byte strings
+        print(refant_idx, refant)
+        antennaxis = axisn.index('ant')
+        axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+        print('Referencing faradayrotation to ', refant, 'Axis entry number', axisn.index('ant'))
+        if antennaxis == 0:
+            faradayrotationn = faradayrotation - faradayrotation[refant_idx[0], ...]
+        if antennaxis == 1:
+            faradayrotationn = faradayrotation - faradayrotation[:, refant_idx[0], ...]
+        if antennaxis == 2:
+            faradayrotationn = faradayrotation - faradayrotation[:, :, refant_idx[0], ...]
+        if antennaxis == 3:
+            faradayrotationn = faradayrotation - faradayrotation[:, :, :, refant_idx[0], ...]
+        if antennaxis == 4:
+            faradayrotationn = faradayrotation - faradayrotation[:, :, :, :, refant_idx[0], ...]
+        faradayrotation = np.copy(faradayrotationn)
 
     for directionid, direction in enumerate(directions.astype(str)):  # to deal with byte formatted array
         # if not isinstance(antenna, str):
@@ -5882,6 +6013,22 @@ def resetsolsfordir(h5parm, dirlist, refant=None):
                     rotation[:, :, :, directionid, ...] = 0.0
                 if diraxis == 4:
                     rotation[:, :, :, :, directionid, ...] = 0.0
+
+            if hasrotationmeasure:
+                diraxis = axisn.index('dir')
+                axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+                print('Resetting faradayrotation direction ID', directionid, 'Axis entry number', axisn.index('dir'))
+                if diraxis == 0:
+                    faradayrotation[directionid, ...] = 0.0
+                if diraxis == 1:
+                    faradayrotation[:, directionid, ...] = 0.0
+                if diraxis == 2:
+                    faradayrotation[:, :, directionid, ...] = 0.0
+                if diraxis == 3:
+                    faradayrotation[:, :, :, directionid, ...] = 0.0
+                if diraxis == 4:
+                    faradayrotation[:, :, :, :, directionid, ...] = 0.0
+
     # fill values back in
     if hasphase:
         H.root.sol000.phase000.val[:] = np.copy(phase)
@@ -5891,6 +6038,8 @@ def resetsolsfordir(h5parm, dirlist, refant=None):
         H.root.sol000.tec000.val[:] = np.copy(tec)
     if hasrotation:
         H.root.sol000.rotation000.val[:] = np.copy(rotation)
+    if hasrotationmeasure:
+        H.root.sol000.rotationmeasure000.val[:] = np.copy(faradayrotation)
 
     H.flush()
     H.close()
@@ -7515,7 +7664,7 @@ def check_phaseup(H5name):
     """
     with tables.open_file(H5name, mode='r') as H5:
         ants = []
-        for sol_type in ['phase000', 'amplitude000', 'rotation000', 'tec000']:
+        for sol_type in ['phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000']:
             try:
                 ants = getattr(H5.root.sol000, sol_type).ant[:]
                 break  # Stop if antennas are found in the current solution type
@@ -8098,7 +8247,9 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
         # NORMALIZE amplitudes
         if normamps and (soltype in ['complexgain', 'scalarcomplexgain', 'rotation+diagonal',
                                      'rotation+diagonalamplitude', 'rotation+scalar',
-                                     'rotation+scalaramplitude', 'amplitudeonly', 'scalaramplitude']) and len(
+                                     'rotation+scalaramplitude', 'amplitudeonly', 'scalaramplitude',
+                                     'faradayrotation+diagonal', 'faradayrotation+diagonalamplitude',
+                                     'faradayrotation+scalar', 'faradayrotation+scalaramplitude']) and len(
             parmdbmslist) > 0:
             print('Doing global amplitude-type normalization')
 
@@ -8378,11 +8529,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if soltype in ['phaseonly', 'complexgain', 'fulljones', 'rotation+diagonal', 'amplitudeonly',
                    'rotation+diagonalamplitude',
-                   'rotation+diagonalphase']:  # for 1D plotting
+                   'rotation+diagonalphase', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude']:  # for 1D plotting
         onepol = False
     if soltype in ['scalarphase', 'tecandphase', 'tec', 'scalaramplitude',
                    'scalarcomplexgain', 'rotation', 'rotation+scalar',
-                   'rotation+scalarphase', 'rotation+scalaramplitude']:
+                   'rotation+scalarphase', 'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
         onepol = True
 
     if restoreflags:
@@ -8415,7 +8566,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     # determine if phases needs to be included, important if slowgains do not contain phase solutions
     includesphase = True
     if soltype == 'scalaramplitude' or soltype == 'amplitudeonly' \
-            or soltype == 'rotation+diagonalphase' or soltype == 'rotation+scalarphase':
+            or soltype == 'rotation+diagonalphase' or soltype == 'rotation+scalarphase' \
+            or soltype == 'faradayrotation+diagonalphase' or soltype == 'faradayrotation+scalarphase':
         includesphase = False
 
     # figure out which weight_spectrum column to use
@@ -8452,11 +8604,28 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if soltype == 'rotation+scalarphase':
         cmd += 'ddecal.rotationdiagonalmode=scalarphase '
 
-        # deal with the special cases because DP3 only knows soltype rotation+diagonal (it uses rotationdiagonalmode)
+    if soltype == 'faradayrotation+diagonal':
+        cmd += 'ddecal.faradaydiagonalmode=diagonal '
+    if soltype == 'faradayrotation+diagonalamplitude':
+        cmd += 'ddecal.faradaydiagonalmode=diagonalamplitude '
+    if soltype == 'faradayrotation+diagonalphase':
+        cmd += 'ddecal.faradaydiagonalmode=diagonalphase '
+    if soltype == 'faradayrotation+scalar':
+        cmd += 'ddecal.faradaydiagonalmode=scalar '
+    if soltype == 'faradayrotation+scalaramplitude':
+        cmd += 'ddecal.faradaydiagonalmode=scalaramplitude '
+    if soltype == 'faradayrotation+scalarphase':
+        cmd += 'ddecal.faradaydiagonalmode=scalarphase '
+
+
+    # deal with the special cases because DP3 only knows soltype rotation+diagonal (it uses rotationdiagonalmode)
     if soltype in ['rotation+diagonalamplitude', 'rotation+diagonalphase', \
                    'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase']:
         cmd += 'ddecal.mode=rotation+diagonal '
         # cmd += 'ddecal.rotationreference=True '
+    elif soltype in ['faradayrotation+diagonalamplitude', 'faradayrotation+diagonalphase', \
+                   'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
+        cmd += 'ddecal.mode=faradayrotation '  # 
     else:
         cmd += 'ddecal.mode=' + soltype + ' '
 
@@ -8475,7 +8644,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                     and 'rotation+scalar' not in soltype_list[0:soltypenumber] \
                     and 'rotation+scalaramplitude' not in soltype_list[0:soltypenumber] \
                     and 'rotation+scalarphase' not in soltype_list[0:soltypenumber] \
-                    and 'rotation+diagonal' not in soltype_list[0:soltypenumber]:
+                    and 'rotation+diagonal' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+diagonalphase' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+diagonalamplitude' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+scalar' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+scalaramplitude' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+scalarphase' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+diagonal' not in soltype_list[0:soltypenumber]:
                 cmd += 'ddecal.datause=dual '
             if soltype in ['scalarcomplexgain', 'scalaramplitude', \
                            'tec', 'tecandphase', 'scalarphase'] \
@@ -8487,6 +8663,13 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                     and 'rotation+scalaramplitude' not in soltype_list[0:soltypenumber] \
                     and 'rotation+scalarphase' not in soltype_list[0:soltypenumber] \
                     and 'rotation+diagonal' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+diagonalphase' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+diagonalamplitude' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+scalar' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+scalaramplitude' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+scalarphase' not in soltype_list[0:soltypenumber] \
+                    and 'faradayrotation+diagonal' not in soltype_list[0:soltypenumber] \
                     and 'complexgain' not in soltype_list[0:soltypenumber] \
                     and 'amplitudeonly' not in soltype_list[0:soltypenumber] \
                     and 'phaseonly' not in soltype_list[0:soltypenumber]: \
@@ -8600,7 +8783,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd += 'ddecal.smoothnessrefdistance=' + str(SMconstraintrefdistance * 1e3) + ' '  # input units in km
 
     if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation',
-                   'rotation+scalarphase', 'rotation+diagonalphase']:
+                   'rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase', 'faradayrotation+diagonalphase', 'faradayrotation']:
         cmd += 'ddecal.tolerance=' + str(tolerance) + ' '
         if soltype in ['tecandphase', 'tec']:
             cmd += 'ddecal.approximatetec=True '
@@ -8609,7 +8792,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             cmd += 'ddecal.approxtolerance=6e-3 '
     if soltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly',
                    'rotation+diagonal', 'fulljones', 'rotation+scalar',
-                   'rotation+diagonalamplitude', 'rotation+scalaramplitude']:
+                   'rotation+diagonalamplitude', 'rotation+scalaramplitude', 'faradayrotation+diagonal', 'faradayrotation+scalar', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalaramplitude']:
         cmd += 'ddecal.tolerance=' + str(tolerance) + ' '  # for now the same as phase soltypes
     # cmd += 'ddecal.detectstalling=False '
 
@@ -8673,7 +8856,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if has0coordinates(parmdb):
         logger.warning('Direction coordinates are zero in: ' + parmdb)
 
-    # Roation checking
+    # Rotation checking
     if soltype in ['rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude',
                    'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase']:
         remove_nans(parmdb, 'rotation000')
@@ -8681,6 +8864,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         refant = findrefant_core(parmdb)
         force_close(parmdb)
         fix_rotationreference(parmdb, refant)
+
+    # Faraday rotation checking
+    if soltype in ['faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',
+                   'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
+        remove_nans(parmdb, 'rotationmeasure000')
+        fix_weights_rotationmeasureh5(parmdb)
+        refant = findrefant_core(parmdb)
+        force_close(parmdb)
+        fix_rotationmeasurereference(parmdb, refant)
 
     # tec checking
     if soltype in ['tec', 'tecandphase']:
@@ -8693,7 +8885,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if soltype in ['rotation+diagonal', 'rotation+diagonalphase',
                    'rotation+scalar', 'rotation+scalarphase',
                    'scalarcomplexgain', 'complexgain', 'scalarphase',
-                   'phaseonly']:
+                   'phaseonly', 'faradayrotation+diagonal', 'faradayrotation+scalar', 'faradayrotation+diagonalphase', 'faradayrotation+scalarphase']:
         remove_nans(parmdb, 'phase000')
         refant = findrefant_core(parmdb)
         fix_phasereference(parmdb, refant)
@@ -8732,7 +8924,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
                        'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
                        'rotation+diagonalamplitude', 'rotation+diagonalphase',
-                       'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude']:
+                       'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
             refant = findrefant_core(parmdb)
             force_close(parmdb)
         else:
@@ -8744,7 +8936,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
                        'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
                        'rotation+diagonalamplitude', 'rotation+diagonalphase',
-                       'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude']:
+                       'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
             refant = findrefant_core(parmdb)
             force_close(parmdb)
         else:
@@ -8760,7 +8952,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     # Check for bad values (amplitudes/fulljones)
     if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude',
                    'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude',
-                   'rotation+scalar', 'rotation+scalaramplitude']:
+                   'rotation+scalar', 'rotation+scalaramplitude', 'faradayrotation+diagonal', 'faradayrotation+scalaramplitude','faradayrotation+diagonalamplitude','faradayrotation+scalar']:
         if resetdir is not None or resetsols is not None:
             flag_bad_amps(parmdb, setweightsphases=includesphase, flagamp1=False,
                           flagampxyzero=False)  # otherwise it flags the solutions which where reset
@@ -8774,7 +8966,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
         if soltype != 'amplitudeonly' and soltype != 'scalaramplitude' \
                 and soltype != 'rotation+diagonalamplitude' \
-                and soltype != 'rotation+scalaramplitude':
+                and soltype != 'rotation+scalaramplitude' \
+                and soltype != 'faradayrotation+scalaramplitude' \
+                and soltype != 'faradayrotation+diagonalamplitude' :
             remove_nans(parmdb, 'phase000')
 
         if soltype == 'fulljones':
@@ -8813,7 +9007,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         logger.info(cmdlosoto)
         run(cmdlosoto)
 
-        if soltype in ['rotation+scalarphase', 'rotation+diagonalphase']:
+        if soltype in ['rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase','faradayrotation+diagonalphase']:
             losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                                outplotname=outplotname,
                                                                refant=findrefant_core(parmdb),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
@@ -8849,7 +9043,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude',
                    'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude',
-                   'rotation+scalar', 'rotation+scalaramplitude']:
+                   'rotation+scalar', 'rotation+scalaramplitude', 'faradayrotation+diagonal', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude']:
         print('Do flagging?:', flagging)
         if flagging and not onechannel and ntimesH5(parmdb) > 1 :
             if soltype == 'fulljones':
@@ -10472,7 +10666,7 @@ def findrefant_core(H5file):
     soltabs = solset.getSoltabNames()
     for st in soltabs:
         # Find a reasonable soltab to use
-        if 'phase000' in st or 'rotation000' in st or 'tec000' in st:
+        if 'phase000' in st or 'rotation000' in st or 'tec000' in st or 'rotationmeasure000' in st:
             break
     soltab = solset.getSoltab(st)
 
