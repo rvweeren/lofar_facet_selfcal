@@ -162,12 +162,13 @@ class GetSolint:
 
         stations = [make_utf8(s) for s in list(H.root.sol000.antenna[:]['name'])]
 
-        if station is None or station == '':
+        if station is None or station == 'international':
             stations_idx = [stations.index(stion) for stion in stations if
                             ('RS' not in stion) &
                             ('ST' not in stion) &
-                            ('CS' not in stion) &
-                            ('DE' not in stion)]
+                            ('CS' not in stion) ]
+        elif station == 'all':
+            stations_idx = [stations.index(stion) for stion in stations]
         else:
             stations_idx = [stations.index(station)]
 
@@ -284,8 +285,6 @@ def parse_args():
 
     parser = ArgumentParser("Determine phasediff scores")
     parser.add_argument('--h5', nargs='+', help='selfcal phasediff solutions', default=None)
-    parser.add_argument('--station', help='for one specific station', default=None)
-    parser.add_argument('--all_stations', action='store_true', help='for all stations specifically')
     parser.add_argument('--make_plot', action='store_true', help='make phasediff plot')
     parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.75, type=float)
     return parser.parse_args()
@@ -307,35 +306,21 @@ def main():
     elif h5s is None:
         h5s = glob("P*_phasediff/phasediff0*.h5")
 
-    if args.station is not None:
-        station = args.station
-    else:
-        station = ''
-
     with open('phasediff_output.csv', 'w') as f:
         writer = csv.writer(f)
-        writer.writerow(["source", "spd_score", "best_solint", 'RA', 'DEC'])
+        writer.writerow(["source", "spd_score", "spd_score_all", "best_solint", 'RA', 'DEC'])
         for h5 in h5s:
-            # try:
             S = GetSolint(h5, optimal_score, ref_solint)
-            if args.all_stations:
-                H = tables.open_file(h5)
-                stations = [make_utf8(s) for s in list(H.root.sol000.antenna[:]['name'])]
-                H.close()
-            else:
-                stations = [station]
-            for station in stations:
-                std = S.get_phasediff_score(station=station)
-                solint = S.best_solint
-                H = tables.open_file(h5)
-                dir = rad_to_degree(H.root.sol000.source[:]['dir'])
+            std_int = S.get_phasediff_score(station='international')
+            std_all = S.get_phasediff_score(station='all')
+            solint = S.best_solint
+            H = tables.open_file(h5)
+            dir = rad_to_degree(H.root.sol000.source[:]['dir'])
 
-                writer.writerow([parse_source_from_h5(h5) + station, std, solint, dir[0], dir[1]])
-                if args.make_plot:
-                    S.plot_C(saveas='phasediff.png')
-                H.close()
-            # except:
-            #     pass
+            writer.writerow([parse_source_from_h5(h5), std_int, std_all, solint, dir[0], dir[1]])
+            if args.make_plot:
+                S.plot_C(saveas='phasediff.png')
+            H.close()
 
     # sort output
     df = pd.read_csv('phasediff_output.csv').sort_values(by='spd_score')
