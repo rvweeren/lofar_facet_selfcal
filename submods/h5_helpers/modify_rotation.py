@@ -62,6 +62,34 @@ def fix_weights_rotationh5(h5parm):
     # Update amplitude000 weights
     update_weights(h5parm, 'amplitude000')
 
+def fix_weights_rotationmeasureh5(h5parm):
+    """
+     DP3 bug causing weird weight values in rotationmeasure000, fix these
+     https://github.com/lofar-astron/DP3/issues/327
+     """
+    with tables.open_file(h5parm, mode='a') as H:
+        # Update rotationmeasure000 weights
+        weights = H.root.sol000.rotationmeasure000.weight[:]
+        weights[(weights > 0.0) & (weights < 1.0)] = 1.0
+        H.root.sol000.rotationmeasure000.weight[:] = np.copy(weights)
+        H.flush()
+
+    # Function to update weights for phase000 and amplitude000 safely
+    def update_weights(h5file, sol_type):
+        try:
+            with tables.open_file(h5file, mode='a') as H:
+                weights = getattr(H.root.sol000, sol_type).weight[:]
+                weights[(weights > 0.0) & (weights < 1.0)] = 1.0
+                getattr(H.root.sol000, sol_type).weight[:] = np.copy(weights)
+        except AttributeError:
+            pass
+
+    # Update phase000 weights
+    update_weights(h5parm, 'phase000')
+
+    # Update amplitude000 weights
+    update_weights(h5parm, 'amplitude000')
+
 
 def fix_rotationreference(h5parm, refant):
     """ Phase reference rotation values with respect to a reference station
@@ -94,6 +122,42 @@ def fix_rotationreference(h5parm, refant):
 
     # fill values back in
     H.root.sol000.rotation000.val[:] = np.copy(rotation)
+
+    H.flush()
+    H.close()
+    return
+
+def fix_rotationmeasurereference(h5parm, refant):
+    """ Phase reference rotationmeasure values with respect to a reference station
+    Args:
+      h5parm: h5parm file
+      refant: reference antenna
+    """
+
+    H = tables.open_file(h5parm, mode='a')
+
+    axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+
+    rotationmeasure = H.root.sol000.rotationmeasure000.val[:]
+    refant_idx = np.where(H.root.sol000.rotationmeasure000.ant[:].astype(str) == refant)  # to deal with byte strings
+    print(refant_idx, refant)
+    antennaxis = axisn.index('ant')
+
+    print('Referencing rotationmeasure to ', refant, 'Axis entry number', axisn.index('ant'))
+    if antennaxis == 0:
+        rotationmeasuren = rotationmeasure - rotationmeasure[refant_idx[0], ...]
+    if antennaxis == 1:
+        rotationmeasuren = rotationmeasure - rotationmeasure[:, refant_idx[0], ...]
+    if antennaxis == 2:
+        rotationmeasuren = rotationmeasure - rotationmeasure[:, :, refant_idx[0], ...]
+    if antennaxis == 3:
+        rotationmeasuren = rotationmeasure - rotationmeasure[:, :, :, refant_idx[0], ...]
+    if antennaxis == 4:
+        rotationmeasuren = rotationmeasure - rotationmeasure[:, :, :, :, refant_idx[0], ...]
+    rotationmeasure = np.copy(rotationmeasuren)
+
+    # fill values back in
+    H.root.sol000.rotationmeasure000.val[:] = np.copy(rotationmeasure)
 
     H.flush()
     H.close()

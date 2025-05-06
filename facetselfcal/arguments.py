@@ -211,7 +211,7 @@ def option_parser():
     calibrationparser.add_argument("--soltype-list",
                                    type=arg_as_list,
                                    default=['tecandphase', 'tecandphase', 'scalarcomplexgain'],
-                                   help="List with solution types. Possible input: 'complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase','rotation+diagonalamplitude',                   'rotation+scalar','rotation+scalaramplitude','rotation+scalarphase', 'tec', 'tecandphase', 'scalarphase', 'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', 'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope'. The default is [tecandphase,tecandphase,scalarcomplexgain].")
+                                   help="List with solution types. Possible input: 'complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase' , 'tec', 'tecandphase', 'scalarphase', 'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', 'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope'. The default is [tecandphase,tecandphase,scalarcomplexgain].")
     calibrationparser.add_argument("--solint-list",
                                    type=check_strlist_or_intlist,
                                    default=[1, 1, 120],
@@ -474,7 +474,7 @@ def option_parser():
                         help='DS9 box file. You need to provide a boxfile to use --startfromtgss. The default is None.',
                         type=str)
     parser.add_argument('--beamcor',
-                        help='Correct the visibilities for beam in the phase center, options: yes, no, auto (default is auto, auto means beam is taken out in the curent phase center, tolerance for that is 10 arcsec)',
+                        help='Correct the visibilities for beam in the phase center, options: yes, no, or auto. This is a LOFAR specific option. (default is auto, auto means the LOFAR beam is taken out in the curent phase center, tolerance for that is 10 arcsec)',
                         type=str,
                         default='auto')
     parser.add_argument('--losotobeamcor-beamlib',

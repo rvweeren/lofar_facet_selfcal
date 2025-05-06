@@ -22,7 +22,7 @@ def update_sourcedirname_h5_dde(h5, modeldatacolumns):
             print(H.root.sol000.source[direction_id]['name'], modeldatacolumns[direction_id])
 
         # Update directions in various sol sets
-        for sol_set in ['phase000', 'amplitude000', 'tec000', 'rotation000']:
+        for sol_set in ['phase000', 'amplitude000', 'tec000', 'rotation000', 'rotationmeasure000']:
             try:
                 getattr(H.root.sol000, sol_set).dir[:] = modeldatacolumns_outname
                 print(f'Updated direction names in {sol_set}:', modeldatacolumns_outname)
