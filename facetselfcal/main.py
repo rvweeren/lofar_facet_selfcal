@@ -2603,15 +2603,16 @@ def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=Fals
             if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
                 weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
             if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
-                desc = t.getcoldesc(weightref)
-                desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
-                t.addcols(desc)
-
+                #desc = t.getcoldesc(weightref)
+                #desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
+                #t.addcols(desc)
+                addcol(t, weightref, 'WEIGHT_SPECTRUM_BACKUP', write_outcol=True) 
             if outweightcol not in t.colnames():
                 print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-                desc = t.getcoldesc(weightref)
-                desc['name'] = outweightcol
-                t.addcols(desc)
+                #desc = t.getcoldesc(weightref)
+                #desc['name'] = outweightcol
+                #t.addcols(desc)
+                addcol(t, weightref, outweightcol)
             # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
             for row in range(0, t.nrows(), stepsize):
                 print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
@@ -2638,6 +2639,24 @@ def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=Fals
         del weight, model_orig, model_new
 
 
+def addcol(t, incol, outcol, write_outcol=False, dysco=False):
+    """ Add a new column to a MS. """
+    if outcol not in t.colnames():
+        logging.info('Adding column: ' + outcol)
+        coldmi = t.getdminfo(incol)
+        if dysco:
+            coldmi['NAME'] = 'Dysco' + outcol
+        else:
+            coldmi['NAME'] = outcol
+        try:
+            t.addcols(makecoldesc(outcol, t.getcoldesc(incol)), coldmi)
+        except:
+            coldmi['TYPE'] = "StandardStMan"  # DyscoStMan"
+            t.addcols(makecoldesc(outcol, t.getcoldesc(incol)), coldmi)
+    if (outcol != incol) and write_outcol:
+        # copy over the columns
+        taql("UPDATE $t SET " + outcol + "=" + incol)
+
 def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA',
                            backup=True):
     if not isinstance(inmslist, list):
@@ -2649,15 +2668,19 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updatewe
             if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
                 weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
             if backup and ('WEIGHT_SPECTRUM_BACKUP' not in t.colnames()):
-                desc = t.getcoldesc(weightref)
-                desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
-                t.addcols(desc)
+                print('Adding WEIGHT_SPECTRUM_BACKUP to', ms, 'based on', weightref)
+                #desc = t.getcoldesc(weightref)
+                #desc['name'] = 'WEIGHT_SPECTRUM_BACKUP'
+                #t.addcols(desc)
+                addcol(t, weightref, 'WEIGHT_SPECTRUM_BACKUP', write_outcol=True)
 
             if outweightcol not in t.colnames():
                 print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-                desc = t.getcoldesc(weightref)
-                desc['name'] = outweightcol
-                t.addcols(desc)
+                #desc = t.getcoldesc(weightref)
+                #desc['name'] = outweightcol
+                #t.addcols(desc)
+                addcol(t, weightref, outweightcol)
+
             # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
             for row in range(0, t.nrows(), stepsize):
                 print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
@@ -2690,9 +2713,10 @@ def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False,
             weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
         if outweightcol not in t.colnames():
             print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-            desc = t.getcoldesc(weightref)
-            desc['name'] = outweightcol
-            t.addcols(desc)
+            #desc = t.getcoldesc(weightref)
+            #desc['name'] = outweightcol
+            #t.addcols(desc)
+            addcol(t, weightref, outweightcol)
         taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[,1] = {updateweights_from_thiscolumn}[,0]')
         taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[,2] = {updateweights_from_thiscolumn}[,0]')
         taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[,3] = {updateweights_from_thiscolumn}[,0]')
@@ -2703,6 +2727,7 @@ def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False,
         print('Mean weights input', weightmean)
         print('Mean weights change factor', change_factor)
         print()
+        t.close()
 
 def calibration_error_map(fitsimage, outputfitsfile, kernelsize=31, rebin=None):
     """
@@ -3014,8 +3039,20 @@ def auto_direction(selfcalcycle=0):
         keep_N_brightest = 60   
         distance = 10
         N_dir_max = 70
-    if selfcalcycle >= 7:
+    if selfcalcycle == 7:
         keep_N_brightest = 70   
+        distance = 10
+        N_dir_max = 80
+    if selfcalcycle == 8:
+        keep_N_brightest = 80   
+        distance = 10
+        N_dir_max = 90
+    if selfcalcycle == 9:
+        keep_N_brightest = 90   
+        distance = 10
+        N_dir_max = 100
+    if selfcalcycle >= 10:
+        keep_N_brightest = 100   
         distance = 10
         N_dir_max = 100
 
@@ -3738,6 +3775,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
             if check_phaseup_station(ms):
                 cmd += 'msout.uvwcompression=False '
+                # cmd += 'msout.antennacompression=False '
             cmd += 'msout=' + msout + ' msin.weightcolumn=WEIGHT_SPECTRUM '
             cmd += 'msin.datacolumn=' + dataincolumn + ' '
             if dysco:
@@ -3875,9 +3913,10 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                         # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
                         with table(msout, readonly=False) as t2:
                             print('Adding WEIGHT_SPECTRUM_SOLVE')
-                            desc = t2.getcoldesc('WEIGHT_SPECTRUM')
-                            desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
-                            t2.addcols(desc)
+                            #desc = t2.getcoldesc('WEIGHT_SPECTRUM')
+                            #desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
+                            #t2.addcols(desc)
+                            addcol(t2, 'WEIGHT_SPECTRUM', 'WEIGHT_SPECTRUM_SOLVE')
 
                             with table(msouttmp, readonly=True) as t3:
                                 imweights = t3.getcol('WEIGHT_SPECTRUM')
@@ -4046,7 +4085,8 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
 
     cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), 8])) + ' msin=' + ms
     cmd += ' msout=' + msout + ' '
-    if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
+    if check_phaseup_station(ms): 
+        if msout != '.': cmd += 'msout.uvwcompression=False ' # only invoke when writing new MS
     cmd += 'msin.datacolumn=' + msincol + ' '
     if msout == '.':
         cmd += 'msout.datacolumn=' + msoutcol + ' '
@@ -6400,9 +6440,10 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
     print('Adding WEIGHT_SPECTRUM_SOLVE')
     with table(ms + '.cut', readonly=False) as t:
-        desc = t.getcoldesc('WEIGHT_SPECTRUM')
-        desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
-        t.addcols(desc)
+        #desc = t.getcoldesc('WEIGHT_SPECTRUM')
+        #desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
+        #t.addcols(desc)
+        addcol(t, 'WEIGHT_SPECTRUM', 'WEIGHT_SPECTRUM_SOLVE')
 
         with table(ms + '.cuttmp', readonly=True) as t2:
             imweights = t2.getcol('WEIGHT_SPECTRUM')
@@ -9232,9 +9273,10 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
                     with table(ms + '.subtracted_ddcor', readonly=False) as t2:
                         print('Adding WEIGHT_SPECTRUM_SOLVE')
-                        desc = t2.getcoldesc('WEIGHT_SPECTRUM')
-                        desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
-                        t2.addcols(desc)
+                        #desc = t2.getcoldesc('WEIGHT_SPECTRUM')
+                        #desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
+                        #t2.addcols(desc)
+                        addcol(t2, 'WEIGHT_SPECTRUM', 'WEIGHT_SPECTRUM_SOLVE')
                         imweights = t.getcol('WEIGHT_SPECTRUM_SOLVE')
                         t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
             # remove uncorrected file to save disk space
@@ -10232,7 +10274,8 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
         cmddppp = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
         cmddppp += 'msout=' + msout + ' '
         cmddppp += 'msin.weightcolumn=WEIGHT_SPECTRUM '
-        if check_phaseup_station(ms): cmddppp += 'msout.uvwcompression=False '
+        if check_phaseup_station(ms):
+            if msout != '.': cmd += 'msout.uvwcompression=False ' # only when writing new MS: 
         if msout == '.':
             cmddppp += 'msout.datacolumn=CORRECTED_DATA '
         if (lin2circ or circ2lin) and beam:
@@ -10283,7 +10326,8 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
     else:
         cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
         cmd += 'msout=' + msout + ' '
-        if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
+        if check_phaseup_station(ms): 
+            if msout != '.': cmd += 'msout.uvwcompression=False ' # only when writing new MS
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
         if msout == '.':
             cmd += 'msout.datacolumn=CORRECTED_DATA '
@@ -11579,7 +11623,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '14.0.0'
+    version = '14.1.0'
     print_title(version)
 
     global submodpath, datapath
