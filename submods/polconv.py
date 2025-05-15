@@ -37,7 +37,7 @@ except:
         from dp3 import Step
 
 class PolConv(Step):
-    """
+    r"""
     Convert UV data polarization.
     lin2circ --> convert from linear to circular UV data
     circ2lin --> convert from circular to linear UV data
