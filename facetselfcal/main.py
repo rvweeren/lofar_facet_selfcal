@@ -114,6 +114,29 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def applycal_restart_di(mslist, selfcalcycle):
+    """
+    Apply merged selfcal solution files from a previous cycle in case of a restart for DI mode
+    This makes CORRECTED_DATA from the previous selfcal cycle merged h5 solutions
+    
+    Parameters
+    ----------
+    mslist : list
+        List of MS
+    
+    selfcalcycle : int
+        selfcal cycle number
+    
+    Returns
+    -------
+    None
+
+    """
+    for ms in mslist:
+        parmdbmergename = 'merged_selfcalcycle' + str(selfcalcycle-1).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+        applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
+    return
+
 
 def MeerKAT_pbcor_Lband(fitsimage, outfile, freq=None, ms=None): 
     """
@@ -6140,7 +6163,7 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
             vals = losoto.lib_operations.reorderAxes(vals, soltab.getAxesNames(), ['ant', 'time', 'freq', 'pol'])
 
             for stationnum in range(numants):
-                logger.debug('Working on station number %i' % stationnum)
+                logger.debug('stationresponse working on station number %i' % stationnum)
                 for itime, time in enumerate(times):
                     beam = sr.evaluateStation(time=time, station=stationnum)
                     # Reshape from [nfreq, 2, 2] to [nfreq, 4]
@@ -6181,7 +6204,7 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
             stationloop.set_description('Stations processed: ')
             for stationnum in range(numants):
                 stationloop.update()
-                logger.debug('Working on station number %i' % stationnum)
+                logger.debug('everybeam working on station number %i' % stationnum)
                 # Parallelise over channels to speed things along.
                 with parallel_backend('loky', n_jobs=len(psutil.Process().cpu_affinity())):
                     results = Parallel()(delayed(process_channel_everybeam)(f, stationnum=stationnum,
@@ -6894,7 +6917,7 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
                           inantennaconstraint_list=None, inresetsols_list=None, inresetdir_list=None,
                           innormamps_list=None,
                           insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0,
-                          phasefactorsolint=1.0, delaycal=False):
+                          gainfactorsmoothness=1.0, phasefactorsolint=1.0, delaycal=False):
     """
     determine the solution time and frequency intervals based on the amount of compact source flux and noise
     """
@@ -7127,11 +7150,11 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
                 # print('TEST:', ((solint_sf*((noise/flux)**2)*(chanw/390.625e3))*tint/3600.))
                 if ((solint_sf * ((noise / flux) ** 2) * (
                         chanw / 390.625e3)) * tint / 3600.) < thr_SM15Mhz:  # so check if smaller than 2 hr
-                    insmoothnessconstraint_list[soltype_id][ms_id] = 5.0
+                    insmoothnessconstraint_list[soltype_id][ms_id] = 5.0*gainfactorsmoothness
                 else:
                     print('Increasing smoothnessconstraint to 15 MHz')
                     logger.info('Increasing smoothnessconstraint to 15 MHz')
-                    insmoothnessconstraint_list[soltype_id][ms_id] = 15.0
+                    insmoothnessconstraint_list[soltype_id][ms_id] = 15.0*gainfactorsmoothness
 
                 # trigger nchan=0 solve because not enough S/N
                 if not longbaseline and (((solint_sf * ((noise / flux) ** 2) * (
@@ -10375,8 +10398,12 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
         run(cmd, log=True)
         if msout == '.':
             # run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
-            run("DP3 msin=" + ms + " msout=. msin.datacolumn=CORRECTED_DATA msout.datacolumn=DATA steps=[]", log=True)
-
+            cmdcopycolumn = "DP3 msin=" + ms + " msout=. msin.datacolumn=CORRECTED_DATA msout.datacolumn=DATA steps=[]"
+            if dysco:
+                cmdcopycolumn += ' msout.storagemanager=dysco '
+                cmdcopycolumn += ' msout.storagemanager.weightbitrate=16 '
+            run(cmdcopycolumn, log=True) # use DP3 and not taql so column beam keyword are copied over
+               
     # update ms POLTABLE
     if (lin2circ or circ2lin) and update_poltable:
         tp = table(ms + '/POLARIZATION', readonly=False, ack=True)
@@ -11623,7 +11650,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '14.1.0'
+    version = '14.3.0'
     print_title(version)
 
     global submodpath, datapath
@@ -12000,6 +12027,10 @@ def main():
             create_facet_directions(args['imagename'], i, ms=mslist[0], imsize=args['imsize'],
                             pixelscale= args['pixelscale'], via_h5=True, h5=wsclean_h5list[0])
 
+        # RESTART FOR A DI RUN, set CORRECTED_DATA from previous selfcal cycle
+        if not args['DDE'] and  args['start'] != 0 and i == args['start']: 
+            applycal_restart_di(mslist, i)
+
         #  --- start imaging part ---
         for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
             if args['stack']:
@@ -12129,6 +12160,7 @@ def main():
                                       insoltypecycles_list=soltypecycles_list, redo=True,
                                       tecfactorsolint=args['tecfactorsolint'],
                                       gainfactorsolint=args['gainfactorsolint'],
+                                      gainfactorsmoothness=args['gainfactorsmoothness'],
                                       phasefactorsolint=args['phasefactorsolint'],
                                       delaycal=args['delaycal'])
 
