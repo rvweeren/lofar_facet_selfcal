@@ -296,6 +296,10 @@ def option_parser():
                                    help='Experts only.',
                                    type=float,
                                    default=1.0)
+    calibrationparser.add_argument('--gainfactorsmoothness',
+                                   help='Experts only.',
+                                   type=float,
+                                   default=1.0)
     calibrationparser.add_argument('--phasefactorsolint',
                                    help='Experts only.',
                                    type=float,
@@ -474,7 +478,7 @@ def option_parser():
                         help='DS9 box file. You need to provide a boxfile to use --startfromtgss. The default is None.',
                         type=str)
     parser.add_argument('--beamcor',
-                        help='Correct the visibilities for beam in the phase center, options: yes, no, or auto. This is a LOFAR specific option. (default is auto, auto means the LOFAR beam is taken out in the curent phase center, tolerance for that is 10 arcsec)',
+                        help='Correct the visibilities for beam in the phase center, options: yes, no, or auto. This is a LOFAR specific option. (default is auto, auto means the LOFASR beam is taken out in the curent phase center, tolerance for that is 10 arcsec)',
                         type=str,
                         default='auto')
     parser.add_argument('--losotobeamcor-beamlib',
