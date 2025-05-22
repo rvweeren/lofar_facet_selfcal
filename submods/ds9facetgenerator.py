@@ -84,7 +84,7 @@ def makeWCS(centreX, centreY, refRA, refDec, crdelt=None):
     return w
 
 
-def tessellate(x_pix, y_pix, w, dist_pix, bbox, plot_tesselation=True):
+def tessellate(x_pix, y_pix, w, dist_pix, bbox, nouter=64, plot_tesselation=True):
     """
     Returns Voronoi tessellation vertices
     Parameters
