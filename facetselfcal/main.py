@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # rotationmeasure updates
+#std exception detected: The TEC constraints do not yet support direction-dependent intervals
 #python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy.subtracted
 # run with less disk-space usage, remove all but merged h5, remove columns
 # continue splitting functions in facetselfcal in separate modules
@@ -7177,43 +7178,10 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
                     logger.info('Disabling solve: ' + soltype + ' ' + ms)
                 else:
                     insoltypecycles_list[soltype_id][
-                        ms_id] = 3  # set to user input value? problem because not retained now
+                        ms_id] = 3  # set to user input value? problem because not retained now (for example value can have been set to 999 above)
 
                 insolint_list[soltype_id][ms_id] = int(solint)
 
-                # --------------- NCHAN ------------- NOT BEING USED, keep code in case we need it later
-
-                if insmoothnessconstraint_list[soltype_id][ms_id] == 0.0 and innchan_list[soltype_id][
-                    ms_id] != 0:  # DOES NOT GET HERE BECAUSE smoothnessconstraint > 0 test above
-
-                    if LBA:
-                        if longbaseline:
-                            print('Long baselines LBA not supported with --auto')
-                            raise Exception('Long baselines LBA not supported with --auto')
-                        else:  # for -- LBA dutch, untested --
-                            nchan_sf = 0.75  # for tecandphase and coreconstraint
-
-                    else:  # for -- HBA --
-                        if longbaseline:
-                            nchan_sf = 0.0075  #
-                        else:  # for -- HBA dutch --
-                            nchan_sf = 0.75  #
-
-                    nchan = np.rint(nchan_sf * (noise / flux) ** 2)
-
-                    # do not allow very low nchan solves
-                    if (float(nchan) * chanw / 1e6) < 2.0:  # check if less than 2 MHz
-                        nchan = np.rint(2.0 * 1e6 / chanw)  # 2 MHz
-
-                    # do not allow nchan solves that are more than 15 MHz
-                    if (float(nchan) * chanw / 1e6) > 15.0:
-                        print('Warning, it seems there is not enough flux density on the longer baselines for solving')
-                        nchan = np.rint(15 * 1e6 / chanw)  # 15 MHz
-
-                    print(nchan_sf * (noise / flux) ** 2, 'Using gain nchan:', nchan)
-                    print('Using gain nchan [MHz]:', float(nchan) * chanw / 1e6)
-
-                    innchan_list[soltype_id][ms_id] = int(nchan)
 
     print('soltype:', soltype_list, mslist)
     print('nchan:', innchan_list)
@@ -8860,16 +8828,67 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd += 'ddecal.tolerance=' + str(tolerance) + ' '  # for now the same as phase soltypes
     # cmd += 'ddecal.detectstalling=False '
 
+
+    # DETERMINE IF WE CAN USE SOLUTIONS FROM PREVIOUS SELFCAL CYCLE
+    if args['startfrominitialsolutions']:
+        print('Checking if a solution file from a previous selfcalcycle is present...')
+        # update_sourcedir_h5_dde() will cause issues? 
+        initialsolutions_exist = False
+        initialsolutions_directions_equal = False
+        current_ndir = len(modeldatacolumns)
+        if (len(modeldatacolumns_solve) > 0) and (len(modeldatacolumns) != len(modeldatacolumns_solve)):
+            # means that we require parmdb + .backup 
+            # number directions being solved for is different as soltypelist_includedir functionality is used    
+            current_ndir = len(modeldatacolumns_solve)
+            parmdbtmp = parmdb + '.backup'
+        else:
+            parmdbtmp = parmdb
+            
+        if selfcalcycle == 0:  # do deal with the "skyselfcalcycle if it exists"
+            previous_parmdb = parmdbtmp.replace('selfcalcycle'+str(0).zfill(3),'skyselfcalcycle'+str(0).zfill(3))
+            if os.path.isfile(previous_parmdb): initialsolutions_exist = True
+                    
+        else:
+            previous_parmdb = parmdbtmp.replace('selfcalcycle'+str(selfcalcycle).zfill(3),                                  'selfcalcycle'+str(selfcalcycle-1).zfill(3))
+            if os.path.isfile(previous_parmdb): initialsolutions_exist = True
+                
+        if initialsolutions_exist: # we autatically guarantee that the soltype is the same because we check for the parmdb name which contains the soltype in there 
+        # check n_dir equals current number of dirctions to solve
+            print('Found initial solution file:',previous_parmdb)
+            with tables.open_file(previous_parmdb) as Hprev:
+                for soltab in Hprev.root.sol000._v_groups.keys():
+                    previous_ndir = len(Hprev.root.sol000._f_get_child(soltab).dir[:])
+                print('Number of directions in ' + previous_parmdb + ':',previous_ndir)     
+            if previous_ndir <= 1 and current_ndir <=1: #this is a DI solve
+                initialsolutions_directions_equal = True
+            else:
+               if len(previous_ndir) == len(current_ndir): 
+                   initialsolutions_directions_equal = True # this is a DD solve
+                   # number of directions did not change from previous selfcalcycle     
+
+        if initialsolutions_exist and initialsolutions_directions_equal: 
+            # if we get here it means we can can use ddecal.initialsolutions
+            cmd += 'ddecal.initialsolutions.h5parm=' + previous_parmdb + ' '
+            if soltypein == 'fulljones': 
+                # just for extra safety 
+                cmd += 'ddecal.initialsolutions.gaintype=fulljones ' 
+                # for all soletypes DP3 should be able to figure it out in principle by itself 
+                cmd += 'initialsolutions.soltab=[amplitude000,phase000] '
+            # set ddecal.initialsolutions.soltab
+            else:
+                with tables.open_file(previous_parmdb) as Hprev:
+                   soltabs = list(Hprev.root.sol000._v_groups.keys())
+                   if 'error000' in soltabs: soltabs.remove('error000')
+                   
+                cmd += "ddecal.initialsolutions.soltab='[" + ','.join(map(str, soltabs)) + "]' "
+
+    # RUN THE SOLVE WITH DP3
     print('DP3 solve:', cmd)
     logger.info('DP3 solve: ' + cmd)
-
-    # START prepare to remove this at some point
     run(cmd)
 
-    # if soltype == 'fulljones':
-    #   sys.exit()
-    # sys.exit()
 
+    # START prepare to remove this at some point
     if False:
         if selfcalcycle > 0 and (soltypein == "scalarphasediffFR" or soltypein == "scalarphasediff"):
             h5_tocopy = soltypein + str(soltypenumber) + "_selfcalcycle000_" + os.path.basename(ms) + ".h5.scbackup"
@@ -8901,7 +8920,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         copy_over_solutions_from_skipped_directions(modeldatacolumns, dir_id_kept)
 
         # create backup of parmdb and remove orginal and cleanup
-        os.system('cp ' + parmdb + ' ' + parmdb + '.backup')
+        os.system('cp -f ' + parmdb + ' ' + parmdb + '.backup')
         os.system('rm -f ' + parmdb)
         os.system('rm -f ' + outparmdb)
 
@@ -9658,7 +9677,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 cmd += '-pol i '
             if len(h5list) == 0 and not args['groupms_h5facetspeedup']:  # only use baseline-averaging if there are no h5 facet-solutions
                 # if not forceimagingwithfacets:
-                cmd += '-baseline-averaging ' + baselineav + ' '
+                if facetregionfile is None: # do not allow baseline-averaging with facets
+                    # facet imaging works with  baseline-averaging but is very slow/inefficient there is no speedup, rather an order of magnitude slow down
+                    cmd += '-baseline-averaging ' + baselineav + ' '
             if usewgridder:
                 cmd += '-gridder wgridder '
                 cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '

@@ -74,7 +74,7 @@ def option_parser():
                                default=None,
                                type=floatlist_or_float)
     imagingparser.add_argument('--pixelscale', '--pixelsize',
-                               help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations (these are also the default values).',
+                               help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations (these are also the default values). For LOFAR ILT the defaults are 0.04 and 0.08 for HBA and LBA, repspectively. For MeerKAT the defaults are 1.8,1.0, and 0.5 for UHF, L, and S-band, repspectively.',
                                type=float)
     imagingparser.add_argument('--channelsout',
                                help='Number of channels out during imaging (see WSClean documentation). This is by default 6.',
@@ -286,6 +286,9 @@ def option_parser():
                                    type=arg_as_list,
                                    default=['normamps', 'normamps', 'normamps'],
                                    help="List with amplitude normalization options. Possible input: 'normamps', 'normslope', 'normamps_per_ant, 'normslope+normamps', 'normslope+normamps_per_ant', or None. The default is [normamps,normamps,normamps,etc]. Only has an effect if the corresponding soltype outputs and amplitude000 table (and is not fulljones).")
+    calibrationparser.add_argument('--startfrominitialsolutions',
+                                   help='Use the solutions from the previous selfcalcycle in DP3 as initial solutions for the solve (if possible). This could speed up convergence in the solve.',
+                                   action='store_true') 
 
     # Expert settings
     calibrationparser.add_argument('--tecfactorsolint',
