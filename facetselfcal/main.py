@@ -9758,7 +9758,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if model_allzero:
             logger.error("All channel maps models were zero: Stopping the selfcal")
             print("All channel maps models were zero: Stopping the selfcal")
-            sys.exit(0)
+            sys.exit(1)
 
         if predict and len(h5list) == 0 and not DDEimaging:
             # We check for DDEimaging to avoid a predict for image000 in a --DDE run
