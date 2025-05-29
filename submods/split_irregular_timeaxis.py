@@ -8,7 +8,7 @@ from astropy.time import Time
 from casacore.tables import msregularize
 import sys
 import argparse
-
+import ast
 
 def regularize_ms(ms_path, overwrite=False, dryrun=False):
     regularised = False
@@ -42,7 +42,7 @@ def mjd_to_mvtime(mjd_time):
     return mvtime_str
 
 
-def split_ms(ms_path, overwrite=False, prefix='', dysco=True, return_mslist=False, dryrun=False):
+def split_ms(ms_path, overwrite=False, prefix='', dysco=True, return_mslist=False, dryrun=False, metadata_compression=False):
     # Open the Measurement Set
     t = pt.table(ms_path)
 
@@ -104,6 +104,10 @@ def split_ms(ms_path, overwrite=False, prefix='', dysco=True, return_mslist=Fals
                     f.write(f"msout.storagemanager=dysco\n")
                 f.write(f"msout={output_folder}/{chunk_name}\n")
                 f.write("steps=[]\n")
+                if not metadata_compression:
+                    f.write("msout.uvwcompression=False\n")
+                    f.write("msout.antennacompression=False\n")
+                    f.write("msout.scalarflags=False\n")
 
             # Run DP3 for each chunk
             if overwrite and os.path.isdir(output_folder + '/' + chunk_name) and not dryrun:
@@ -138,12 +142,17 @@ def main():
     parser.add_argument('--nodysco', help='Turn off Dysco compression', action='store_false')
     parser.add_argument('--prefix', help='Extra string to attach to the output names of the splited MS', type=str,
                         default='')
+    parser.add_argument('--metadatacompression',
+                        help='Use MS metadata compression (flags, uvw coordinates, and antenna table). The default is True. Will be turned of always for non-LOFAR data.',
+                        type=ast.literal_eval,
+                        default=False)
+    
     args = parser.parse_args()
 
     # Make sure MS is regularised.
     ms_path = regularize_ms(args.ms, overwrite=args.overwrite)
     # Do the splitting
-    split_ms(ms_path, overwrite=args.overwrite, prefix=args.prefix, dysco=args.nodysco)
+    split_ms(ms_path, overwrite=args.overwrite, prefix=args.prefix, dysco=args.nodysco, metadata_compression=args.metadatacompression)
 
 
 if __name__ == "__main__":
