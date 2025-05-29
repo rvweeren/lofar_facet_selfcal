@@ -115,6 +115,156 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def set_metadata_compression(mslist):
+    t = table(mslist[0] + '/OBSERVATION', ack=False)
+    telescope = t.getcol('TELESCOPE_NAME')[0]
+    t.close()   
+    if telescope != 'LOFAR':
+        print('Not using LOFAR data, setting metadata compression to False')
+        args['metadata_compression'] = False
+
+def set_polarised_model_3C286(ms, chunksize=1000):
+    """Calculates and inputs the model data by
+    1) calculating the polarisation fraction and EVPA
+    2) computing the Stokes IQUV values based on an initial Stokes I image
+    3) converting the Stokes IQUV values to XX,XY,YX,YY values
+    4) inputing the obtained model data
+
+    Q = I*pfrac*cos(2*EVPA)
+    U = I*pfrac*sin(2*EVPA)
+
+    XX = I + Q
+    XY = U + iV
+    YX = U - iV
+    YY = I - Q
+
+    we assume Stokes V = 0"""
+    #obtain channel frequency data in GHz
+    from tqdm import tqdm
+    print('obtaining channel frequencies...')
+    with table(ms + '/SPECTRAL_WINDOW', ack=False, readonly=True) as t:
+        freqs = t.getcol('CHAN_FREQ') / 1e9     #freqs in GHz
+        freqs = freqs.flatten()                 #freqs in 1D array
+
+    #obtain field_id corresponding to J1331+3030 (3C286)
+    with table(ms+'/FIELD', ack=False, readonly=True) as t:
+        names = np.array(t.getcol('NAME'))
+        source_id = np.array(t.getcol('SOURCE_ID'))[names == 'J1331+3030'][0]
+        print('source_id = ', source_id)
+
+    #calculate polarisation characteristics
+    print('calculating EVPA and polarisation fraction...')
+    evpa  = calculate_evpa_3C286(freqs)
+    pfrac = calculate_pfrac_3C286(freqs)
+
+    #adjusting the existing model and input it back into the table
+    with table(ms, ack=False, readonly=False) as t:
+        with taql("select * from {} where FIELD_ID=={}".format(ms, source_id)) as tt:
+            nrow = tt.nrows()   #the number of rows in the selected table
+
+            #the number of chunks ( nrow//chunksize (+ 1 if chunksize not a
+            #perfect divisor of nrow) )
+            nchunk = nrow // chunksize + int(nrow % chunksize > 0)
+
+            for ci in tqdm(range(nchunk), desc='looping over chunks'):
+                cl = ci * chunksize     #the starting row of the chunk
+
+                #for the last chunk the amount of rows is not necessarily
+                #the chunksize. This corrects that
+                crow = min(nrow - cl, chunksize)   #the length of the chunk
+
+                #obtain the stokes I model (crow, nchan, ncor)
+                model = tt.getcol('MODEL_DATA', startrow=cl, nrow=crow)
+
+                #need to copy otherwise adjusted value will end up in I
+                I = np.copy(model[:,:,0])
+
+                #calculate the polarised model
+                model[:,:,0] = I + I*pfrac*np.cos(2*evpa)
+                model[:,:,1] = I*pfrac*np.sin(2*evpa)
+                model[:,:,2] = I*pfrac*np.sin(2*evpa)
+                model[:,:,3] = I - I*pfrac*np.cos(2*evpa)
+                
+                #inserting the polarised model
+                tt.putcol('MODEL_DATA', model, startrow=cl, nrow=crow)
+                
+    print('successfully computed and inserted model')
+            
+
+
+
+def calculate_pfrac_3C286(nu):
+    """calculate the model polarization fraction P
+    nu:    the frequency in GHz"""
+    #the coefficients of the model (Hugo, 2024)
+    # adopted from code by Maarten Elion
+    c = 2.99792e8   #speed of light [m/s]
+    
+    C0_high    = 0.080
+    C2_high    = -0.053
+    Clog2_high = -0.015
+
+    C0_low     = 0.029
+    C2_low     = -0.172
+    Clog2_low  = -0.067
+
+    #the wavelength in m
+    wavelength = c / (nu*1e9) 
+
+    #seperate the different frequency ranges
+    mask_high = nu >= 1.1
+    mask_low  = nu < 1.1
+
+    #initialize solution array
+    pfrac = np.zeros(nu.shape)
+
+    #calculate polarization fraction higher range
+    pfrac[mask_high] = C0_high + C2_high*wavelength[mask_high]**2 + \
+                        Clog2_high*np.log10(wavelength[mask_high]**2)
+
+    #calculate polarization fraction higher range
+    pfrac[mask_low] = C0_low + C2_low*wavelength[mask_low]**2 + \
+                        Clog2_low*np.log10(wavelength[mask_low]**2)
+
+    return pfrac
+
+
+def calculate_evpa_3C286(nu):
+    """calculate the model EVPA (electric vector polarization angle) in rad
+    nu:    the frequency in GHz"""
+    #the coefficients of the model (Hugo, 2024)
+    # adopted from code by Maarten Elion
+    c = 2.99792e8   #speed of light [m/s]
+    
+    C0_high   = 32.64
+    C2_high   = -85.37
+
+    C0_low    = 29.53
+    C2_low_nu = 4005.88
+    C2_low    = -39.38
+
+    #the wavelength in m
+    wavelength = c / (nu*1e9) 
+
+    #seperate the different frequency ranges
+    mask_high = nu >= 1.7
+    mask_low  = nu < 1.7
+
+    #initialize solution array
+    EVPA = np.zeros(nu.shape)
+    
+    #calculate the EVPA higher range
+    EVPA[mask_high] = C0_high + C2_high*(wavelength[mask_high])**2
+
+    #calculate the EVPA lower range
+    EVPA[mask_low] = C0_low + wavelength[mask_low]**2 * (
+                        C2_low_nu*(np.log10(nu[mask_low]))**3 + C2_low)
+
+    #convert to radians
+    EVPA *= np.pi/180
+
+    return EVPA
+
 def applycal_restart_di(mslist, selfcalcycle):
     """
     Apply merged selfcal solution files from a previous cycle in case of a restart for DI mode
@@ -1098,7 +1248,7 @@ def timebase(fov, ms, tau=0.995):
     
     return tb
 
-def bda_mslist(mslist, pixsize, imsize, dryrun=False):
+def bda_mslist(mslist, pixsize, imsize, dryrun=False, metadata_compression=True):
     """
     BDA compress list of MS with DP3
     
@@ -1115,6 +1265,10 @@ def bda_mslist(mslist, pixsize, imsize, dryrun=False):
         cmd = 'DP3 msin=' + ms + ' steps=[bda] bda.type=bdaaverage msout=' + ms + '.bda '
         cmd += 'bda.maxinterval=300 '
         cmd += 'bda.timebase=' + str(timebase(imsize*pixsize/3600.,ms)) + ' '
+        if not metadata_compression:
+            cmd += 'msout.uvwcompression=False '
+            cmd += 'msout.antennacompression=False '
+            cmd += 'msout.scalarflags=False '
         print(cmd)
         if not dryrun:
             if os.path.isdir(ms + '.bda'):
@@ -1858,7 +2012,7 @@ def mscolexist(ms, colname):
     return exist
 
 
-def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True):
+def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True, metadata_compression=True):
     for observation in range(number_of_unique_obsids(mslist)):
         # insert dummies for completely missing blocks to create a regular freuqency grid for DPPP
         obs_mslist = getobsmslist(mslist, observation)
@@ -1877,7 +2031,7 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True):
             else:
                 msfilesconcat.append('missing' + str(msnumber))
 
-                #  CONCAT
+            #  CONCAT
             cmd = 'DP3 msin="' + str(msfilesconcat) + '" msin.orderms=False '
             cmd += 'steps=[] '
             cmd += 'msin.datacolumn=%s msin.missingdata=True ' % colname
@@ -1885,6 +2039,10 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True):
             if dysco:
                 cmd += 'msout.storagemanager=dysco '
                 cmd += 'msout.storagemanager.weightbitrate=16 '
+            if not metadata_compression:
+                cmd += 'msout.uvwcompression=False '
+                cmd += 'msout.antennacompression=False '
+                cmd += 'msout.scalarflags=False '
             cmd += 'msout=' + msoutconcat + ' '
             if os.path.isdir(msoutconcat):
                 os.system('rm -rf ' + msoutconcat)
@@ -1892,7 +2050,7 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True):
     return
 
 
-def fix_equidistant_times(mslist, dryrun, dysco=True):
+def fix_equidistant_times(mslist, dryrun, dysco=True, metadata_compression=False):
     with table(mslist[0] + '/OBSERVATION', ack=False) as t:
         telescope = t.getcol('TELESCOPE_NAME')[0]
     mslist_return = []
@@ -1908,7 +2066,7 @@ def fix_equidistant_times(mslist, dryrun, dysco=True):
                 # Do the splitting
                 mslist_return = mslist_return + split_ms(ms_path, overwrite=True,
                                                          prefix=os.path.basename(ms_path), return_mslist=True,
-                                                         dryrun=dryrun, dysco=dysco)
+                                                         dryrun=dryrun, dysco=dysco, metadata_compression=metadata_compression)
                 mslist_splitting_performed.append(True)
         else:
             mslist_return.append(ms)
@@ -3582,7 +3740,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
 # sys.exit()
 
 
-def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=True):
+def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=True, metadata_compression=True):
     """ Phase up stations into a superstation.
 
     Args:
@@ -3612,6 +3770,10 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
             cmd += "add.stations={ST001:'CS*'} filter.baseline='!CS*&&*' "
         if superstation == 'superterp':
             cmd += "add.stations={ST001:'CS00[2-7]*'} filter.baseline='!CS00[2-7]*&&*' "
+        if not metadata_compression:
+            cmd += 'msout.uvwcompression=False '
+            cmd += 'msout.antennacompression=False '
+            cmd += 'msout.scalarflags=False '
 
         if start == 0:  # only phaseup if start selfcal from cycle 0, so skip for a restart
             if os.path.isdir(msout):
@@ -3757,7 +3919,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             makesubtract=False, delaycal=False, freqresolution='195.3125kHz',
             dysco=True, cmakephasediffstat=False, dataincolumn='DATA',
             removeinternational=False, removemostlyflaggedstations=False, 
-            useaoflagger=False, useaoflaggerbeforeavg=True, aoflagger_strategy=None):
+            useaoflagger=False, useaoflaggerbeforeavg=True, aoflagger_strategy=None,
+            metadata_compression=True):
     """ Average and/or phase-shift a list of Measurement Sets.
 
     Args:
@@ -3797,6 +3960,12 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
 
             msout = os.path.basename(msout)
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
+            
+            if not metadata_compression and msout != '.':
+                cmd += 'msout.uvwcompression=False '
+                cmd += 'msout.antennacompression=False '
+                cmd += 'msout.scalarflags=False '
+            
             if check_phaseup_station(ms):
                 cmd += 'msout.uvwcompression=False '
                 # cmd += 'msout.antennacompression=False '
@@ -3873,11 +4042,18 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 print('Average with default WEIGHT_SPECTRUM:', cmd)
                 if os.path.isdir(msout):
                     os.system('rm -rf ' + msout)
-                run(cmd)
+                run(cmd, log=True)
 
             msouttmp = ms + '.avgtmp'
             msouttmp = os.path.basename(msouttmp)
             cmd = 'DP3 msin=' + ms + ' av.type=averager '
+            
+            if not metadata_compression and msout != '.':
+                cmd += 'msout.uvwcompression=False '
+                cmd += 'msout.antennacompression=False '
+                cmd += 'msout.scalarflags=False '
+            
+            
             if check_phaseup_station(ms):
                 cmd += 'msout.uvwcompression=False '
             if removeinternational:
@@ -4077,7 +4253,8 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None)
 
 def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
-             find_closestdir=False, updateweights=False, modelstoragemanager=None, missingantennabehavior='error'):
+             find_closestdir=False, updateweights=False, modelstoragemanager=None, 
+             missingantennabehavior='error', metadata_compression=True):
     """ Apply an H5parm to a Measurement Set.
 
     Args:
@@ -4109,11 +4286,16 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
 
     cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), 8])) + ' msin=' + ms
     cmd += ' msout=' + msout + ' '
+    
     if check_phaseup_station(ms): 
         if msout != '.': cmd += 'msout.uvwcompression=False ' # only invoke when writing new MS
     cmd += 'msin.datacolumn=' + msincol + ' '
     if msout == '.':
         cmd += 'msout.datacolumn=' + msoutcol + ' '
+    if not metadata_compression and msout != '.':
+        cmd += 'msout.uvwcompression=False '
+        cmd += 'msout.antennacompression=False '
+        cmd += 'msout.scalarflags=False '
     if dysco:
         cmd += 'msout.storagemanager=dysco '
         cmd += 'msout.storagemanager.weightbitrate=16 '
@@ -5284,6 +5466,15 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
         if ctype == 'all':
             antstr = MeerKAT_antconstraint(ctype='all')
 
+    if telescope == 'GMRT':
+        if ctype == 'core':
+            antstr = ['C00','C01','C02','C03','C04','C05','C06','C08','C09','C10','C11','C12','C13','C14']    
+        if ctype == 'remote':
+            antstr = ['E02','E03','E04','E05','E06','S01','S02','S03','S04','S06','W01','W02','W03','W04','W05','W06'] 
+        if ctype == 'all':
+            antstr = ['C00','C01','C02','C03','C04','C05','C06','C08','C09','C10','C11','C12','C13','C14'] + \
+                     ['E02','E03','E04','E05','E06','S01','S02','S03','S04','S06','W01','W02','W03','W04','W05','W06']
+
     if useforresetsols:
         antstrtmp = list(antstr)
         for ant in antstr:
@@ -6398,7 +6589,7 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
 # flagms_startend('P215+50_PSZ2G089.52+62.34.dysco.sub.shift.avg.weights.ms.archive','phaseonlyP215+50_PSZ2G089.52+62.34.dysco.sub.shift.avg.weights.ms.archivesolsgrid_9.h5', 2)
 
 
-def removestartendms(ms, starttime=None, endtime=None, dysco=True):
+def removestartendms(ms, starttime=None, endtime=None, dysco=True, metadata_compression=True):
     """
     Removes the start and/or end times from a Measurement Set (MS) and processes it using DP3.
 
@@ -6437,6 +6628,12 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True):
 
     cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cut '
     if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
+    
+    if not metadata_compression:
+        cmd += 'msout.uvwcompression=False '
+        cmd += 'msout.antennacompression=False '
+        cmd += 'msout.scalarflags=False '
+    
     if dysco:
         cmd += 'msout.storagemanager=dysco '
         cmd += 'msout.storagemanager.weightbitrate=16 '
@@ -6492,7 +6689,8 @@ def which(file_name):
     return None
 
 
-def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mergedh5_i=None, facetregionfile=None):
+def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mergedh5_i=None, 
+            facetregionfile=None, metadata_compression=True):
     path = '/disks/ftphome/pub/vanweeren'
     for ms in mslist:
         msout = ms + '.calibrated'
@@ -6504,6 +6702,10 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
         if dysco:
             cmd += 'msout.storagemanager=dysco '
             cmd += 'msout.storagemanager.weightbitrate=16 '
+        if not metadata_compression:
+            cmd += 'msout.uvwcompression=False '
+            cmd += 'msout.antennacompression=False '
+            cmd += 'msout.scalarflags=False '
         run(cmd)
 
     msliststring = ' '.join(map(str, glob.glob('*.calibrated')))
@@ -8110,7 +8312,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          predictskywithbeam=False,
                          longbaseline=False,
                          skymodelsource=None,
-                         skymodelpointsource=None, wscleanskymodel=None,
+                         skymodelpointsource=None, wscleanskymodel=None, skymodelsetjy=False,
                          mslist_beforephaseup=None,
                          modeldatacolumns=[], dde_skymodel=None,
                          DDE_predict='WSCLEAN', telescope='LOFAR',
@@ -8193,6 +8395,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
         skymodelpointsource = None
         wscleanskymodel = None
         skymodel = None
+        skymodelsetjy = False
     ## --- end STACK code ---
 
     if len(modeldatacolumns) > 1:
@@ -8233,7 +8436,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     pertubation[msnumber] = False
 
                 if ((skymodel is not None) or (skymodelpointsource is not None) or (
-                        wscleanskymodel is not None)) and selfcalcycle == 0:
+                        wscleanskymodel is not None) or (args['skymodelsetjy'])) and selfcalcycle == 0:
                     parmdb = soltype + str(soltypenumber) + '_skyselfcalcycle' + str(selfcalcycle).zfill(
                         3) + '_' + os.path.basename(ms) + '.h5'
                 else:
@@ -8271,7 +8474,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel,
                             DDE_predict=DDE_predict, ncpu_max=args['ncpu_max_DP3solve'], soltype_list=args['soltype_list'],
                             DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir,
-                            normamps=normamps, modelstoragemanager=args['modelstoragemanager'])
+                            normamps=normamps, modelstoragemanager=args['modelstoragemanager'], skymodelsetjy=skymodelsetjy)
 
                 parmdbmslist.append(parmdb)
                 parmdbmergelist[msnumber].append(parmdb)  # for h5_merge
@@ -8341,7 +8544,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
     if True:
         for msnumber, ms in enumerate(mslist):
             if ((skymodel is not None) or (skymodelpointsource is not None) or (
-                    wscleanskymodel is not None)) and selfcalcycle == 0:
+                    wscleanskymodel is not None) or (args['skymodelsetjy'])) and selfcalcycle == 0:
                 parmdbmergename = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(
                     ms) + '.h5'
                 parmdbmergename_pc = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(
@@ -8476,7 +8679,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 preapplyH5_dde=[],
                 dde_skymodel=None, DDE_predict='WSCLEAN', beamproximitylimit=240.,
                 ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None,
-                normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None):
+                normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None, skymodelsetjy=False):
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
     with table(ms + '/OBSERVATION', ack=False) as t:
@@ -8500,6 +8703,13 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
         incol = 'SMOOTHED_DATA'
 
+    if skymodelsetjy:
+        cmdsetjy = f'python {submodpath}/casa_setjy.py '
+        cmdsetjy += '--ms=' + ms + ' --fieldid=J1331+3030 --modelimage=3C286_L.im '
+        run(cmdsetjy)
+        set_polarised_model_3C286(ms, chunksize=1000)
+    
+     
     if skymodel is not None and create_modeldata and selfcalcycle == 0 and len(modeldatacolumns) == 0:
         predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource, modelstoragemanager=modelstoragemanager)
 
@@ -9192,7 +9402,8 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                        channelsout, single_dual_speedup=True,
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None,
                        idg=False, h5list=[], facetregionfile=None,
-                       disable_primary_beam=False, ddcor=True, modelstoragemanager=None, parallelgridding=1):
+                       disable_primary_beam=False, ddcor=True, modelstoragemanager=None, parallelgridding=1,
+                       metadata_compression=True):
     # get imageheader to check frequency
     hdul = fits.open(imagebasename + '-MFS-image.fits')
     header = hdul[0].header
@@ -9294,12 +9505,12 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
             t.close()
         average(mslist, freqstep=[1] * len(mslist), timestep=1,
                 phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True,
-                dataincolumn=outcol)
+                dataincolumn=outcol, metadata_compression=metadata_compression)
         remove_column_ms(mslist, outcol) # remove SUBTRACTED_DATA to free up space
     else:  # so have have "keepall", no subtract, just a copy
         average(mslist, freqstep=[1] * len(mslist), timestep=1,
                 phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True,
-                dataincolumn=datacolumn)
+                dataincolumn=datacolumn, metadata_compression=metadata_compression)
     
     # applycal of closest direction (in multidir h5)
     if len(h5list) != 0 and ddcor and userbox != 'keepall':
@@ -9308,7 +9519,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
             if os.path.isdir(ms + '.subtracted_ddcor'):
                 os.system('rm -rf ' + ms + '.subtracted_ddcor')  
             applycal(ms + '.subtracted',h5list[ms_id], find_closestdir=True, 
-                     msout=ms + '.subtracted_ddcor', dysco=dysco)
+                     msout=ms + '.subtracted_ddcor', dysco=dysco, metadata_compression=metadata_compression)
             with table(ms + '.subtracted') as t:
                 if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if WEIGHT_SPECTRUM_SOLVE is present otherwise this is not needed
                     print('Going to copy over WEIGHT_SPECTRUM_SOLVE')
@@ -10318,6 +10529,12 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
         cmddppp = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
         cmddppp += 'msout=' + msout + ' '
         cmddppp += 'msin.weightcolumn=WEIGHT_SPECTRUM '
+        
+        if not metadata_compression and msout != '.':
+            cmddppp += 'msout.uvwcompression=False '
+            cmddppp += 'msout.antennacompression=False '
+            cmddppp += 'msout.scalarflags=False '
+        
         if check_phaseup_station(ms):
             if msout != '.': cmd += 'msout.uvwcompression=False ' # only when writing new MS: 
         if msout == '.':
@@ -10375,6 +10592,11 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
         cmd += 'msin.weightcolumn=WEIGHT_SPECTRUM '
         if msout == '.':
             cmd += 'msout.datacolumn=CORRECTED_DATA '
+        
+        if not metadata_compression and msout != '.':
+            cmd += 'msout.uvwcompression=False '
+            cmd += 'msout.antennacompression=False '
+            cmd += 'msout.scalarflags=False '
 
         if (lin2circ or circ2lin) and beam:
             cmd += 'steps=[ac1,ac2,pystep] '
@@ -10791,6 +11013,50 @@ def findrefant_core(H5file):
     if 'm001' in ants:
         H.close()
         return 'm001'
+
+    # temporary GMRT fix
+    if 'C00' in ants:
+        H.close()
+        return 'C00'
+    if 'C01' in ants:
+        H.close()
+        return 'C01'
+    if 'C02' in ants:
+        H.close()
+        return 'C02'
+    if 'C03' in ants:
+        H.close()
+        return 'C03'
+    if 'C04' in ants:
+        H.close()
+        return 'C04'
+    if 'C05' in ants:
+        H.close()
+        return 'C05'
+    if 'C06' in ants:
+        H.close()
+        return 'C06'
+    if 'C08' in ants:
+        H.close()
+        return 'C08'
+    if 'C09' in ants:
+        H.close()
+        return 'C09'
+    if 'C10' in ants:
+        H.close()
+        return 'C10'
+    if 'C11' in ants:
+        H.close()
+        return 'C11'    
+    if 'C12' in ants:
+        H.close()
+        return 'C12'   
+    if 'C13' in ants:
+        H.close()
+        return 'C13'       
+    if 'C14' in ants:
+        H.close()
+        return 'C14'   
 
     if len(cs_indices) == 0:  # in case there are no CS stations try with RS
         cs_indices = np.where(['RS' in ant for ant in ants])[0]
@@ -11223,7 +11489,8 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
 
     # Phaseup if needed
     if args['phaseupstations']:
-        mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'], dysco=args['dysco'])
+        mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'], 
+                         dysco=args['dysco'], metadata_compression=args['metadata_compression'])
 
     # Solve and get best solution interval
     for ms_id, ms in enumerate(mslist):
@@ -11671,7 +11938,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '14.3.0'
+    version = '14.5.0'
     print_title(version)
 
     global submodpath, datapath
@@ -11709,6 +11976,9 @@ def main():
 
     # remove non-ms that ended up in mslist
     # mslist = removenonms(mslist)
+
+    # turn of metadata_compression for non-LOFAR data if needed
+    set_metadata_compression(mslist)
 
     # remove trailing slashes
     mslist_tmp = []
@@ -11749,7 +12019,8 @@ def main():
         # in case all MS were splitted a backup is not needed anymore
         if args['skymodel'] is None: 
             args['skymodel'] = set_MeerKAT_bandpass_skymodel(mslist[0]) # try to set skymodel automatically    
-        mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, dysco=args['dysco'])
+        mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, 
+                                                           dysco=args['dysco'], metadata_compression=args['metadata_compression'])
 
     # cut ms if there are flagged times at the start or end of the ms
     if args['remove_flagged_from_startend']:
@@ -11758,7 +12029,7 @@ def main():
     if not args['skipbackup']:  # work on copy of input data as a backup
         print('Creating a copy of the data and work on that....')
         mslist = average(mslist, freqstep=[0] * len(mslist), timestep=1, start=args['start'], makecopy=True,
-                         dysco=args['dysco'], useaoflagger=(args['useaoflagger'] and args['useaoflaggerbeforeavg']), aoflagger_strategy=args['aoflagger_strategy'])
+                         dysco=args['dysco'], useaoflagger=(args['useaoflagger'] and args['useaoflaggerbeforeavg']), aoflagger_strategy=args['aoflagger_strategy'], metadata_compression=args['metadata_compression'])
         if args['useaoflagger'] and args['useaoflaggerbeforeavg']:
             args['useaoflagger'] = False # turn off now because we used it above    
 
@@ -11780,7 +12051,8 @@ def main():
     # in case --bandpassMeerKAT was set this step should not do anything because
     # the MS were already splitted before in case of gaps (so they will be regular now)
     # the [0] at the end is to avoid the extra output returned by fix_equidistant_times
-    mslist = fix_equidistant_times(mslist, args['start'] != 0, dysco=args['dysco'])[0]
+    mslist = fix_equidistant_times(mslist, args['start'] != 0, \
+                                   dysco=args['dysco'], metadata_compression=args['metadata_compression'])[0]
 
     # reset weights if requested
     if args['resetweights']:
@@ -11838,7 +12110,8 @@ def main():
                      start=args['start'], msinnchan=args['msinnchan'], msinstartchan=args['msinstartchan'],
                      phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'],
                      dysco=args['dysco'], removeinternational=args['removeinternational'],
-                     removemostlyflaggedstations=args['removemostlyflaggedstations'], useaoflagger=args['useaoflagger'], aoflagger_strategy=args['aoflagger_strategy'], useaoflaggerbeforeavg=args['useaoflaggerbeforeavg'])
+                     removemostlyflaggedstations=args['removemostlyflaggedstations'], useaoflagger=args['useaoflagger'], aoflagger_strategy=args['aoflagger_strategy'], useaoflaggerbeforeavg=args['useaoflaggerbeforeavg'],
+                     metadata_compression=args['metadata_compression'])
 
     for ms in mslist:
         compute_distance_to_pointingcenter(ms, HBAorLBA=HBAorLBA, warn=longbaseline, returnval=False)
@@ -11957,7 +12230,8 @@ def main():
             mslist_backup = mslist[:]  # make a backup list, note copy by slicing otherwise list refers to original
             for ms in mslist:
                 avgfreqstep.append(findfreqavg(ms, float(args['imsize']), bwsmearlimit=3.5))
-            mslist = average(mslist, freqstep=avgfreqstep, timestep=4, dysco=args['dysco'])
+            mslist = average(mslist, freqstep=avgfreqstep, timestep=4, 
+                             dysco=args['dysco'], metadata_compression=args['metadata_compression'])
         if args['autofrequencyaverage_calspeedup'] and i == args['stop'] - 3:
             mslist = mslist_backup[:]  # reset back, note copy by slicing otherwise list refers to original
             preapply(create_mergeparmdbname(mslist, i - 1, autofrequencyaverage_calspeedup=True), mslist, updateDATA=False,
@@ -11967,7 +12241,7 @@ def main():
         if args['phaseupstations'] is not None:
             if (i == 0) or (i == args['start']):
                 mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'],
-                                 start=i, dysco=args['dysco'])
+                                 start=i, dysco=args['dysco'], metadata_compression=args['metadata_compression'])
 
         # PRE-APPLY BANDPASS-TYPE SOLUTIONS
         if (args['preapplybandpassH5_list'][0]) is not None and i == 0:
@@ -11987,7 +12261,7 @@ def main():
         
         # CALIBRATE AGAINST THE INITAL SKYMODEL (selfcalcycle 0) IF REQUESTED
         if (args['skymodel'] is not None or args['skymodelpointsource'] is not None
-            or args['wscleanskymodel'] is not None) and (i == 0):
+            or args['wscleanskymodel'] is not None or args['skymodelsetjy']) and (i == 0):
             # Function that
             # add patches for DDE predict
             # also do prepare_DDE
@@ -12017,7 +12291,7 @@ def main():
                                                   longbaseline=longbaseline,
                                                   skymodelsource=args['skymodelsource'],
                                                   skymodelpointsource=args['skymodelpointsource'],
-                                                  wscleanskymodel=args['wscleanskymodel'],
+                                                  wscleanskymodel=args['wscleanskymodel'], skymodelsetjy=args['skymodelsetjy'],
                                                   mslist_beforephaseup=mslist_beforephaseup,
                                                   telescope=telescope,
                                                   modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
@@ -12087,7 +12361,8 @@ def main():
                     dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'],
                     h5list=wsclean_h5list, facetregionfile=facetregionfile,
                     disable_primary_beam=args['disable_primary_beam'], 
-                    modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
+                    modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'],
+                    metadata_compression=args['metadata_compression'])
                 if not args['keepmodelcolumns']: remove_model_columns(mslist)
                 return
             
@@ -12256,7 +12531,7 @@ def main():
                            dysco=args['dysco'],
                            userbox=args['remove_outside_center_box'], idg=args['idg'],
                            h5list=wsclean_h5list, facetregionfile=facetregionfile,
-                           disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'])
+                           disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'], metadata_compression=args['metadata_compression'])
 
     # REMOVE MODEL_DATA type columns after selfcal
     if not args['keepmodelcolumns']: remove_model_columns(mslist)
@@ -12267,9 +12542,9 @@ def main():
             if args['DDE']:
                 mergedh5_i = glob.glob('merged_selfcalcycle' + str(i).zfill(3) + '*.h5')
                 archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'],
-                        mergedh5_i=mergedh5_i, facetregionfile=facetregionfile)
+                        mergedh5_i=mergedh5_i, facetregionfile=facetregionfile, metadata_compression=args['metadata_compression'])
             else:
-                archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'])
+                archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'], metadata_compression=args['metadata_compression'])
             cleanup(mslist)
 
 
