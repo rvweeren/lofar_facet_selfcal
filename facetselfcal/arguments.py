@@ -452,7 +452,10 @@ def option_parser():
     startmodelparser.add_argument('--wscleanskymodel',
                                   help='WSclean basename for model images (for a WSClean predict). The default is None.',
                                   type=arg_as_str_or_list,
-                                  default=None)
+                                  default=None)    
+    startmodelparser.add_argument('--skymodelsetjy',
+                                  help='3C286 skymodel is computed via CASA setjy, experimental',
+                                  action='store_true')
     startmodelparser.add_argument('--fix-model-frequencies',
                                   help='Force predict and imaging wsclean commands to divide on freqencies set by wsclean skymodel',
                                   action='store_true')
@@ -512,6 +515,11 @@ def option_parser():
                         help='Use Dysco data compression. The default is True.',
                         type=ast.literal_eval,
                         default=True)
+    parser.add_argument('--metadata-compression',
+                        help='Use MS metadata compression (flags, uvw coordinates, and antenna table). The default is True. Will be turned of always for non-LOFAR data.',
+                        type=ast.literal_eval,
+                        default=True)
+
     parser.add_argument('--modelstoragemanager',
                         help='String input option for the compression of MODEL_DATA. The default is stokes_i. This will be turned off (set to None) automatically if the solve types do not allow for stokes_i compression. Set to None if you want to turn off MODEL_DATA compression entirely.',
                         type=str,
