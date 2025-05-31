@@ -115,7 +115,58 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def write_primarybeam_info(cmd, imagebasename):
+    """
+    Updates the FITS header of images matching the given basename with primary beam correction information.
+
+    This function searches for FITS files whose names start with `imagebasename` and end with '-pb.fits'.
+    For each matching file, it updates the primary header's COMMENT field(s) to indicate whether a full
+    primary beam correction has been applied, based on the provided command-line arguments.
+
+    Parameters:
+        cmd (str): The command-line string used to run the imaging process. Determines which comments are added.
+        imagebasename (str): The base name of the image files to search for and update.
+
+    Notes:
+        - If '-apply-facet-beam' or '-apply-primary-beam' is present in `cmd`, the header will indicate that
+          the full primary beam correction has been applied.
+        - If '-apply-facet-beam' is not present but '-apply-facet-solutions' is, the header will indicate that
+          the primary beam correction has not been applied and manual correction may be necessary.
+    """
+    imagelist = glob.glob( imagebasename + '*-pb.fits')
+    for image in imagelist:
+        print('Updating FITS header:', image)
+        with fits.open(image, mode='update') as hdul:
+            # Add a comment to the primary header
+            if '-apply-facet-beam' in cmd:
+                hdul[0].header['COMMENT'] = "Full primary beam correction applied. Image is science ready."
+            if '-apply-facet-beam' not in cmd and '-apply-facet-solutions' in cmd:   
+                hdul[0].header['COMMENT'] = "Full primary beam correction has not been applied." 
+                hdul[0].header['COMMENT'] = "Manually correct your image for the primary beam."
+                hdul[0].header['COMMENT'] = "Except if your target is close to the pointing center."
+            if '-apply-primary-beam' in cmd:
+                hdul[0].header['COMMENT'] = "Full primary beam correction applied. Image is science ready."
+
 def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope, DDE):
+    """
+    Checks whether the image field of view (FoV) for MeerKAT data is too large to safely use the -apply-facet-beam option in WSClean, and enforces the --disable-primary-beam option if necessary.
+    Parameters:
+        mslist (list of str): List of measurement set (MS) file paths to check.
+        imsize (float): Image size in pixels.
+        pixsize (float): Pixel size in arcseconds.
+        telescope (str): Name of the telescope. Function only applies checks if this is 'MeerKAT'.
+        DDE (bool): If True, direction-dependent effects (DDE) calibration is enabled.
+    Returns:
+        None
+    Side Effects:
+        - If the image FoV is too large for any MS in mslist, sets args['disable_primary_beam'] = True.
+        - Prints warnings to the console and logs a warning message.
+        - Exits after the first MS that violates the safe FoV criterion.
+    Notes:
+        - The safe diameter is calculated based on the maximum frequency in the SPECTRAL_WINDOW table of each MS.
+        - The function assumes the existence of a global 'args' dictionary and a 'logger' object.
+        - The function also assumes the presence of 'compute_distance_to_pointingcenter' and 'table' utilities.
+    """
     if telescope != 'MeerKAT' or not DDE: 
         return
     
@@ -133,10 +184,23 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope, DDE):
             print("\033[33m" + "Imaged Fov [deg]: " + str(imsize*pixsize/3600) + "\033[0m") 
             print("\033[33m" + "Image center to telescope pointing center [deg]: " + str(distance_pointing_center) + "\033[0m")       
             print("\033[33m" + "Save Fov [deg]: " + str(safe_diameter/3600) + "\033[0m")
-            logger.warning('Your image FoV is too large to use -apply-facet-beam in WSClean: ' + ms)
+            logger.warning('Your image FoV is too large to use -apply-facet-beam in WSClean. The option --disable-primary-beam is automatically invoked: ' + ms)
         return    
         
 def set_metadata_compression(mslist):
+    """
+    Sets the metadata compression flag based on the telescope name in the provided Measurement Set list.
+
+    Parameters:
+        mslist (list of str): List of paths to Measurement Sets. The function inspects the first set in the list.
+
+    Side Effects:
+        If the telescope name in the first Measurement Set is not 'LOFAR', sets the global 'args["metadata_compression"]' to False and prints a message.
+
+    Notes:
+        - Assumes that 'args' is a global variable accessible within the function's scope.
+        - Requires the 'table' class/function to be imported and available.
+    """
     t = table(mslist[0] + '/OBSERVATION', ack=False)
     telescope = t.getcol('TELESCOPE_NAME')[0]
     t.close()   
@@ -145,21 +209,30 @@ def set_metadata_compression(mslist):
         args['metadata_compression'] = False
 
 def set_polarised_model_3C286(ms, chunksize=1000):
-    """Calculates and inputs the model data by
-    1) calculating the polarisation fraction and EVPA
-    2) computing the Stokes IQUV values based on an initial Stokes I image
-    3) converting the Stokes IQUV values to XX,XY,YX,YY values
-    4) inputing the obtained model data
-
-    Q = I*pfrac*cos(2*EVPA)
-    U = I*pfrac*sin(2*EVPA)
-
-    XX = I + Q
-    XY = U + iV
-    YX = U - iV
-    YY = I - Q
-
-    we assume Stokes V = 0"""
+    """
+    Calculates and inserts a polarised model for the 3C286 calibrator source into a Measurement Set (MS).
+    This function performs the following steps:
+        1. Obtains channel frequency data in GHz from the MS.
+        2. Identifies the field ID corresponding to the 3C286 source (J1331+3030).
+        3. Calculates the polarisation fraction and electric vector position angle (EVPA) for each frequency channel.
+        4. Computes the Stokes IQUV values based on the initial Stokes I image, assuming Stokes V = 0.
+        5. Converts the Stokes IQUV values to the XX, XY, YX, YY correlation model.
+        6. Updates the MODEL_DATA column in the MS with the computed polarised model, processing the data in chunks.
+    The polarisation model is computed as:
+        Q = I * pfrac * cos(2 * EVPA)
+        U = I * pfrac * sin(2 * EVPA)
+        XY = U + iV (with V assumed to be 0)
+        YX = U - iV (with V assumed to be 0)
+    Args:
+        ms (str): Path to the Measurement Set.
+        chunksize (int, optional): Number of rows to process per chunk. Default is 1000.
+    Returns:
+        None
+    Notes:
+        - Assumes the presence of helper functions `calculate_evpa_3C286` and `calculate_pfrac_3C286`.
+        - Requires the `tqdm`, `numpy`, and `casacore.tables` libraries.
+        - Only updates the model for the 3C286 source (J1331+3030).
+    """
     #obtain channel frequency data in GHz
     from tqdm import tqdm
     print('obtaining channel frequencies...')
@@ -215,10 +288,24 @@ def set_polarised_model_3C286(ms, chunksize=1000):
 
 
 def calculate_pfrac_3C286(nu):
-    """calculate the model polarization fraction P
-    nu:    the frequency in GHz"""
-    #the coefficients of the model (Hugo, 2024)
-    # adopted from code by Maarten Elion
+    """
+    Calculate the model polarization fraction (P) for 3C286 as a function of frequency.
+    This function computes the polarization fraction of the radio source 3C286 based on a model
+    with coefficients adopted from Hugo (2024), as implemented by Maarten Elion. The calculation
+    is performed differently for frequencies above and below 1.1 GHz.
+    Parameters
+    ----------
+    nu : np.ndarray
+        Array of frequencies in GHz.
+    Returns
+    -------
+    pfrac : np.ndarray
+        Array of polarization fractions corresponding to the input frequencies.
+    Notes
+    -----
+    - The model uses different coefficients for frequency ranges above and below 1.1 GHz.
+    - The calculation is based on the wavelength corresponding to each frequency.
+    """
     c = 2.99792e8   #speed of light [m/s]
     
     C0_high    = 0.080
@@ -251,10 +338,24 @@ def calculate_pfrac_3C286(nu):
 
 
 def calculate_evpa_3C286(nu):
-    """calculate the model EVPA (electric vector polarization angle) in rad
-    nu:    the frequency in GHz"""
-    #the coefficients of the model (Hugo, 2024)
-    # adopted from code by Maarten Elion
+    """
+    Calculate the model Electric Vector Polarization Angle (EVPA) for 3C286 in radians.
+    This function computes the EVPA based on the observing frequency using a piecewise model
+    with coefficients adopted from Hugo (2024), as implemented by Maarten Elion.
+    Parameters
+    ----------
+    nu : np.ndarray
+        Array of frequencies in GHz.
+    Returns
+    -------
+    EVPA : np.ndarray
+        Array of model EVPAs in radians, corresponding to the input frequencies.
+    Notes
+    -----
+    - For frequencies >= 1.7 GHz, a quadratic model in wavelength squared is used.
+    - For frequencies < 1.7 GHz, a more complex model involving log10 of frequency is used.
+    - The output EVPA is in radians.
+    """
     c = 2.99792e8   #speed of light [m/s]
     
     C0_high   = 32.64
@@ -550,6 +651,33 @@ def rename_models(model_basename, rename_no, model_prefix = "tmp_"):
 
 
 def MeerKAT_antconstraint(antfile=None, ctype='all'):
+    """
+    Selects MeerKAT antenna names based on their distance from the array center.
+
+    Parameters
+    ----------
+    antfile : str, optional
+        Path to the CSV file containing MeerKAT antenna layout. If None, a default path is used.
+    ctype : {'core', 'remote', 'all'}, optional
+        Type of antennas to select:
+            - 'core': Antennas within 1000 meters from the center.
+            - 'remote': Antennas farther than 1000 meters from the center.
+            - 'all': All antennas.
+
+    Returns
+    -------
+    list of str
+        List of selected antenna names.
+
+    Raises
+    ------
+    SystemExit
+        If `ctype` is not one of 'core', 'remote', or 'all'.
+
+    Notes
+    -----
+    The CSV file is expected to have columns: 'Antenna', 'East', 'North', 'Up'.
+    """
     if antfile is None:
         antfile = f'{datapath}/data/MeerKATlayout.csv'
 
@@ -579,12 +707,25 @@ def round_up_to_even(number):
 
 def set_channelsout(mslist, factor=1):
     """
-    Set channels out for different telescopes
+    Determines the number of output channels (`channelsout`) for a list of measurement sets (MS) based on the telescope type and fractional bandwidth.
+
+    Parameters:
+        mslist (list of str): List of paths to measurement sets (MS). The first MS in the list is used to determine the telescope type.
+        factor (int or float, optional): Multiplicative factor to adjust the number of output channels. Default is 1.
+
+    Returns:
+        int: The computed number of output channels, rounded up to the nearest even integer.
+
+    Notes:
+        - For LOFAR and unknown telescopes, `channelsout` is calculated as `round_up_to_even(f_bw * 12 * factor)`.
+        - For MeerKAT, `channelsout` is calculated as `round_up_to_even(f_bw * 13 * factor)`.
+        - The function assumes the existence of `get_fractional_bandwidth` and `round_up_to_even` helper functions.
     """
 
-    t = table(mslist[0] + '/OBSERVATION', ack=False)
-    telescope = t.getcol('TELESCOPE_NAME')[0]
-    t.close()
+    with table(mslist[0] + '/OBSERVATION', ack=False) as t:
+        # Get the telescope name from the first MS in the list
+        telescope = t.getcol('TELESCOPE_NAME')[0]
+    
     f_bw = get_fractional_bandwidth(mslist)
 
     if telescope == 'LOFAR':
@@ -748,6 +889,24 @@ def is_stokesi_modeltype_allowed(args, telescope):
 
 
 def update_channelsout(selfcalcycle, mslist):
+    """
+    Dynamically updates the 'channelsout' parameter in the global 'args' dictionary based on the image dynamic range and telescope type.
+
+    Parameters:
+        selfcalcycle (int): The current self-calibration cycle number.
+        mslist (list of str): List of Measurement Set (MS) file paths.
+
+    Returns:
+        int or float: The updated value of 'channelsout' in the 'args' dictionary.
+
+    Behavior:
+        - Checks if 'update_channelsout' is enabled in 'args'.
+        - Determines the telescope name from the first MS in the list.
+        - Constructs the image filename based on the imaging parameters in 'args'.
+        - Computes the dynamic range of the image.
+        - Adjusts 'channelsout' in 'args' according to the dynamic range thresholds and telescope type.
+        - Returns the updated 'channelsout' value.
+    """
     if args['update_channelsout']:
         t = table(mslist[0] + '/OBSERVATION', ack=False)
         telescope = t.getcol('TELESCOPE_NAME')[0]
@@ -3728,7 +3887,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                         rotation[:, :, :, antennaid, ...] = 0.0
                     if antennaxis == 4:
                         rotation[:, :, :, :, antennaid, ...] = 0.0
-                if hasrotationmeasure000:
+                if hasrotationmeasure:
                     antennaxis = axisn.index('ant')
                     axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
                     print('Resetting faradayrotation', antenna, 'Axis entry number', axisn.index('ant'))
@@ -6455,6 +6614,7 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
 
 def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFactor, useChanFreq, ms, freqs, times, ra,
                               dec, ra_ref, dec_ref, reference_xyz, phase_xyz):
+    import everybeam
     if useElementResponse and useArrayFactor:
         # print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
         obs = everybeam.load_telescope(ms, use_differential_beam=False, use_channel_frequency=useChanFreq)
@@ -9969,6 +10129,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
         clean_up_images(imageout)
         
+        # write info about how the primary beam correction was done to the FITS header
+        write_primarybeam_info(cmd, imageout)
+        
         # REMOVE nagetive model components, these are artifacts (only for Stokes I)
         if removenegativecc:
             if idg:
@@ -10492,7 +10655,8 @@ def flatten(f):
 
 
 def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
-                         circ2lin=False, losotobeamlib='stationresponse', update_poltable=True, idg=False):
+                         circ2lin=False, losotobeamlib='stationresponse', 
+                         update_poltable=True, idg=False, metadata_compression=True):
     """
     correct a ms for the beam in the phase center (array_factor only)
     """
@@ -11506,7 +11670,8 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
         beamcor_and_lin2circ(ms, dysco=args['dysco'],
                              beam=set_beamcor(ms, args['beamcor']),
                              lin2circ=True,
-                             losotobeamlib=args['losotobeamcor_beamlib'])
+                             losotobeamlib=args['losotobeamcor_beamlib'],
+                             metadata_compression=args['metadata_compression'])
 
     # Phaseup if needed
     if args['phaseupstations']:
@@ -12245,7 +12410,8 @@ def main():
                                      beam=set_beamcor(ms, args['beamcor']),
                                      lin2circ=args['docircular'],
                                      circ2lin=args['dolinear'],
-                                     losotobeamlib=args['losotobeamcor_beamlib'], idg=args['idg'])
+                                     losotobeamlib=args['losotobeamcor_beamlib'], idg=args['idg'],
+                                     metadata_compression=args['metadata_compression'])
 
         # TMP AVERAGE TO SPEED UP CALIBRATION
         if args['autofrequencyaverage_calspeedup'] and i == 0:
