@@ -115,6 +115,27 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope, DDE):
+    if telescope != 'MeerKAT' or not DDE: 
+        return
+    
+    for ms in mslist:
+        distance_pointing_center = compute_distance_to_pointingcenter(ms, HBAorLBA='other', warn=False, returnval=True, dologging=False)
+        
+        with table(ms+"::SPECTRAL_WINDOW", ack=False) as t:
+            max_freq = t.getcol("CHAN_FREQ").max()
+        safe_diameter = 60.*1.4*68.*(1.28e9/max_freq) # in arcsec
+        if ((imsize*pixsize) + (distance_pointing_center*3600.) ) > safe_diameter:
+            args['disable_primary_beam'] = True # will be set to False if one in mslist violates this criterium
+            print("\033[33m" + "=== " + ms + " ===" + "\033[0m")
+            print("\033[33m" + "Your image FoV is too large to use -apply-facet-beam in WSClean!" + "\033[0m")
+            print("\033[33m" + "Code will run with the option --disable-primary-beam enforced" + "\033[0m")
+            print("\033[33m" + "Imaged Fov [deg]: " + str(imsize*pixsize/3600) + "\033[0m") 
+            print("\033[33m" + "Image center to telescope pointing center [deg]: " + str(distance_pointing_center) + "\033[0m")       
+            print("\033[33m" + "Save Fov [deg]: " + str(safe_diameter/3600) + "\033[0m")
+            logger.warning('Your image FoV is too large to use -apply-facet-beam in WSClean: ' + ms)
+        return    
+        
 def set_metadata_compression(mslist):
     t = table(mslist[0] + '/OBSERVATION', ack=False)
     telescope = t.getcol('TELESCOPE_NAME')[0]
@@ -1130,7 +1151,7 @@ def filter_baseline_str_removestations(stationlist):
     return fbaseline + "'"
 
 
-def return_antennas_highflaggingpercentage(ms, percentage=0.85):
+def return_antennas_highflaggingpercentage(ms, percentage=85):
     """
     Identifies antennas with a high percentage of flagged data in a Measurement Set (MS).
 
@@ -1153,10 +1174,10 @@ def return_antennas_highflaggingpercentage(ms, percentage=0.85):
         Finding stations with a flagging percentage above 90.0 ....
         Found: ['ANT1', 'ANT2']
     """
-    print('Finding stations with a flagging percentage above ' + str(100 * percentage) + ' ....')
+    print('Finding stations with a flagging percentage above ' + str(percentage) + ' ....')
     t = taql(""" SELECT antname, gsum(numflagged) AS numflagged, gsum(numvis) AS numvis,
        gsum(numflagged)/gsum(numvis) as percflagged FROM [[ SELECT mscal.ant1name() AS antname, ntrue(FLAG) AS numflagged, count(FLAG) AS numvis FROM """ + ms + """ ],[ SELECT mscal.ant2name() AS antname, ntrue(FLAG) AS numflagged, count(FLAG) AS numvis FROM """ + ms + """ ] ] GROUP BY antname HAVING percflagged > """ + str(
-        percentage) + """ """)
+        percentage/100.) + """ """)
 
     flaggedants = [row["antname"] for row in t]
     print('Found:', flaggedants)
@@ -3989,7 +4010,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 else:
                     cmd += ' steps=[av] '
             if removemostlyflaggedstations:
-                flagstationlist = return_antennas_highflaggingpercentage(ms)
+                flagstationlist = return_antennas_highflaggingpercentage(ms, percentage=args['removemostlyflaggedstations_percentage'])
                 if len(flagstationlist) > 0:
                     baselinestr = filter_baseline_str_removestations(flagstationlist)
                     cmd += 'fs.type=filter fs.baseline=' + baselinestr + ' fs.remove=True '
@@ -8274,7 +8295,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
     # check if -pb version of source list exists
     # needed because image000 does not have a pb version as no facet imaging is used, however, if IDG is used it does exist and hence the following does also handfle that
-    if telescope == 'LOFAR' and wscleanskymodel is None:  # not for MeerKAT because WSCclean still has a bug if no primary beam is used, for now assume we do not use a primary beam for MeerKAT
+    if telescope == 'LOFAR' and wscleanskymodel is None:  # not for MeerKAT because WSClean still has a bug if no primary beam is used, for now assume we do not use a primary beam for MeerKAT
         if os.path.isfile(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt'):
             if args['fitspectralpol'] > 0:
                 dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt',
@@ -11938,7 +11959,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '14.5.0'
+    version = '14.6.0'
     print_title(version)
 
     global submodpath, datapath
@@ -12121,11 +12142,10 @@ def main():
     #    runaoflagger(mslist, strategy=args['aoflagger_strategy'])
 
     # compute bandwidth smearing
-    t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
-    bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]),
-                                float(args['imsize']))
-    t.close()
-
+    with table(mslist[0] + '/SPECTRAL_WINDOW', ack=False) as t:
+        bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]),
+                                    float(args['imsize']))
+ 
     # backup flagging column for option --restoreflags if needed
     if args['restoreflags']:
         for ms in mslist:
@@ -12189,6 +12209,9 @@ def main():
         remove_outside_center_only = True
     else:
         remove_outside_center_only = False
+
+    # check if we can use -apply-facet-beam or disable_primary_beam needs to be set
+    check_applyfacetbeam_MeerKAT(mslist, args['imsize'], args['pixelscale'], telescope, args['DDE'])
 
     # ----- START SELFCAL LOOP -----
     for i in range(args['start'], args['stop']):

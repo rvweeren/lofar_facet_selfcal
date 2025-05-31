@@ -433,8 +433,10 @@ def option_parser():
                                 help='Remove the international stations if present',
                                 action='store_true')
     flaggingparser.add_argument('--removemostlyflaggedstations',
-                                help='Remove the staions that have a flaging percentage above 85 percent',
+                                help='Remove the staions that have a flaging percentage above --removemostlyflaggedstations-percentage',
                                 action='store_true')
+    flaggingparser.add_argument('--removemostlyflaggedstations-percentage',
+                                help='If --removemostlyflaggedstations is set this determines the percentage above which stations are removed, default=85', type=float, default=85)
 
     startmodelparser = parser.add_argument_group(
         "-------------------------Starting model Settings-------------------------")
