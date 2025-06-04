@@ -115,6 +115,43 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def check_pointing_centers(mslist):
+    """
+    Checks whether the pointing centers of the provided measurement sets (MS) are aligned within a specified tolerance.
+
+    Parameters:
+        mslist (list of str): List of paths to measurement sets (MS) to check.
+
+    Returns:
+        bool: True if all MS pointing centers are aligned within 0.025 arcseconds, False otherwise.
+
+    Warnings:
+        Prints a warning message and logs a warning if any MS pointing center differs from the first MS by more than 0.025 arcseconds.
+
+    Notes:
+        - If only one MS is provided, the function returns True without performing any checks.
+        - Requires the 'table', 'SkyCoord', and 'units' objects to be available in the scope.
+    """
+    
+    if len(mslist) == 1 or args['stack']:
+        return True  # Only one MS, no need to check alignment, for stacking no need to check alignment either
+    with table(mslist[0] + '/FIELD', ack=False, readonly=True) as t:
+        ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze() # reference direction in radians
+        center = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')
+    
+    align = True
+    for ms in mslist[1:]:  
+        with table(ms + '/FIELD', ack=False, readonly=True) as t:
+            ra_ms, dec_ms = t.getcol('REFERENCE_DIR').squeeze()
+        center_ms = SkyCoord(ra_ms * units.radian, dec_ms * units.radian, frame='icrs')
+        if not center.separation(center_ms).deg < 0.025/3600:  # 0.025 arcsec tolerance
+            print("\033[33m" + "WARNING: Pointing centers of MSs differ by " + str(center.separation(center_ms).deg) + " [deg] !\033[0m")
+            print("\033[33m" + "Pointing center of " + ms + " is not aligned with the first MS!" + "\033[0m")
+            print("\033[33m" + "Will use DP3 phaseshift to align them\033[0m")
+            logger.warning('Pointing centers of MSs differ: ' + ms)
+            align = False
+    return align        
+
 def write_primarybeam_info(cmd, imagebasename):
     """
     Updates the FITS header of images matching the given basename with primary beam correction information.
@@ -133,7 +170,7 @@ def write_primarybeam_info(cmd, imagebasename):
         - If '-apply-facet-beam' is not present but '-apply-facet-solutions' is, the header will indicate that
           the primary beam correction has not been applied and manual correction may be necessary.
     """
-    imagelist = glob.glob( imagebasename + '*-pb.fits')
+    imagelist = glob.glob( imagebasename + '*image-pb.fits')
     for image in imagelist:
         print('Updating FITS header:', image)
         with fits.open(image, mode='update') as hdul:
@@ -4110,7 +4147,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
         start (int): selfcal cycle that is being started from.
         msinnchan (int): number of channels to take from the input Measurement Set.
         msinstartchan (int): start chanel for msinnchan
-        phaseshiftbox (str): path to a DS9 region file to phaseshift to.
+        phaseshiftbox (str): path to a DS9 region file to phaseshift or "align" 
+                            "align" means phaseshift to pointing center of the first MS 
         msinntimes (int): number of timeslots to take from the input Measurement Set.
         makecopy (bool): appends '.copy' when making a copy of a Measurement Set.
         dysco (bool): Dysco compress the output Measurement Set.
@@ -4154,14 +4192,21 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             if dysco:
                 cmd += 'msout.storagemanager=dysco '
                 cmd += 'msout.storagemanager.weightbitrate=16 '
-            if phaseshiftbox is not None:
+            if phaseshiftbox is not None and not (phaseshiftbox == 'align' and ms_id ==0): # avoid phaseshift on first MS if 'align' is used
                 if removeinternational:
                     cmd += ' steps=[f,shift,av] '
                     cmd += " f.type=filter f.baseline='[CR]S*&' f.remove=True "
                 else:
                     cmd += ' steps=[shift,av] '
                 cmd += ' shift.type=phaseshifter '
-                cmd += ' shift.phasecenter=\\[' + getregionboxcenter(phaseshiftbox) + '\\] '
+                if phaseshiftbox == 'align':
+                    with table(mslist[0] + '/FIELD', ack=False) as t:
+                        ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze() # get the reference direction of the first MS in radians
+                    print(f'Aligning phase center to {ra_ref}, {dec_ref} (in radians) of first MS {mslist[0]}')
+                    # shift to the first MS's phase center
+                    cmd += ' shift.phasecenter=\\[' + str(ra_ref) + ',' + str(dec_ref) + '\\] '
+                else:
+                    cmd += ' shift.phasecenter=\\[' + getregionboxcenter(phaseshiftbox) + '\\] '
             else:
                 if removeinternational:
                     cmd += ' steps=[f,av] '
@@ -12290,6 +12335,8 @@ def main():
         mslist_beforeremoveinternational = mslist[:]  # copy by slicing otherwise list refers to original
     else:
         mslist_beforeremoveinternational = None
+
+    if not check_pointing_centers(mslist): args['phaseshiftbox'] = 'align' # set phaseshiftbox
 
     # AVERAGE if requested/possible
     mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'],
