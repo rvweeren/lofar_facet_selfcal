@@ -136,13 +136,13 @@ def check_pointing_centers(mslist):
     if len(mslist) == 1 or args['stack']:
         return True  # Only one MS, no need to check alignment, for stacking no need to check alignment either
     with table(mslist[0] + '/FIELD', ack=False, readonly=True) as t:
-        ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze() # reference direction in radians
+        ra_ref, dec_ref = t.getcol('PHASE_DIR').squeeze() # reference direction in radians
         center = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')
     
     align = True
     for ms in mslist[1:]:  
         with table(ms + '/FIELD', ack=False, readonly=True) as t:
-            ra_ms, dec_ms = t.getcol('REFERENCE_DIR').squeeze()
+            ra_ms, dec_ms = t.getcol('PHASE_DIR').squeeze()
         center_ms = SkyCoord(ra_ms * units.radian, dec_ms * units.radian, frame='icrs')
         if not center.separation(center_ms).deg < 0.025/3600:  # 0.025 arcsec tolerance
             print("\033[33m" + "WARNING: Pointing centers of MSs differ by " + str(center.separation(center_ms).deg) + " [deg] !\033[0m")
@@ -4201,7 +4201,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 cmd += ' shift.type=phaseshifter '
                 if phaseshiftbox == 'align':
                     with table(mslist[0] + '/FIELD', ack=False) as t:
-                        ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze() # get the reference direction of the first MS in radians
+                        ra_ref, dec_ref = t.getcol('PHASE_DIR').squeeze() # get the reference direction of the first MS in radians
                     print(f'Aligning phase center to {ra_ref}, {dec_ref} (in radians) of first MS {mslist[0]}')
                     # shift to the first MS's phase center
                     cmd += ' shift.phasecenter=\\[' + str(ra_ref) + ',' + str(dec_ref) + '\\] '
@@ -4361,6 +4361,19 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
 
 
 def uvmaxflag(msin, uvmax):
+    """
+    Flags visibilities in a Measurement Set (MS) with UV distances greater than a specified maximum.
+
+    Parameters:
+        msin (str): Path to the input Measurement Set.
+        uvmax (float): Maximum allowed UV distance (in wavelengths). Visibilities with UV distances greater than this value will be flagged.
+
+    Returns:
+        None
+
+    Side Effects:
+        Executes a DP3 command to flag data in the input MS based on the specified UV distance threshold.
+    """
     cmd = 'DP3 msin=' + msin + ' msout=. steps=[f] f.type=uvwflag f.uvlambdamax=' + str(uvmax)
     print(cmd)
     run(cmd)
@@ -5734,6 +5747,27 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
 
 
 def makephasediffh5(phaseh5, refant):
+    """
+    Adjusts the phase solutions in a HDF5 file by referencing them to a specified reference antenna.
+
+    This function opens the given HDF5 file containing phase calibration solutions, computes the phase
+    difference with respect to the specified reference antenna, and updates the phase solutions accordingly.
+    It is intended for use with scalarphase/phaseonly solutions and does not support tecandphase solutions
+    where the frequency axis is missing.
+
+    Parameters
+    ----------
+    phaseh5 : str
+        Path to the HDF5 file containing phase calibration solutions.
+    refant : str
+        Name of the reference antenna to which phases will be referenced.
+
+    Notes
+    -----
+    - The function modifies the HDF5 file in place.
+    - Only the XX polarization is updated; the YY polarization is set to zero.
+    - The function assumes the structure of the HDF5 file matches the expected LOFAR calibration format.
+    """
     # note for scalarphase/phaseonly solve, does not work for tecandphase as freq axis is missing there for phase000
     H5pol = tables.open_file(phaseh5, mode='a')
 
@@ -5826,6 +5860,23 @@ def makephaseCDFh5_h5merger(phaseh5, ms, modeldatacolumns, backup=True, testscfa
 
 
 def copyoverscalarphase(scalarh5, phasexxyyh5):
+    """
+    Copies scalar phase solutions from a HDF5 file (scalarh5) to the XX and YY polarization axes
+    of another HDF5 file (phasexxyyh5).
+
+    This function is intended for use with scalar phase or phase-only solutions, and does not work
+    for tecandphase solutions where the frequency axis is missing for phase000.
+
+    Args:
+        scalarh5 (str): Path to the input HDF5 file containing scalar phase solutions.
+        phasexxyyh5 (str): Path to the HDF5 file with XX and YY polarization axes to be updated.
+
+    Notes:
+        - The function assumes the input files follow the structure produced by LOFAR calibration software.
+        - The phase values from the scalar file are copied to both the XX (pol=0) and YY (pol=-1) axes
+          for each antenna and direction.
+        - The function modifies the phasexxyyh5 file in place.
+    """
     # note for scalarphase/phaseonly solve, does not work for tecandphase as freq axis is missing there for phase000
     H5 = tables.open_file(scalarh5, mode='r')
     H5pol = tables.open_file(phasexxyyh5, mode='a')
@@ -5848,6 +5899,34 @@ def copyoverscalarphase(scalarh5, phasexxyyh5):
 
 
 def copyovergain(gaininh5, gainouth5, soltype):
+    """
+    Copies gain solutions (amplitude and phase) from an input HDF5 file to an output HDF5 file,
+    handling both scalar and polarized solutions depending on the solution type and the presence
+    of polarization axes.
+
+    Parameters
+    ----------
+    gaininh5 : str
+        Path to the input HDF5 file containing gain solutions.
+    gainouth5 : str
+        Path to the output HDF5 file where gain solutions will be copied.
+    soltype : str
+        Type of solution to copy. Determines whether to copy both amplitude and phase
+        ('full'), or only amplitude ('scalaramplitude' or 'amplitudeonly').
+
+    Notes
+    -----
+    - If the solution table contains a polarization axis, the amplitude and phase arrays
+      are copied directly.
+    - If there is no polarization axis, the function expands the amplitude and phase arrays
+      to fill the polarization dimension in the output file (typically for XX and YY).
+    - Phase values are set to zero if only amplitude solutions are requested.
+    - The function uses PyTables and h5parm for HDF5 file access and manipulation.
+
+    Returns
+    -------
+    None
+    """
     H5in = tables.open_file(gaininh5, mode='r')
     H5out = tables.open_file(gainouth5, mode='a')
     antenna = H5in.root.sol000.amplitude000.ant[:]
@@ -6689,10 +6768,16 @@ def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFac
 # losotolofarbeam('P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive_templatejones.h5', 'amplitude000', 'P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive', inverse=False, useElementResponse=False, useArrayFactor=True, useChanFreq=True)
 
 def set_MeerKAT_bandpass_skymodel(ms):
-    """ Set skymodel for bandpass calibrator
-    
-    Args:
-        ms: MS file
+    """
+    Determines and sets the appropriate MeerKAT bandpass calibrator skymodel for a given Measurement Set (MS) file.
+    The function inspects the frequency band of the MS and the field pointing direction to select a matching skymodel
+    for one of the supported calibrators (J0408-6545 or J1939-6342) in either UHF or L-band. S-band is not supported.
+    Raises an exception if no matching skymodel is found or if the band is S-band.
+        ms (str): Path to the Measurement Set (MS) file.
+    Returns:
+        str: Path to the selected skymodel file.
+    Raises:
+        Exception: If the frequency band is S-band or if no matching skymodel is found.
     """
     skymodpath = '/'.join(datapath.split('/')[0:-1])+'/facetselfcal/data'
     
@@ -6916,7 +7001,37 @@ def which(file_name):
 
 
 def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mergedh5_i=None, 
-            facetregionfile=None, metadata_compression=True):
+            facetregionfile=None, metadata_compression=True): 
+    """
+    Archives calibrated measurement sets and related files into a tarball.
+
+    This function processes a list of measurement sets (MS), applies calibration and optional compression,
+    and then archives the resulting files along with specified auxiliary files into a compressed tarball.
+
+    Args:
+        mslist (list of str): List of measurement set filenames to process and archive.
+        outtarname (str): Name of the output tarball file.
+        regionfile (str or None): Path to a region file to include in the archive, if it exists.
+        fitsmask (str or None): Path to a FITS mask file to include in the archive, if it exists.
+        imagename (str): Name of the image file to include in the archive.
+        dysco (bool, optional): Whether to use Dysco compression for output measurement sets. Defaults to True.
+        mergedh5_i (list of str or None, optional): List of merged HDF5 files to include in the archive, if provided.
+        facetregionfile (str or None, optional): Path to a facet region file to include in the archive, if it exists.
+        metadata_compression (bool, optional): Whether to enable metadata compression. Defaults to True.
+
+    Returns:
+        None
+
+    Side Effects:
+        - Creates calibrated copies of the input measurement sets with optional compression.
+        - Removes any existing output tarball with the same name before creating a new one.
+        - Archives specified files into a compressed tarball.
+        - Removes temporary calibrated measurement sets after archiving.
+        - Logs the creation of the tarball.
+
+    Raises:
+        None explicitly, but may raise exceptions if external commands fail.
+    """
     path = '/disks/ftphome/pub/vanweeren'
     for ms in mslist:
         msout = ms + '.calibrated'
@@ -11432,11 +11547,25 @@ def removenonms(mslist):
     return newmslist
 
 
-# check is there are enough timesteps in the ms
-# for example this will remove an observations of length 600s
-# in that case a lot of assumptions break, for example amplitude flagging in losoto
-# also if a "ms" does not open iwht table it means wrong input was provided
+
 def check_valid_ms(mslist):
+    """
+    Validates a list of Measurement Set (MS) directories.
+    This function performs the following checks on each MS in the provided list:
+    1. Verifies that each MS path exists and is a directory.
+    2. Ensures that no MS path starts with a '.' character (to avoid relative or hidden paths).
+    3. Checks that each MS contains more than 20 unique time steps (sufficient data for self-calibration).
+    4. Ensures there are no duplicate MS entries in the list.
+    Raises:
+        Exception: If any MS directory does not exist.
+        Exception: If any MS path starts with a '.' character.
+        Exception: If any MS contains 20 or fewer unique time steps.
+        Exception: If there are duplicate MS entries in the list.
+    Args:
+        mslist (list of str): List of paths to Measurement Set directories to validate.
+    Returns:
+        None
+    """
     for ms in mslist:
         if not os.path.isdir(ms):
             print(ms, ' does not exist')
@@ -11456,6 +11585,10 @@ def check_valid_ms(mslist):
             raise Exception(
                 'You are providing an MS with less than 21 timeslots, that is not enough to self-calibrate on')
         t.close()
+    
+    if any(mslist.count(x) > 1 for x in mslist):
+        print('There are duplicates in the mslist, please remove them')
+        raise Exception('There are duplicates in the mslist, please remove them')
     return
 
 
@@ -11759,6 +11892,19 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
 
 
 def multiscale_trigger(fitsmask):
+    """
+    Determines whether to enable multiscale cleaning based on the size of the largest island in a FITS mask.
+
+    If the 'update_multiscale' argument is True and a FITS mask is provided, the function checks the size of the largest island
+    (using `getlargestislandsize`). If this size exceeds 1000 pixels, multiscale cleaning is triggered by setting the `multiscale`
+    flag to True. The function logs relevant information about the island size and the triggering of multiscale cleaning.
+
+    Args:
+        fitsmask: The FITS mask array to analyze for island sizes.
+
+    Returns:
+        bool: The value of the `multiscale` flag, possibly updated based on the FITS mask analysis.
+    """
     # update multiscale cleaning setting if allowed/requested
     multiscale = args['multiscale']
     if args['update_multiscale'] and fitsmask is not None:
@@ -11771,6 +11917,23 @@ def multiscale_trigger(fitsmask):
 
 
 def update_uvmin(fitsmask, longbaseline, LBA):
+    """
+    Updates the 'uvmin' parameter in the global 'args' dictionary based on the properties of the provided FITS mask.
+
+    If stacking is enabled in 'args', the function returns immediately without making changes.
+    If 'longbaseline' is False, 'update_uvmin' is enabled in 'args', and a FITS mask is provided,
+    the function checks the size of the largest island in the mask. If this size exceeds 1000 pixels,
+    it sets 'uvmin' in 'args' to 750 (for non-LBA) or 250 (for LBA), indicating the presence of extended emission.
+    Relevant information is printed and logged.
+
+    Parameters:
+        fitsmask: The FITS mask to analyze for extended emission.
+        longbaseline (bool): Indicates whether long baselines are being used.
+        LBA (bool): Indicates whether the observation is in LBA mode.
+
+    Returns:
+        None
+    """
     # update uvmin if allowed/requested
     if args['stack']:
         return
@@ -11790,6 +11953,28 @@ def update_uvmin(fitsmask, longbaseline, LBA):
 
 
 def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, mslist, telescope, longbaseline):
+    """
+    Updates or generates FITS mask files for self-calibration imaging cycles.
+    This function manages the creation and updating of FITS mask files used in radio interferometric imaging
+    self-calibration cycles. It supports different imagers (WSCLEAN, DDFACET), optional stacking, and
+    extended masking for specific telescopes (LOFAR, MeerKAT). The function can merge user-supplied DS9 region
+    files and uses external tools (breizorro, MakeMask.py) for mask generation. It returns the updated mask
+    filename, a list of mask filenames for each imaging set, and the last used image filename.
+    Args:
+        fitsmask (str or None): Path to an existing FITS mask file, or None to generate a new mask.
+        maskthreshold_selfcalcycle (dict): Dictionary mapping selfcal cycle indices to mask threshold values.
+        selfcalcycle (int): Current self-calibration cycle index.
+        args (dict): Dictionary of imaging and calibration parameters, including imager type, stacking, 
+            mask options, image name, and more.
+        mslist (list): List of measurement sets to process.
+        telescope (str): Name of the telescope (e.g., 'LOFAR', 'MeerKAT').
+        longbaseline (bool): Whether long baselines are used (affects mask generation).
+    Returns:
+        tuple:
+            fitsmask (str or None): Path to the updated or generated FITS mask file, or None if not created.
+            fitsmask_list (list): List of FITS mask filenames (or None) for each imaging set.
+            imagename (str): The filename of the last processed image.
+    """
     # MAKE MASK IF REQUESTED
     fitsmask_list = []
     for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
@@ -11850,8 +12035,16 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
 
 def remove_model_columns(mslist):
     """
-    Clean up model columns in a MS
-    Input: mslist list of ms
+    Removes columns related to model data from a list of Measurement Sets (MS).
+
+    This function iterates over each MS in the provided list, identifies columns whose names match the pattern 'MODEL_DATA*',
+    and removes them using the `remove_column_ms` function.
+
+    Args:
+        mslist (list of str): List of paths to Measurement Set directories.
+
+    Returns:
+        None
     """
     print('Clean up MODEL_DATA type columns')
     for ms in mslist:
