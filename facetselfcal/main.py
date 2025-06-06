@@ -2329,17 +2329,36 @@ def check_equidistant_times(mslist, stop=True, return_result=False):
 
 
 def check_equidistant_freqs(mslist):
-    """ Check if freuqencies in mslist are equidistant """
+    """
+    Check if the frequency channels in each Measurement Set (MS) in the provided list are equidistant.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to Measurement Set directories.
+
+    Raises
+    ------
+    Exception
+        If any MS in the list has frequency channels that are not equidistant within a tolerance of 1e-5 Hz.
+
+    Notes
+    -----
+    - For single channel data, the function returns without performing any checks.
+    - The function prints the unique frequency differences and the MS path if non-equidistant channels are detected.
+    """
     for ms in mslist:
         with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
             chan_freqs = t.getcol('CHAN_FREQ')[0]
         if len(chan_freqs) == 1:  # single channel data
             return
-        diff_freqs = np.diff(chan_freqs)
-        if len(np.unique(diff_freqs)) != 1:
-            print(np.unique(diff_freqs))
-            print(ms, 'Frequency channels are not equidistant, made a mistake in DP3 concat?')
-            raise Exception(ms + ': Freqeuency channels are no equidistant, made a mistake in DP3 concat?')
+        diff_freqs_unique = np.unique(np.diff(chan_freqs))
+        if len(diff_freqs_unique) != 1:
+            for dfreq in diff_freqs_unique[1:]:
+                if np.abs(dfreq-diff_freqs_unique[0]) < 1e-5: # max abs diff tolerance is 1e-5 Hz 
+                    print(diff_freqs_unique)
+                    print(ms, 'Frequency channels are not equidistant, made a mistake in DP3 concat?')
+                    raise Exception(ms + ': Freqeuency channels are no equidistant, made a mistake in DP3 concat?')
     return
 
 
