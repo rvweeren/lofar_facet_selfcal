@@ -2355,7 +2355,8 @@ def check_equidistant_freqs(mslist):
         diff_freqs_unique = np.unique(np.diff(chan_freqs))
         if len(diff_freqs_unique) != 1:
             for dfreq in diff_freqs_unique[1:]:
-                if np.abs(dfreq-diff_freqs_unique[0]) < 1e-5: # max abs diff tolerance is 1e-5 Hz 
+                if np.abs(dfreq-diff_freqs_unique[0]) > 1e-5: # max abs diff tolerance is 1e-5 Hz 
+                    print(np.abs(dfreq-diff_freqs_unique[0]))
                     print(diff_freqs_unique)
                     print(ms, 'Frequency channels are not equidistant, made a mistake in DP3 concat?')
                     raise Exception(ms + ': Freqeuency channels are no equidistant, made a mistake in DP3 concat?')
@@ -5731,6 +5732,18 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
         if ctype == 'all':
             antstr = ['C00','C01','C02','C03','C04','C05','C06','C08','C09','C10','C11','C12','C13','C14'] + \
                      ['E02','E03','E04','E05','E06','S01','S02','S03','S04','S06','W01','W02','W03','W04','W05','W06']
+
+    if telescope == 'ASKAP':
+        if ctype == 'core':
+            antstr = ['ak01','ak02','ak03','ak04','ak05','ak06','ak07','ak08','ak09','ak10','ak11','ak12',\
+                      'ak13','ak14','ak15','ak16','ak17','ak18','ak19','ak20','ak21','ak22','ak23','ak25',\
+                      'ak26','ak29']    
+        if ctype == 'remote':
+            antstr = ['ak24','ak27','ak28','ak30','ak31','ak32','ak33','ak34','ak35','ak36'] 
+        if ctype == 'all':
+            antstr = ['ak01','ak02','ak03','ak04','ak05','ak06','ak07','ak08','ak09','ak10','ak11','ak12',\
+                      'ak13','ak14','ak15','ak16','ak17','ak18','ak19','ak20','ak21','ak22','ak23','ak24',\
+                      'ak25','ak26','ak27','ak28','ak29','ak30','ak31','ak32','ak33','ak34','ak35','ak36'] 
 
     if useforresetsols:
         antstrtmp = list(antstr)
@@ -11355,7 +11368,7 @@ def findrefant_core(H5file):
         return 'ST001'
     cs_indices = np.where(['CS' in ant for ant in ants])[0]
 
-    # temporary MeerKAT fix
+    #  MeerKAT
     if 'm013' in ants:
         H.close()
         return 'm013'
@@ -11378,7 +11391,7 @@ def findrefant_core(H5file):
         H.close()
         return 'm001'
 
-    # temporary GMRT fix
+    #  GMRT
     if 'C00' in ants:
         H.close()
         return 'C00'
@@ -11421,6 +11434,50 @@ def findrefant_core(H5file):
     if 'C14' in ants:
         H.close()
         return 'C14'   
+
+    #  ASKAP
+    if 'ak01' in ants:
+        H.close()
+        return 'ak01'
+    if 'ak02' in ants:
+        H.close()
+        return 'ak02'
+    if 'ak03' in ants:
+        H.close()
+        return 'ak03'
+    if 'ak04' in ants:
+        H.close()
+        return 'ak04'
+    if 'ak05' in ants:
+        H.close()
+        return 'ak05'
+    if 'ak06' in ants:
+        H.close()
+        return 'ak06'
+    if 'ak07' in ants:
+        H.close()
+        return 'ak07'
+    if 'ak08' in ants:
+        H.close()
+        return 'ak08'
+    if 'ak09' in ants:
+        H.close()
+        return 'ak09'
+    if 'ak10' in ants:
+        H.close()
+        return 'ak10'
+    if 'ak11' in ants:
+        H.close()
+        return 'ak11'    
+    if 'ak12' in ants:
+        H.close()
+        return 'ak12'   
+    if 'ak13' in ants:
+        H.close()
+        return 'ak13'       
+    if 'ak14' in ants:
+        H.close()
+        return 'ak14' 
 
     if len(cs_indices) == 0:  # in case there are no CS stations try with RS
         cs_indices = np.where(['RS' in ant for ant in ants])[0]
@@ -12381,7 +12438,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '14.6.0'
+    version = '14.7.0'
     print_title(version)
 
     global submodpath, datapath
