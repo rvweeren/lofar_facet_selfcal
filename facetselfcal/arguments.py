@@ -546,6 +546,9 @@ def option_parser():
     parser.add_argument('--bandpassMeerKAT',
                         help='Stop calibration after solving against an external skymodel and compute bandpass on merged solution file. Requires an external skymodel to be provided.',
                         action='store_true')
+    parser.add_argument('--timesplitbefore',
+                        help='Try to split the MS in time if the time axis is not contigeous',
+                        action='store_true')
     parser.add_argument('--noarchive',
                         help='Do not archive the data.',
                         action='store_true')

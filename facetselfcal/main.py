@@ -12522,6 +12522,10 @@ def main():
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, 
                                                            dysco=args['dysco'], metadata_compression=args['metadata_compression'])
 
+    if args['timesplitbefore']:
+        mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, 
+                                                           dysco=args['dysco'], metadata_compression=args['metadata_compression'])
+
     # cut ms if there are flagged times at the start or end of the ms
     if args['remove_flagged_from_startend']:
         mslist = sorted(remove_flagged_data_startend(mslist))
