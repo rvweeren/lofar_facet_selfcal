@@ -39,6 +39,8 @@ LBA Dutch baselines
  - widefield
  - decameter band
 
+# Extracion
+Information on how to use the [extract option](https://github.com/rvweeren/lofar_facet_selfcal/wiki/FACETSELFCAL-OVERVIEW).
 
 # MeerKAT
 - Support for UHF, L-band, and S-band
