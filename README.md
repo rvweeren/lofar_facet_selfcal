@@ -1,4 +1,4 @@
-# LOFAR and MeerKAT facet self-calibration
+# LOFAR, MeerKAT, and ASKAP facet self-calibration
 General direction-independent and direction-dependent self-calibration: 
  - refinement self-calibration for individual 'extracted' datasets 
  - full field of view self-calibration and extraction of regions of interest
