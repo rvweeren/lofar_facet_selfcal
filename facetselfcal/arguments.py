@@ -220,6 +220,14 @@ def option_parser():
                                    type=arg_as_list,
                                    default=[1, 1, 1],
                                    help="Number of channels corresponding to solution types (in same order as soltype-list input). The default is [1,1,1].")
+    calibrationparser.add_argument("--solve-msinnchan-list",
+                                   type=arg_as_list,
+                                   default=['all', 'all', 'all'],
+                                   help="Number of channels selected for the solve via msin.nchan. By default this is ['all','all','all'] which means all channels are used in the solve. If this is not 'all' the solve step will always run with ddecal.nchan=0, which means there will be no frequency dependence. Solution will be applied to the full channel range of the MS. Example is [50,'all',150]")
+    calibrationparser.add_argument("--solve-msinstartchan-list",
+                                   type=arg_as_list,
+                                   default=[0, 0, 0],
+                                   help="Start channel selected for the solve via msin.startchan. Only relevant is --solve-msinnchan-list is set. By default --solve-msinstartchan-list is [0,0,0] which means msin.startchan=0 in the solve.")    
     calibrationparser.add_argument("--smoothnessconstraint-list",
                                    type=arg_as_list,
                                    default=[0., 0., 5.],
