@@ -12942,16 +12942,10 @@ def main():
         if args['early_stopping'] and len(mslist)>1:
             logger.info("WARNING: --early-stopping not yet developed for multiple input MeasurementSets.\nSkipping early-stopping evaluation.")
         elif args['early_stopping'] and early_stopping(station='international' if longbaseline else 'alldutch', cycle=i):
-            if args['phaseupstations'] is not None:
-                merge_h5(h5_out='best_addCS_solutions.h5', h5_tables='best_solutions.h5', ms_files=mslist_beforephaseup[0], add_cs=True, h5_time_freq='best_solutions.h5')
-                with tables.open_file("best_addCS_solutions.h5") as H:
-                    if 'sol000' not in H.root: subprocess.call(['h5_merger', '-in', 'best_solutions.h5', '-out', 'best_addCS_solutions.h5', '--ms', mslist_beforephaseup[0], '--add_cs'])
-            else:
-                os.system("cp best_solutions.h5 best_addCS_solutions.h5")
             break
 
     # Write config file to merged h5parms
-    h5s = ['best_addCS_solutions.h5', 'best_solutions.h5'] if args['early_stopping'] else glob.glob("merged_*.h5")
+    h5s = ['best_solutions.h5'] if args['early_stopping'] else glob.glob("merged_*.h5")
     for h5 in h5s:
         # Write the user-specified configuration file to h5parm and otherwise all input parameters if config file not specified
         add_config_to_h5(h5, args['configpath']) if args['configpath'] is not None else add_config_to_h5(h5, 'full_config.txt')
