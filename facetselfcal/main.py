@@ -115,6 +115,54 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def split_multidir_ms(ms):
+    """
+    Splits a multisource Measurement Set (MS) into separate single-source MS files.
+    Parameters:
+        ms (str): Path to the multisource Measurement Set to be split.
+    Returns:
+        list of str: List of paths to the newly created single-source Measurement Sets. 
+                     If the input MS contains only a single source, returns a list containing the original MS path.
+    Notes:
+        - If the input MS is already a single-source MS, no splitting is performed.
+        - Each output MS will contain data for only one source, with FIELD_ID and SOURCE_ID reset to 0.
+        - Existing output MS directories will be removed before new ones are created.
+    """
+    with table(ms, readonly=True) as t:
+        if len(np.unique(t.getcol('FIELD_ID'))) == 1:
+            print(f"Measurement Set {ms} is already a single source MS, no splitting needed.")
+            return [ms]  # No splitting needed, return original MS
+        else:
+            print(f"Splitting multisource Measurement Set {ms} into single source MS...")
+    # get the source names
+    with table(ms + '/FIELD', readonly=True) as t:
+        source_names = t.getcol('NAME')
+        field_ids = t.getcol('SOURCE_ID')
+
+    
+    mslist = []
+    for field_id in field_ids:
+                        
+        outname = ms + '.' + source_names[field_id] 
+        # Remove  MS if it exists
+        if os.path.isdir(outname):
+            os.system('rm -rf {}'.format(outname))
+        cmd = "taql 'select from {} where FIELD_ID=={} giving {} as plain'".format(ms, field_id, outname)       
+        print(cmd)
+        run(cmd)
+
+        taql("delete from {} where rownr() not in (select distinct FIELD_ID from {})".format(outname+'/FIELD', outname))
+
+        # Set 'SOURCE_ID' to 0 in the FIELD subtable.
+        taql("update {} set SOURCE_ID=0".format(outname+'/FIELD'))
+
+        # Set 'FIELD_ID' to 0 in the main table.
+        taql("update {} set FIELD_ID=0".format(outname))
+        mslist.append(outname)
+    print(f"Splitting completed. Created {len(mslist)} single source MS.")
+    return mslist
+ 
+
 def check_pointing_centers(mslist):
     """
     Checks whether the pointing centers of the provided measurement sets (MS) are aligned within a specified tolerance.
@@ -3033,6 +3081,7 @@ def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=Fals
                 #t.addcols(desc)
                 addcol(t, weightref, outweightcol)
             # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
+            if t.nrows() < stepsize: stepsize = t.nrows()  # if less than stepsize rows, do not loop
             for row in range(0, t.nrows(), stepsize):
                 print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
                 weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1).astype(np.float64)
@@ -3101,6 +3150,7 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updatewe
                 addcol(t, weightref, outweightcol)
 
             # os.system('DP3 msin={ms} msin.datacolumn={weightref} msout=. msout.datacolumn={outweightcol} steps=[]')
+            if t.nrows() < stepsize: stepsize = t.nrows() # if less than stepsize rows, do not loop
             for row in range(0, t.nrows(), stepsize):
                 print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
                 weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1).astype(np.float64)
@@ -7119,8 +7169,9 @@ def setinitial_solint(mslist, options):
 
     nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
         smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, \
-        resetdir_list, normamps_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list = \
-        ([] for _ in range(16))
+        resetdir_list, normamps_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, \
+        solve_msinnchan_list, solve_msinstartchan_list = \
+        ([] for _ in range(18))
 
     # make here uvminim_list and uvmaxim_list, because the have just the length of mslist
     for ms_id, ms in enumerate(mslist):
@@ -7153,6 +7204,8 @@ def setinitial_solint(mslist, options):
         uvmax_list_ms = []  # list with len(mslist)
         # uvminim_list_ms = []  # list with len(mslist)
         # uvmaxim_list_ms = []  # list with len(mslist)
+        solve_msinnchan_list_ms = []  # list with len(mslist)
+        solve_msinstartchan_list_ms = []  # list with len(mslist)
 
         for ms in mslist:
             # use try statement in case the user did not provide all the info for certain soltypes
@@ -7234,6 +7287,18 @@ def setinitial_solint(mslist, options):
                 uvmax = options.uvmax[soltype_id]
             except:
                 uvmax = None
+            
+            # solve_msinnchan
+            try:
+                solve_msinnchan = options.solve_msinnchan_list[soltype_id]
+            except:
+                solve_msinnchan = 'all'
+            
+            # solve_msinstartchan
+            try:
+                solve_msinstartchan = options.solve_msinstartchan_list[soltype_id]
+            except:
+                solve_msinstartchan = 0
 
             # uvminim
             # try:
@@ -7272,6 +7337,8 @@ def setinitial_solint(mslist, options):
             uvmax_list_ms.append(uvmax)
             # uvminim_list_ms.append(uvminim)
             # uvmaxim_list_ms.append(uvmaxim)
+            solve_msinnchan_list_ms.append(solve_msinnchan)
+            solve_msinstartchan_list_ms.append(solve_msinstartchan)
 
         nchan_list.append(nchan_ms)  # list of lists
         solint_list.append(solint_ms)  # list of lists
@@ -7288,6 +7355,8 @@ def setinitial_solint(mslist, options):
         uvmax_list.append(uvmax_list_ms)  # list of lists
         # uvminim_list.append(uvminim_list_ms) # list of lists
         # uvmaxim_list.append(uvmaxim_list_ms)      # list of lists
+        solve_msinnchan_list.append(solve_msinnchan_list_ms)  # list of lists
+        solve_msinstartchan_list.append(solve_msinstartchan_list_ms)  # list of lists
 
         soltypecycles_list.append(soltypecycles_list_ms)
 
@@ -7308,6 +7377,8 @@ def setinitial_solint(mslist, options):
     print('uvmax:', uvmax_list)
     print('uvminim:', uvminim_list)
     print('uvmaxim:', uvmaxim_list)
+    print('solve_msinnchan:', solve_msinnchan_list)
+    print('solve_msinstartchan:', solve_msinstartchan_list)
 
     logger.info('soltype: ' + str(options.soltype_list) + ' ' + str(mslist))
     logger.info('nchan: ' + str(options.nchan_list))
@@ -7326,8 +7397,10 @@ def setinitial_solint(mslist, options):
     logger.info('uvmax: ' + str(options.uvmax))
     logger.info('uvminim: ' + str(options.uvminim))
     logger.info('uvmaxim: ' + str(options.uvmaxim))
+    logger.info('solve_msinnchan: ' + str(options.solve_msinnchan_list))
+    logger.info('solve_msinstartchan: ' + str(options.solve_msinstartchan_list))
 
-    return nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list
+    return nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list, solve_msinnchan_list, solve_msinstartchan_list
 
 
 def getms_amp_stats(ms, datacolumn='DATA', uvcutfraction=0.666, robustsigma=True):
@@ -8681,6 +8754,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          smoothnessrefdistance_list,
                          antennaconstraint_list, resetsols_list, resetdir_list, normamps_list,
                          BLsmooth_list,
+                         solve_msinnchan_list, solve_msinstartchan_list,
                          normamps=False, normamps_per_ms=False, skymodel=None,
                          predictskywithbeam=False,
                          longbaseline=False,
@@ -8847,7 +8921,9 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel,
                             DDE_predict=DDE_predict, ncpu_max=args['ncpu_max_DP3solve'], soltype_list=args['soltype_list'],
                             DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir,
-                            normamps=normamps, modelstoragemanager=args['modelstoragemanager'], skymodelsetjy=skymodelsetjy)
+                            normamps=normamps, modelstoragemanager=args['modelstoragemanager'], skymodelsetjy=skymodelsetjy,
+                            solve_msinnchan=solve_msinnchan_list[soltypenumber][msnumber],
+                            solve_msinstartchan=solve_msinstartchan_list[soltypenumber][msnumber])
 
                 parmdbmslist.append(parmdb)
                 parmdbmergelist[msnumber].append(parmdb)  # for h5_merge
@@ -9052,7 +9128,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 preapplyH5_dde=[],
                 dde_skymodel=None, DDE_predict='WSCLEAN', beamproximitylimit=240.,
                 ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None,
-                normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None, skymodelsetjy=False):
+                normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None, skymodelsetjy=False,
+                solve_msinnchan='all', solve_msinstartchan=0):
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
     with table(ms + '/OBSERVATION', ack=False) as t:
@@ -9205,6 +9282,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), ncpu_max])) + \
           ' msin=' + ms + ' msout=. '
+    
+    if solve_msinnchan != 'all':
+        SMconstraint = 0.0  # set SMconstraint to 0 so that DP3 does not solve for frequency dependence
+        nchan = 0  # set nchan to 0 so that DP3 does not solve for frequency dependence
+
 
     if soltype == 'rotation+diagonal':
         cmd += 'ddecal.rotationdiagonalmode=diagonal '
@@ -9465,6 +9547,32 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    
                 cmd += "ddecal.initialsolutions.soltab='[" + ','.join(map(str, soltabs)) + "]' "
 
+    if solve_msinnchan != 'all':
+        # if we are solving for aa select channel range, we need to create a temporary MS with the average function
+        
+        # create a list of the same columns as in the original MS 
+        columns_to_create = []
+        if incol != 'DATA':
+            columns_to_create.append(incol)
+        if len(modeldatacolumns) == 0:
+            columns_to_create.append(modeldata)    
+        else:
+            if len(modeldatacolumns_solve) > 0:
+                for mdc in modeldatacolumns_solve:
+                    columns_to_create.append(mdc)
+            else:
+                for mdc in modeldatacolumns:
+                    columns_to_create.append(mdc)
+        columns_to_create.append('DATA') # to create DATA because XY and YX were set to zero above
+        
+        ms_tmp = create_splitted_ms(ms, columns_to_create, solve_msinnchan=solve_msinnchan, 
+                                    solve_msinstartchan=solve_msinstartchan, dysco=dysco, 
+                                    modelstoragemanager=modelstoragemanager, incol=incol, 
+                                    metadata_compression=args['metadata_compression'])
+
+        # now replace the cmd command string with the new temporary MS
+        cmd.replace('msin=' + ms, 'msin=' + ms_tmp)
+    
     # RUN THE SOLVE WITH DP3
     print('DP3 solve:', cmd)
     logger.info('DP3 solve: ' + cmd)
@@ -9747,7 +9855,74 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     return
 
 
+def create_splitted_ms(ms, columns_to_create, solve_msinnchan, solve_msinstartchan,
+                      dysco=True, modelstoragemanager=None, incol='DATA', 
+                      metadata_compression=True, ncpu_max=8):
+    """
+    Create a temporary Measurement Set (MS) with selected frequency channels and specified columns.
+
+    Parameters:
+        ms (str): Path to the input Measurement Set.
+        columns_to_create (list of str): List of column names to create and copy into the new MS.
+        solve_msinnchan (int): Number of frequency channels to include in the split MS.
+        solve_msinstartchan (int): Starting channel index for the split.
+        dysco (bool, optional): Whether to use DYSCO compression for the output MS. Defaults to True.
+        modelstoragemanager (str or None, optional): Storage manager to use for model columns. Defaults to None.
+        incol (str, optional): Name of the input data column. Defaults to 'DATA'.
+        metadata_compression (bool, optional): Whether to enable metadata compression. Defaults to True.
+        ncpu_max (int, optional): Maximum number of CPU threads to use. Defaults to 8.
+
+    Returns:
+        str: Path to the newly created temporary Measurement Set.
+    """
+    # create a new temporary MS with the average function
+    ms_tmp = average([ms], freqstep=[1], makecopy=True, msinnchan=solve_msinnchan, msinstartchan=solve_msinstartchan,
+                        dysco=dysco, metadata_compression=metadata_compression)[0]
+    
+    # set DATA XY and YX to zero to avoid error from the Stokes-I storageManager
+    run("taql" + " 'update " + ms_tmp + " set DATA[,1]=(0+0i)'")
+    run("taql" + " 'update " + ms_tmp + " set DATA[,2]=(0+0i)'")
+    
+    for col in columns_to_create:                  
+        cmdcol = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), ncpu_max])) + \
+                    ' msin=' + ms_tmp + ' msout=. '
+    
+        cmdcol += 'steps=[] msout.datacolumn=' + col + ' '
+        if col == incol: # in this case we can use the dysco storage manager
+            if dysco:
+                cmdcol += 'msout.storagemanager=dysco '
+                cmdcol += 'msout.storagemanager.weightbitrate=16 '
+        elif modelstoragemanager is not None:           
+            cmdcol += 'msout.storagemanager=' + modelstoragemanager + ' '
+        print(cmdcol)
+        run(cmdcol)
+        # now copy over the column to the temporary MS
+        print('=== Copying column ' + col + ' to temporary MS \n\n')
+        tout = table(ms_tmp, ack=False, readonly=False)
+        tin  = table(ms, ack=False, readonly=True)
+        
+        stepsize = 1000000
+        if tin.nrows() < stepsize: stepsize = tin.nrows()
+        for row in range(0, tin.nrows(), stepsize):
+            datain = tin.getcol(col, startrow=row, nrow=stepsize, rowincr=1)
+            tout.putcol(col, datain[:,solve_msinstartchan:solve_msinstartchan + solve_msinnchan,:], startrow=row, nrow=stepsize, rowincr=1)
+        tout.close()
+        tin.close()    
+
+    return ms_tmp
+
 def mask_region_inv(infilename, ds9region, outfilename):
+    """
+    Applies an inverse mask to a FITS image using a DS9 region file, setting all pixels outside the specified region to zero.
+
+    Parameters:
+        infilename (str): Path to the input FITS file.
+        ds9region (str): Path to the DS9 region file defining the region to keep.
+        outfilename (str): Path to the output FITS file where the masked image will be saved.
+
+    Returns:
+        None
+    """
     hdu = fits.open(infilename)
     hduflat = flatten(hdu)
     map = hdu[0].data
@@ -9760,6 +9935,29 @@ def mask_region_inv(infilename, ds9region, outfilename):
 
 
 def mask_region(infilename, ds9region, outfilename):
+    """
+    Applies a mask to a FITS file based on a DS9 region file and writes the result to a new FITS file.
+
+    Parameters
+    ----------
+    infilename : str
+        Path to the input FITS file to be masked.
+    ds9region : str
+        Path to the DS9 region file specifying the mask region.
+    outfilename : str
+        Path to the output FITS file where the masked data will be saved.
+
+    Returns
+    -------
+    None
+        The function writes the masked FITS file to `outfilename` and does not return a value.
+
+    Notes
+    -----
+    - The function sets the pixel values within the specified region to 0.0.
+    - Assumes the FITS file and region file are compatible in terms of dimensions and WCS.
+    - Requires the `pyregion`, `numpy`, and `astropy.io.fits` packages.
+    """
     hdu = fits.open(infilename)
     hduflat = flatten(hdu)
     map = hdu[0].data
@@ -9777,6 +9975,56 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                        idg=False, h5list=[], facetregionfile=None,
                        disable_primary_beam=False, ddcor=True, modelstoragemanager=None, parallelgridding=1,
                        metadata_compression=True):
+    """
+    Removes emission outside a specified box region from measurement sets (MS) by predicting and subtracting the model
+    within the defined region. Optionally applies direction-dependent calibration corrections and manages output columns.
+    Parameters
+    ----------
+    mslist : list of str
+        List of measurement set file paths to process.
+    imagebasename : str
+        Basename for the image FITS file (expects '-MFS-image.fits' suffix).
+    pixsize : float
+        Pixel size for imaging (arcseconds or degrees, depending on context).
+    imsize : int
+        Image size (number of pixels per side).
+    channelsout : int
+        Number of output channels for imaging.
+    single_dual_speedup : bool, optional
+        If True, enables speedup for single/dual polarization (default: True).
+    outcol : str, optional
+        Name of the output data column to store subtracted data (default: 'SUBTRACTED_DATA').
+    dysco : bool, optional
+        If True, uses DYSCO storage manager for output (default: True).
+    userbox : float, str, or None, optional
+        User-specified box size in degrees, a region file, 'keepall', or None to use default (default: None).
+    idg : bool, optional
+        If True, uses IDG for imaging (default: False).
+    h5list : list of str, optional
+        List of H5 calibration tables for DDE calibration (default: []).
+    facetregionfile : str or None, optional
+        Path to facet region file for DDE calibration (default: None).
+    disable_primary_beam : bool, optional
+        If True, disables primary beam correction during prediction (default: False).
+    ddcor : bool, optional
+        If True, applies direction-dependent corrections after subtraction (default: True).
+    modelstoragemanager : str or None, optional
+        Storage manager for model data (default: None).
+    parallelgridding : int, optional
+        Number of parallel gridding threads (default: 1).
+    metadata_compression : bool, optional
+        If True, enables metadata compression for output (default: True).
+    Returns
+    -------
+    None
+    Notes
+    -----
+    - If `userbox` is a float, it is interpreted as the box size in degrees.
+    - If `userbox` is a region file or 'keepall', it controls the region to keep or disables subtraction, respectively.
+    - The function creates a region file for the box if needed, predicts the model, subtracts it from the data, and averages the result.
+    - If DDE calibration tables are provided (`h5list`), direction-dependent corrections are applied.
+    - Temporary columns and files may be created and removed to manage disk space.
+    """
     # get imageheader to check frequency
     hdul = fits.open(imagebasename + '-MFS-image.fits')
     header = hdul[0].header
@@ -9856,6 +10104,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     # write new data column (if keepall was not set) where rest of the field outside the box is removed
     if phaseshiftbox is not None:
         stepsize = 100000
+        
         for ms in mslist:
             # check if outcol exists, if not create it with DP3
             t = table(ms)
@@ -9870,6 +10119,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                 print(cmd)
                 run(cmd)
             t = table(ms, readonly=False)
+            if t.nrows() < stepsize: stepsize = t.nrows()
             for row in range(0, t.nrows(), stepsize):
                 print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
                 data = t.getcol(datacolumn, startrow=row, nrow=stepsize, rowincr=1)
@@ -11754,6 +12004,13 @@ def basicsetup(mslist):
             args['pixelscale'] = pixelscale = 1.
         elif freq < 4e9:  # S-band
             args['pixelscale'] = pixelscale = 0.5
+    elif args['pixelscale'] is None and telescope == 'ASKAP':
+        if freq < 1e9:  # UHF-band
+            args['pixelscale'] = pixelscale = 2.0
+        elif freq < 1.4e9:  # L-band-low
+            args['pixelscale'] = pixelscale = 1.5
+        elif freq < 2.0e9:  # L-band-high
+            args['pixelscale'] = pixelscale = 1.0
 
     if (args['delaycal'] or args['auto']) and longbaseline and not LBA:
         if args['imsize'] is None:
@@ -12438,7 +12695,7 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '14.7.0'
+    version = '14.8.0'
     print_title(version)
 
     global submodpath, datapath
@@ -12646,7 +12903,7 @@ def main():
     nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
         smoothnessspectralexponent_list, smoothnessrefdistance_list, \
         antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, \
-        uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list = \
+        uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list, solve_msinnchan_list, solve_msinstartchan_list = \
         setinitial_solint(mslist, options)
 
     # Get restoring beam for DDFACET in case it is needed
@@ -12793,7 +13050,7 @@ def main():
                                                   smoothnessreffrequency_list,
                                                   smoothnessspectralexponent_list, smoothnessrefdistance_list,
                                                   antennaconstraint_list, resetsols_list, resetdir_list,
-                                                  normamps_list, BLsmooth_list,
+                                                  normamps_list, BLsmooth_list,solve_msinnchan_list, solve_msinstartchan_list,
                                                   normamps=args['normampsskymodel'],
                                                   skymodel=args['skymodel'],
                                                   predictskywithbeam=args['predictskywithbeam'],
@@ -12976,6 +13233,7 @@ def main():
                                               smoothnessspectralexponent_list, smoothnessrefdistance_list,
                                               antennaconstraint_list, resetsols_list, resetdir_list,
                                               normamps_list, BLsmooth_list,
+                                              solve_msinnchan_list, solve_msinstartchan_list,
                                               normamps=args['normamps'],
                                               longbaseline=longbaseline,                                          
                                               mslist_beforephaseup=mslist_beforephaseup,
