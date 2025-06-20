@@ -39,7 +39,7 @@ LBA Dutch baselines
  - widefield
  - decameter band
 
-# Extracion
+# Extraction
 Information on how to use the [extract option](https://github.com/rvweeren/lofar_facet_selfcal/wiki/FACETSELFCAL-OVERVIEW).
 
 # MeerKAT
