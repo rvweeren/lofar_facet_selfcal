@@ -200,6 +200,39 @@ def check_pointing_centers(mslist):
             align = False
     return align        
 
+def write_processing_history(cmd, version, imagebasename):
+    """
+    Updates the FITS headers of images matching the given basename with processing history.
+
+    This function writes the command used for processing and the facetselfcal version into the
+    primary header of each FITS file whose name matches the provided image basename pattern.
+    It also adds citation information as comments in the header.
+
+    Args:
+        cmd (str): The command used for processing, typically the command-line invocation.
+        version (str): The version string of facetselfcal.
+        imagebasename (str): The base name pattern to match FITS image files.
+
+    Notes:
+        - Only the portion of the command after 'facetselfcal.py' is recorded, if present.
+        - FITS files are identified using glob with the pattern '{imagebasename}*image*.fits'.
+        - The function modifies FITS files in place.
+    """
+    # strip everyting before the facetselcal.py string in cmd
+    cmd = cmd.strip() 
+    cmd = 'facetselfcal.py' + cmd.split('facetselfcal.py')[1] if 'facetselfcal.py' in cmd else cmd
+    imagelist = glob.glob( imagebasename + '*image*.fits')
+    for image in imagelist:
+        print('Updating FITS header:', image)
+        with fits.open(image, mode='update') as hdul:
+            # Add the command used for processing to the primary header
+            hdul[0].header['HISTORY'] = "facetselfcal version: " + version
+            hdul[0].header['HISTORY'] = cmd
+            hdul[0].header['COMMENT'] = "========================================================================"
+            hdul[0].header['COMMENT'] = "       If you use facetselfcal for scientific work, please cite:        "
+            hdul[0].header['COMMENT'] = "                 van Weeren et al. (2021, A&A, 651, 115)                "
+            hdul[0].header['COMMENT'] = "========================================================================"
+
 def write_primarybeam_info(cmd, imagebasename):
     """
     Updates the FITS header of images matching the given basename with primary beam correction information.
@@ -228,7 +261,6 @@ def write_primarybeam_info(cmd, imagebasename):
             if '-apply-facet-beam' not in cmd and '-apply-facet-solutions' in cmd:   
                 hdul[0].header['COMMENT'] = "Full primary beam correction has not been applied." 
                 hdul[0].header['COMMENT'] = "Manually correct your image for the primary beam."
-                hdul[0].header['COMMENT'] = "Except if your target is close to the pointing center."
             if '-apply-primary-beam' in cmd:
                 hdul[0].header['COMMENT'] = "Full primary beam correction applied. Image is science ready."
 
@@ -10571,7 +10603,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
         clean_up_images(imageout)
         
-        # write info about how the primary beam correction was done to the FITS header
+        # write info about how the primary beam correction was done to the FITS header and processing history
+        write_processing_history(' '.join(map(str, sys.argv)), facetselfcal_version, imageout)
         write_primarybeam_info(cmd, imageout)
         
         # REMOVE nagetive model components, these are artifacts (only for Stokes I)
@@ -12695,13 +12728,15 @@ def main():
             'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
 
-    version = '14.8.0'
-    print_title(version)
+ 
 
-    global submodpath, datapath
+    global submodpath, datapath, facetselfcal_version
     datapath = os.path.dirname(os.path.abspath(__file__))
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
+
+    facetselfcal_version = '14.9.0'
+    print_title(facetselfcal_version)
 
     # copy h5s locally
     for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
@@ -12894,7 +12929,7 @@ def main():
             create_backup_flag_col(ms)
 
     # LOG INPUT SETTINGS
-    logbasicinfo(args, fitsmask, mslist, version, sys.argv)
+    logbasicinfo(args, fitsmask, mslist, facetselfcal_version, sys.argv)
 
     # Make starting skymodel from TGSS or VLASS survey if requested
 
@@ -13271,7 +13306,7 @@ def main():
     for h5 in h5s:
         # Write the user-specified configuration file to h5parm and otherwise all input parameters if config file not specified
         add_config_to_h5(h5, args['configpath']) if args['configpath'] is not None else add_config_to_h5(h5, 'full_config.txt')
-        add_version_to_h5(h5, version)
+        add_version_to_h5(h5, facetselfcal_version)
 
     # remove sources outside central region after selfcal (to prepare for DDE solves)
     if args['remove_outside_center']:
