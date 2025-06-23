@@ -7202,8 +7202,9 @@ def setinitial_solint(mslist, options):
     nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
         smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, \
         resetdir_list, normamps_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, \
-        solve_msinnchan_list, solve_msinstartchan_list = \
-        ([] for _ in range(18))
+        solve_msinnchan_list, solve_msinstartchan_list, antenna_averaging_factors_list, \
+        antenna_smoothness_factors_list = \
+        ([] for _ in range(20))
 
     # make here uvminim_list and uvmaxim_list, because the have just the length of mslist
     for ms_id, ms in enumerate(mslist):
@@ -7238,6 +7239,8 @@ def setinitial_solint(mslist, options):
         # uvmaxim_list_ms = []  # list with len(mslist)
         solve_msinnchan_list_ms = []  # list with len(mslist)
         solve_msinstartchan_list_ms = []  # list with len(mslist)
+        antenna_averaging_factors_list_ms = []  # list with len(mslist)
+        antenna_smoothness_factors_list_ms = []  # list with len(mslist)
 
         for ms in mslist:
             # use try statement in case the user did not provide all the info for certain soltypes
@@ -7332,6 +7335,18 @@ def setinitial_solint(mslist, options):
             except:
                 solve_msinstartchan = 0
 
+            # antenna_averaging_factors
+            try:
+                antenna_averaging_factors = options.antenna_averaging_factors_list[soltype_id]
+            except:
+                antenna_averaging_factors = None    
+            
+            # antenna_smoothness_factors
+            try:
+                antenna_smoothness_factors = options.antenna_smoothness_factors_list[soltype_id]
+            except:
+                antenna_smoothness_factors = None
+
             # uvminim
             # try:
             #  uvminim = options.uvminim[soltype_id]
@@ -7371,6 +7386,8 @@ def setinitial_solint(mslist, options):
             # uvmaxim_list_ms.append(uvmaxim)
             solve_msinnchan_list_ms.append(solve_msinnchan)
             solve_msinstartchan_list_ms.append(solve_msinstartchan)
+            antenna_averaging_factors_list_ms.append(antenna_averaging_factors)
+            antenna_smoothness_factors_list_ms.append(antenna_smoothness_factors)
 
         nchan_list.append(nchan_ms)  # list of lists
         solint_list.append(solint_ms)  # list of lists
@@ -7389,6 +7406,8 @@ def setinitial_solint(mslist, options):
         # uvmaxim_list.append(uvmaxim_list_ms)      # list of lists
         solve_msinnchan_list.append(solve_msinnchan_list_ms)  # list of lists
         solve_msinstartchan_list.append(solve_msinstartchan_list_ms)  # list of lists
+        antenna_averaging_factors_list.append(antenna_averaging_factors_list_ms)  # list of lists
+        antenna_smoothness_factors_list.append(antenna_smoothness_factors_list_ms)  # list of lists
 
         soltypecycles_list.append(soltypecycles_list_ms)
 
@@ -7411,6 +7430,8 @@ def setinitial_solint(mslist, options):
     print('uvmaxim:', uvmaxim_list)
     print('solve_msinnchan:', solve_msinnchan_list)
     print('solve_msinstartchan:', solve_msinstartchan_list)
+    print('antenna_averaging_factors:', antenna_averaging_factors_list)
+    print('antenna_smoothness_factors:', antenna_smoothness_factors_list)
 
     logger.info('soltype: ' + str(options.soltype_list) + ' ' + str(mslist))
     logger.info('nchan: ' + str(options.nchan_list))
@@ -7431,8 +7452,16 @@ def setinitial_solint(mslist, options):
     logger.info('uvmaxim: ' + str(options.uvmaxim))
     logger.info('solve_msinnchan: ' + str(options.solve_msinnchan_list))
     logger.info('solve_msinstartchan: ' + str(options.solve_msinstartchan_list))
+    logger.info('antenna_averaging_factors: ' + str(options.antenna_averaging_factors_list))
+    logger.info('antenna_smoothness_factors: ' + str(options.antenna_smoothness_factors_list))
 
-    return nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, smoothnessspectralexponent_list, smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list, solve_msinnchan_list, solve_msinstartchan_list
+    return nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, \
+           smoothnessreffrequency_list, smoothnessspectralexponent_list, \
+           smoothnessrefdistance_list, antennaconstraint_list, resetsols_list, \
+           resetdir_list, soltypecycles_list, uvmin_list, uvmax_list, uvminim_list, \
+           uvmaxim_list, normamps_list, solve_msinnchan_list, \
+           solve_msinstartchan_list, antenna_averaging_factors_list, \
+           antenna_smoothness_factors_list
 
 
 def getms_amp_stats(ms, datacolumn='DATA', uvcutfraction=0.666, robustsigma=True):
@@ -8787,6 +8816,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          antennaconstraint_list, resetsols_list, resetdir_list, normamps_list,
                          BLsmooth_list,
                          solve_msinnchan_list, solve_msinstartchan_list,
+                         antenna_averaging_factors_list, antenna_smoothness_factors_list,
                          normamps=False, normamps_per_ms=False, skymodel=None,
                          predictskywithbeam=False,
                          longbaseline=False,
@@ -8955,8 +8985,9 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir,
                             normamps=normamps, modelstoragemanager=args['modelstoragemanager'], skymodelsetjy=skymodelsetjy,
                             solve_msinnchan=solve_msinnchan_list[soltypenumber][msnumber],
-                            solve_msinstartchan=solve_msinstartchan_list[soltypenumber][msnumber])
-
+                            solve_msinstartchan=solve_msinstartchan_list[soltypenumber][msnumber],
+                            antenna_averaging_factors=antenna_averaging_factors_list[soltypenumber][msnumber],
+                            antenna_smoothness_factors=antenna_smoothness_factors_list[soltypenumber][msnumber])
                 parmdbmslist.append(parmdb)
                 parmdbmergelist[msnumber].append(parmdb)  # for h5_merge
 
@@ -9161,7 +9192,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 dde_skymodel=None, DDE_predict='WSCLEAN', beamproximitylimit=240.,
                 ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None,
                 normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None, skymodelsetjy=False,
-                solve_msinnchan='all', solve_msinstartchan=0):
+                solve_msinnchan='all', solve_msinstartchan=0,
+                antenna_averaging_factors=None, antenna_smoothness_factors=None):
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
     with table(ms + '/OBSERVATION', ack=False) as t:
@@ -12938,7 +12970,8 @@ def main():
     nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
         smoothnessspectralexponent_list, smoothnessrefdistance_list, \
         antennaconstraint_list, resetsols_list, resetdir_list, soltypecycles_list, \
-        uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list, solve_msinnchan_list, solve_msinstartchan_list = \
+        uvmin_list, uvmax_list, uvminim_list, uvmaxim_list, normamps_list, solve_msinnchan_list, \
+        solve_msinstartchan_list, antenna_averaging_factors_list, antenna_smoothness_factors_list = \
         setinitial_solint(mslist, options)
 
     # Get restoring beam for DDFACET in case it is needed
@@ -13085,7 +13118,8 @@ def main():
                                                   smoothnessreffrequency_list,
                                                   smoothnessspectralexponent_list, smoothnessrefdistance_list,
                                                   antennaconstraint_list, resetsols_list, resetdir_list,
-                                                  normamps_list, BLsmooth_list,solve_msinnchan_list, solve_msinstartchan_list,
+                                                  normamps_list, BLsmooth_list, solve_msinnchan_list, solve_msinstartchan_list,
+                                                  antenna_averaging_factors_list, antenna_smoothness_factors_list,
                                                   normamps=args['normampsskymodel'],
                                                   skymodel=args['skymodel'],
                                                   predictskywithbeam=args['predictskywithbeam'],
@@ -13269,6 +13303,7 @@ def main():
                                               antennaconstraint_list, resetsols_list, resetdir_list,
                                               normamps_list, BLsmooth_list,
                                               solve_msinnchan_list, solve_msinstartchan_list,
+                                              antenna_averaging_factors_list, antenna_smoothness_factors_list,
                                               normamps=args['normamps'],
                                               longbaseline=longbaseline,                                          
                                               mslist_beforephaseup=mslist_beforephaseup,

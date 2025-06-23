@@ -244,6 +244,16 @@ def option_parser():
                                    type=arg_as_list,
                                    default=[0., 0., 0.],
                                    help="If smoothnessrefdistance is not equal to zero then this parameter determines the freqeuency smoothness reference distance in units of km, with the smoothness scaling with distance. See DP3 documentation. The default is [0.,0.,0.].")
+    
+    calibrationparser.add_argument("--antenna-averaging-factors-list",
+                                   type=arg_as_list,
+                                   default=[None, None, None],
+                                   help="Averaging factors per antenna to allow antenna-dependent solution intervals. One list entry per soltype. A list entry can contain mulitple antenna groups. Groups can also be combined with '+' symbols. This allows using different solints for different antenna groups. Example is ['core:6,remote:3', None,'superterp+remote:10']. The default is [None,None,None]. Groups are superterp, nosuperterpcore, firstremotes,midremotes,distantremotes,closegerman,distantinternational, superstation")   
+    calibrationparser.add_argument("--antenna-smoothness-factors-list",
+                                   type=arg_as_list,
+                                   default=[None, None, None],
+                                   help="A list of extra smoothing factors per antenna group in the same format as antenna-averaging-factors-list but these value can be float, e.g. ['core:2.5,remote:0.5', None,'superterp+remote:5']. Values above one cause stronger smoothing, values lower than one cause less smoothing.The default is [None,None,None]. Groups are superterp, nosuperterpcore, firstremotes,midremotes,distantremotes,closegerman,distantinternational, superstation") 
+
     calibrationparser.add_argument("--antennaconstraint-list",
                                    type=arg_as_list,
                                    default=[None, None, None],
