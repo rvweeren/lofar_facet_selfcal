@@ -164,9 +164,11 @@ class GetSolint:
 
         if station is None or station == 'international':
             stations_idx = [stations.index(stion) for stion in stations if
-                            ('RS' not in stion) &
-                            ('ST' not in stion) &
-                            ('CS' not in stion) ]
+                            ('DE' == stion[0:2]) |
+                            ('PL' == stion[0:2]) |
+                            ('FR' == stion[0:2]) |
+                            ('SE' == stion[0:2]) |
+                            ('UK' == stion[0:2]) ]
         elif station == 'all':
             stations_idx = [stations.index(stion) for stion in stations]
         else:
@@ -229,53 +231,6 @@ class GetSolint:
         return self.limit * np.sqrt(1 - np.exp(-(self.C / np.sqrt(t))))
 
 
-def get_phasediff_score(h5, station=False):
-    """
-        Calculate score for phasediff
-
-        :return: circular standard deviation score
-        """
-    from scipy.stats import circstd
-    H = tables.open_file(h5)
-
-    stations = [make_utf8(s) for s in list(H.root.sol000.antenna[:]['name'])]
-
-    if not station:
-        stations_idx = [stations.index(stion) for stion in stations if
-                        ('RS' not in stion) &
-                        ('ST' not in stion) &
-                        ('CS' not in stion) &
-                        ('DE' not in stion)]
-    else:
-        stations_idx = [stations.index(station)]
-
-    axes = str(H.root.sol000.phase000.val.attrs["AXES"]).replace("b'", '').replace("'", '').split(',')
-    axes_idx = sorted({ax: axes.index(ax) for ax in axes}.items(), key=lambda x: x[1], reverse=True)
-
-    phase = H.root.sol000.phase000.val[:] * H.root.sol000.phase000.weight[:]
-    H.close()
-
-    phasemod = phase % (2 * np.pi)
-
-    for ax in axes_idx:
-        if ax[0] == 'pol':  # YX should be zero
-            phasemod = phasemod.take(indices=0, axis=ax[1])
-        elif ax[0] == 'dir':  # there should just be one direction
-            if phasemod.shape[ax[1]] == 1:
-                phasemod = phasemod.take(indices=0, axis=ax[1])
-            else:
-                sys.exit('ERROR: This solution file should only contain one direction, but it has ' +
-                         str(phasemod.shape[ax[1]]) + ' directions')
-        elif ax[0] == 'freq':  # faraday corrected
-            phasemod = np.diff(phasemod, axis=ax[1])
-        elif ax[0] == 'ant':  # take only international stations
-            phasemod = phasemod.take(indices=stations_idx, axis=ax[1])
-
-    phasemod[phasemod == 0] = np.nan
-
-    return circstd(phasemod, nan_policy='omit')
-
-
 def parse_args():
     """
     Command line argument parser
@@ -286,7 +241,7 @@ def parse_args():
     parser = ArgumentParser("Determine phasediff scores")
     parser.add_argument('--h5', nargs='+', help='selfcal phasediff solutions', default=None)
     parser.add_argument('--make_plot', action='store_true', help='make phasediff plot')
-    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.75, type=float)
+    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.8, type=float)
     return parser.parse_args()
 
 
@@ -311,8 +266,8 @@ def main():
         writer.writerow(["source", "spd_score", "spd_score_all", "best_solint", 'RA', 'DEC'])
         for h5 in h5s:
             S = GetSolint(h5, optimal_score, ref_solint)
-            std_int = S.get_phasediff_score(station='international')
             std_all = S.get_phasediff_score(station='all')
+            std_int = S.get_phasediff_score(station='international')
             solint = S.best_solint
             H = tables.open_file(h5)
             dir = rad_to_degree(H.root.sol000.source[:]['dir'])
