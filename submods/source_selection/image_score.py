@@ -63,12 +63,13 @@ def parse_args():
     parser.add_argument('images', nargs='+', help='Images', default=None)
     parser.add_argument('--cache', help='Cache folder with model', default='.cache/cortexchange')
     parser.add_argument('--device', help='CPU or GPU', default='cpu')
+    parser.add_argument('--model', help='Model name', default='surf/dino_big_lora_tune_posclsreg_may_O2_aug_099')
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    model = get_nn_model(cache='.cache/cortexchange', device=args.device)
+    model = get_nn_model(model=args.model, cache='.cache/cortexchange', device=args.device)
     for im in args.images:
         print(im)
         print(predict_nn(im, model))
