@@ -248,11 +248,11 @@ def option_parser():
     calibrationparser.add_argument("--antenna-averaging-factors-list",
                                    type=arg_as_list,
                                    default=[None, None, None],
-                                   help="Averaging factors per antenna to allow antenna-dependent solution intervals. One list entry per soltype. A list entry can contain mulitple antenna groups. Groups can also be combined with '+' symbols. This allows using different solints for different antenna groups. Example is ['core:6,remote:3', None,'superterp+remote:10']. The default is [None,None,None]. Groups are superterp, nosuperterpcore, firstremotes,midremotes,distantremotes,closegerman,distantinternational, superstation")   
+                                   help="Averaging factors per antenna to allow antenna-dependent solution intervals. One list entry per soltype. A list entry can contain mulitple antenna groups. Example is ['core:6,remote:3', None,'closeinternational:10']. The default is [None,None,None]. Groups are superterp, corebutsuperterp, firstremotes,midremotes,distantremotes,closeinternational,distantinternational, superstation")   
     calibrationparser.add_argument("--antenna-smoothness-factors-list",
                                    type=arg_as_list,
                                    default=[None, None, None],
-                                   help="A list of extra smoothing factors per antenna group in the same format as antenna-averaging-factors-list but these value can be float, e.g. ['core:2.5,remote:0.5', None,'superterp+remote:5']. Values above one cause stronger smoothing, values lower than one cause less smoothing.The default is [None,None,None]. Groups are superterp, nosuperterpcore, firstremotes,midremotes,distantremotes,closegerman,distantinternational, superstation") 
+                                   help="A list of extra smoothing factors per antenna group in the same format as antenna-averaging-factors-list but these value can be float, e.g. ['core:1,remote:0.5', None,'closeinternational:0.1']. Values need to be less or equal than 1 and cause less smoothing. The default is [None,None,None]. Groups are superterp, corebutsuperterp, firstremotes,midremotes,distantremotes,closeinternational,distantinternational, superstation") 
 
     calibrationparser.add_argument("--antennaconstraint-list",
                                    type=arg_as_list,
