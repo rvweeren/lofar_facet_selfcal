@@ -5626,8 +5626,12 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
     # print(antennasms)
     if ctype != 'superterp' and ctype != 'core' and ctype != 'coreandfirstremotes' and \
             ctype != 'remote' and ctype != 'alldutch' and ctype != 'all' and \
-            ctype != 'international' and ctype != 'core-remote' and ctype != 'coreandallbutmostdistantremotes' and ctype != 'alldutchandclosegerman' and \
-            ctype != 'alldutchbutnoST001' and ctype != 'distantremote':
+            ctype != 'international' and ctype != 'core-remote' and ctype != 'coreandallbutmostdistantremotes' and \
+            ctype != 'alldutchandclosegerman' and \
+            ctype != 'alldutchbutnoST001' and ctype != 'distantremote' and ctype != 'mediumremote' and \
+            ctype != 'closeremote' and ctype != 'corebutsuperterp' and ctype != 'closeinternational' and \
+            ctype != 'distantinternational' and ctype != 'superstation':
+
         print('Invalid input, ctype can only be "superterp" or "core"')
         raise Exception('Invalid input, ctype can only be "superterp" or "core"')
     if HBAorLBA == 'LBA':
@@ -5638,6 +5642,10 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
                       'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',
                       'CS302LBA', 'CS401LBA', 'CS501LBA', 'ST001']
+        if ctype == 'corebutsuperterp':
+            antstr = ['CS001LBA', 'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 
+                      'CS028LBA', 'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 
+                      'CS301LBA', 'CS302LBA', 'CS401LBA', 'CS501LBA']            
         if ctype == 'coreandfirstremotes':
             antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
                       'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
@@ -5655,6 +5663,10 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA', 'RS409LBA', 'RS508LBA', 'RS509LBA']
         if ctype == 'distantremote':
             antstr = ['RS310LBA', 'RS407LBA', 'RS208LBA', 'RS210LBA', 'RS409LBA', 'RS508LBA', 'RS509LBA']
+        if ctype == 'mediumremote':
+            antstr = ['RS406LBA', 'RS307LBA']
+        if ctype == 'closeremote':
+            antstr = ['RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA', 'RS106LBA']
         if ctype == 'alldutch':
             antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
                       'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
@@ -5682,6 +5694,11 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
         if ctype == 'international':
             antstr = ['DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA',
                       'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA']
+        if ctype == 'closeinternational':
+            antstr = ['DE601LBA', 'DE602LBA']
+        if ctype == 'distantinternational':
+            antstr = ['DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA', 'SE607LBA', 'UK608LBA',
+                      'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA']          
         if ctype == 'core-remote':
             antstr1 = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
                        'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
@@ -5706,6 +5723,10 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA']
         if ctype == 'distantremote':
             antstr = ['RS310HBA', 'RS407HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA']
+        if ctype == 'mediumremote':
+            antstr = ['RS406HBA', 'RS307HBA']
+        if ctype == 'closeremote':
+            antstr = ['RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS106HBA']            
         if ctype == 'core':
             antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
                       'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
@@ -5715,6 +5736,13 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',
                       'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',
                       'CS302HBA1', 'CS401HBA1', 'CS501HBA1', 'ST001']
+        if ctype == 'corebutsuperterp':
+            antstr = ['CS001HBA0', 'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 
+                      'CS028HBA0', 'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 
+                      'CS301HBA0', 'CS302HBA0', 'CS401HBA0', 'CS501HBA0', 
+                      'CS001HBA1', 'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 
+                      'CS028HBA1', 'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 
+                      'CS301HBA1', 'CS302HBA1', 'CS401HBA1', 'CS501HBA1']  
         if ctype == 'coreandfirstremotes':
             antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
                       'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
@@ -5786,6 +5814,11 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
         if ctype == 'international':
             antstr = ['DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA',
                       'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA']
+        if ctype == 'closeinternational':
+            antstr = ['DE601HBA', 'DE602HBA']
+        if ctype == 'distantinternational':
+            antstr = ['DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA', 'SE607HBA', 'UK608HBA',
+                      'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA']        
         if ctype == 'core-remote':
             antstr1 = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
                        'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
@@ -5827,6 +5860,8 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'ak13','ak14','ak15','ak16','ak17','ak18','ak19','ak20','ak21','ak22','ak23','ak24',\
                       'ak25','ak26','ak27','ak28','ak29','ak30','ak31','ak32','ak33','ak34','ak35','ak36'] 
 
+    if ctype == 'superstation':
+        antstr = ['ST001']
     if useforresetsols:
         antstrtmp = list(antstr)
         for ant in antstr:
@@ -9496,6 +9531,29 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
 
+
+    # format antenna_averaging_factors
+    if antenna_averaging_factors is not None:
+        antenna_averaging_factors_splitstr = antenna_averaging_factors.split(',')
+        groupstr_all = []
+        antenna_averaging_factors_new = [] 
+        for antgroup in antenna_averaging_factors_splitstr:
+            groupstr = antennaconstraintstr(antgroup.split(':')[0], antennasms, HBAorLBA, telescope=telescope, useforresetsols=True)
+            groupstr_all = groupstr_all + groupstr
+            antenna_averaging_factors_new.append('[' + ','.join(map(str, groupstr)) + ']:' + antgroup.split(':')[1])
+                
+        if len(groupstr_all) != len(set(groupstr_all)):
+            print('There are duplicate antennas in antenna_averaging_factors, please check your input')
+            raise Exception('There are duplicate antennas in antenna_averaging_factors, please check your input')
+        groupstr_complement = list(set(groupstr_all) ^ set (antennasms))  # get the complement of the antenna group
+        if len(groupstr_complement) > 0: 
+            antenna_averaging_factors_new.append('[' + ','.join(map(str, groupstr_complement)) + ']:1')  # add the complement antennas with average factor 1
+            
+        cmd += 'ddecal.antenna_averaging_factors=' + '[' + ','.join(antenna_averaging_factors_new) + '] '
+
+
+
+
     if bdaaverager  and pixelscale is not None and imsize is not None:
         cmd += 'bda.frequencybase= ' + 'bda.minchannels=' + format_nchan(nchan, ms) + ' '
         if type(solint) == list:
@@ -9530,6 +9588,46 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd += 'ddecal.antennaconstraint=' + antennaconstraintstr(antennaconstraint, antennasms, HBAorLBA,
                                                                   telescope=telescope) + ' '
 
+    # format antenna_smoothness_factors
+    if antenna_smoothness_factors is not None:
+        antenna_smoothness_factors_splitstr = antenna_smoothness_factors.split(',')
+        groupstr_all = []
+        smoothness_factors = []
+        for antgroup in antenna_smoothness_factors_splitstr:
+            smoothness_factors.append(antgroup.split(':')[1])
+        print('smoothness_factors', smoothness_factors)
+        smoothness_factors_float = list(map(float, smoothness_factors))
+        antenna_smoothness_factors_new = [] 
+        for antgroup in antenna_smoothness_factors_splitstr:
+
+            groupstr = antennaconstraintstr(antgroup.split(':')[0], antennasms, HBAorLBA, telescope=telescope, useforresetsols=True)
+            groupstr_all = groupstr_all + groupstr
+            if np.max(smoothness_factors_float) <= 1.0:
+                antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr)) + ']:' + antgroup.split(':')[1])
+            else:
+                antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr)) + ']:' + \
+                                                      str(float(antgroup.split(':')[1])/np.max(smoothness_factors_float)))
+                  
+        if len(groupstr_all) != len(set(groupstr_all)):
+            print('There are duplicate antennas in antenna_smoothness_factors, please check your input')
+            raise Exception('There are duplicate antennas in antenna_smoothness_factors, please check your input')
+        groupstr_complement = list(set(groupstr_all) ^ set (antennasms))  # get the complement of the antenna group
+        if len(groupstr_complement) > 0: 
+            if np.max(smoothness_factors_float) <= 1.0:
+                antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr_complement)) + ']:1.0')  # add the complement antennas with factor 1.0
+            else:
+                antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr_complement)) + ']:'
+                                                      + str(1.0/np.max(smoothness_factors_float)))  # add the complement antennas with factor 1.0/maximum smooth
+            
+        if np.max(smoothness_factors_float) > 1.0: # handle the case where the smoothness factors are larger than 1.0
+            if type(SMconstraint) == list:
+                SMconstraint = [sf*np.max(smoothness_factors_float) for sf in SMconstraint]  # increase SMconstraint with the maximum smoothness factor
+            else:
+                SMconstraint = np.max(smoothness_factors_float) * SMconstraint  # increase SM
+
+        cmd += 'ddecal.antenna_smoothness_factors=' + '[' + ','.join(antenna_smoothness_factors_new) + '] '
+
+
     if np.max(SMconstraint) > 0.0 and nchan != 0:
         if type(SMconstraint) == list:
             if len(dir_id_kept) > 0:
@@ -9542,6 +9640,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd += 'ddecal.smoothnessreffrequency=' + str(SMconstraintreffreq * 1e6) + ' '
         cmd += 'ddecal.smoothnessspectralexponent=' + str(SMconstraintspectralexponent) + ' '
         cmd += 'ddecal.smoothnessrefdistance=' + str(SMconstraintrefdistance * 1e3) + ' '  # input units in km
+
 
     if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation',
                    'rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase', 'faradayrotation+diagonalphase', 'faradayrotation']:
@@ -12767,7 +12866,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '14.9.0'
+    facetselfcal_version = '15.0.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -12974,6 +13073,7 @@ def main():
         solve_msinstartchan_list, antenna_averaging_factors_list, antenna_smoothness_factors_list = \
         setinitial_solint(mslist, options)
 
+ 
     # Get restoring beam for DDFACET in case it is needed
     restoringbeam = calculate_restoringbeam(mslist, LBA)
 
