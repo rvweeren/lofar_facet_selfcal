@@ -9211,7 +9211,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
 
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 SMconstraint=0.0, SMconstraintreffreq=0.0,
-                SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None,
+                SMconstraintspectralexponent=-1.0, SMconstraintrefdistafnce=0.0, antennaconstraint=None,
                 resetsols=None, resetsols_list=[None], resetdir=None,
                 resetdir_list=[None], restoreflags=False,
                 maxiter=100, tolerance=1e-4, flagging=False, skymodel=None, flagslowphases=True,
