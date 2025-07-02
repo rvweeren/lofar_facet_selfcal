@@ -9309,7 +9309,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
         incol = 'SMOOTHED_DATA'
 
-    if skymodelsetjy:
+    if skymodelsetjy and create_modeldata:
         cmdsetjy = f'python {submodpath}/casa_setjy.py '
         cmdsetjy += '--ms=' + ms + ' --fieldid=J1331+3030 --modelimage=3C286_L.im '
         cmdsetjy += '--ms=' + ms + ' --fieldid=3C147 --modelimage=3C147_L.im '
