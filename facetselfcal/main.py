@@ -115,6 +115,63 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def fix_antenna_info_gmrt(mslist):
+    """
+    Removes specific antennas from a Measurement Set if the telescope is GMRT.
+
+    Parameters:
+        mslist (list): List of input Measurement Sets.
+
+    Behavior:
+        - Checks the 'TELESCOPE_NAME' in the OBSERVATION table of the Measurement Set.
+        - If the telescope is 'GMRT', removes antennas 'C07', 'S05', and 'E01' by calling remove_antennas.
+
+    Requires:
+        - The 'table' context manager for reading Measurement Set tables.
+        - The 'remove_antennas' function to perform the actual removal.
+    """
+    for ms in mslist:
+        with table(ms + '/OBSERVATION', ack=False) as t:
+            telescope = t.getcol('TELESCOPE_NAME')[0]
+        if telescope == 'GMRT':    
+            antennas_to_remove = ['C07', 'S05', 'E01'] # these antennas were never built, but are present in the ANTENNA table
+            remove_antennas(ms, antennas_to_remove)
+
+def remove_antennas(ms_path, antennas_to_remove):
+    """
+    Removes specified antennas from the POINTING and ANTENNA tables of a Measurement Set.
+    Adapted from code by Emanuele De Rubeis.
+    This function updates the POINTING and ANTENNA tables in the given Measurement Set (MS) by
+    removing all rows corresponding to antennas whose names are listed in `antennas_to_remove`.
+    It is useful for fixing inconsistencies where the ANTENNA table contains antennas not present
+    in the POINTING table.
+
+    Args:
+        ms_path (str): Path to the Measurement Set directory.
+        antennas_to_remove (list of str): List of antenna names to be removed from the tables.
+
+    Raises:
+        Exception: If there is an error accessing or modifying the Measurement Set tables.
+
+    Side Effects:
+        Modifies the POINTING and ANTENNA tables in-place by removing specified antennas.
+        Prints information about removed rows or errors encountered.
+    """
+    
+    with table(f"{ms_path}/POINTING", readonly=False) as pointing_table:
+        rows_to_remove = [i for i, antenna in enumerate(pointing_table) if antenna['NAME'] in antennas_to_remove]
+        print(f"Rows to remove from POINTING: {rows_to_remove}")
+        if len(rows_to_remove) >0:
+            pointing_table.removerows(rows_to_remove)
+            print(f"Removed rows from POINTING: {rows_to_remove}")
+    
+    with table(f"{ms_path}/ANTENNA", readonly=False) as antenna_table:
+        rows_to_remove = [i for i, antenna in enumerate(antenna_table) if antenna['NAME'] in antennas_to_remove]
+        if len(rows_to_remove) > 0:
+            antenna_table.removerows(rows_to_remove)
+            print(f"Removed rows from ANTENNA: {rows_to_remove}")
+ 
+
 def split_multidir_ms(ms):
     """
     Splits a multisource Measurement Set (MS) into separate single-source MS files.
@@ -9252,11 +9309,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
         incol = 'SMOOTHED_DATA'
 
-    if skymodelsetjy:
+    if skymodelsetjy and create_modeldata:
         cmdsetjy = f'python {submodpath}/casa_setjy.py '
         cmdsetjy += '--ms=' + ms + ' --fieldid=J1331+3030 --modelimage=3C286_L.im '
+        cmdsetjy += '--ms=' + ms + ' --fieldid=3C147 --modelimage=3C147_L.im '
         run(cmdsetjy)
-        set_polarised_model_3C286(ms, chunksize=1000)
+        #set_polarised_model_3C286(ms, chunksize=1000)
     
      
     if skymodel is not None and create_modeldata and selfcalcycle == 0 and len(modeldatacolumns) == 0:
@@ -9733,8 +9791,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                     modelstoragemanager=modelstoragemanager, incol=incol, 
                                     metadata_compression=args['metadata_compression'])
 
-        # now replace the cmd command string with the new temporary MS
-        cmd.replace('msin=' + ms, 'msin=' + ms_tmp)
+        # now replace the MS in the cmd command string with the new temporary MS
+        cmd = cmd.replace('msin=' + ms, 'msin=' + ms_tmp)
+        
     
     # RUN THE SOLVE WITH DP3
     print('DP3 solve:', cmd)
@@ -9742,18 +9801,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     run(cmd)
 
 
-    # START prepare to remove this at some point
-    if False:
-        if selfcalcycle > 0 and (soltypein == "scalarphasediffFR" or soltypein == "scalarphasediff"):
-            h5_tocopy = soltypein + str(soltypenumber) + "_selfcalcycle000_" + os.path.basename(ms) + ".h5.scbackup"
-            print("COPYING PREVIOUS SCALARPHASEDIFF SOLUTION")
-            print('cp -r ' + h5_tocopy + ' ' + parmdb)
-            os.system('cp -r ' + h5_tocopy + ' ' + parmdb)
-        else:
-            run(cmd)
     if selfcalcycle == 0 and (soltypein == "scalarphasediffFR" or soltypein == "scalarphasediff"):
         os.system("cp -r " + parmdb + " " + parmdb + ".scbackup")
-    # END prepare to remove this at some point
 
     if (len(modeldatacolumns_solve) > 0) and (len(modeldatacolumns) != len(modeldatacolumns_solve)):
         # fix coordinates otherwise h5merge will merge all directions into one when add_directions is done (as all coordinates are the same up to this point)
@@ -12866,7 +12915,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '15.0.0'
+    facetselfcal_version = '15.1.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -12973,7 +13022,10 @@ def main():
 
     # fix UVW coordinates (for time averaging with MeerKAT data)
     if args['start'] == 0: fix_uvw(mslist)
-       
+
+    # fix antenna info for GMRT data (nothing happens for other telescopes)
+    if args['start'] == 0: fix_antenna_info_gmrt(mslist)
+
     # fix irregular time axes if needed (do this after flagging)
     # in case --bandpassMeerKAT was set this step should not do anything because
     # the MS were already splitted before in case of gaps (so they will be regular now)
