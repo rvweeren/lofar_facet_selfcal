@@ -321,6 +321,13 @@ def option_parser():
                                    help='Experts only.',
                                    type=float,
                                    default=1.0)
+    calibrationparser.add_argument('--ampresetvalfactor',
+                                   help='Experts only.',
+                                   type=float,
+                                   default=10.)  
+    calibrationparser.add_argument('--flag-ampresetvalfactor',
+                                   help='Flag solutions outside this range. Experts only.',
+                                   action='store_true')
     calibrationparser.add_argument('--phasefactorsolint',
                                    help='Experts only.',
                                    type=float,
@@ -474,7 +481,7 @@ def option_parser():
                                   type=arg_as_str_or_list,
                                   default=None)    
     startmodelparser.add_argument('--skymodelsetjy',
-                                  help='3C286 skymodel is computed via CASA setjy, experimental',
+                                  help='3C48, 3C147, 3C138, 3C286 skymodels are computed via CASA setjy. For 3C286 polarization information is also included using the model from B. Hugo & R. Perley 2024. Skymodel is automatically selected based on the pointing center of the MS',
                                   action='store_true')
     startmodelparser.add_argument('--fix-model-frequencies',
                                   help='Force predict and imaging wsclean commands to divide on freqencies set by wsclean skymodel',
@@ -561,8 +568,8 @@ def option_parser():
     parser.add_argument('--stopafterpreapply',
                         help='Stop after preapply of solutions',
                         action='store_true')
-    parser.add_argument('--bandpassMeerKAT',
-                        help='Stop calibration after solving against an external skymodel and compute bandpass on merged solution file. Requires an external skymodel to be provided.',
+    parser.add_argument('--bandpass',
+                        help='Compute bandpass for MeerKAT or uGMRT primary calibrator observation. Stop calibration after solving against an external skymodel and then compute bandpass on merged solution file. Requires an external skymodel to be provided, or automatic selection via --skymodelsetjy (see the help for this option). For MeerKAT if no skymodel is provided or skymodelsetjy was not invoked, it will automatically select the ones for J0408-6545 and J1939-6342 provided by facetselfcal (both for UHF and L-band).',
                         action='store_true')
     parser.add_argument('--timesplitbefore',
                         help='Try to split the MS in time if the time axis is not contigeous',
