@@ -115,6 +115,68 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+
+def setjy_casa(ms):
+    
+    # find which calibrators is present in the MS (this cannot be a mulitsource MS), so fieldid is 0
+    
+    c_3C147 = np.array([85.650575, 49.852009])
+    c_3C286 = np.array([202.784534, 30.509155])
+    c_3C138 = np.array([80.291192, 16.639459])
+    c_3C48  = np.array([24.422081, 33.159759])
+
+    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        midfreq = np.mean(t.getcol('CHAN_FREQ')[0])
+
+    UHF = False; Lband = False; Sband = False; Cband = False; Xband = False
+    if midfreq < 1.0e9:  # UHF-band or lower
+        UHF = True
+    if (midfreq >= 1.0e9) and (midfreq < 1.7e9):  # L-band
+        Lband = True
+    if (midfreq >= 1.7e9) and (midfreq < 4.0e9):  # S-band
+        Sband = True
+    if (midfreq >= 4.0e9) and (midfreq < 8.0e9):  # C-band
+        Cband = True
+    if (midfreq >= 8.0e9) and (midfreq < 12.0e9): # X-band
+        Xband = True
+
+    with table(ms + '/FIELD', ack=False) as t:
+        adir = t.getcol('DELAY_DIR')[0][0][:]
+    cdatta = SkyCoord(adir[0]*units.radian, adir[1]*units.radian, frame='icrs')
+
+    if (cdatta.separation(SkyCoord(c_3C147[0]*units.deg, c_3C147[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
+        if Lband or UHF: modelimage = '3C147_L.im'
+        if Sband: modelimage = '3C147_S.im'
+        if Cband: modelimage = '3C147_C.im' 
+        if Xband: modelimage = '3C147_X.im'
+    elif (cdatta.separation(SkyCoord(c_3C286[0]*units.deg, c_3C286[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
+        if Lband or UHF: modelimage = '3C286_L.im'
+        if Sband: modelimage = '3C286_S.im'
+        if Cband: modelimage = '3C286_C.im' 
+        if Xband: modelimage = '3C286_X.im'     
+    elif (cdatta.separation(SkyCoord(c_3C138[0]*units.deg, c_3C138[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
+        if Lband or UHF: modelimage = '3C147_L.im'
+        if Sband: modelimage = '3C138_S.im'
+        if Cband: modelimage = '3C138_C.im' 
+        if Xband: modelimage = '3C138_X.im'
+    elif (cdatta.separation(SkyCoord(c_3C48[0]*units.deg, c_3C48[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
+        if Lband or UHF: modelimage = '3C48_L.im'
+        if Sband: modelimage = '3C48_S.im'
+        if Cband: modelimage = '3C48_C.im' 
+        if Xband: modelimage = '3C48_X.im'
+    else:
+        print('No calibrator found in MS that matches the coordinates of 3C147, 3C138, 3C286, or 3C48: cannot use CASA setjy')
+        raise Exception('No calibrator found in MS that matches the coordinates of 3C147, 3C138, 3C286, or 3C48: cannot use CASA setjy')    
+    print('Using model image for CASA setjy: ' + modelimage)
+    cmdsetjy = f'python {submodpath}/casa_setjy.py '
+    cmdsetjy += '--ms=' + ms + ' --fieldid=0 --modelimage=' + modelimage + ' '
+ 
+    run(cmdsetjy)
+    if (cdatta.separation(SkyCoord(c_3C286[0]*units.deg, c_3C286[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
+        print('Setting polarised model for 3C286')
+        set_polarised_model_3C286(ms, chunksize=1000)
+        
+
 def fix_antenna_info_gmrt(mslist):
     """
     Removes specific antennas from a Measurement Set if the telescope is GMRT.
@@ -413,6 +475,10 @@ def set_polarised_model_3C286(ms, chunksize=1000):
     with table(ms + '/SPECTRAL_WINDOW', ack=False, readonly=True) as t:
         freqs = t.getcol('CHAN_FREQ') / 1e9     #freqs in GHz
         freqs = freqs.flatten()                 #freqs in 1D array
+    
+    # get polarization information to determine if linear or circular polarisation is used
+    with table(ms + '/POLARIZATION', ack=False, readonly=True) as t:
+        corr_type = t.getcol('CORR_TYPE') 
 
     #obtain field_id corresponding to J1331+3030 (3C286)
     with table(ms+'/FIELD', ack=False, readonly=True) as t:
@@ -448,11 +514,21 @@ def set_polarised_model_3C286(ms, chunksize=1000):
                 I = np.copy(model[:,:,0])
 
                 #calculate the polarised model
-                model[:,:,0] = I + I*pfrac*np.cos(2*evpa)
-                model[:,:,1] = I*pfrac*np.sin(2*evpa)
-                model[:,:,2] = I*pfrac*np.sin(2*evpa)
-                model[:,:,3] = I - I*pfrac*np.cos(2*evpa)
-                
+                if np.array_equal(np.array([[9, 10, 11, 12]]), corr_type): # linear polarisation
+                    model[:,:,0] = I + I*pfrac*np.cos(2*evpa) # XX
+                    model[:,:,1] = I*pfrac*np.sin(2*evpa) # XY
+                    model[:,:,2] = I*pfrac*np.sin(2*evpa) # YX
+                    model[:,:,3] = I - I*pfrac*np.cos(2*evpa) # YY
+                elif np.array_equal(np.array([[5, 6, 7, 8]]), corr_type): # circular polarisation
+                    Q = I*pfrac*np.cos(2*evpa)
+                    U = I*pfrac*np.sin(2*evpa)
+                    model[:,:,0] = I # RR
+                    model[:,:,1] =  (Q + (complex(0,1)*U)) # RL
+                    model[:,:,2] =  (Q - (complex(0,1)*U)) # LR
+                    model[:,:,3] = I # LL
+                else:
+                    raise ValueError("Unknown correlation type in POLARIZATION table. Expected linear or circular polarisation.")
+
                 #inserting the polarised model
                 tt.putcol('MODEL_DATA', model, startrow=cl, nrow=crow)
                 
@@ -4835,6 +4911,18 @@ def inputchecker(args, mslist):
     # set telescope
     with table(mslist[0] + '/OBSERVATION', ack=False) as t:
         telescope = t.getcol('TELESCOPE_NAME')[0]
+    
+    if args['skymodelsetjy'] and args['skymodel'] is not None:
+        print('--skymodelsetjy cannot be used together with --skymodel')
+        raise Exception('--skymodelsetjy cannot be used together with --skymodel')
+    
+    if args['skymodelsetjy'] and args['skymodelpointsource'] is not None:
+        print('--skymodelsetjy cannot be used together with --skymodelpointsource')
+        raise Exception('--skymodelsetjy cannot be used together with --skymodelpointsource')
+    
+    if args['skymodelsetjy'] and args['wscleanskymodel'] is not None:
+        print('--skymodelsetjy cannot be used together with --wscleanskymodel')
+        raise Exception('--skymodelsetjy cannot be used together with --wscleanskymodel')
 
     if args['auto_directions'] and not args['DDE']:
        print('--auto_directions can only be used in combination with --DDE')
@@ -4862,12 +4950,13 @@ def inputchecker(args, mslist):
          print('Wrong input for --modelstoragemanager, needs to be "stokes_i" or None')
          raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i or None')
 
-    if args['bandpassMeerKAT']:
+    if args['bandpass']:
         if args['stack'] or args['DDE'] or args['stopafterskysolve'] or args['stopafterpreapply']:
-            print('--bandpassMeerKAT cannot be used with --stack, --DDE, --stopafterskysolve, or --stopafterpreapply')
-            raise Exception('--bandpassMeerKAT cannot be used with --stack or --DDE')
-        if args['skymodel'] is None and args['skymodelpointsource'] is None and args['wscleanskymodel'] is None:
-            print('skymodel, skymodelpointsource, or wscleanskymodel needs to be set')
+            print('--bandpass cannot be used with --stack, --DDE, --stopafterskysolve, or --stopafterpreapply')
+            raise Exception('--bandpass cannot be used with --stack or --DDE')
+        if args['skymodel'] is None and args['skymodelpointsource'] is None \
+            and args['wscleanskymodel'] is None and not args['skymodelsetjy']:
+            print('skymodel, skymodelpointsource, skymodelsetjy, or wscleanskymodel needs to be set')
             raise Exception('skymodel, skymodelpointsource, or wscleanskymodel needs to be set')
 
     for tmp in args['BLsmooth_list']:
@@ -6988,15 +7077,13 @@ def set_MeerKAT_bandpass_skymodel(ms):
     skymodpath = '/'.join(datapath.split('/')[0:-1])+'/facetselfcal/data'
     
     skymodel = None
-    Lband = False
-    UHF = False
-    Sband = False
     cJ0408_6545 = np.array([1.08358621, -1.1475981])
     cJ1939_6342 = np.array([5.1461782, -1.11199629])
 
     with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
         midfreq = np.mean(t.getcol('CHAN_FREQ')[0])
 
+    UHF = False; Lband = False; Sband = False
     if (midfreq > 500e6) and (midfreq < 1.0e9):  # UHF-band
         UHF = True
     if (midfreq >= 1.0e9) and (midfreq < 1.7e9):  # L-band
@@ -7006,13 +7093,13 @@ def set_MeerKAT_bandpass_skymodel(ms):
 
     with table(ms + '/FIELD', ack=False) as t:
         adir = t.getcol('DELAY_DIR')[0][0][:]
-    cdatta = SkyCoord(adir[0]*units.deg, adir[0]*units.deg, frame='icrs')
+    cdatta = SkyCoord(adir[0]*units.radian, adir[1]*units.radian, frame='icrs')
 
-    if (cdatta.separation(SkyCoord(cJ0408_6545[0]*units.deg, cJ0408_6545[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
+    if (cdatta.separation(SkyCoord(cJ0408_6545[0]*units.radian, cJ0408_6545[1]*units.radian, frame='icrs'))) < 0.05*units.deg:
         if Lband: skymodel = skymodpath + '/J0408-6545_L.skymodel'
         if UHF: skymodel = skymodpath + '/J0408-6545_UHF.skymodel'
 
-    if (cdatta.separation(SkyCoord(cJ1939_6342[0]*units.deg, cJ1939_6342[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
+    if (cdatta.separation(SkyCoord(cJ1939_6342[0]*units.radian, cJ1939_6342[1]*units.radian, frame='icrs'))) < 0.05*units.deg:
         if Lband: skymodel = skymodpath + '/J1939-6342_L.skymodel'
         if UHF: skymodel = skymodpath + '/J1939-6342_UHF.skymodel'
 
@@ -9069,7 +9156,8 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],
                             create_modeldata=create_modeldata,
                             selfcalcycle=selfcalcycle, dysco=args['dysco'], blsmooth_chunking_size=args['blsmooth_chunking_size'],
-                            soltypenumber=soltypenumber,
+                            soltypenumber=soltypenumber, ampresetvalfactor=args['ampresetvalfactor'],
+                            flag_ampresetvalfactor=args['flag_ampresetvalfactor'],
                             clipsolutions=args['clipsolutions'], clipsolhigh=args['clipsolhigh'],
                             clipsollow=args['clipsollow'], uvmax=args['uvmax'], modeldatacolumns=modeldatacolumns,
                             preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel,
@@ -9278,7 +9366,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 blscalefactor=1.0, dejumpFR=False, uvminscalarphasediff=0, selfcalcycle=0, dysco=True,
                 blsmooth_chunking_size=8, soltypenumber=0, create_modeldata=True,
                 clipsolutions=False, clipsolhigh=1.5, clipsollow=0.667,
-                ampresetvalfactor=10., uvmax=None,
+                ampresetvalfactor=10., flag_ampresetvalfactor=False, uvmax=None,
                 modeldatacolumns=[], solveralgorithm='directioniterative', solveralgorithm_dde='directioniterative',
                 preapplyH5_dde=[],
                 dde_skymodel=None, DDE_predict='WSCLEAN', beamproximitylimit=240.,
@@ -9310,11 +9398,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         incol = 'SMOOTHED_DATA'
 
     if skymodelsetjy and create_modeldata:
-        cmdsetjy = f'python {submodpath}/casa_setjy.py '
-        cmdsetjy += '--ms=' + ms + ' --fieldid=J1331+3030 --modelimage=3C286_L.im '
-        cmdsetjy += '--ms=' + ms + ' --fieldid=3C147 --modelimage=3C147_L.im '
-        run(cmdsetjy)
-        #set_polarised_model_3C286(ms, chunksize=1000)
+        setjy_casa(ms)
     
      
     if skymodel is not None and create_modeldata and selfcalcycle == 0 and len(modeldatacolumns) == 0:
@@ -9768,6 +9852,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    
                 cmd += "ddecal.initialsolutions.soltab='[" + ','.join(map(str, soltabs)) + "]' "
 
+    ms_tmp = None # set to None so that we can check if it is created later
     if solve_msinnchan != 'all':
         # if we are solving for aa select channel range, we need to create a temporary MS with the average function
         
@@ -9800,6 +9885,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     logger.info('DP3 solve: ' + cmd)
     run(cmd)
 
+    if ms_tmp is not None:
+        # remove the temporary MS
+        print('Removing temporary MS:', ms_tmp)
+        os.system('rm -rf ' + ms_tmp)
 
     if selfcalcycle == 0 and (soltypein == "scalarphasediffFR" or soltypein == "scalarphasediff"):
         os.system("cp -r " + parmdb + " " + parmdb + ".scbackup")
@@ -9960,15 +10049,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if soltype == 'fulljones':
             # if normamps: #and all(rsl is None for rsl in resetsols_list) and all(rdl is None for rdl in resetdir_list):
             # otherwise you get too much setting to 1 due to large amp deviations, in particular fullones on raw data which has very high correlator amps (with different ILT vals), also resets in that case cause issues (resets are ok if the amplitudes are close to 1). Hence using the normamps test seems the most logical choice
-            flaglowamps_fulljones(parmdb, lowampval=medamp / ampresetvalfactor, flagging=flagging,
+            flaglowamps_fulljones(parmdb, lowampval=medamp / ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor),
                                   setweightsphases=includesphase)
-            flaghighamps_fulljones(parmdb, highampval=medamp * ampresetvalfactor, flagging=flagging,
+            flaghighamps_fulljones(parmdb, highampval=medamp * ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor),
                                    setweightsphases=includesphase)
         else:
             # if normamps: #and all(rsl is None for rsl in resetsols_list) and all(rdl is None for rdl in resetdir_list):
             # otherwise you get too much setting to 1 due to large amp deviations, in particular fullones on raw data which has very high correlator amps (with different ILT vals), also resets in that case cause issues (resets are ok if the amplitudes are close to 1).  Hence using the normamps test seems the most logical choice
-            flaglowamps(parmdb, lowampval=medamp / ampresetvalfactor, flagging=flagging, setweightsphases=includesphase)
-            flaghighamps(parmdb, highampval=medamp * ampresetvalfactor, flagging=flagging,
+            flaglowamps(parmdb, lowampval=medamp / ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor), setweightsphases=includesphase)
+            flaghighamps(parmdb, highampval=medamp * ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor),
                          setweightsphases=includesphase)
 
         if soltype == 'fulljones' and clipsolutions:
@@ -11424,6 +11513,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
         if msout == '.':
             # run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
             run("DP3 msin=" + ms + " msout=. msin.datacolumn=CORRECTED_DATA msout.datacolumn=DATA steps=[]", log=True)
+            remove_column_ms(ms, 'CORRECTED_DATA')  # remove the column so it does not get used in the next step
     else:
         cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
         cmd += 'msout=' + msout + ' '
@@ -11486,6 +11576,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
                 cmdcopycolumn += ' msout.storagemanager=dysco '
                 cmdcopycolumn += ' msout.storagemanager.weightbitrate=16 '
             run(cmdcopycolumn, log=True) # use DP3 and not taql so column beam keyword are copied over
+            remove_column_ms(ms, 'CORRECTED_DATA')  # remove the column so it does not get used in the next step
                
     # update ms POLTABLE
     if (lin2circ or circ2lin) and update_poltable:
@@ -12904,18 +12995,17 @@ def main():
             file.write(f"{key} = {value}\n")
 
     if args['stack']:
-        args[
-            'dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
+        args['dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
         args['noarchive'] = True
-
- 
+    if args['skymodelsetjy']:
+        args['dysco'] = False  # no dysco compression allowed as CASA does not work with dysco compression
 
     global submodpath, datapath, facetselfcal_version
     datapath = os.path.dirname(os.path.abspath(__file__))
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '15.1.0'
+    facetselfcal_version = '15.2.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -12986,10 +13076,11 @@ def main():
 
     # fix irregular time axes or avoid bloated MS, do this first before any other step
     # in case of multiple scans on the calibrator this avoids DP3 adding of lot flagged data in between
-    if args['bandpassMeerKAT']:
+    if args['bandpass']:
         # args['skipbackup'] will set based on whether all MS were splitted
         # in case all MS were splitted a backup is not needed anymore
-        if args['skymodel'] is None: 
+        args['flag_ampresetvalfactor'] = True  # set to True to flag bad bandpass solutions which values are too high or low
+        if args['skymodel'] is None and not args['skymodelsetjy']: 
             args['skymodel'] = set_MeerKAT_bandpass_skymodel(mslist[0]) # try to set skymodel automatically    
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, 
                                                            dysco=args['dysco'], metadata_compression=args['metadata_compression'])
@@ -13027,7 +13118,7 @@ def main():
     if args['start'] == 0: fix_antenna_info_gmrt(mslist)
 
     # fix irregular time axes if needed (do this after flagging)
-    # in case --bandpassMeerKAT was set this step should not do anything because
+    # in case --bandpass was set this step should not do anything because
     # the MS were already splitted before in case of gaps (so they will be regular now)
     # the [0] at the end is to avoid the extra output returned by fix_equidistant_times
     mslist = fix_equidistant_times(mslist, args['start'] != 0, \
@@ -13413,8 +13504,8 @@ def main():
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
         
-        if args['bandpassMeerKAT']: 
-            print('Stopping as requested via --bandpassMeerKAT and compute bandpass')
+        if args['bandpass']: 
+            print('Stopping as requested via --bandpass and compute bandpass')
             for parmdb in create_mergeparmdbname(mslist, 0, skymodelsolve=True):
                 run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
                 set_weights_h5_to_one(parmdb)
