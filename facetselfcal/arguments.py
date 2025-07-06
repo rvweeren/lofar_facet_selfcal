@@ -288,7 +288,10 @@ def option_parser():
     calibrationparser.add_argument("--preapplybandpassH5-list",
                                    type=arg_as_list,
                                    default=[None],
-                                   help="List of possible h5parm files to preapply. For each MS, the closest h5parm in time in the list will be the one that preapplied. Times do not have to overlap between the h5parm and the MS. WEIGHT_SPECTRUM will be updated based on the amplitude values (if present). It is assumed (and not checked) that there is 'perfect' frequency ovelap and the solutions are constant along the time-axis of the h5parm. Note that DATA will be overwritten via a correct step, and these h5parms are not merged in the merged output solutions files. A list of length 1 with a glob-like string containing * or ? is also allowed, e.g. ['mybandpass*.h5']")
+                                   help="List of possible h5parm files to preapply. For each MS, the closest h5parm in time in the list will be the one that preapplied. Times do not have to overlap between the h5parm and the MS. It is assumed (and not checked) that there is 'perfect' frequency ovelap and the solutions are constant along the time-axis of the h5parm. Note that DATA will be overwritten via a correct step, and these h5parms are not merged in the merged output solutions files. A list of length 1 with a glob-like string containing * or ? is also allowed, e.g. ['mybandpass*.h5']")
+    calibrationparser.add_argument('--preapplybandpassH5-updateweights',
+                                   help='This determines whether WEIGHT_SPECTRUM will be updated based on the amplitude values when --preapplybandpassH5-list is set. By default this is True.',type=ast.literal_eval,
+                                   default=True)
     calibrationparser.add_argument('--normamps',
                                    help='Normalize global amplitudes to 1.0. The default is True (False if fulljones is used). Note that if set to False --normamps-list is ignored.',
                                    type=ast.literal_eval,
@@ -443,14 +446,20 @@ def option_parser():
     flaggingparser.add_argument('--useaoflagger',
                                 help='Run AOflagger on input data.',
                                 action='store_true')
-    flaggingparser.add_argument('--aoflagger-strategy',
+    flaggingparser.add_argument('--aoflagger-strategy', 
                                 help='Use this strategy for AOflagger (options are: "default_StokesV.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',
-                                default=None,
-                                type=str)
+                                default=None, type=str)
     flaggingparser.add_argument('--useaoflaggerbeforeavg',
                                 help='Flag with AOflagger before (True) or after averaging (False). The default is True.',
                                 type=ast.literal_eval,
                                 default=True)
+    flaggingparser.add_argument('--useaoflagger-correcteddata',
+                                help='Run AOflagger on the CORRECTED_DATA column after calibration.',
+                                action='store_true')
+    flaggingparser.add_argument('--aoflagger-strategy-correcteddata',
+                                help='Use this strategy for AOflagger on CORRECTED_DATA (options are: "default_StokesV.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',type=str)
+    flaggingparser.add_argument("--useaoflagger-correcteddata-selfcalcycle-list",
+                                type=arg_as_list, default=[1], help="Select list of  selfcalcycle where --useaoflagger-correcteddata is used. Only values larger than 1 are allowed in the list. The default is [1].")
     flaggingparser.add_argument('--flagtimesmeared',
                                 help='Flag data that is severely time smeared. Warning: expert only',
                                 action='store_true')
@@ -483,6 +492,9 @@ def option_parser():
     startmodelparser.add_argument('--skymodelsetjy',
                                   help='3C48, 3C147, 3C138, 3C286 skymodels are computed via CASA setjy. For 3C286 polarization information is also included using the model from B. Hugo & R. Perley 2024. Skymodel is automatically selected based on the pointing center of the MS',
                                   action='store_true')
+    startmodelparser.add_argument('--keepusingstartingskymodel',
+                                  help='Keep use initial skymlodel for each selfcalcycle. Can be useful for bandpass calibration where some extra flagging rounds on CORRECTED_DATA are done. Relevant for --wscleanskymodel, --skymodelsetjy, --skymodel, --skymodelpointsource, --startfromtgss, --startfromgsm, --startfromimage, --startfromvlass', action='store_true')
+    
     startmodelparser.add_argument('--fix-model-frequencies',
                                   help='Force predict and imaging wsclean commands to divide on freqencies set by wsclean skymodel',
                                   action='store_true')
@@ -571,6 +583,9 @@ def option_parser():
     parser.add_argument('--bandpass',
                         help='Compute bandpass for MeerKAT or uGMRT primary calibrator observation. Stop calibration after solving against an external skymodel and then compute bandpass on merged solution file. Requires an external skymodel to be provided, or automatic selection via --skymodelsetjy (see the help for this option). For MeerKAT if no skymodel is provided or skymodelsetjy was not invoked, it will automatically select the ones for J0408-6545 and J1939-6342 provided by facetselfcal (both for UHF and L-band).',
                         action='store_true')
+    parser.add_argument('--bandpass-stop',
+                        help='Selfcalcycle after which to stop if --bandpass is used (default 0)', default=0, type=int)
+    
     parser.add_argument('--timesplitbefore',
                         help='Try to split the MS in time if the time axis is not contigeous',
                         action='store_true')
