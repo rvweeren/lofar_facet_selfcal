@@ -115,8 +115,62 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def aoflagger_column(mslist, aoflagger_strategy=None, column='CORRECTED_DATA'):
+    """
+    Runs AOFlagger on a list of Measurement Sets (MS) using DP3, with an optional custom flagging strategy and data column.
+
+    Parameters:
+        mslist (list of str): List of paths to Measurement Set files to be flagged.
+        aoflagger_strategy (str, optional): Path to a custom AOFlagger strategy file, or the name of a strategy in the 'flagging_strategies' directory. If None, the default strategy is used.
+        column (str, optional): Name of the data column to flag (default is 'CORRECTED_DATA').
+
+    Notes:
+        - If DP3 fails (e.g., due to issues with certain polarization columns), the function falls back to running AOFlagger directly.
+        - Prints the command being executed for transparency.
+    """
+    for ms in mslist:
+        cmd = 'DP3 msin=' + ms + ' msin.datacolumn=' + column + ' msout=. '
+        cmd += 'ao.type=aoflag '
+        cmd += 'ao.keepstatistics=False '
+        cmd += 'ao.memoryperc=50 '
+        cmd += 'ao.overlapperc=10 '
+        if aoflagger_strategy is not None:
+            if os.path.isfile(aoflagger_strategy): # try full location first
+                cmd += 'ao.strategy=' +  aoflagger_strategy + ' '
+            else: # try strategy in flagging_strategies
+                cmd += 'ao.strategy=' + f'{datapath}/flagging_strategies/' + aoflagger_strategy + ' '
+        cmd += 'steps=[ao] '
+        try:
+            print('Running AOFlagger on ' + ms + ' with strategy: ' + aoflagger_strategy)
+            print(cmd)
+            run(cmd)
+        except: # DP3 crashes when flagging on RR and LL for some reason, this is a workaround
+            if not os.path.isfile(aoflagger_strategy):
+                aoflagger_strategy = f'{datapath}/flagging_strategies/' + aoflagger_strategy
+            cmdao = 'aoflagger -column ' + column +' -strategy ' + aoflagger_strategy + ' ' + ms
+            print('Running AOFlagger on ' + ms + ' with strategy: ' + aoflagger_strategy)
+            run(cmdao)
 
 def setjy_casa(ms):
+    """
+    Selects and applies the appropriate CASA setjy model image for a known calibrator present in the Measurement Set (MS).
+    This function determines which standard calibrator (3C147, 3C286, 3C138, or 3C48) is present in the MS by comparing the field coordinates.
+    It then selects the correct model image based on the observing frequency band (UHF, L, S, C, or X band) and runs the CASA setjy procedure
+    using a helper script. If 3C286 is detected, it also sets the polarised model for this calibrator.
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set (MS) directory.
+    Raises
+    ------
+    Exception
+        If no known calibrator is found in the MS field coordinates.
+    Notes
+    -----
+    - Assumes the MS contains only a single source (fieldid=0).
+    - Requires access to model images named according to the calibrator and frequency band.
+    - Relies on external scripts and functions: `casa_setjy.py` and `set_polarised_model_3C286`.
+    """
     
     # find which calibrators is present in the MS (this cannot be a mulitsource MS), so fieldid is 0
     
@@ -2785,6 +2839,7 @@ def remove_flagged_data_startend(mslist):
             msout = ms + '.cut'
             if os.path.isdir(msout):
                 os.system('rm -rf ' + msout)
+                time.sleep(2)  # wait a bit to make sure the directory is removed
 
             cmd = taql + " ' select from " + ms + " where TIME in (select distinct TIME from " + ms
             cmd += " offset " + str(goodstartid)
@@ -4230,6 +4285,7 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
         if start == 0:  # only phaseup if start selfcal from cycle 0, so skip for a restart
             if os.path.isdir(msout):
                 os.system('rm -rf ' + msout)
+                time.sleep(2)  # wait for the directory to be removed
             print(cmd)
             run(cmd)
     return msoutlist
@@ -4502,6 +4558,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 print('Average with default WEIGHT_SPECTRUM:', cmd)
                 if os.path.isdir(msout):
                     os.system('rm -rf ' + msout)
+                    time.sleep(2)  # wait for the directory to be removed
                 run(cmd, log=True)
 
             msouttmp = ms + '.avgtmp'
@@ -4568,6 +4625,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                         print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
                         if os.path.isdir(msouttmp):
                             os.system('rm -rf ' + msouttmp)
+                            time.sleep(2)  # wait for the directory to be removed
                         run(cmd)
 
                         # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
@@ -4911,7 +4969,27 @@ def inputchecker(args, mslist):
     # set telescope
     with table(mslist[0] + '/OBSERVATION', ack=False) as t:
         telescope = t.getcol('TELESCOPE_NAME')[0]
+
+    if 0 in args['useaoflagger_correcteddata_selfcalcycle_list']:
+        print('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0')
+        raise Exception('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0') 
+
+    if args['useaoflagger_correcteddata'] and args['DDE']:
+        print('--useaoflagger-correcteddata cannot be used together with --DDE')
+        raise Exception('--useaoflagger-correcteddata cannot be used together with --DDE')
+
+    if args['aoflagger_strategy'] is not None:
+        if not os.path.isfile(args['aoflagger_strategy']): # try full location first
+            if not os.path.isfile(f'{datapath}/flagging_strategies/' + args['aoflagger_strategy']):
+                print('Flagging strategy file not found:', args['aoflagger_strategy'])
+                raise Exception('Flagging strategy file not found:', args['aoflagger_strategy'])
     
+    if args['aoflagger_strategy_correcteddata'] is not None:
+        if not os.path.isfile(args['aoflagger_strategy_correcteddata']): # try full location first
+            if not os.path.isfile(f'{datapath}/flagging_strategies/' + args['aoflagger_strategy_correcteddata']):
+                print('Flagging strategy file not found:', args['aoflagger_strategy_correcteddata'])
+                raise Exception('Flagging strategy file not found:', args['aoflagger_strategy_correcteddata'])  
+
     if args['skymodelsetjy'] and args['skymodel'] is not None:
         print('--skymodelsetjy cannot be used together with --skymodel')
         raise Exception('--skymodelsetjy cannot be used together with --skymodel')
@@ -7186,6 +7264,7 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
         run(cmd)
 
         os.system('rm -rf ' + ms)
+        time.sleep(2)  # give some time to remove the MS
         os.system('mv ' + msout + ' ' + ms)
     return
 
@@ -7229,6 +7308,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True, metadata_comp
         os.system('rm -rf ' + ms + '.cut')
     if os.path.isdir(ms + '.cuttmp'):
         os.system('rm -rf ' + ms + '.cuttmp')
+    time.sleep(2)  # give some time to remove the MS
 
     cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cut '
     if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
@@ -7330,6 +7410,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
         msout = ms + '.calibrated'
         if os.path.isdir(msout):
             os.system('rm -rf ' + msout)
+            time.sleep(2)  # give it some time to remove
         cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msout=' + msout + ' '
         if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
         cmd += 'msin.datacolumn=CORRECTED_DATA steps=[] '
@@ -8816,6 +8897,31 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     PatchPositions_array[:, 0] = (rasel * units.deg).to(units.rad).value
     PatchPositions_array[:, 1] = (decsel * units.deg).to(units.rad).value
 
+    # check for consistency of solints having the same number of entries as args['soltype_list']
+    if solints is not None:
+        for solint in solints:
+            if len(ast.literal_eval(solint)) != len(args['soltype_list']):
+                print('Number of entries for solints in the direction file is', \
+                      len(ast.literal_eval(solint)), 'but args["soltype_list"] has:', len(args['soltype_list']))
+                raise ValueError('The number of solints in the directions file does not match the number of soltypes in args["soltype_list"]. '
+                                 'Please check the directions file.')
+    # check for consistency of smoothness having the same number of entries as args['soltype_list']
+    if smoothness is not None:
+        for sm in smoothness:
+            if len(ast.literal_eval(sm)) != len(args['soltype_list']):
+                print('Number of entries for smoothness in the direction file is', \
+                      len(ast.literal_eval(sm)), 'but args["soltype_list"] has:', len(args['soltype_list']))
+                raise ValueError('The number of smoothness in the directions file does not match the number of soltypes in args["soltype_list"]. '
+                                 'Please check the directions file.')
+    # check for consistency of soltypelist_includedir having the same number of entries as args['soltype_list']
+    if soltypelist_includedir is not None:
+        for soltypelist in soltypelist_includedir:
+            if len(ast.literal_eval(soltypelist)) != len(args['soltype_list']):
+                print('Number of entries for soltypelist_includedir in the direction file is', \
+                      len(ast.literal_eval(soltypelist)), 'but args["soltype_list"] has:', len(args['soltype_list']))
+                raise ValueError('The number of soltypelist_includedir in the directions file does not match the number of soltypes in args["soltype_list"]. '
+                                 'Please check the directions file.')            
+    
     # Case for smoothness is not set in the direction file
     if solints is not None and smoothness is None:
         solintsel = solints[a]
@@ -9124,7 +9230,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     pertubation[msnumber] = False
 
                 if ((skymodel is not None) or (skymodelpointsource is not None) or (
-                        wscleanskymodel is not None) or (args['skymodelsetjy'])) and selfcalcycle == 0:
+                        wscleanskymodel is not None) or (args['skymodelsetjy'])):
                     parmdb = soltype + str(soltypenumber) + '_skyselfcalcycle' + str(selfcalcycle).zfill(
                         3) + '_' + os.path.basename(ms) + '.h5'
                 else:
@@ -9133,7 +9239,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
 
                 # set create_modeldata to False it was already prediceted before
                 create_modeldata = True
-                if soltypenumber >= 1:
+                if (soltypenumber >= 1) or (selfcalcycle > 0 and not args['keepusingstartingskymodel']): 
                     create_modeldata = False
 
                 runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb,
@@ -9153,7 +9259,8 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             predictskywithbeam=predictskywithbeam, BLsmooth=BLsmooth_list[soltypenumber][msnumber],
                             skymodelsource=skymodelsource,
                             skymodelpointsource=skymodelpointsource, wscleanskymodel=wscleanskymodel,
-                            iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'], dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],
+                            iontimefactor=args['iontimefactor'], ionfreqfactor=args['ionfreqfactor'], blscalefactor=args['blscalefactor'], 
+                            dejumpFR=args['dejumpFR'], uvminscalarphasediff=args['uvminscalarphasediff'],
                             create_modeldata=create_modeldata,
                             selfcalcycle=selfcalcycle, dysco=args['dysco'], blsmooth_chunking_size=args['blsmooth_chunking_size'],
                             soltypenumber=soltypenumber, ampresetvalfactor=args['ampresetvalfactor'],
@@ -9236,7 +9343,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
     if True:
         for msnumber, ms in enumerate(mslist):
             if ((skymodel is not None) or (skymodelpointsource is not None) or (
-                    wscleanskymodel is not None) or (args['skymodelsetjy'])) and selfcalcycle == 0:
+                    wscleanskymodel is not None) or (args['skymodelsetjy'])):
                 parmdbmergename = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(
                     ms) + '.h5'
                 parmdbmergename_pc = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(
@@ -9397,11 +9504,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
         incol = 'SMOOTHED_DATA'
 
-    if skymodelsetjy and create_modeldata:
+    if skymodelsetjy and create_modeldata and len(modeldatacolumns) == 0:
         setjy_casa(ms)
     
      
-    if skymodel is not None and create_modeldata and selfcalcycle == 0 and len(modeldatacolumns) == 0:
+    if skymodel is not None and create_modeldata and len(modeldatacolumns) == 0:
         predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam, sources=skymodelsource, modelstoragemanager=modelstoragemanager)
 
     # if wscleanskymodel is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
@@ -9410,7 +9517,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                   0, 0.0, onlypredict=True, idg=False)
 
     # if skymodelpointsource is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
-    if skymodelpointsource is not None and create_modeldata:
+    if skymodelpointsource is not None and create_modeldata and len(modeldatacolumns) == 0:
         # create MODEL_DATA (no dysco!)
         if modelstoragemanager is None:
             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
@@ -10441,7 +10548,8 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         for ms_id, ms in enumerate(mslist):
             ms = os.path.basename(ms)
             if os.path.isdir(ms + '.subtracted_ddcor'):
-                os.system('rm -rf ' + ms + '.subtracted_ddcor')  
+                os.system('rm -rf ' + ms + '.subtracted_ddcor')
+                time.sleep(2)  # wait for the directory to be removed
             applycal(ms + '.subtracted',h5list[ms_id], find_closestdir=True, 
                      msout=ms + '.subtracted_ddcor', dysco=dysco, metadata_compression=metadata_compression)
             with table(ms + '.subtracted') as t:
@@ -10459,8 +10567,6 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
             # remove uncorrected file to save disk space
             os.system('rm -rf ' + ms + '.subtracted')
 
-            # remove uncorrected file to save disk space
-            os.system('rm -rf ' + ms + '.subtracted')
     return
 
 
@@ -13005,7 +13111,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '15.2.0'
+    facetselfcal_version = '15.4.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -13322,7 +13428,8 @@ def main():
 
         # PRE-APPLY BANDPASS-TYPE SOLUTIONS
         if (args['preapplybandpassH5_list'][0]) is not None and i == 0:
-            preapply_bandpass(args['preapplybandpassH5_list'], mslist, dysco=args['dysco'])
+            preapply_bandpass(args['preapplybandpassH5_list'], mslist, dysco=args['dysco'], 
+                              updateweights=args['preapplybandpassH5_updateweights'])
 
         # PRE-APPLY SOLUTIONS (from a nearby direction for example)
         if (args['preapplyH5_list'][0]) is not None and i == 0:
@@ -13504,14 +13611,18 @@ def main():
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
         
-        if args['bandpass']: 
+        if args['bandpass'] and args['bandpass_stop'] == 0: 
             print('Stopping as requested via --bandpass and compute bandpass')
-            for parmdb in create_mergeparmdbname(mslist, 0, skymodelsolve=True):
+            for parmdb in create_mergeparmdbname(mslist, i, skymodelsolve=True):
                 run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
                 set_weights_h5_to_one(parmdb)
-            if not args['keepmodelcolumns']: remove_model_columns(mslist)
-            return    
-
+                if not args['keepmodelcolumns']: remove_model_columns(mslist)
+                return
+        
+        # run aoflagger on the corrected data culumn if requested  
+        if i in args['useaoflagger_correcteddata_selfcalcycle_list'] and args['useaoflagger_correcteddata']:
+            aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_correcteddata'], column='CORRECTED_DATA')
+                    
         # REDETERMINE SOLINTS IF REQUESTED
         if (i >= 0) and (args['usemodeldataforsolints']):
             print('Recomputing solints .... ')
@@ -13547,13 +13658,27 @@ def main():
                                               normamps_list, BLsmooth_list,
                                               solve_msinnchan_list, solve_msinstartchan_list,
                                               antenna_averaging_factors_list, antenna_smoothness_factors_list,
-                                              normamps=args['normamps'],
-                                              longbaseline=longbaseline,                                          
+                                              normamps=args['normampsskymodel'] if args['keepusingstartingskymodel'] else args['normamps'],
+                                              skymodel=args['skymodel'] if args['keepusingstartingskymodel'] else None,
+                                              skymodelpointsource=args['skymodelpointsource'] if args['keepusingstartingskymodel'] else None,
+                                              wscleanskymodel=args['wscleanskymodel'] if args['keepusingstartingskymodel'] else None, 
+                                              skymodelsetjy=args['skymodelsetjy'] if args['keepusingstartingskymodel'] else False,
+                                              longbaseline=longbaseline,
+                                              predictskywithbeam=args['predictskywithbeam'], skymodelsource=args['skymodelsource'],                                          
                                               mslist_beforephaseup=mslist_beforephaseup,
                                               modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                               DDE_predict=args['DDE_predict'],
                                               mslist_beforeremoveinternational=mslist_beforeremoveinternational,
                                               soltypelist_includedir=soltypelist_includedir)
+
+
+        if args['bandpass'] and i >=args['bandpass_stop']: 
+            print('Stopping as requested via --bandpass and compute bandpass')
+            for parmdb in create_mergeparmdbname(mslist, i, skymodelsolve=True):
+                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
+                set_weights_h5_to_one(parmdb)
+                if not args['keepmodelcolumns']: remove_model_columns(mslist)
+                return  
 
         # update uvmin if allowed/requested
         update_uvmin(fitsmask, longbaseline, LBA)
