@@ -115,19 +115,90 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def fix_time_axis_gmrt(mslist):
+    """
+    Fixes the TIME and INTERVAL columns in Measurement Sets (MS) from the GMRT telescope.
+    For each MS in the provided list, this function:
+    - Checks if the telescope is GMRT by reading the 'TELESCOPE_NAME' from the OBSERVATION table.
+    - If so, computes the most common time interval between observations, ignoring large jumps.
+    - Updates the INTERVAL column to have a uniform value equal to the computed interval.
+    - Adjusts the TIME column so that all time stamps are aligned to this uniform interval.
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to Measurement Sets (MS) to process.
+    Notes
+    -----
+    This function modifies the MS files in place.
+    """
+    for ms in mslist:
+        with table(ms + '/OBSERVATION', ack=False) as t:
+            telescope = t.getcol('TELESCOPE_NAME')[0]
+        if telescope == 'GMRT': 
+            with table(ms, ack=False, readonly=False) as t:
+               times = taql('select distinct TIME from $t').getcol("TIME") 
+               intervals = times[1 : ] - times[ : -1]
+               intervals = intervals[intervals < 1.5 * np.min(intervals)] # Select only intervals that do not correspond with big jumps in time.
+               intervalprecise = np.mean(intervals)
+               
+               # Update INTERVAL column.
+               intervalsold    = t.getcol("INTERVAL")
+               intervalsnew    = np.ones_like(intervalsold) * intervalprecise
+               t.putcol("INTERVAL", intervalsnew)
+
+               # Update TIME column.
+               timesold        = t.getcol("TIME")
+               timesnew        = timesold[0] + np.round((timesold - timesold[0]) / intervalprecise, 0) * intervalprecise
+               t.putcol("TIME", timesnew)
+               print('Time axis interval set to', intervalprecise)
+
 def aoflagger_column(mslist, aoflagger_strategy=None, column='CORRECTED_DATA'):
     """
-    Runs AOFlagger on a list of Measurement Sets (MS) using DP3, with an optional custom flagging strategy and data column.
-
-    Parameters:
-        mslist (list of str): List of paths to Measurement Set files to be flagged.
-        aoflagger_strategy (str, optional): Path to a custom AOFlagger strategy file, or the name of a strategy in the 'flagging_strategies' directory. If None, the default strategy is used.
-        column (str, optional): Name of the data column to flag (default is 'CORRECTED_DATA').
-
-    Notes:
-        - If DP3 fails (e.g., due to issues with certain polarization columns), the function falls back to running AOFlagger directly.
-        - Prints the command being executed for transparency.
+    Runs AOFlagger on a list of Measurement Sets (MS) using DP3, with optional custom flagging strategy and data column.
+    This function checks if a custom AOFlagger strategy file is provided and exists. If the strategy file requests
+    flagging of circular polarisation data (RR, RL, LR, LL) and the MS contains such data, it temporarily replaces
+    these polarisations with linear equivalents (XX, XY, YX, YY) in a copy of the strategy file, as AOFlagger cannot
+    flag circular polarisations in DP3. The function then runs DP3 with AOFlagger on each MS in the list.
+    Args:
+        mslist (list of str): List of Measurement Set paths to process.
+        aoflagger_strategy (str, optional): Path or name of the AOFlagger strategy file to use. If not provided,
+            the default strategy is used. If a name is given and not a file path, it is assumed to be in the
+            'flagging_strategies' directory under 'datapath'.
+        column (str, optional): Name of the data column in the MS to flag. Defaults to 'CORRECTED_DATA'.
+    Warnings:
+        - If the strategy file requests RR/RL/LR/LL flagging and the MS contains circular polarisation data,
+          a warning is printed and the strategy file is temporarily modified to use XX/XY/YX/YY instead.
+    Side Effects:
+        - May create and remove temporary strategy files in the current working directory.
+        - Executes system commands for file manipulation and running DP3.
+    Prints:
+        - Warnings about unsupported polarisation flagging.
+        - The command being executed for AOFlagger.
     """
+
+    if aoflagger_strategy is not None and not os.path.isfile(aoflagger_strategy):
+        aoflagger_strategy = f'{datapath}/flagging_strategies/' + aoflagger_strategy
+
+    # check if MS has circular polarisation data and RR/RL/LR/LL flagging is requested
+    if aoflagger_strategy is not None:
+        with table(mslist[0] + '/POLARIZATION', ack=False) as t:
+            corr_type = t.getcol('CORR_TYPE')
+            with open(aoflagger_strategy) as myfile:
+                if ("LL" in myfile.read() or "RR" in myfile.read() or \
+                    "LR" in myfile.read() or "RL" in myfile.read()) and np.array_equal(np.array([[5, 6, 7, 8]]), corr_type):
+                    print("\033[33m" + "WARNING: AOFlagger cannot flag RR/RL/LR/LL data in DP3" + "\033[0m")
+                    print("\033[33m" + "WARNING: Will temporarily replace RR/RL/LR/LL with XX/XY/YX/YY" + "\033[0m")
+                    if os.path.isfile('tmp.' + os.path.basename(aoflagger_strategy)):
+                        os.system('rm tmp.' + os.path.basename(aoflagger_strategy))
+                    os.system('cp ' + aoflagger_strategy + ' tmp.' + os.path.basename(aoflagger_strategy))
+                    # using linux sed command to replace the strings in the file
+                    os.system('sed -i "s/RR/XX/g" tmp.' + os.path.basename(aoflagger_strategy))
+                    os.system('sed -i "s/RL/XY/g" tmp.' + os.path.basename(aoflagger_strategy))
+                    os.system('sed -i "s/LR/YX/g" tmp.' + os.path.basename(aoflagger_strategy)) 
+                    os.system('sed -i "s/LL/YY/g" tmp.' + os.path.basename(aoflagger_strategy))
+                    aoflagger_strategy = 'tmp.' + os.path.basename(aoflagger_strategy)
+        
+    # run DP3 with AOFlagger
     for ms in mslist:
         cmd = 'DP3 msin=' + ms + ' msin.datacolumn=' + column + ' msout=. '
         cmd += 'ao.type=aoflag '
@@ -135,21 +206,16 @@ def aoflagger_column(mslist, aoflagger_strategy=None, column='CORRECTED_DATA'):
         cmd += 'ao.memoryperc=50 '
         cmd += 'ao.overlapperc=10 '
         if aoflagger_strategy is not None:
-            if os.path.isfile(aoflagger_strategy): # try full location first
-                cmd += 'ao.strategy=' +  aoflagger_strategy + ' '
-            else: # try strategy in flagging_strategies
-                cmd += 'ao.strategy=' + f'{datapath}/flagging_strategies/' + aoflagger_strategy + ' '
+            cmd += 'ao.strategy=' +  aoflagger_strategy + ' '         
         cmd += 'steps=[ao] '
-        try:
-            print('Running AOFlagger on ' + ms + ' with strategy: ' + aoflagger_strategy)
-            print(cmd)
-            run(cmd)
-        except: # DP3 crashes when flagging on RR and LL for some reason, this is a workaround
-            if not os.path.isfile(aoflagger_strategy):
-                aoflagger_strategy = f'{datapath}/flagging_strategies/' + aoflagger_strategy
-            cmdao = 'aoflagger -column ' + column +' -strategy ' + aoflagger_strategy + ' ' + ms
-            print('Running AOFlagger on ' + ms + ' with strategy: ' + aoflagger_strategy)
-            run(cmdao)
+        #try:
+        print('Running AOFlagger on ' + ms + ' with strategy: ' + aoflagger_strategy)
+        print(cmd)
+        run(cmd)
+        #except: # DP3 crashes when flagging on RR and LL for some reason, this is a workaround
+        #    cmdao = 'aoflagger -column ' + column +' -strategy ' + aoflagger_strategy + ' ' + ms
+        #    print('Running AOFlagger on ' + ms + ' with strategy: ' + aoflagger_strategy)
+        #    run(cmdao)
 
 def setjy_casa(ms):
     """
@@ -2558,7 +2624,7 @@ def fix_equidistant_times(mslist, dryrun, dysco=True, metadata_compression=False
     return sorted(mslist_return), all(mslist_splitting_performed)
 
 
-def check_equidistant_times(mslist, stop=True, return_result=False):
+def check_equidistant_times(mslist, stop=True, return_result=False, tolerance=0.2):
     """ Check if times in mslist are equidistant"""
 
     for ms in mslist:
@@ -2569,7 +2635,7 @@ def check_equidistant_times(mslist, stop=True, return_result=False):
         diff_times = np.abs(np.diff(times))[
                      :-1]  # take out the last one because this one can be special  due to rounding at the end....
         diff_times_medsub = np.abs(diff_times - np.median(diff_times))
-        idx_deviating, = np.where(diff_times_medsub > 0.2 * np.median(diff_times))  # 20% tolerance
+        idx_deviating, = np.where(diff_times_medsub > tolerance * np.median(diff_times))  # 20% tolerance
         # print(len(idx_deviating))
         # print(idx_deviating)
         # sys.exit()
@@ -4785,7 +4851,7 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None)
 def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
              find_closestdir=False, updateweights=False, modelstoragemanager=None, 
-             missingantennabehavior='error', metadata_compression=True):
+             missingantennabehavior='error', metadata_compression=True, timeslotsperparmupdate=200):
     """ Apply an H5parm to a Measurement Set.
 
     Args:
@@ -4804,6 +4870,19 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
     Returns:
         None
     """
+    # get number of frequency channels in MS and update timeslotsperparmupdate if needed
+    # for large MSs with many frequency channels it smees we need to reduce the timeslotsperparmupdate to avoid segmentation faults
+    # For example GMRT data with nchan=2688 and 3535 results in a segmentation faults with the DP3 default timeslotsperparmupdate=200
+    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        nfreq = len(t.getcol('CHAN_FREQ')[0])
+        if nfreq > 500:  # if more than 500 channels reduce timeslotsperparmupdate
+            timeslotsperparmupdate = 100
+        if nfreq > 1000: 
+            timeslotsperparmupdate = 20
+        if nfreq > 2000:
+            timeslotsperparmupdate = 10
+        if nfreq > 4000:
+            timeslotsperparmupdate = 5
 
     if find_closestdir and direction is not None:
         print('Wrong input, you cannot use find_closestdir and set a direction')
@@ -4843,6 +4922,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
             cmd += 'ac' + str(count) + '.type=applycal '
             cmd += 'ac' + str(count) + '.correction=fulljones '
             cmd += 'ac' + str(count) + '.soltab=[amplitude000,phase000] '
+            cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
             if not invert:
                 cmd += 'ac' + str(count) + '.invert=False '
             if direction is not None:
@@ -4862,6 +4942,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                     cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                     cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                     cmd += 'ac' + str(count) + '.type=applycal '
+                    cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
                     if 'rotation000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotation000 '
                     if 'rotationmeasure000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotationmeasure000 '
                     cmd += 'ac' + str(count) + '.invert=False '
@@ -4877,6 +4958,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                 cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                 cmd += 'ac' + str(count) + '.type=applycal '
+                cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
                 cmd += 'ac' + str(count) + '.correction=phase000 '
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '
@@ -4892,6 +4974,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                 cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                 cmd += 'ac' + str(count) + '.type=applycal '
+                cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
                 cmd += 'ac' + str(count) + '.correction=amplitude000 '
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '
@@ -4909,6 +4992,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                 cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                 cmd += 'ac' + str(count) + '.type=applycal '
+                cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
                 cmd += 'ac' + str(count) + '.correction=tec000 '
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '
@@ -4925,6 +5009,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                     cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
                     cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
                     cmd += 'ac' + str(count) + '.type=applycal '
+                    cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
                     if 'rotation000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotation000 '
                     if 'rotationmeasure000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotationmeasure000 '
                     cmd += 'ac' + str(
@@ -13111,7 +13196,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '15.4.0'
+    facetselfcal_version = '15.5.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -13201,8 +13286,18 @@ def main():
 
     if not args['skipbackup']:  # work on copy of input data as a backup
         print('Creating a copy of the data and work on that....')
-        mslist = average(mslist, freqstep=[0] * len(mslist), timestep=1, start=args['start'], makecopy=True,
-                         dysco=args['dysco'], useaoflagger=(args['useaoflagger'] and args['useaoflaggerbeforeavg']), aoflagger_strategy=args['aoflagger_strategy'], metadata_compression=args['metadata_compression'])
+        mslist = average(mslist, freqstep=[1] * len(mslist), timestep=1, start=args['start'], makecopy=True,
+                         dysco=args['dysco'], useaoflagger=(args['useaoflagger'] and args['useaoflaggerbeforeavg']), 
+                         aoflagger_strategy=args['aoflagger_strategy'], metadata_compression=args['metadata_compression'],
+                         msinnchan=args['msinnchan'], msinstartchan=args['msinstartchan'], msinntimes=args['msinntimes'],
+                         removeinternational=args['removeinternational'], phaseshiftbox=args['phaseshiftbox'],
+                         removemostlyflaggedstations=args['removemostlyflaggedstations'])
+        args['msinntimes'] = None # since we use it above set msinntimes to to None now
+        args['msinnchan'] = None  # since we use it above set msinnchan to None now
+        args['msinstartchan'] = 0  # since we use it above set msinstartchan to 0 now
+        args['removeinternational'] = False  # since we use it above set removeinternational to False now
+        args['removemostlyflaggedstations'] = False  # since we use it above set removemostlyflaggedstations to False now
+        args['phaseshiftbox'] = None  # since we use it above set phaseshiftbox to None now
         if args['useaoflagger'] and args['useaoflaggerbeforeavg']:
             args['useaoflagger'] = False # turn off now because we used it above    
 
@@ -13229,6 +13324,9 @@ def main():
     # the [0] at the end is to avoid the extra output returned by fix_equidistant_times
     mslist = fix_equidistant_times(mslist, args['start'] != 0, \
                                    dysco=args['dysco'], metadata_compression=args['metadata_compression'])[0]
+
+    # fix TIME axis for GMRT data (nothing happens for other telescopes)
+    if args['start'] == 0: fix_time_axis_gmrt(mslist)
 
     # reset weights if requested
     if args['resetweights']:
