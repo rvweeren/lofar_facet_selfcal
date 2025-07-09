@@ -13714,6 +13714,10 @@ def main():
             for parmdb in create_mergeparmdbname(mslist, i, skymodelsolve=True):
                 run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
                 set_weights_h5_to_one(parmdb)
+                if os.path.isfile(parmdb.replace('merged_', 'bandpass_')):
+                    # remove existing bandpass file
+                    os.system('rm -f ' + parmdb.replace('merged_', 'bandpass_'))
+                os.system('mv ' + parmdb + ' ' + parmdb.replace('merged_', 'bandpass_'))    
                 if not args['keepmodelcolumns']: remove_model_columns(mslist)
                 return
         
@@ -13775,8 +13779,12 @@ def main():
             for parmdb in create_mergeparmdbname(mslist, i, skymodelsolve=True):
                 run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
                 set_weights_h5_to_one(parmdb)
+                if os.path.isfile(parmdb.replace('merged_', 'bandpass_')):
+                    # remove existing bandpass file
+                    os.system('rm -f ' + parmdb.replace('merged_', 'bandpass_'))
+                os.system('mv ' + parmdb + ' ' + parmdb.replace('merged_', 'bandpass_'))
                 if not args['keepmodelcolumns']: remove_model_columns(mslist)
-                return  
+                return
 
         # update uvmin if allowed/requested
         update_uvmin(fitsmask, longbaseline, LBA)
