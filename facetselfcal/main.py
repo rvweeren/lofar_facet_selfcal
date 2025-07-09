@@ -100,6 +100,7 @@ from submods.h5_helpers.general_utils import make_utf8
 from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
 from submods.source_selection.phasediff_output import GetSolint
 from submods.fair_log.config import add_config_to_h5, add_version_to_h5
+from utils.parsers import parse_history, parse_source_id
 
 # Set logger
 logger = logging.getLogger(__name__)
@@ -1867,21 +1868,6 @@ def set_beamcor(ms, beamcor_var):
 def isfloat(num):
     """Check if a value is a float."""
     return isinstance(num, float) or (isinstance(num, str) and num.replace('.', '', 1).isdigit())
-
-
-def parse_history(ms, hist_item):
-    """
-    Grep specific history item from MS
-    :param ms: measurement set
-    :param hist_item: history item
-    :return: parsed string
-    """
-    hist = os.popen('taql "SELECT * FROM ' + ms + '::HISTORY" | grep ' + hist_item).read().split(' ')
-    for item in hist:
-        if hist_item in item and len(hist_item) <= len(item):
-            return item
-    print('WARNING:' + hist_item + ' not found')
-    return None
 
 
 def find_prime_factors(n):
@@ -12291,6 +12277,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
     else:
         rms_ratio = df['rms'][cycle] / df['rms'][0]
 
+    iltj_id = parse_source_id(mergedh5[cycle])
+
     # Selection criteria (good image and stable solutions, if predict==1.0, no neural network is used)
     if (predict_score < 0.5 and df['phase'][cycle] < 0.1 and rms_ratio < 1.0 and minmax_ratio < 0.85) or \
         (predict_score < 0.5 and df['phase'][cycle] < 0.2 and rms_ratio < 0.9 and minmax_ratio < 0.5) or \
@@ -12303,8 +12291,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal converged")
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-        logger.info(f'{mergedh5[cycle]} --> best_solutions.h5')
-        os.system(f'cp {mergedh5[cycle]} best_solutions.h5')
+        logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}_solutions.h5')
+        os.system(f'cp {mergedh5[cycle]} best_{iltj_id}_solutions.h5')
         os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
         return True
     elif (df['rms'][cycle-1] < df['rms'][cycle] and df['min/max'][cycle-1] < df['min/max'][cycle]
@@ -12317,8 +12305,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal starts to diverge...")
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-        logger.info(f'{mergedh5[cycle]} --> best_solutions.h5')
-        os.system(f'cp {mergedh5[cycle]} best_solutions.h5')
+        logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}_solutions.h5')
+        os.system(f'cp {mergedh5[cycle]} best_{iltj_id}_solutions.h5')
         os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
         return True
     else:
@@ -12326,8 +12314,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
         if cycle == args['stop'] - 1:
-            logger.info(f'{mergedh5[cycle]} --> best_solutions.h5')
-            os.system(f'cp {mergedh5[cycle]} best_solutions.h5')
+            logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}_solutions.h5')
+            os.system(f'cp {mergedh5[cycle]} best_{iltj_id}_solutions.h5')
             os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
 
     return False
@@ -12945,7 +12933,7 @@ def main():
             break
 
     # Write config file to merged h5parms
-    h5s = ['best_solutions.h5'] if args['early_stopping'] else glob.glob("merged_*.h5")
+    h5s = glob.glob('best_*_solutions.h5')[0] if args['early_stopping'] else glob.glob("merged_*.h5")
     for h5 in h5s:
         # Write the user-specified configuration file to h5parm and otherwise all input parameters if config file not specified
         add_config_to_h5(h5, args['configpath']) if args['configpath'] is not None else add_config_to_h5(h5, 'full_config.txt')
