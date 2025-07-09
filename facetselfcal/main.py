@@ -13196,7 +13196,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '15.5.0'
+    facetselfcal_version = '15.6.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -13528,6 +13528,8 @@ def main():
         if (args['preapplybandpassH5_list'][0]) is not None and i == 0:
             preapply_bandpass(args['preapplybandpassH5_list'], mslist, dysco=args['dysco'], 
                               updateweights=args['preapplybandpassH5_updateweights'])
+            if args['useaoflagger_afterbandpassapply']:
+                aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_correcteddata'], column='DATA')
 
         # PRE-APPLY SOLUTIONS (from a nearby direction for example)
         if (args['preapplyH5_list'][0]) is not None and i == 0:
