@@ -4713,6 +4713,14 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
         else:
             outmslist.append(ms)  # so no averaging happened
         
+   
+    if start > 0 and makecopy:  # only fix UVW if this is not the first selfcal cycle
+        for ms in outmslist:
+            if not os.path.isdir(ms):
+                print('No MS found:', ms)
+                print('Maybe you made a mistake and you did not set --start=0?')
+                raise Exception('MS found and averaging did not produce it because start > 0')
+                
     # fix MeerKAT UVW coordinates (needs to be done each time we average with DP3)
     fix_uvw(outmslist) 
    
@@ -4851,7 +4859,8 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None)
 def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
              find_closestdir=False, updateweights=False, modelstoragemanager=None, 
-             missingantennabehavior='error', metadata_compression=True, timeslotsperparmupdate=200):
+             missingantennabehavior='error', metadata_compression=True, timeslotsperparmupdate=200,
+             auto_update_timeslotsperparmupdate=False):
     """ Apply an H5parm to a Measurement Set.
 
     Args:
@@ -4873,16 +4882,17 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
     # get number of frequency channels in MS and update timeslotsperparmupdate if needed
     # for large MSs with many frequency channels it smees we need to reduce the timeslotsperparmupdate to avoid segmentation faults
     # For example GMRT data with nchan=2688 and 3535 results in a segmentation faults with the DP3 default timeslotsperparmupdate=200
-    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
-        nfreq = len(t.getcol('CHAN_FREQ')[0])
-        if nfreq > 500:  # if more than 500 channels reduce timeslotsperparmupdate
-            timeslotsperparmupdate = 100
-        if nfreq > 1000: 
-            timeslotsperparmupdate = 20
-        if nfreq > 2000:
-            timeslotsperparmupdate = 10
-        if nfreq > 4000:
-            timeslotsperparmupdate = 5
+    if auto_update_timeslotsperparmupdate:
+        with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+            nfreq = len(t.getcol('CHAN_FREQ')[0])
+            if nfreq > 500:  # if more than 500 channels reduce timeslotsperparmupdate
+                timeslotsperparmupdate = 100
+            if nfreq > 1000: 
+                timeslotsperparmupdate = 20
+            if nfreq > 2000:
+                timeslotsperparmupdate = 10
+            if nfreq > 4000:
+                timeslotsperparmupdate = 5
 
     if find_closestdir and direction is not None:
         print('Wrong input, you cannot use find_closestdir and set a direction')
@@ -5074,6 +5084,12 @@ def inputchecker(args, mslist):
             if not os.path.isfile(f'{datapath}/flagging_strategies/' + args['aoflagger_strategy_correcteddata']):
                 print('Flagging strategy file not found:', args['aoflagger_strategy_correcteddata'])
                 raise Exception('Flagging strategy file not found:', args['aoflagger_strategy_correcteddata'])  
+
+    if args['aoflagger_strategy_afterbandpassapply'] is not None:
+        if not os.path.isfile(args['aoflagger_strategy_afterbandpassapply']): # try full location first
+            if not os.path.isfile(f'{datapath}/flagging_strategies/' + args['aoflagger_strategy_afterbandpassapply']):
+                print('Flagging strategy file not found:', args['aoflagger_strategy_afterbandpassapply'])
+                raise Exception('Flagging strategy file not found:', args['aoflagger_strategy_afterbandpassapply'])  
 
     if args['skymodelsetjy'] and args['skymodel'] is not None:
         print('--skymodelsetjy cannot be used together with --skymodel')
@@ -13529,7 +13545,7 @@ def main():
             preapply_bandpass(args['preapplybandpassH5_list'], mslist, dysco=args['dysco'], 
                               updateweights=args['preapplybandpassH5_updateweights'])
             if args['useaoflagger_afterbandpassapply']:
-                aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_correcteddata'], column='DATA')
+                aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_afterbandpassapply'], column='DATA')
 
         # PRE-APPLY SOLUTIONS (from a nearby direction for example)
         if (args['preapplyH5_list'][0]) is not None and i == 0:
