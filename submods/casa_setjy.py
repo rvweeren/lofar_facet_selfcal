@@ -45,7 +45,8 @@ def run_setjy(ms, fieldid, modelimage):
     #restore the flags
     flagmanager(vis=ms, mode='restore',
                 versionname=myflaglist[key]['name'])
-    print('restored flags to original state')
+    print('restored flags to original state and remove .flagversions')
+    os.system('rm -rf ' + ms + '.flagversions')
     return
 
 
