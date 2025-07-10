@@ -463,6 +463,8 @@ def option_parser():
     flaggingparser.add_argument('--useaoflagger-afterbandpassapply',
                                 help='Run AOflagger DATA column after preapply bandpass solution. Uses same strategy as provided by --aoflagger-strategy-correcteddata',
                                 action='store_true')
+    flaggingparser.add_argument('--aoflagger-strategy-afterbandpassapply',
+                                help='Use this strategy for AOflagger on applyinng the bandpass solutions (options are: "default_StokesV.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',type=str)
     
     flaggingparser.add_argument('--flagtimesmeared',
                                 help='Flag data that is severely time smeared. Warning: expert only',
