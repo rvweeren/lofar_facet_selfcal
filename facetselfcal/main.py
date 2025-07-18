@@ -12277,7 +12277,7 @@ def early_stopping(station: str = 'international', cycle: int = None):
     else:
         rms_ratio = df['rms'][cycle] / df['rms'][0]
 
-    iltj_id = parse_source_id(mergedh5[cycle])
+    iltj_id = parse_source_id(mergedh5[cycle])+"_"
 
     # Selection criteria (good image and stable solutions, if predict==1.0, no neural network is used)
     if (predict_score < 0.5 and df['phase'][cycle] < 0.1 and rms_ratio < 1.0 and minmax_ratio < 0.85) or \
@@ -12291,8 +12291,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal converged")
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-        logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}_solutions.h5')
-        os.system(f'cp {mergedh5[cycle]} best_{iltj_id}_solutions.h5')
+        logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}solutions.h5')
+        os.system(f'cp {mergedh5[cycle]} best_{iltj_id}solutions.h5')
         os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
         return True
     elif (df['rms'][cycle-1] < df['rms'][cycle] and df['min/max'][cycle-1] < df['min/max'][cycle]
@@ -12305,8 +12305,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal starts to diverge...")
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-        logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}_solutions.h5')
-        os.system(f'cp {mergedh5[cycle]} best_{iltj_id}_solutions.h5')
+        logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}solutions.h5')
+        os.system(f'cp {mergedh5[cycle]} best_{iltj_id}solutions.h5')
         os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
         return True
     else:
@@ -12314,8 +12314,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
         if cycle == args['stop'] - 1:
-            logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}_solutions.h5')
-            os.system(f'cp {mergedh5[cycle]} best_{iltj_id}_solutions.h5')
+            logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}solutions.h5')
+            os.system(f'cp {mergedh5[cycle]} best_{iltj_id}solutions.h5')
             os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
 
     return False
@@ -12933,7 +12933,7 @@ def main():
             break
 
     # Write config file to merged h5parms
-    h5s = glob.glob('best_*_solutions.h5') if args['early_stopping'] else glob.glob("merged_*.h5")
+    h5s = glob.glob('best_*solutions.h5') if args['early_stopping'] else glob.glob("merged_*.h5")
     for h5 in h5s:
         # Write the user-specified configuration file to h5parm and otherwise all input parameters if config file not specified
         add_config_to_h5(h5, args['configpath']) if args['configpath'] is not None else add_config_to_h5(h5, 'full_config.txt')
