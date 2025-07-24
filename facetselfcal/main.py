@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # rotationmeasure updates
+# https://ui.adsabs.harvard.edu/abs/2022ApJ...932..110K/abstract
 #std exception detected: The TEC constraints do not yet support direction-dependent intervals
 #python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy.subtracted
 # run with less disk-space usage, remove all but merged h5, remove columns
@@ -604,7 +605,10 @@ def set_polarised_model_3C286(ms, chunksize=1000):
     #obtain field_id corresponding to J1331+3030 (3C286)
     with table(ms+'/FIELD', ack=False, readonly=True) as t:
         names = np.array(t.getcol('NAME'))
-        source_id = np.array(t.getcol('SOURCE_ID'))[names == 'J1331+3030'][0]
+        try:
+            source_id = np.array(t.getcol('SOURCE_ID'))[names == 'J1331+3030'][0]
+        except:
+            source_id = np.array(t.getcol('SOURCE_ID'))[names == '3C286'][0]
         print('source_id = ', source_id)
 
     #calculate polarisation characteristics
