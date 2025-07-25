@@ -10039,7 +10039,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             cmd += 'ddecal.initialsolutions.h5parm=' + previous_parmdb + ' '
             if soltypein == 'fulljones': 
                 # just for extra safety 
-                cmd += 'ddecal.initialsolutions.gaintype=fulljones ' 
+                # cmd += 'ddecal.initialsolutions.gaintype=fulljones ' 
                 # for all soletypes DP3 should be able to figure it out in principle by itself 
                 cmd += 'initialsolutions.soltab=[amplitude000,phase000] '
             # set ddecal.initialsolutions.soltab
