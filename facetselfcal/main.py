@@ -11081,7 +11081,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
             # Run the WSclean command
             run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat
-                , log_to_file_instead_stdout=args['log_wsclean_to_file'])
+                , log_to_file_instead_stdout=args['log-wsclean-to-file'])
 
         else:
             print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
@@ -11089,7 +11089,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
             # Run the WSclean command
             run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring
-                , log_to_file_instead_stdout=args['log_wsclean_to_file'])
+                , log_to_file_instead_stdout=args['log-wsclean-to-file'])
 
         clean_up_images(imageout)
         
