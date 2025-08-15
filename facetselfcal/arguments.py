@@ -147,9 +147,6 @@ def option_parser():
     imagingparser.add_argument("--update-fitspectralpol",
                                help='Change --fitspectralpol automatically if there is high peak flux.',
                                action='store_true')
-    imagingparser.add_argument("--log-wsclean-to-file",
-                               help='log wsclean runs to a file instead of stdout',
-                               action='store_true')
 
     calibrationparser = parser.add_argument_group(
         "-------------------------Calibration Settings-------------------------")

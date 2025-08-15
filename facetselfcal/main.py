@@ -47,7 +47,6 @@ import os.path
 import re
 import subprocess
 import sys
-from datetime import datetime
 
 from itertools import product
 from itertools import groupby
@@ -2687,11 +2686,8 @@ def check_equidistant_freqs(mslist):
     return
 
 
-def run(command, log=False, log_to_file_instead_stdout=False):
+def run(command, log=False):
     """ Execute a shell command through subprocess
-
-    Optionally log the output to a file instead of stdout. 
-    Useful if you dont want e.g. WSclean clogging up the terminal.
 
     Args:
         command (str): the command to execute.
@@ -2701,21 +2697,8 @@ def run(command, log=False, log_to_file_instead_stdout=False):
     if log:
         print(command)
         logger.info(command)
-
-    if not log_to_file_instead_stdout:
-        process = subprocess.run(command, shell=True,
-                                stderr=subprocess.STDOUT, encoding="utf-8")
-    else:
-        # Build timestamped log filename
-        cmd_type = command.split()[0]
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        logfile = f"{cmd_type}-{timestamp}.log"
-
-        # Open the file for writing
-        with open(logfile, "w", encoding="utf-8") as f:
-            subprocess.run(command, shell=True, stdout=f, stderr=subprocess.STDOUT)
-
-
+    process = subprocess.run(command, shell=True,
+                            stderr=subprocess.STDOUT, encoding="utf-8")
     retval = process.returncode
     #stdout = process.stdout
     stderr = process.stderr
@@ -11077,19 +11060,12 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             msliststring_concat = ' '.join(map(str, mslist_concat))
             print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
             logger.info(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
-
-
-            # Run the WSclean command
-            run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat
-                , log_to_file_instead_stdout=args['log-wsclean-to-file'])
+            run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
 
         else:
             print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
             logger.info(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
-
-            # Run the WSclean command
-            run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring
-                , log_to_file_instead_stdout=args['log-wsclean-to-file'])
+            run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
 
         clean_up_images(imageout)
         
@@ -11686,7 +11662,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
             cmddppp += 'msout.scalarflags=False '
         
         if check_phaseup_station(ms):
-            if msout != '.': cmddppp += 'msout.uvwcompression=False ' # only when writing new MS: 
+            if msout != '.': cmd += 'msout.uvwcompression=False ' # only when writing new MS: 
         if msout == '.':
             cmddppp += 'msout.datacolumn=CORRECTED_DATA '
         if (lin2circ or circ2lin) and beam:
