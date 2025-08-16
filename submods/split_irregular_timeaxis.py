@@ -24,7 +24,7 @@ def regularize_ms(ms_path, overwrite=False, dryrun=False):
             msregularize(ms_path, ms_path + '.regularised')
             print(f"Measurement Set {ms_path} has been regularized.")
             ms_path = ms_path + '.regularised'
-        except:
+        except:  # noqa: E722
             pass
     return ms_path
 
@@ -81,9 +81,14 @@ def split_ms(ms_path, overwrite=False, prefix='', dysco=True, return_mslist=Fals
     with open(f'{output_folder}/all_mses.txt', 'w') as ftxt:
         # Loop over breakpoints and create DP3 config files for each chunk
         for i, (start_time_mjd, end_time_mjd) in enumerate(zip(start_times, end_times)):
-            if start_time_mjd >= end_time_mjd:
-                print(f"Skipping invalid range: start_time={start_time_mjd}, end_time={end_time_mjd}")
-                continue  # Skip invalid ranges where start_time is not less than end_time
+
+            timediff = end_time_mjd-start_time_mjd
+
+            if timediff <=0 or timediff < 2*median_timestep:
+                # Skip invalid ranges where start_time is not less than end_time (or off by floating errors)
+                # or if we'd write an MS with 1 timestep only.
+                print(f"Skipping part {i} because invalid range: start_time={start_time_mjd}, end_time={end_time_mjd}, {timediff=} seconds")
+                continue 
 
             # Convert the MJD times to MVTime string format
             start_time = mjd_to_mvtime(start_time_mjd)
@@ -101,7 +106,7 @@ def split_ms(ms_path, overwrite=False, prefix='', dysco=True, return_mslist=Fals
                 f.write(f"msin.starttime={start_time}\n")
                 f.write(f"msin.endtime={end_time}\n")
                 if dysco:
-                    f.write(f"msout.storagemanager=dysco\n")
+                    f.write("msout.storagemanager=dysco\n")
                 f.write(f"msout={output_folder}/{chunk_name}\n")
                 f.write("steps=[]\n")
                 if not metadata_compression:
@@ -126,7 +131,7 @@ def split_ms(ms_path, overwrite=False, prefix='', dysco=True, return_mslist=Fals
         for ms_file in successful_files:
             ftxt.write(f"{ms_file} ")
 
-    print(f"Measurement Set has been split into {i + 1} time chunks.")
+    print(f"Measurement Set has been split into {i + 1} time chunks of which {len(successful_files)} are good splits.")
     print(f"Output in {output_folder}")
     t.close()
     if return_mslist:
