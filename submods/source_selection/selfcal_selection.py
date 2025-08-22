@@ -534,7 +534,7 @@ def get_images_solutions():
     # Ensure taking linear solutions
     solutions = sorted([h5 for h5 in glob('merged_selfcal*.h5') if 'linearfulljones' in h5])
     if len(solutions)==0:
-        solutions = glob('merged_selfcal*.h5')
+        solutions = sorted(glob('merged_selfcal*.h5'))
 
     return images, solutions
 
