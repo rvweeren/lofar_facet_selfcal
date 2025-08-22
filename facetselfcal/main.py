@@ -12246,7 +12246,7 @@ def early_stopping(station: str = 'international', cycle: int = None):
         except (ImportError, SystemExit):
             logger.info(
                 "WARNING: Issues with downloading/getting Neural Network model.. Skipping and continue without."
-                "\nMost likely due to issues with accessing cortExchange.")
+                "\nMost likely due to issues with accessing cortExchange or no internet access.")
             nn_model = None
 
     # Start only after cycle 3
