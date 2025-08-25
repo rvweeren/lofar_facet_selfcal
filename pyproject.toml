@@ -18,5 +18,5 @@ download_NN = "submods.source_selection.download_neural_network:main"
 get_config = "submods.fair_log.config:main"
 
 [tool.setuptools]
-packages = ["facetselfcal", "submods", "submods.h5_helpers", "submods.source_selection", "submods.fair_log"]
+packages = ["facetselfcal", "submods", "submods.h5_helpers", "submods.source_selection", "submods.fair_log", "facetselfcal.utils"]
 include-package-data = true
