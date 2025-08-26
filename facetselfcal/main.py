@@ -99,7 +99,7 @@ from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
 from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
 from submods.h5_helpers.general_utils import make_utf8
 from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
-from submods.source_selection.phasediff_output import GetSolint, generate_csv
+from submods.source_selection.phasediff_output import GetSolint, generate_csv as generate_phasediff_csv
 from submods.fair_log.config import add_config_to_h5, add_version_to_h5
 from utils.parsers import parse_history, parse_source_id
 
@@ -4140,10 +4140,7 @@ def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
         if modelstoragemanager is None:
             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
         else:
-            try:
-                run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=' + modelstoragemanager + ' steps=[]')
-            except:
-                run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
+             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=' + modelstoragemanager + ' steps=[]')
         run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
         run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
         run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
@@ -9215,12 +9212,12 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 if skymodel is not None and type(skymodel) is list:
                     predictsky(ms, skymodel[ms_id], modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam,
                                sources=skymodelsource, modelstoragemanager=args['modelstoragemanager'])
-                if wscleanskymodel is not None and type(wscleanskymodel) is str and not ['phasediff_only']:
+                if wscleanskymodel is not None and type(wscleanskymodel) is str and not args['phasediff_only']:
                     makeimage([ms], wscleanskymodel, 1., 1.,
                               len(glob.glob(wscleanskymodel + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
                               fulljones_h5_facetbeam=not args['single_dual_speedup'])
-                if wscleanskymodel is not None and type(wscleanskymodel) is list and not ['phasediff_only']:
+                if wscleanskymodel is not None and type(wscleanskymodel) is list and not args['phasediff_only']:
                     makeimage([ms], wscleanskymodel[ms_id], 1., 1.,
                               len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
@@ -9401,7 +9398,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 normslope_withmatrix(parmdbmslist)  # first do the slope
                 normamplitudes_withmatrix(parmdbmslist)
 
-        if not ['phasediff_only']:
+        if args['phasediff_only']:
             return []
 
         # APPLYCAL or PRE-APPLYCAL or CORRUPT
@@ -9431,10 +9428,6 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 count += 1  # Extra counter because parmdbmslist can be shorter than mslist as soltypecycles_list goes per ms
 
     wsclean_h5list = []
-
-    # merge all solutions
-    if args['phasediff_only']:
-        return []
 
     for msnumber, ms in enumerate(mslist):
         if ((skymodel is not None) or (skymodelpointsource is not None) or (
@@ -9624,7 +9617,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
         run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
 
-    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR' or args['compute_phasediffstat']:
+    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
         # PM means point source model adjusted weights
         create_weight_spectrum(ms, 'WEIGHT_SPECTRUM_PM', updateweights_from_thiscolumn='MODEL_DATA',
                                updateweights=False)  # always do to re-initialize WEIGHT_SPECTRUM_PM (because stack.MS is re-created each selfcalcycle, also MODEL_DATA changes
@@ -12661,72 +12654,6 @@ def basicsetup(mslist):
         maskthreshold_selfcalcycle, outtarname, telescope
 
 
-def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
-    """
-    Compute phasediff statistics using circular standard deviations on the solutions of a scalarphasediff solve for
-    international stations.
-
-    The procedure and rational is described in Section 3.3 of de Jong et al. (2024)
-
-    :param mslist: list of measurement sets
-    :param args: input arguments
-    :param nchan: n channels
-    :param solint: solution interval
-    """
-
-    mslist_input = mslist[:]  # make a copy
-
-    # Verify if we are in circular pol basis and do beam correction
-    # for ms in mslist:
-    #     beamcor_and_lin2circ(ms, dysco=args['dysco'],
-    #                          beam=set_beamcor(ms, args['beamcor']),
-    #                          lin2circ=True,
-    #                          losotobeamlib=args['losotobeamcor_beamlib'],
-    #                          metadata_compression=args['metadata_compression'])
-
-    # Phaseup if needed
-    if args['phaseupstations']:
-        mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'], 
-                         dysco=args['dysco'], metadata_compression=args['metadata_compression'])
-
-    # Solve and get best solution interval
-    for ms_id, ms in enumerate(mslist):
-        scorelist = []
-        parmdb = 'scalarphasediffstat' + '_' + os.path.basename(ms) + '.h5'
-        runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,
-                    dysco=args['dysco'], modelstoragemanager=args['modelstoragemanager'])
-
-        # Reference solution interval
-        ref_solint = solint
-
-        print(scorelist)
-
-        # Set optimal std score
-        optimal_score = 1.75
-
-        if type(ref_solint) == str:
-            if 'min' in ref_solint:
-                ref_solint = float(re.findall(r'-?\d+', ref_solint)[0])
-            elif ref_solint[-1] == 's' or ref_solint[-1] == 'sec':
-                ref_solint = float(re.findall(r'-?\d+', ref_solint)[0]) // 60
-            else:
-                sys.exit("ERROR: ref_solint needs to be a float with solution interval in minutes "
-                         "or string ending on min (minutes) or s/sec (seconds)")
-
-        S = GetSolint(parmdb, optimal_score=optimal_score, ref_solint=ref_solint)
-
-        # Write to STAT SCORE to original MS DATA-col header mslist_input
-        with table(mslist_input[ms_id], readonly=False) as t:
-            t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', S.cstd)
-
-        if args['phasediff_only']:
-            generate_csv(glob.glob("scalarphasediffstat*.h5"))
-        else:
-            S.plot_C("T=" + str(round(S.best_solint, 2)) + " min", ms + '_phasediffscore.png')
-
-    return
-
-
 def multiscale_trigger(fitsmask):
     """
     Determines whether to enable multiscale cleaning based on the size of the largest island in a FITS mask.
@@ -13376,15 +13303,6 @@ def main():
                 else:
                     avgfreqstep.append(0)  # put to zero, zero means no average
 
-    # COMPUTE PHASE-DIFF statistic
-    if args['compute_phasediffstat'] or args['phasediff_only']:
-        if longbaseline:
-            compute_phasediffstat(mslist, args)
-            # if args['phasediff_only']:
-            #     return
-        else:
-            logger.info("--compute-phasediffstat requested but no long-baselines in dataset.")
-
     # set once here, preserve original mslist in case --removeinternational was set
     if args['removeinternational'] is not None:
         # used for h5_merge add_ms_stations option
@@ -13597,8 +13515,9 @@ def main():
                                                   mslist_beforeremoveinternational=mslist_beforeremoveinternational,
                                                   soltypelist_includedir=soltypelist_includedir)
 
-        if args['phasediff_only']:
+        if args['compute_phasediffstat']:
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
+            generate_phasediff_csv(glob.glob("scalarphasediffstat*.h5"))
             return
 
         # SET MULTISCALE
