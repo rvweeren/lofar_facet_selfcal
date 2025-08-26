@@ -13378,8 +13378,8 @@ def main():
     if args['compute_phasediffstat'] or args['phasediff_only']:
         if longbaseline:
             compute_phasediffstat(mslist, args)
-            if args['phasediff_only']:
-                return
+            # if args['phasediff_only']:
+            #     return
         else:
             logger.info("--compute-phasediffstat requested but no long-baselines in dataset.")
 

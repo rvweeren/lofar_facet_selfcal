@@ -231,7 +231,7 @@ class GetSolint:
         return self.limit * np.sqrt(1 - np.exp(-(self.C / np.sqrt(t))))
 
 
-def generate_csv(h5s: list = None, ref_solint: int = 10, optimal_score: float = 1.8, make_plot: bool = True):
+def generate_csv(h5s: list = None, ref_solint: int = 10, optimal_score: float = 1.75, make_plot: bool = True):
     """
     Generate CSV file with phasediff score
 
@@ -280,7 +280,7 @@ def parse_args():
     parser = ArgumentParser("Determine phasediff scores")
     parser.add_argument('--h5', nargs='+', help='selfcal phasediff solutions', default=None)
     parser.add_argument('--make_plot', action='store_true', help='make phasediff plot')
-    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.8, type=float)
+    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.75, type=float)
     return parser.parse_args()
 
 
