@@ -9434,7 +9434,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
     wsclean_h5list = []
 
     # merge all solutions
-    if True:
+    if not args['phasediff_only']:
         for msnumber, ms in enumerate(mslist):
             if ((skymodel is not None) or (skymodelpointsource is not None) or (
                     wscleanskymodel is not None) or (args['skymodelsetjy'])):
@@ -12723,9 +12723,10 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
         with table(mslist_input[ms_id], readonly=False) as t:
             t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', S.cstd)
 
-        S.plot_C("T=" + str(round(S.best_solint, 2)) + " min", ms + '_phasediffscore.png')
         if args['phasdiff_only']:
             generate_csv(glob.glob("scalarphasediff*.h5"))
+        else:
+            S.plot_C("T=" + str(round(S.best_solint, 2)) + " min", ms + '_phasediffscore.png')
 
     return
 
@@ -13380,9 +13381,11 @@ def main():
                     avgfreqstep.append(0)  # put to zero, zero means no average
 
     # COMPUTE PHASE-DIFF statistic
-    if args['compute_phasediffstat']:
+    if args['compute_phasediffstat'] or args['phasediff_only']:
         if longbaseline:
             compute_phasediffstat(mslist, args)
+            if args['phasediff_only']:
+                return
         else:
             logger.info("--compute-phasediffstat requested but no long-baselines in dataset.")
 
