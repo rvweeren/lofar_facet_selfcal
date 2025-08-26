@@ -4126,8 +4126,7 @@ def fix_fpb_images(modelimagebasename):
     for image in pblist:
        print('cp ' + image + ' ' + image.replace('-model-pb.fits','-model-fpb.fits'))
        os.system('cp ' + image + ' ' + image.replace('-model-pb.fits','-model-fpb.fits'))
-   
-   
+
 
 def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
     """ Creates the MODEL_DATA_PDIFF column.
@@ -9622,7 +9621,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
         run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
 
-    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
+    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR' or args['compute_phasediffstat']:
         # PM means point source model adjusted weights
         create_weight_spectrum(ms, 'WEIGHT_SPECTRUM_PM', updateweights_from_thiscolumn='MODEL_DATA',
                                updateweights=False)  # always do to re-initialize WEIGHT_SPECTRUM_PM (because stack.MS is re-created each selfcalcycle, also MODEL_DATA changes
