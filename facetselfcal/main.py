@@ -13595,7 +13595,7 @@ def main():
 
         # Generate phasediff stat CSV here if more than 2
         if args['compute_phasediffstat'] and len(args['soltype_list'])>=2:
-            if solint_list[0]=='10min':
+            if args['solint_list'][0]=='10min':
                 generate_phasediff_csv(glob.glob("scalarphasediff*.h5"))
             else:
                 print("WARNING: Cannot generate phasediff CSV because solution interval for scalarphasediff is not 10min")
