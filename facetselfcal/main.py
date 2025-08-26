@@ -9399,7 +9399,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 normamplitudes_withmatrix(parmdbmslist)
 
         if args['phasediff_only']:
-            return []
+            continue
 
         # APPLYCAL or PRE-APPLYCAL or CORRUPT
         count = 0
@@ -9426,6 +9426,9 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                              dysco=args['dysco'], modeldatacolumns=modeldatacolumns)  # Saves disk space
 
                 count += 1  # Extra counter because parmdbmslist can be shorter than mslist as soltypecycles_list goes per ms
+
+    if args['phasediff_only']:
+        return []
 
     wsclean_h5list = []
 
