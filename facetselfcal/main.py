@@ -12690,7 +12690,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
         scorelist = []
         parmdb = 'scalarphasediffstat' + '_' + os.path.basename(ms) + '.h5'
         runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,
-                    dysco=args['dysco'], modelstoragemanager=args['modelstoragemanager'])
+                    dysco=args['dysco'], modelstoragemanager=args['modelstoragemanager'], uvmin=20000)
 
         # Reference solution interval
         ref_solint = solint
