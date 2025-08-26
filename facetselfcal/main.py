@@ -8453,9 +8453,6 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     return parset
 
 
-
-
-
 def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
                                     refant='CS003HBA0', onechannel=False, medamp=2.5, flagphases=True,
                                     onepol=False, outplotname='slowamp', fulljones=False, onetime=False, markersize=2):
@@ -9434,97 +9431,99 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
     wsclean_h5list = []
 
     # merge all solutions
-    if not args['phasediff_only']:
-        for msnumber, ms in enumerate(mslist):
-            if ((skymodel is not None) or (skymodelpointsource is not None) or (
-                    wscleanskymodel is not None) or (args['skymodelsetjy'])):
-                parmdbmergename = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(
-                    ms) + '.h5'
-                parmdbmergename_pc = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(
-                    3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
-            else:
-                parmdbmergename = 'merged_selfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
-                parmdbmergename_pc = 'merged_selfcalcycle' + str(selfcalcycle).zfill(
-                    3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
-            if os.path.isfile(parmdbmergename):
-                os.system('rm -f ' + parmdbmergename)
-            if os.path.isfile(parmdbmergename_pc):
-                os.system('rm -f ' + parmdbmergename_pc)
-            wsclean_h5list.append(parmdbmergename)
+    if args['phasediff_only']:
+        return []
 
-            # add extra from preapplyH5_list
-            if args['preapplyH5_list'][0] is not None:
-                preapplyh5parm = time_match_mstoH5(args['preapplyH5_list'], ms)
-                # replace the source direction coordinates so that the merge goes correctly
-                copy_over_source_direction_h5(parmdbmergelist[msnumber][0], preapplyh5parm)
-                parmdbmergelist[msnumber].append(preapplyh5parm)
+    for msnumber, ms in enumerate(mslist):
+        if ((skymodel is not None) or (skymodelpointsource is not None) or (
+                wscleanskymodel is not None) or (args['skymodelsetjy'])):
+            parmdbmergename = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(
+                ms) + '.h5'
+            parmdbmergename_pc = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(
+                3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
+        else:
+            parmdbmergename = 'merged_selfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+            parmdbmergename_pc = 'merged_selfcalcycle' + str(selfcalcycle).zfill(
+                3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
+        if os.path.isfile(parmdbmergename):
+            os.system('rm -f ' + parmdbmergename)
+        if os.path.isfile(parmdbmergename_pc):
+            os.system('rm -f ' + parmdbmergename_pc)
+        wsclean_h5list.append(parmdbmergename)
 
-            if is_scalar_array_for_wsclean(parmdbmergelist[msnumber]):
+        # add extra from preapplyH5_list
+        if args['preapplyH5_list'][0] is not None:
+            preapplyh5parm = time_match_mstoH5(args['preapplyH5_list'], ms)
+            # replace the source direction coordinates so that the merge goes correctly
+            copy_over_source_direction_h5(parmdbmergelist[msnumber][0], preapplyh5parm)
+            parmdbmergelist[msnumber].append(preapplyh5parm)
+
+        if is_scalar_array_for_wsclean(parmdbmergelist[msnumber]):
+            single_pol_merge = True
+        else:
+            single_pol_merge = False
+
+        # reset h5parm structure
+        if not merge_all_in_one:  # only for a DDE solve
+            parmdbmergelist[msnumber] = fix_h5(parmdbmergelist[msnumber])
+
+        print(parmdbmergename, parmdbmergelist[msnumber], ms)
+        if args['reduce_h5size'] and ('tec' not in args['soltype_list']) and ('tecandphase' not in args['soltype_list']):
+            merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1],
+                     merge_all_in_one=merge_all_in_one,
+                     propagate_weights=True, single_pol=single_pol_merge)
+        else:
+            merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1], ms_files=ms,
+                     convert_tec=True, merge_all_in_one=merge_all_in_one,
+                     propagate_weights=True, single_pol=single_pol_merge)
+        # add CS stations back for superstation
+        if mslist_beforephaseup is not None:
+            print('mslist_beforephaseup: ' + mslist_beforephaseup[msnumber])
+            if is_scalar_array_for_wsclean([parmdbmergename]):
                 single_pol_merge = True
             else:
                 single_pol_merge = False
+            merge_h5(h5_out=parmdbmergename.replace("selfcalcycle",
+                                                    "addCS_selfcalcycle"), h5_tables=parmdbmergename,
+                     ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
+                     merge_all_in_one=merge_all_in_one, single_pol=single_pol_merge,
+                     propagate_weights=True, add_cs=True)
 
-            # reset h5parm structure
-            if not merge_all_in_one:  # only for a DDE solve
-                parmdbmergelist[msnumber] = fix_h5(parmdbmergelist[msnumber])
-
-            print(parmdbmergename, parmdbmergelist[msnumber], ms)
-            if args['reduce_h5size'] and ('tec' not in args['soltype_list']) and ('tecandphase' not in args['soltype_list']): 
-                merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1],
-                         merge_all_in_one=merge_all_in_one,
-                         propagate_weights=True, single_pol=single_pol_merge)    
-            else:
-                merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1], ms_files=ms,
-                         convert_tec=True, merge_all_in_one=merge_all_in_one,
-                         propagate_weights=True, single_pol=single_pol_merge)
+        # make LINEAR solutions from CIRCULAR (never do a single_pol merge here!)
+        if ('scalarphasediff' in args['soltype_list']) or ('scalarphasediffFR' in args['soltype_list']) or args['docircular']:
+            merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True,
+                     propagate_weights=True)
             # add CS stations back for superstation
             if mslist_beforephaseup is not None:
-                print('mslist_beforephaseup: ' + mslist_beforephaseup[msnumber])
-                if is_scalar_array_for_wsclean([parmdbmergename]):
-                    single_pol_merge = True
-                else:
-                    single_pol_merge = False
-                merge_h5(h5_out=parmdbmergename.replace("selfcalcycle",
-                                                        "addCS_selfcalcycle"), h5_tables=parmdbmergename,
+                merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcycle",
+                                                           "addCS_selfcalcycle"),
+                         h5_tables=parmdbmergename_pc,
                          ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
-                         merge_all_in_one=merge_all_in_one, single_pol=single_pol_merge,
+                         merge_all_in_one=merge_all_in_one,
                          propagate_weights=True, add_cs=True)
 
-            # make LINEAR solutions from CIRCULAR (never do a single_pol merge here!)
-            if ('scalarphasediff' in args['soltype_list']) or ('scalarphasediffFR' in args['soltype_list']) or args['docircular']:
-                merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True,
-                         propagate_weights=True)
-                # add CS stations back for superstation
-                if mslist_beforephaseup is not None:
-                    merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcycle",
-                                                               "addCS_selfcalcycle"),
-                             h5_tables=parmdbmergename_pc,
-                             ms_files=mslist_beforephaseup[msnumber], convert_tec=True,
-                             merge_all_in_one=merge_all_in_one,
-                             propagate_weights=True, add_cs=True)
+        if False:
+            # testing only to check if merged H5 file is correct and makes a good image
+            applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
 
-            if False:
-                # testing only to check if merged H5 file is correct and makes a good image
-                applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
+        # plot merged solution file
+        print('single_pol_merge',single_pol_merge)
+        losotoparset = create_losoto_flag_apgridparset(ms, flagging=False,
+                                                       medamp=get_median_amp(parmdbmergename),
+                                                       outplotname=
+                                                       parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0],
+                                                       refant=findrefant_core(parmdbmergename),
+                                                       fulljones=fulljonesparmdb(parmdbmergename),
+                                                       onepol=single_pol_merge)
+        run('losoto ' + parmdbmergename + ' ' + losotoparset)
+        force_close(parmdbmergename)
 
-            # plot merged solution file
-            print('single_pol_merge',single_pol_merge)
-            losotoparset = create_losoto_flag_apgridparset(ms, flagging=False,
-                                                           medamp=get_median_amp(parmdbmergename),
-                                                           outplotname=
-                                                           parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0],
-                                                           refant=findrefant_core(parmdbmergename),
-                                                           fulljones=fulljonesparmdb(parmdbmergename),
-                                                           onepol=single_pol_merge)
-            run('losoto ' + parmdbmergename + ' ' + losotoparset)
-            force_close(parmdbmergename)
-
-            ## --- start STACK code ---
-            if args['stack']:
-                # for each stacked MS (one per common time axis), apply the solutions to each direction MS
-                for orig_ms in mss_timestacks[msnumber]:
-                    applycal(orig_ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
-            ## --- end STACK code ---
+        ## --- start STACK code ---
+        if args['stack']:
+            # for each stacked MS (one per common time axis), apply the solutions to each direction MS
+            for orig_ms in mss_timestacks[msnumber]:
+                applycal(orig_ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
+        ## --- end STACK code ---
 
     if args['QualityBasedWeights'] and selfcalcycle >= args['QualityBasedWeights_start']:
         for ms in mslist:
@@ -9635,9 +9634,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         t = table(ms, ack=False)
         colnames = t.colnames()
         t.close()  # needs a close here because below were are writing columns potentially
-        if 'DATA_CIRCULAR_PHASEDIFF' not in colnames:
+        if 'DATA_CIRCULAR_PHASEDIFF' not in colnames and not args['phasediff_only']:
             create_phasediff_column(ms, incol=incol, dysco=dysco)
-        if 'MODEL_DATA_PDIFF' not in colnames:
+        if 'MODEL_DATA_PDIFF' not in colnames and not args['phasediff_only']:
             create_MODEL_DATA_PDIFF(ms, modelstoragemanager)  # make a point source
         soltype = 'phaseonly'  # do this type of solve, maybe scalarphase is fine? 'scalarphase' #
         incol = 'DATA_CIRCULAR_PHASEDIFF'
@@ -9728,7 +9727,6 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if solve_msinnchan != 'all':
         SMconstraint = 0.0  # set SMconstraint to 0 so that DP3 does not solve for frequency dependence
         nchan = 0  # set nchan to 0 so that DP3 does not solve for frequency dependence
-
 
     if soltype == 'rotation+diagonal':
         cmd += 'ddecal.rotationdiagonalmode=diagonal '
@@ -9894,16 +9892,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             
         cmd += 'ddecal.antenna_averaging_factors=' + '[' + ','.join(antenna_averaging_factors_new) + '] '
 
-
-
-
     if bdaaverager  and pixelscale is not None and imsize is not None:
         cmd += 'bda.frequencybase= ' + 'bda.minchannels=' + format_nchan(nchan, ms) + ' '
         if type(solint) == list:
             cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm / np.max(divisors)) + ' '
         else:
             cmd += 'bda.timebase= ' + 'bda.maxinterval=' + format_solint(solint, ms) + ' '
-
 
     # preapply H5 from previous pertubation for DDE solves with DP3
     if (len(modeldatacolumns) > 1) and (len(preapplyH5_dde) > 0):
@@ -10293,7 +10287,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             logger.info(cmdlosoto)
             run(cmdlosoto)
 
-    if soltype in ['phaseonly', 'scalarphase']:
+    if soltype in ['phaseonly', 'scalarphase'] and not args['phasediff_only']:
         losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                            outplotname=outplotname,
                                                            refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
@@ -11638,7 +11632,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
         print('Wrong input in function, both lin2circ and circ2lin are True')
         raise Exception('Wrong input in function, both lin2circ and circ2lin are True')
 
-    if beam:
+    if beam and not args['phasediff_only']:
         losotolofarbeam(H5name, 'phase000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True,
                         beamlib=losotobeamlib)
         losotolofarbeam(H5name, 'amplitude000', ms, useElementResponse=False, useArrayFactor=True, useChanFreq=True,
@@ -12696,7 +12690,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
     # Solve and get best solution interval
     for ms_id, ms in enumerate(mslist):
         scorelist = []
-        parmdb = 'phasediffstat' + '_' + os.path.basename(ms) + '.h5'
+        parmdb = 'scalarphasediffstat' + '_' + os.path.basename(ms) + '.h5'
         runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,
                     dysco=args['dysco'], modelstoragemanager=args['modelstoragemanager'])
 
@@ -12724,7 +12718,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
             t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', S.cstd)
 
         if args['phasediff_only']:
-            generate_csv(glob.glob("scalarphasediff*.h5"))
+            generate_csv(glob.glob("scalarphasediffstat*.h5"))
         else:
             S.plot_C("T=" + str(round(S.best_solint, 2)) + " min", ms + '_phasediffscore.png')
 
