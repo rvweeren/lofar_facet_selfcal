@@ -13519,7 +13519,10 @@ def main():
                                                   soltypelist_includedir=soltypelist_includedir)
 
         if args['compute_phasediffstat']:
-            generate_phasediff_csv(glob.glob("scalarphasediff*.h5"))
+            if solint_list[0]=='10min':
+                generate_phasediff_csv(glob.glob("scalarphasediff*.h5"))
+            else:
+                print("WARNING: Cannot generate phasediff CSV because solution interval for scalarphasediff is not 10min")
         if args['phasediff_only']:
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return

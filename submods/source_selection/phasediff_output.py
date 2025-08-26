@@ -237,7 +237,7 @@ def generate_csv(h5s: list = None, ref_solint: int = 10, optimal_score: float = 
 
     Args:
         h5s: Input h5parms
-        ref_solint: Reference solution interval
+        ref_solint: Reference solution interval in minutes
         optimal_score: Optimal phasediff score
         make_plot: Make phasediff plot
     """
@@ -281,13 +281,14 @@ def parse_args():
     parser.add_argument('--h5', nargs='+', help='selfcal phasediff solutions', default=None)
     parser.add_argument('--make_plot', action='store_true', help='make phasediff plot')
     parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.75, type=float)
+    parser.add_argument('--ref_solint', help='Reference solution interval in minutes', default=10, type=int)
     return parser.parse_args()
 
 
 def main():
 
     args = parse_args()
-    generate_csv(h5s = args.h5, optimal_score = args.optimal_score)
+    generate_csv(h5s = args.h5, ref_solint=args.ref_solint, optimal_score = args.optimal_score)
 
 
 if __name__ == '__main__':
