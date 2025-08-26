@@ -11654,7 +11654,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
             cmddppp += 'msout.scalarflags=False '
         
         if check_phaseup_station(ms):
-            if msout != '.': cmd += 'msout.uvwcompression=False ' # only when writing new MS: 
+            if msout != '.': cmddppp += 'msout.uvwcompression=False ' # only when writing new MS:
         if msout == '.':
             cmddppp += 'msout.datacolumn=CORRECTED_DATA '
         if (lin2circ or circ2lin) and beam:
@@ -13517,7 +13517,7 @@ def main():
 
         if args['compute_phasediffstat']:
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
-            generate_phasediff_csv(glob.glob("scalarphasediffstat*.h5"))
+            generate_phasediff_csv(glob.glob("scalarphasediff*.h5"))
             return
 
         # SET MULTISCALE
