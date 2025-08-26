@@ -12657,6 +12657,72 @@ def basicsetup(mslist):
         maskthreshold_selfcalcycle, outtarname, telescope
 
 
+def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
+    """
+    Compute phasediff statistics using circular standard deviations on the solutions of a scalarphasediff solve for
+    international stations.
+
+    The procedure and rational is described in Section 3.3 of de Jong et al. (2024)
+
+    :param mslist: list of measurement sets
+    :param args: input arguments
+    :param nchan: n channels
+    :param solint: solution interval
+    """
+
+    mslist_input = mslist[:]  # make a copy
+
+    # Verify if we are in circular pol basis and do beam correction
+    for ms in mslist:
+        beamcor_and_lin2circ(ms, dysco=args['dysco'],
+                             beam=set_beamcor(ms, args['beamcor']),
+                             lin2circ=True,
+                             losotobeamlib=args['losotobeamcor_beamlib'],
+                             metadata_compression=args['metadata_compression'])
+
+    # Phaseup if needed
+    if args['phaseupstations']:
+        mslist = phaseup(mslist, datacolumn='DATA', superstation=args['phaseupstations'],
+                         dysco=args['dysco'], metadata_compression=args['metadata_compression'])
+
+    # Solve and get best solution interval
+    for ms_id, ms in enumerate(mslist):
+        scorelist = []
+        parmdb = 'scalarphasediffstat' + '_' + os.path.basename(ms) + '.h5'
+        runDPPPbase(ms, str(solint) + 'min', nchan, parmdb, 'scalarphasediff', uvminscalarphasediff=0.0,
+                    dysco=args['dysco'], modelstoragemanager=args['modelstoragemanager'])
+
+        # Reference solution interval
+        ref_solint = solint
+
+        print(scorelist)
+
+        # Set optimal std score
+        optimal_score = 1.75
+
+        if type(ref_solint) == str:
+            if 'min' in ref_solint:
+                ref_solint = float(re.findall(r'-?\d+', ref_solint)[0])
+            elif ref_solint[-1] == 's' or ref_solint[-1] == 'sec':
+                ref_solint = float(re.findall(r'-?\d+', ref_solint)[0]) // 60
+            else:
+                sys.exit("ERROR: ref_solint needs to be a float with solution interval in minutes "
+                         "or string ending on min (minutes) or s/sec (seconds)")
+
+        S = GetSolint(parmdb, optimal_score=optimal_score, ref_solint=ref_solint)
+
+        # Write to STAT SCORE to original MS DATA-col header mslist_input
+        with table(mslist_input[ms_id], readonly=False) as t:
+            t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', S.cstd)
+
+        if args['phasediff_only']:
+            generate_phasediff_csv(glob.glob("scalarphasediffstat*.h5"))
+        else:
+            S.plot_C("T=" + str(round(S.best_solint, 2)) + " min", ms + '_phasediffscore.png')
+
+    return
+
+
 def multiscale_trigger(fitsmask):
     """
     Determines whether to enable multiscale cleaning based on the size of the largest island in a FITS mask.
@@ -13306,6 +13372,15 @@ def main():
                 else:
                     avgfreqstep.append(0)  # put to zero, zero means no average
 
+    # COMPUTE PHASE-DIFF statistic
+    if args['compute_phasediffstat']:
+        if longbaseline and len(args['soltype_list'])<2: # of more than one soltype list, phasediff stat is generated later on in the script
+            compute_phasediffstat(mslist, args)
+            if args['phasediff_only']:
+                return
+        else:
+            logger.info("--compute-phasediffstat requested but no long-baselines in dataset.")
+
     # set once here, preserve original mslist in case --removeinternational was set
     if args['removeinternational'] is not None:
         # used for h5_merge add_ms_stations option
@@ -13518,7 +13593,8 @@ def main():
                                                   mslist_beforeremoveinternational=mslist_beforeremoveinternational,
                                                   soltypelist_includedir=soltypelist_includedir)
 
-        if args['compute_phasediffstat']:
+        # Generate phasediff stat CSV here if more than 2
+        if args['compute_phasediffstat'] and len(args['soltype_list'])>=2:
             if solint_list[0]=='10min':
                 generate_phasediff_csv(glob.glob("scalarphasediff*.h5"))
             else:
