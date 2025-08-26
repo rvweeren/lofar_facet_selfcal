@@ -12681,12 +12681,12 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
     mslist_input = mslist[:]  # make a copy
 
     # Verify if we are in circular pol basis and do beam correction
-    for ms in mslist:
-        beamcor_and_lin2circ(ms, dysco=args['dysco'],
-                             beam=set_beamcor(ms, args['beamcor']),
-                             lin2circ=True,
-                             losotobeamlib=args['losotobeamcor_beamlib'],
-                             metadata_compression=args['metadata_compression'])
+    # for ms in mslist:
+    #     beamcor_and_lin2circ(ms, dysco=args['dysco'],
+    #                          beam=set_beamcor(ms, args['beamcor']),
+    #                          lin2circ=True,
+    #                          losotobeamlib=args['losotobeamcor_beamlib'],
+    #                          metadata_compression=args['metadata_compression'])
 
     # Phaseup if needed
     if args['phaseupstations']:
