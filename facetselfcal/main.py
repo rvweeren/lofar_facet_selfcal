@@ -10083,7 +10083,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         print('Removing temporary MS:', ms_tmp)
         os.system('rm -rf ' + ms_tmp)
 
-    if selfcalcycle == 0 and (soltypein == "scalarphasediffFR" or soltypein == "scalarphasediff"):
+    if selfcalcycle == 0 and (soltypein == "scalarphasediffFR" or soltypein == "scalarphasediff") and not args['phasediff_only']:
         os.system("cp -r " + parmdb + " " + parmdb + ".scbackup")
 
     if (len(modeldatacolumns_solve) > 0) and (len(modeldatacolumns) != len(modeldatacolumns_solve)):
