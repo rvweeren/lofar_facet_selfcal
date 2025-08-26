@@ -13516,8 +13516,9 @@ def main():
                                                   soltypelist_includedir=soltypelist_includedir)
 
         if args['compute_phasediffstat']:
-            if not args['keepmodelcolumns']: remove_model_columns(mslist)
             generate_phasediff_csv(glob.glob("scalarphasediff*.h5"))
+        if args['phasediff_only']:
+            if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
 
         # SET MULTISCALE
