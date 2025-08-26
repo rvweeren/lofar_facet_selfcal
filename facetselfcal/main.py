@@ -9634,9 +9634,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         t = table(ms, ack=False)
         colnames = t.colnames()
         t.close()  # needs a close here because below were are writing columns potentially
-        if 'DATA_CIRCULAR_PHASEDIFF' not in colnames and not args['phasediff_only']:
+        if 'DATA_CIRCULAR_PHASEDIFF' not in colnames:
             create_phasediff_column(ms, incol=incol, dysco=dysco)
-        if 'MODEL_DATA_PDIFF' not in colnames and not args['phasediff_only']:
+        if 'MODEL_DATA_PDIFF' not in colnames:
             create_MODEL_DATA_PDIFF(ms, modelstoragemanager)  # make a point source
         soltype = 'phaseonly'  # do this type of solve, maybe scalarphase is fine? 'scalarphase' #
         incol = 'DATA_CIRCULAR_PHASEDIFF'
