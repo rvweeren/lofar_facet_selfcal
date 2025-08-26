@@ -12723,7 +12723,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
         with table(mslist_input[ms_id], readonly=False) as t:
             t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', S.cstd)
 
-        if args['phasdiff_only']:
+        if args['phasediff_only']:
             generate_csv(glob.glob("scalarphasediff*.h5"))
         else:
             S.plot_C("T=" + str(round(S.best_solint, 2)) + " min", ms + '_phasediffscore.png')
