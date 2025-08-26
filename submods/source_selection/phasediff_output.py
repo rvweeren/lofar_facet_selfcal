@@ -231,31 +231,18 @@ class GetSolint:
         return self.limit * np.sqrt(1 - np.exp(-(self.C / np.sqrt(t))))
 
 
-def parse_args():
+def generate_csv(h5s: list = None, ref_solint: int = 10, optimal_score: float = None, make_plot: bool = True):
     """
-    Command line argument parser
+    Generate CSV file with phasediff score
 
-    :return: parsed arguments
+    Args:
+        h5s: Input h5parms
+        ref_solint: Reference solution interval
+        optimal_score: Optimal phasediff score
+        make_plot: Make phasediff plot
     """
 
-    parser = ArgumentParser("Determine phasediff scores")
-    parser.add_argument('--h5', nargs='+', help='selfcal phasediff solutions', default=None)
-    parser.add_argument('--make_plot', action='store_true', help='make phasediff plot')
-    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.8, type=float)
-    return parser.parse_args()
-
-
-def main():
-
-    args = parse_args()
-
-    # set std score, for which you want to find the solint
-    optimal_score = args.optimal_score
-
-    # reference solution interval
-    ref_solint = 10
-
-    h5s = args.h5
+    h5s = h5s
     if len(h5s)==1 and ' ' in h5s[0]:
         h5s = h5s[0].split(" ")
     elif h5s is None:
@@ -273,13 +260,34 @@ def main():
             dir = rad_to_degree(H.root.sol000.source[:]['dir'])
 
             writer.writerow([parse_source_from_h5(h5), std_int, std_all, solint, dir[0], dir[1]])
-            if args.make_plot:
+            if make_plot:
                 S.plot_C(saveas='phasediff.png')
             H.close()
 
     # sort output
     df = pd.read_csv('phasediff_output.csv').sort_values(by='spd_score')
     df.to_csv('phasediff_output.csv', index=False)
+
+
+
+def parse_args():
+    """
+    Command line argument parser
+
+    :return: parsed arguments
+    """
+
+    parser = ArgumentParser("Determine phasediff scores")
+    parser.add_argument('--h5', nargs='+', help='selfcal phasediff solutions', default=None)
+    parser.add_argument('--make_plot', action='store_true', help='make phasediff plot')
+    parser.add_argument('--optimal_score', help='optimal score between 0 and pi', default=1.8, type=float)
+    return parser.parse_args()
+
+
+def main():
+
+    args = parse_args()
+    generate_csv(h5s = args.h5, optimal_score = args.optimal_score)
 
 
 if __name__ == '__main__':

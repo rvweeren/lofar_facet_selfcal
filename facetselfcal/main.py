@@ -99,7 +99,7 @@ from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
 from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
 from submods.h5_helpers.general_utils import make_utf8
 from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
-from submods.source_selection.phasediff_output import GetSolint
+from submods.source_selection.phasediff_output import GetSolint, generate_csv
 from submods.fair_log.config import add_config_to_h5, add_version_to_h5
 from utils.parsers import parse_history, parse_source_id
 
@@ -9216,12 +9216,12 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 if skymodel is not None and type(skymodel) is list:
                     predictsky(ms, skymodel[ms_id], modeldata='MODEL_DATA', predictskywithbeam=predictskywithbeam,
                                sources=skymodelsource, modelstoragemanager=args['modelstoragemanager'])
-                if wscleanskymodel is not None and type(wscleanskymodel) is str:
+                if wscleanskymodel is not None and type(wscleanskymodel) is str and not ['phasediff_only']:
                     makeimage([ms], wscleanskymodel, 1., 1.,
                               len(glob.glob(wscleanskymodel + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
                               fulljones_h5_facetbeam=not args['single_dual_speedup'])
-                if wscleanskymodel is not None and type(wscleanskymodel) is list:
+                if wscleanskymodel is not None and type(wscleanskymodel) is list and not ['phasediff_only']:
                     makeimage([ms], wscleanskymodel[ms_id], 1., 1.,
                               len(glob.glob(wscleanskymodel[ms_id] + '-????-model.fits')),
                               0, 0.0, onlypredict=True, idg=False,
@@ -9401,6 +9401,9 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 print('Performing global slope normalization')
                 normslope_withmatrix(parmdbmslist)  # first do the slope
                 normamplitudes_withmatrix(parmdbmslist)
+
+        if not ['phasediff_only']:
+            return []
 
         # APPLYCAL or PRE-APPLYCAL or CORRUPT
         count = 0
@@ -12721,6 +12724,8 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
             t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', S.cstd)
 
         S.plot_C("T=" + str(round(S.best_solint, 2)) + " min", ms + '_phasediffscore.png')
+        if args['phasdiff_only']:
+            generate_csv(glob.glob("scalarphasediff*.h5"))
 
     return
 
@@ -13318,7 +13323,8 @@ def main():
     #    runaoflagger(mslist, strategy=args['aoflagger_strategy'])
 
     # create Ateam plots
-    create_Ateam_seperation_plots(mslist, start=args['start'])
+    if not args['phasediff_only']:
+        create_Ateam_seperation_plots(mslist, start=args['start'])
 
     # fix UVW coordinates (for time averaging with MeerKAT data)
     if args['start'] == 0: fix_uvw(mslist)
