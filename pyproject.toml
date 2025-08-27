@@ -16,6 +16,7 @@ ds9facetgenerator = "submods.ds9facetgenerator:main"
 image_score = "submods.source_selection.image_score:main"
 download_NN = "submods.source_selection.download_neural_network:main"
 get_config = "submods.fair_log.config:main"
+phasediff_output = "submods.source_selection.phasediff_output:main"
 
 [tool.setuptools]
 packages = ["facetselfcal", "submods", "submods.h5_helpers", "submods.source_selection", "submods.fair_log", "facetselfcal.utils"]
