@@ -23,29 +23,36 @@ def get_nn_model(model: str = 'surf/dino_big_lora_tune_posclsreg_may_O2_aug_099'
     Args:
         model: Model name
         device: Device name (CPU or GPU)
+        cache: CortExchange model cache
+        architecture: Architecture name
 
     Returns:
         Model
     """
 
-    os.environ['TORCH_HOME'] = cache
+    os.environ['TORCH_HOME'] = os.path.realpath(cache)
+    os.environ['TORCH_HUB_OFFLINE'] = '1'
     TransferLearning: type(Architecture) = get_architecture(architecture)
 
     return TransferLearning(device=device, model_name=model)
 
 
-def predict_nn(image: str = None, model=None):
+def predict_nn(image: str = None, model=None, cache: str = ".cache/cortexchange"):
     """
     Predict image score
     Args:
         image: Fits image
+        model: NN model
+        cache: CortExchange model cache
 
     Returns:
         Prediction score
     """
 
     if model is None:
-        model = get_nn_model()
+        model = get_nn_model(cache=cache)
+    else:
+        os.environ['TORCH_HOME'] = os.path.realpath(cache)
 
     torch_tensor=model.prepare_data(image)
 
@@ -73,7 +80,7 @@ def main():
     model = get_nn_model(model=args.model, cache=args.cache, device=args.device)
     for im in args.images:
         print(im)
-        print(predict_nn(im, model))
+        print(predict_nn(im, model, args.cache))
 
 
 if __name__ == '__main__':
