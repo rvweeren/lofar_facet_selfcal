@@ -31,7 +31,6 @@ def get_nn_model(model: str = 'surf/dino_big_lora_tune_posclsreg_may_O2_aug_099'
     """
 
     os.environ['TORCH_HOME'] = os.path.realpath(cache)
-    os.environ['TORCH_HUB_OFFLINE'] = '1'
     TransferLearning: type(Architecture) = get_architecture(architecture)
 
     return TransferLearning(device=device, model_name=model)
