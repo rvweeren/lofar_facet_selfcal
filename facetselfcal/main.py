@@ -13354,7 +13354,7 @@ def main():
         else:
             print('Cannot use stokes_i model compression')
             args['modelstoragemanager'] = None
-    elif args['modelstoragemaneger'] != 'sisco':
+    elif args['modelstoragemanager'] != 'sisco':
         args['modelstoragemanager'] = None  # we are here because wsclean does not support -model-storage-manager   
 
     print(args['modelstoragemanager'])
