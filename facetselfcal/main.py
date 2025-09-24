@@ -5113,10 +5113,10 @@ def inputchecker(args, mslist):
             print('--BLsmooth-list length does not match the length of --soltype-list')
             raise Exception('--BLsmooth-list length does not match the length of --soltype-list')
 
-    if args['modelstoragemanager'] != 'stokes_i' and args['modelstoragemanager'] is not None:
+    if args['modelstoragemanager'] not in ['stokes_i', 'sisco'] and args['modelstoragemanager'] is not None:
          print(args['modelstoragemanager'])
-         print('Wrong input for --modelstoragemanager, needs to be "stokes_i" or None')
-         raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i or None')
+         print('Wrong input for --modelstoragemanager, needs to be "stokes_i", "sisco", or None')
+         raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i, sisco, or None')
 
     if args['bandpass']:
         if args['stack'] or args['DDE'] or args['stopafterskysolve'] or args['stopafterpreapply']:
@@ -13354,7 +13354,7 @@ def main():
         else:
             print('Cannot use stokes_i model compression')
             args['modelstoragemanager'] = None
-    else:
+    elif args['modelstoragemaneger'] != 'sisco':
         args['modelstoragemanager'] = None  # we are here because wsclean does not support -model-storage-manager   
 
     print(args['modelstoragemanager'])
