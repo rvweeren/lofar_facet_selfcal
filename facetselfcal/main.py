@@ -12620,10 +12620,6 @@ def basicsetup(mslist):
     automaskthreshold_selfcalcycle = makemaskthresholdlist(args['automask_threshold'], args['stop'])
 
 
-   #automask = 2.5
-    #if args['maskthreshold'][-1] < automask:
-    #    automask = args['maskthreshold'][-1]  # in case we use a low value for maskthreshold, like Herc A
-
     # ensure automaskthreshold_selfcalcycle is always smaller than maskthreshold_selfcalcycle
     for selfcalcycle_id, mval in enumerate(maskthreshold_selfcalcycle):
         if automaskthreshold_selfcalcycle[selfcalcycle_id] > mval:
@@ -12661,7 +12657,7 @@ def basicsetup(mslist):
         if args['imsize'] < 6000:
             args['parallelgridding'] = 6
 
-    return longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, \
+    return longbaseline, LBA, HBAorLBA, freq, fitsmask, \
         maskthreshold_selfcalcycle, automaskthreshold_selfcalcycle, outtarname, telescope
 
 
@@ -13352,7 +13348,7 @@ def main():
             run("taql " + cmd)
 
     # SETUP VARIOUS PARAMETERS
-    longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, maskthreshold_selfcalcycle, \
+    longbaseline, LBA, HBAorLBA, freq, fitsmask, maskthreshold_selfcalcycle, \
         automaskthreshold_selfcalcycle, outtarname, telescope = basicsetup(mslist)
 
     # set model storagemanager
