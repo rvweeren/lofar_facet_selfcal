@@ -12601,10 +12601,7 @@ def basicsetup(mslist):
         args['doflagging'] = False
         args['clipsolutions'] = False
 
-    automask = 2.5
-    if args['maskthreshold'][-1] < automask:
-        automask = args['maskthreshold'][-1]  # in case we use a low value for maskthreshold, like Herc A
-
+ 
     args['imagename'] = args['imagename'] + '_'
     if args['fitsmask'] is not None:
         fitsmask = args['fitsmask']
@@ -12620,6 +12617,17 @@ def basicsetup(mslist):
         outtarname = 'calibrateddata' + '.tar.gz'
 
     maskthreshold_selfcalcycle = makemaskthresholdlist(args['maskthreshold'], args['stop'])
+    automaskthreshold_selfcalcycle = makemaskthresholdlist(args['automask_threshold'], args['stop'])
+
+
+   #automask = 2.5
+    #if args['maskthreshold'][-1] < automask:
+    #    automask = args['maskthreshold'][-1]  # in case we use a low value for maskthreshold, like Herc A
+
+    # ensure automaskthreshold_selfcalcycle is always smaller than maskthreshold_selfcalcycle
+    for selfcalcycle_id, mval in enumerate(maskthreshold_selfcalcycle):
+        if automaskthreshold_selfcalcycle[selfcalcycle_id] > mval:
+            automaskthreshold_selfcalcycle[selfcalcycle_id] = maskthreshold_selfcalcycle[selfcalcycle_id]
 
     # set telescope
     t = table(mslist[0] + '/OBSERVATION', ack=False)
@@ -12654,7 +12662,7 @@ def basicsetup(mslist):
             args['parallelgridding'] = 6
 
     return longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, \
-        maskthreshold_selfcalcycle, outtarname, telescope
+        maskthreshold_selfcalcycle, automaskthreshold_selfcalcycle, outtarname, telescope
 
 
 def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
@@ -13345,7 +13353,7 @@ def main():
 
     # SETUP VARIOUS PARAMETERS
     longbaseline, LBA, HBAorLBA, freq, automask, fitsmask, maskthreshold_selfcalcycle, \
-        outtarname, telescope = basicsetup(mslist)
+        automaskthreshold_selfcalcycle, outtarname, telescope = basicsetup(mslist)
 
     # set model storagemanager
     if args['modelstoragemanager'] == 'stokes_i' and '-model-storage-manager' in subprocess.check_output(['wsclean'], text=True):
@@ -13646,7 +13654,7 @@ def main():
                       multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id],
                       uvminim=args['uvminim'], predict=not args['stopafterskysolve'],
                       fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'],
-                      restoringbeam=restoringbeam, automask=automask,
+                      restoringbeam=restoringbeam, automask=automaskthreshold_selfcalcycle[i],
                       removenegativecc=args['removenegativefrommodel'],
                       paralleldeconvolution=args['paralleldeconvolution'],
                       parallelgridding=args['parallelgridding'],
@@ -13679,7 +13687,7 @@ def main():
                           args['channelsout'], args['niter'], briggslowres, uvtaper='1.2arcsec',
                           multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id],
                           uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=args['fitspectralpol'],
-                          automask=automask, removenegativecc=False,
+                          automask=automaskthreshold_selfcalcycle[i], removenegativecc=False,
                           predict=False,
                           paralleldeconvolution=args['paralleldeconvolution'],
                           parallelgridding=args['parallelgridding'],
@@ -13693,7 +13701,7 @@ def main():
                           args['channelsout'], args['niter'], args['robust'],
                           multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id],
                           uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=0,
-                          automask=automask, removenegativecc=False, predict=False,
+                          automask=automaskthreshold_selfcalcycle[i], removenegativecc=False, predict=False,
                           paralleldeconvolution=args['paralleldeconvolution'],
                           parallelgridding=args['parallelgridding'],
                           fullpol=True,
@@ -13843,7 +13851,7 @@ def main():
                   multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask,
                   uvminim=args['uvminim'], predict=False,
                   fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'],
-                  restoringbeam=restoringbeam, automask=automask,
+                  restoringbeam=restoringbeam, automask=automaskthreshold_selfcalcycle[i],
                   removenegativecc=args['removenegativefrommodel'],
                   paralleldeconvolution=args['paralleldeconvolution'],
                   parallelgridding=args['parallelgridding'],
