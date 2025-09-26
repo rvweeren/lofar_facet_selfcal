@@ -10688,6 +10688,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     
     if args['modelstoragemanager'] == 'stokes_i':
         modelstoragemanagerwsclean = 'stokes-i' # because WSclean uses a different name than DP3
+    elif args['modelstoragemanager'] == 'sisco':
+        modelstoragemanagerwsclean = 'sisco'
                 
     fitspectrallogpol = False  # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
