@@ -28,6 +28,10 @@ def option_parser():
                                help="Mask noise thresholds used from image 1 to N made by MakeMask.py/breizorro. This is by default [5.0,4.5,4.5,4.5,4.0].",
                                default=[5.0, 4.5, 4.5, 4.5, 4.0],
                                type=arg_as_list)
+    imagingparser.add_argument('--automask-threshold',
+                               help="WSClean automask thresholds for each selfcal cycle. This is by default [2.5, 2.5, 2.5, 2.5, 2.5, ...]. If maskthreshold is lower than this value for a selfcal cycle, the maskthreshold value is used instead. A value of <0.5 turns off automasking.",
+                               default=[2.5, 2.5, 2.5, 2.5, 2.5],
+                               type=arg_as_list)
     imagingparser.add_argument('--mask-extended',
                                help='Add an extra masking step for very extended emission. For LOFAR-NL and MeerKAT only. Image size needs to be at least 1600x1600 pixels',
                                action='store_true')
