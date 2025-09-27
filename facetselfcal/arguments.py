@@ -447,6 +447,9 @@ def option_parser():
                                 help='If solution flagging is done also flag outliers phases in the slow phase solutions. The default is True.',
                                 type=ast.literal_eval,
                                 default=True)
+    flaggingparser.add_argument('--flag-antenna-list',
+                                help='List of antenna names to flag',
+                                type=ast.literal_eval)
     flaggingparser.add_argument('--useaoflagger',
                                 help='Run AOflagger on input data.',
                                 action='store_true')
