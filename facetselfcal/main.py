@@ -10688,8 +10688,6 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     
     if args['modelstoragemanager'] == 'stokes_i':
         modelstoragemanagerwsclean = 'stokes-i' # because WSclean uses a different name than DP3
-    elif args['modelstoragemanager'] == 'sisco':
-        modelstoragemanagerwsclean = 'sisco'
                 
     fitspectrallogpol = False  # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
@@ -13279,6 +13277,12 @@ def main():
         merge_splitted_h5_ordered(modeldatacolumnsin, 'test.h5', clean_up=False)
         sys.exit()
 
+
+    # flag bad antennas as requested
+    if args['flag_antenna_list'] is not None:
+        for ms in mslist:
+            for antenna_name in args['flag_antenna_list']:
+                flag_antenna_taql(ms, antenna_name)
     # fix irregular time axes or avoid bloated MS, do this first before any other step
     # in case of multiple scans on the calibrator this avoids DP3 adding of lot flagged data in between
     if args['bandpass']:
