@@ -202,7 +202,9 @@ class MS(object):
                 new_chunk = np.zeros((data_chunk.shape[0], data_chunk.shape[1], 4), dtype=data_chunk.dtype)
                 new_chunk[:, :, 0] = data_chunk[:, :, 0]  # XX weights
                 new_chunk[:, :, 3] = data_chunk[:, :, 1]  # YY weights
-                # XY and YX weights remain zero
+                # set XY and YX weights (if zero DP3 will flag all visibilities when averaging)
+                new_chunk[:, :, 1] = data_chunk[:, :, 0]  # XY weights
+                new_chunk[:, :, 2] = data_chunk[:, :, 1]  # YX weights
             
             return new_chunk
         
