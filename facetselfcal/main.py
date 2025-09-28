@@ -117,6 +117,20 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def fix_GMRT_weights(mslist):
+
+    t = table(mslist[0] + '/OBSERVATION', ack=False)
+    telescope = t.getcol('TELESCOPE_NAME')[0]
+    t.close()
+    if telescope != 'GMRT':
+        return
+    
+    for ms in mslist:
+        print('Fixing RL and LR weights in MS', ms)
+        run("taql" + " 'update " + ms + " set WEIGHT_SPECTRUM[,1]=WEIGHT_SPECTRUM[,0]'") # set RL weights to RR weights
+        run("taql" + " 'update " + ms + " set WEIGHT_SPECTRUM[,2]=WEIGHT_SPECTRUM[,3]'") # set LR weights to LL weights
+    return
+
 def fix_time_axis_gmrt(mslist):
     """
     Fixes the TIME and INTERVAL columns in Measurement Sets (MS) from the GMRT telescope.
@@ -4483,24 +4497,37 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             dysco=True, cmakephasediffstat=False, dataincolumn='DATA',
             removeinternational=False, removemostlyflaggedstations=False, 
             useaoflagger=False, useaoflaggerbeforeavg=True, aoflagger_strategy=None,
-            metadata_compression=True):
-    """ Average and/or phase-shift a list of Measurement Sets.
-
-    Args:
-        mslist (list): list of Measurement Sets to iterate over.
-        freqstep (int): the number of frequency slots to average.
-        timestep (int): the number of time slots to average.
-        start (int): selfcal cycle that is being started from.
-        msinnchan (int): number of channels to take from the input Measurement Set.
-        msinstartchan (int): start chanel for msinnchan
-        phaseshiftbox (str): path to a DS9 region file to phaseshift or "align" 
-                            "align" means phaseshift to pointing center of the first MS 
-        msinntimes (int): number of timeslots to take from the input Measurement Set.
-        makecopy (bool): appends '.copy' when making a copy of a Measurement Set.
-        dysco (bool): Dysco compress the output Measurement Set.
-    Returns:
-        outmslist (list): list of output Measurement Sets.
+            metadata_compression=True, flag_antennas=None):
     """
+    Averages Measurement Sets (MS) in frequency and/or time using DP3, with options for filtering, flagging, and phase shifting.
+    Parameters:
+        mslist (list of str): List of input Measurement Set filenames.
+        freqstep (list): List of frequency averaging steps or resolutions for each MS. Can be integer (number of channels) or string with units (e.g., '195.3125kHz').
+        timestep (int or str, optional): Time averaging step. Integer (number of time slots) or string with units (e.g., '10s'). Default is None (no time averaging).
+        start (int, optional): Start index for self-calibration cycle. Default is 0.
+        msinnchan (int, optional): Number of input channels to use from each MS. Default is None (use all).
+        msinstartchan (int or float, optional): Starting channel index for input MS. Default is 0.
+        phaseshiftbox (str or None, optional): Region or reference for phase shifting. If 'align', aligns to the first MS's phase center. Default is None.
+        msinntimes (int, optional): Number of input time slots to use from each MS. Default is None (use all).
+        makecopy (bool, optional): If True, output MS will have '.copy' suffix. Default is False.
+        makesubtract (bool, optional): If True, output MS will have '.subtracted' suffix. Default is False.
+        delaycal (bool, optional): If True, perform delay calibration. Default is False.
+        freqresolution (str, optional): Frequency resolution for averaging (e.g., '195.3125kHz'). Default is '195.3125kHz'.
+        dysco (bool, optional): If True, use Dysco storage manager for output MS. Default is True.
+        cmakephasediffstat (bool, optional): If True, output MS will have '.avgphasediffstat' suffix. Default is False.
+        dataincolumn (str, optional): Name of the data column to use in input MS. Default is 'DATA'.
+        removeinternational (bool, optional): If True, remove international stations from MS. Default is False.
+        removemostlyflaggedstations (bool, optional): If True, remove stations with high flagging percentage. Default is False.
+        useaoflagger (bool, optional): If True, apply AOFlagger for RFI flagging. Default is False.
+        useaoflaggerbeforeavg (bool, optional): If True, run AOFlagger before averaging. Default is True.
+        aoflagger_strategy (str or None, optional): AOFlagger strategy file or name. Default is None.
+        metadata_compression (bool, optional): If True, enable metadata compression in output MS. Default is True.
+        flag_antennas (list or None, optional): List of antennas to flag/remove. Default is None.
+    Returns:
+        list of str: List of output Measurement Set filenames (averaged or original, depending on options).
+    Raises:
+        Exception: If input parameters are inconsistent or unsupported units are provided.
+    """    
     # sanity check
     if len(mslist) != len(freqstep):
         print('Hmm, made a mistake with freqstep?')
@@ -4559,14 +4586,17 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                     cmd += " f.type=filter f.baseline='[CR]S*&' f.remove=True "
                 else:
                     cmd += ' steps=[av] '
-            if removemostlyflaggedstations:
+            if removemostlyflaggedstations or flag_antennas is not None:
                 flagstationlist = return_antennas_highflaggingpercentage(ms, percentage=args['removemostlyflaggedstations_percentage'])
+                flagstationlist = flagstationlist + flag_antennas if flag_antennas is not None else flagstationlist
+                # remove duplicates
+                flagstationlist = list(set(flagstationlist))
                 if len(flagstationlist) > 0:
                     baselinestr = filter_baseline_str_removestations(flagstationlist)
                     cmd += 'fs.type=filter fs.baseline=' + baselinestr + ' fs.remove=True '
                     cmd = cmd.replace('steps=[', 'steps=[fs,')
-
-                    # freqavg
+      
+            # freqavg
             if freqstep[ms_id] is not None:
                 if str(freqstep[ms_id]).isdigit():
                     cmd += 'av.freqstep=' + str(freqstep[ms_id]) + ' '
@@ -4578,7 +4608,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                         raise Exception('For frequency averaging only units of " (k/M)Hz" are allowed')
                     cmd += 'av.freqresolution=' + str(freqstep[ms_id]) + ' '
 
-                    # timeavg
+            # timeavg
             if timestep is not None:
                 if str(timestep).isdigit():
                     cmd += 'av.timestep=' + str(int(timestep)) + ' '
@@ -8631,7 +8661,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     return parset
 
 
-def create_losoto_bandpassparset(intype):
+def create_losoto_bandpassparset(intype, ms, h5):
     '''
     Create losoto parset than takes median along the time axis
     Can be used to create a bandpass
@@ -8647,6 +8677,10 @@ def create_losoto_bandpassparset(intype):
     f.write('Ncpu = 0\n\n\n')
 
     if intype == 'amplitude' or intype == 'a&p':
+        
+        # compute median amplitude for the h5
+        medamp = get_median_amp(h5)
+
         f.write('[bandpassamp]\n')
         f.write('operation = SMOOTH\n')
         f.write('soltab = [sol000/amplitude000]\n')
@@ -8654,6 +8688,14 @@ def create_losoto_bandpassparset(intype):
         f.write('mode = median\n')
         f.write('replace = False\n')
         f.write('log = True\n')
+
+        f.write('\n[plotamp]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = [sol000/amplitude000]\n')
+        f.write('axesInPlot = [time,freq]\n')
+        f.write('axisInTable = ant\n')
+        f.write('minmax = [0,%s]\n' % str(medamp*2.5))
+        f.write('prefix = plotlosoto%s/bandpass_amps\n\n\n' % os.path.basename(ms))
 
     if intype == 'phase' or intype == 'a&p':
         f.write('[bandpassphase]\n')
@@ -8663,6 +8705,14 @@ def create_losoto_bandpassparset(intype):
         f.write('mode = median\n')
         f.write('replace = False\n')
         f.write('log = False\n')
+
+        f.write('\n[plotphase]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = [sol000/phase000]\n')
+        f.write('axesInPlot = [time,freq]\n')
+        f.write('axisInTable = ant\n')
+        f.write('minmax = [-3.14,3.14]\n')
+        f.write('prefix = plotlosoto%s/bandpass_phases\n\n\n' % os.path.basename(ms))
 
     f.close()
     return parset    
@@ -12482,7 +12532,7 @@ def basicsetup(mslist):
             else:
                 args['uvminim'] = 10.  # MeerKAt for example
 
-    if args['pixelscale'] is None and telescope != 'MeerKAT':
+    if args['pixelscale'] is None and telescope == 'LOFAR':
         if LBA:
             if longbaseline:
                 args['pixelscale'] = 0.08
@@ -12507,6 +12557,18 @@ def basicsetup(mslist):
             args['pixelscale'] = pixelscale = 1.5
         elif freq < 2.0e9:  # L-band-high
             args['pixelscale'] = pixelscale = 1.0
+    elif args['pixelscale'] is None and telescope == 'GMRT':
+        if freq < 250e9:  # band2
+            args['pixelscale'] = pixelscale = 3.0
+        elif freq >= 250e9 and freq < 500e9:  # band3
+            args['pixelscale'] = pixelscale = 1.25
+        elif freq >= 500e9 and freq < 1000e9:  # band4
+            args['pixelscale'] = pixelscale = 0.75
+        elif freq >= 1000e9:  # band5
+            args['pixelscale'] = pixelscale = 0.35
+    elif args['pixelscale'] is None:
+        print('pixelscale not set and cannot be determined for telescope', telescope)
+        raise Exception('pixelscale not set and cannot be determined for telescope')    
 
     if (args['delaycal'] or args['auto']) and longbaseline and not LBA:
         if args['imsize'] is None:
@@ -12983,6 +13045,43 @@ def flag_autocorr(mslist):
        run(cmd)
     return   
 
+def flag_uGMRT_badfreqs(mslist):
+    """
+    Flag known bad frequency ranges for uGMRT bands
+    input: list of MS
+    """
+    
+    # check if uGMRT
+    t = table(mslist[0] + '/OBSERVATION', ack=False)
+    telescope = t.getcol('TELESCOPE_NAME')[0]
+    t.close()
+    if telescope != 'GMRT':
+        return
+
+    for ms in mslist:
+        t = table(ms + '/SPECTRAL_WINDOW', ack=False)
+        freq = np.median(t.getcol('CHAN_FREQ')[0]) / 1e6  # in MHz
+        t.close()
+        if freq > 100 and freq < 250:  # band2
+            freqranges = '[99MHz..128MHz,167MHz..188MHz,243MHz..301MHz]'
+        elif freq >= 250 and freq < 500:  # band3
+            #freqranges = '[306MHz..326MHz,370MHz..380MHz,460']
+            freqranges = None
+        elif freq >= 500 and freq < 800:  # band4    
+            #freqranges = '[580MHz..620MHz,730MHz..750MHz]'
+            freqranges = None
+        elif freq >= 800 and freq < 1450:  # band5
+            freqranges = None
+            #freqranges = '[950MHz..1050MHz,1200MHz..1280MHz]'
+        else:
+            freqranges = None
+        if freqranges is not None:
+            cmd = 'DP3 msin=' + ms + ' msout=. steps=[pr] '
+            cmd += 'pr.type=preflagger pr.freqrange=' + freqranges
+            print('Flagging uGMRT known bad frequency ranges: ', freqranges)
+            print(cmd)
+            run(cmd)
+    return
 
 def mslist_return_stack(mslist, stack):
     """Returns the full mslist if 'stack' is True; otherwise, returns a list containing only the first element."""
@@ -13208,7 +13307,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '15.6.0'
+    facetselfcal_version = '15.8.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -13278,11 +13377,11 @@ def main():
         sys.exit()
 
 
-    # flag bad antennas as requested
-    if args['flag_antenna_list'] is not None:
-        for ms in mslist:
-            for antenna_name in args['flag_antenna_list']:
-                flag_antenna_taql(ms, antenna_name)
+
+    # fix bad GMRT weights for LR and LR (because they are set to zero if created by fixuGMRT_revised.py)
+    # zero weights result in fully flagged data when doing time/freq averaging in DP3
+    if args['start'] == 0: fix_GMRT_weights(mslist)
+
     # fix irregular time axes or avoid bloated MS, do this first before any other step
     # in case of multiple scans on the calibrator this avoids DP3 adding of lot flagged data in between
     if args['bandpass']:
@@ -13309,15 +13408,21 @@ def main():
                          aoflagger_strategy=args['aoflagger_strategy'], metadata_compression=args['metadata_compression'],
                          msinnchan=args['msinnchan'], msinstartchan=args['msinstartchan'], msinntimes=args['msinntimes'],
                          removeinternational=args['removeinternational'], phaseshiftbox=args['phaseshiftbox'],
-                         removemostlyflaggedstations=args['removemostlyflaggedstations'])
+                         removemostlyflaggedstations=args['removemostlyflaggedstations'], flag_antennas=args['flag_antenna_list'])
         args['msinntimes'] = None # since we use it above set msinntimes to to None now
         args['msinnchan'] = None  # since we use it above set msinnchan to None now
         args['msinstartchan'] = 0  # since we use it above set msinstartchan to 0 now
         args['removeinternational'] = False  # since we use it above set removeinternational to False now
         args['removemostlyflaggedstations'] = False  # since we use it above set removemostlyflaggedstations to False now
         args['phaseshiftbox'] = None  # since we use it above set phaseshiftbox to None now
+        args['flag_antenna_list'] = None  # since we use it above set flag_antenna_list to None now
         if args['useaoflagger'] and args['useaoflaggerbeforeavg']:
             args['useaoflagger'] = False # turn off now because we used it above    
+
+
+    # flag known bad frequencies for uGMRT data
+    if args['start'] == 0: flag_uGMRT_badfreqs(mslist)
+
 
     # take out bad WEIGHT_SPECTRUM values if weightspectrum_clipvalue is set
     if args['weightspectrum_clipvalue'] is not None:
@@ -13408,7 +13513,7 @@ def main():
                      phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'],
                      dysco=args['dysco'], removeinternational=args['removeinternational'],
                      removemostlyflaggedstations=args['removemostlyflaggedstations'], useaoflagger=args['useaoflagger'], aoflagger_strategy=args['aoflagger_strategy'], useaoflaggerbeforeavg=args['useaoflaggerbeforeavg'],
-                     metadata_compression=args['metadata_compression'])
+                     metadata_compression=args['metadata_compression'], flag_antennas=args['flag_antenna_list'])
 
     for ms in mslist:
         compute_distance_to_pointingcenter(ms, HBAorLBA=HBAorLBA, warn=longbaseline, returnval=False)
@@ -13740,15 +13845,15 @@ def main():
         
         if args['bandpass'] and args['bandpass_stop'] == 0: 
             print('Stopping as requested via --bandpass and compute bandpass')
-            for parmdb in create_mergeparmdbname(mslist, i, skymodelsolve=True):
-                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
+            for parmdb_id, parmdb in enumerate(create_mergeparmdbname(mslist, i, skymodelsolve=True)):
+                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb))
                 set_weights_h5_to_one(parmdb)
                 if os.path.isfile(parmdb.replace('merged_', 'bandpass_')):
                     # remove existing bandpass file
                     os.system('rm -f ' + parmdb.replace('merged_', 'bandpass_'))
                 os.system('mv ' + parmdb + ' ' + parmdb.replace('merged_', 'bandpass_'))    
-                if not args['keepmodelcolumns']: remove_model_columns(mslist)
-                return
+            if not args['keepmodelcolumns']: remove_model_columns(mslist)
+            return
         
         # run aoflagger on the corrected data culumn if requested  
         if i in args['useaoflagger_correcteddata_selfcalcycle_list'] and args['useaoflagger_correcteddata']:
@@ -13805,15 +13910,15 @@ def main():
 
         if args['bandpass'] and i >=args['bandpass_stop']: 
             print('Stopping as requested via --bandpass and compute bandpass')
-            for parmdb in create_mergeparmdbname(mslist, i, skymodelsolve=True):
-                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p'))
+            for parmdb_id, parmdb in enumerate(create_mergeparmdbname(mslist, i, skymodelsolve=True)):
+                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb))
                 set_weights_h5_to_one(parmdb)
                 if os.path.isfile(parmdb.replace('merged_', 'bandpass_')):
                     # remove existing bandpass file
                     os.system('rm -f ' + parmdb.replace('merged_', 'bandpass_'))
                 os.system('mv ' + parmdb + ' ' + parmdb.replace('merged_', 'bandpass_'))
-                if not args['keepmodelcolumns']: remove_model_columns(mslist)
-                return
+            if not args['keepmodelcolumns']: remove_model_columns(mslist)
+            return
 
         # update uvmin if allowed/requested
         update_uvmin(fitsmask, longbaseline, LBA)
