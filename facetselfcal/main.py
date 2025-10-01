@@ -2053,20 +2053,13 @@ def check_for_BDPbug_longsolint(mslist, facetdirections):
 
             lcm = math.lcm(*solints)
             divisors = [int(lcm / i) for i in solints]
-
-        #solints = [int(format_solint(x, ms)) for x in solint]
-        #solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
-        #lcm = math.lcm(*solints)
-        #divisors = [int(lcm / i) for i in solints]
-        #cmd += 'ddecal.solint=' + str(lcm) + ' '
-        #cmd += 'ddecal.solutions_per_direction=' + "'" + str(divisors).replace(' ', '') + "' "
-
+            
             print('Solint passed to DP3 would be:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
-            if lcm > int(1.5*ms_ntimes):
+            if lcm > int(2.*ms_ntimes):
                 print('Bad divisor for solutions_per_direction DDE solve. DP3 Solint > number of timeslots in the MS')
                 sys.exit()
         print('------------')
-
+  
     return
 
 
@@ -2294,8 +2287,10 @@ def tweak_solints(solints, solvalthresh=11, ms_ntimes=None):
             else:
                 solints_copy.append(solint)
         solints = solints_copy
-        
-    possible_solints = listof2and3prime(startval=2, stopval=10000)
+    
+    # range to 15 gives a mximum solint of 24576 below which should be more than enough    
+    possible_solints = sorted([2**i + 2**(i-1) for i in range(1,15)] + [2**i for i in range(0,15)])
+    print('Possible solints:', possible_solints)
     if ms_ntimes is not None:
         possible_solints = remove_bad_endrounding(possible_solints, ms_ntimes)
     
@@ -2305,7 +2300,7 @@ def tweak_solints(solints, solvalthresh=11, ms_ntimes=None):
     return solints_return
 
 
-def tweak_solints_single(solint, ms_ntimes, solvalthresh=11, ):
+def tweak_solints_single(solint, ms_ntimes, solvalthresh=11):
     """
     def tweak_solints_single(solint, ms_ntimes, solvalthresh=11):
         Adjusts the given solution interval (`solint`) to avoid having a small number 
@@ -2337,7 +2332,7 @@ def tweak_solints_single(solint, ms_ntimes, solvalthresh=11, ):
     return find_nearest(possible_solints, solint)
 
 
-def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
+def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=13, fraction_lastslot=0.25):
     """
     Filters a list of solution intervals (solints) to remove those that result in 
     significant rounding errors when dividing the total number of timeslots (ms_ntimes) 
@@ -2348,7 +2343,7 @@ def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
         solints (list of int): A list of possible solution intervals to evaluate.
         ms_ntimes (int): The total number of timeslots in the measurement set (MS).
         ignorelessthan (int, optional): The minimum solution interval to consider. 
-            Solution intervals smaller than this value will be excluded. Defaults to 11.
+            Solution intervals smaller than this value will be excluded. Defaults to 13.
 
     Returns:
         list of int: A filtered list of solution intervals that meet the criteria.
@@ -2356,7 +2351,7 @@ def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
     solints_out = []
     for solint in solints:
         if (float(ms_ntimes) / float(solint)) - (
-                np.floor(float(ms_ntimes) / float(solint))) > 0.5 or solint < ignorelessthan:
+                np.floor(float(ms_ntimes) / float(solint))) > fraction_lastslot or solint < ignorelessthan:
             solints_out.append(solint)
     return solints_out
 
