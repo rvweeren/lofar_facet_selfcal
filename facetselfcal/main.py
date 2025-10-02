@@ -91,7 +91,7 @@ from submods.h5_helpers.reset_h5parm_structure import fix_h5
 from submods.h5_merger import merge_h5
 from submods.h5_helpers.split_h5 import split_multidir
 from submods.h5_helpers.multidir_h5 import same_weights_multidir, is_multidir
-from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
+from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5    
 from submods.h5_helpers.modify_amplitude import get_median_amp, normamplitudes, normslope_withmatrix, normamplitudes_withmatrix
 from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5,  fix_rotationreference, fix_weights_rotationmeasureh5, fix_rotationmeasurereference
 from submods.h5_helpers.modify_tec import fix_tecreference
@@ -2028,6 +2028,178 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
 
     return MSs_files_clean, H5s_files_clean
 
+def max_in_str(s):
+    """
+    Extracts the maximum positive integer value from a comma-separated string of key:value pairs.
+    Each entry in the input string should be in the format 'key:value', where 'value' is expected to be a positive integer.
+    If any value is not a positive integer, a ValueError is raised.
+    If no valid positive integer values are found, a ValueError is raised.
+    Parameters:
+        s (str): A comma-separated string of key:value pairs (e.g., "a:3,b:7,c:2").
+    Returns:
+        int: The maximum positive integer value found among the values.
+    Raises:
+        ValueError: If any entry is malformed, contains a non-positive integer value, or if no valid values are found.
+    """
+
+    values = []
+    for x in s.split(','):
+        try:
+            key, val = x.split(':', 1)
+            if val.isdigit() and int(val) > 0:   # only allow positive integers
+                values.append(int(val))
+            else:
+                raise ValueError(f"Invalid value (must be positive int): {val}")
+        except ValueError as e:
+            raise ValueError(f"Invalid entry '{x}': {e}")
+    if not values:
+        raise ValueError("No valid positive integer values found")
+    return max(values)
+
+
+def check_antenna_factors(antenna_averaging_factors_list, antenna_smoothness_factors_list, mslist, facetdirections):
+    """
+    Validates antenna averaging and smoothness factors for a list of measurement sets (MS) and facet directions.
+    This function performs the following checks:
+    1. Ensures that all antenna smoothness factors are within the allowed range (> 0 and <= 1.0).
+    2. For each measurement set and solution interval cycle, checks that the maximum antenna averaging factor does not exceed the maximum allowed divisor.
+    3. If the maximum antenna averaging factor exceeds the allowed value, attempts to upscale the least common multiple (LCM) of solution intervals, provided it does not exceed a hard limit (4096).
+    4. If any check fails, prints a warning and exits the program.
+    Args:
+        antenna_averaging_factors_list (list): Nested list containing antenna averaging factors for each solution interval cycle and measurement set.
+        antenna_smoothness_factors_list (list): Nested list containing antenna smoothness factors for each perturbation and measurement set.
+        mslist (list): List of measurement set file paths.
+        facetdirections (str or None): String specifying facet directions and related parameters, or None if not used.
+    Raises:
+        SystemExit: If any antenna smoothness factor is not in the allowed range, or if any antenna averaging factor exceeds the allowed value and cannot be upscaled within limits.
+    """
+    
+    len_pert = np.array(antenna_smoothness_factors_list).shape[0]
+    for ms_id, ms in enumerate(mslist):
+        for asf_id in range(len_pert):
+            antenna_smoothness_factors = antenna_smoothness_factors_list[asf_id][ms_id]
+            if antenna_smoothness_factors is not None:
+                max_smoothness_factor = max(float(x.split(':')[1]) for x in antenna_smoothness_factors.split(','))
+                if max_smoothness_factor > 1.0 or max_smoothness_factor <=0.0:
+                    print('WARNING: The maximum antenna smoothness factor', max_smoothness_factor, 'should be > 0 and <= 1.0')
+                    print('This is not allowed')
+                    sys.exit(1)
+    
+    if facetdirections is not None:
+        dirs, solintslist, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)    
+        solint_reformat = np.array(solintslist)
+    
+        for ms_id, ms in enumerate(mslist):
+            print('=== Checking antenna averaging factors for MS:', ms, '===')
+            with table(ms, readonly=True, ack=False) as t:
+                ms_ntimes = len(np.unique(t.getcol('TIME')))
+            for solintcycle_id, tmpval in enumerate(solint_reformat[0]): 
+                antenna_averaging_factors = antenna_averaging_factors_list[solintcycle_id][ms_id]
+                solints_cycle = solint_reformat[:, solintcycle_id]
+                solints = [int(format_solint(x, ms)) for x in solints_cycle]        
+                solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
+                lcm = math.lcm(*solints)
+                divisors = [int(lcm / i) for i in solints]
+                print('pertubation cycle =', solintcycle_id)
+                print('divisors and lcm:', divisors, lcm)
+                if antenna_averaging_factors is not None:
+                    max_avg_factor = max_in_str(antenna_averaging_factors)
+                    if max_avg_factor > max(divisors):
+                        upscale_factor = int(np.ceil(max_avg_factor / max(divisors)))
+                        if lcm * upscale_factor < 4096: # avoid too large solints
+                            lcm = lcm * upscale_factor
+                            divisors = [int(lcm / i) for i in solints]
+                            print('Updated divisors and lcm:', divisors, lcm)
+                        else:     
+                            print('WARNING: The maximum antenna averaging factor', max_avg_factor, 'is larger than the maximum allowed value of', max(divisors))
+                            print('This is not allowed by DP3')
+                            sys.exit(1) 
+    return               
+
+# temporary function to check rounding issues with antenna averaging factors, remove later
+def test_antenna_averaging_factors(antenna_averaging_factors_list, mslist, facetdirections):
+    dirs, solintslist, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)    
+    solint_reformat = np.array(solintslist)
+    for ms_id, ms in enumerate(mslist):
+        with table(ms, readonly=True, ack=False) as t:
+            ms_ntimes = len(np.unique(t.getcol('TIME')))
+        
+        for solintcycle_id, tmpval in enumerate(solint_reformat[0]): 
+            antenna_averaging_factors = antenna_averaging_factors_list[solintcycle_id][ms_id]
+            print(' --- ' + str('pertubation cycle=') + str(solintcycle_id) + '--- ')
+            solints_cycle = solint_reformat[:, solintcycle_id]
+            solints = [int(format_solint(x, ms)) for x in solints_cycle]        
+            solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
+            lcm = math.lcm(*solints)
+            print('LCM of solints', lcm)
+            divisors = [int(lcm / i) for i in solints]
+            print('Divisors of solints', divisors)
+            print(antenna_averaging_factors, solints)
+            if antenna_averaging_factors is not None:
+                print('Check and update antenna averaging factors if needed')
+                all_possible_avg_factors = range(1,max(solints)*lcm)
+                allowed_avg_factors = []
+                allowed_avg_factors_ondir = []
+                for dir_id, solint in enumerate(np.array(solints)*lcm):
+                    allowed_avg_factors_ondir = [i for i in all_possible_avg_factors if solint % i == 0]
+                    allowed_avg_factors.append(allowed_avg_factors_ondir)
+                
+        
+                #print('List of allowed averaging factors per direction in combination with lcm', allowed_avg_factors)
+                allowed_avg_factors = set(allowed_avg_factors[0]).intersection(*allowed_avg_factors)
+                allowed_avg_factors = sorted(list(allowed_avg_factors))
+                if len(allowed_avg_factors) == 0:
+                    print('No common averaging factors found for all directions. This must be a bug because a value of 1 should always be possible')
+                    sys.exit()
+                
+                # remove averaging factors that are larger than largest divisor
+                #print('List of allowed averaging factors for all directions in combination with lcm', allowed_avg_factors)
+                allowed_avg_factors = [x for x in allowed_avg_factors if x <= max(divisors)]
+                print('List of allowed averaging factors for all directions in combination with lcm', allowed_avg_factors)
+                
+                # find nearest allowed averaging factor to the one request by user
+                str_aaf = antenna_averaging_factors.split(',')
+                for aaf in str_aaf:
+                  user_aaf = int(aaf.split(':')[1])
+                  # find closest value in allowed_avg_factors
+                  closest_aaf = min(allowed_avg_factors, key=lambda x: abs(x - user_aaf))
+                  if closest_aaf != user_aaf:
+                      print('Requested antenna averaging factor', user_aaf, 'not possible. Using closest possible value', closest_aaf)
+                  else:
+                      print('Requested antenna averaging factor', user_aaf, 'is possible.')
+                
+                
+                if False:
+                    allowed_avg_factors_tmp = sorted(list(set(np.array(allowed_avg_factors)/lcm)))
+                    #print('List of allowed averaging factors divided by lcm', allowed_avg_factors_tmp)
+                    
+                    print('Allowed antenna averaging factors', allowed_avg_factors)
+
+                    print(solints)
+                    bad_avg_factors = [] # list of bad averaging factors due to rounding issues
+                    for sol in solints:
+                        print('Doing sol', sol)
+                        for avg_factor_id, avg_factor in enumerate(allowed_avg_factors_tmp):
+                            possible_solints = remove_bad_endrounding([sol/avg_factor], ms_ntimes)
+                            #print('Possible solints for avg factor', sol/avg_factor, possible_solints)
+                            if len(possible_solints) == 0:
+                                print('Averaging factor', avg_factor, 'not possible for solint', sol)
+                                bad_avg_factors.append(avg_factor)
+                        
+                    bad_avg_factors = list(np.array(bad_avg_factors)*lcm)
+                    # make integer list and remove duplicates
+                    bad_avg_factors = sorted(list(set([int(x) for x in bad_avg_factors])))
+                    print('Bad averaging factors due to rounding issues', bad_avg_factors)
+                    print('Original antenna averaging factors', allowed_avg_factors)
+                    allowed_avg_factors = [x for x in allowed_avg_factors if x not in bad_avg_factors]
+                    print('New list of allowed antenna averaging factors', allowed_avg_factors)
+                    if len(allowed_avg_factors) == 0:
+                        print('No allowed averaging factors left')
+                        sys.exit()
+                    sys.exit()          
+    #    print('Temorary exit for testing')
+    #sys.exit()
+    return
 
 def check_for_BDPbug_longsolint(mslist, facetdirections):
     dirs, solints, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)
@@ -2053,16 +2225,9 @@ def check_for_BDPbug_longsolint(mslist, facetdirections):
 
             lcm = math.lcm(*solints)
             divisors = [int(lcm / i) for i in solints]
-
-        #solints = [int(format_solint(x, ms)) for x in solint]
-        #solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
-        #lcm = math.lcm(*solints)
-        #divisors = [int(lcm / i) for i in solints]
-        #cmd += 'ddecal.solint=' + str(lcm) + ' '
-        #cmd += 'ddecal.solutions_per_direction=' + "'" + str(divisors).replace(' ', '') + "' "
-
+            
             print('Solint passed to DP3 would be:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
-            if lcm > int(1.5*ms_ntimes):
+            if lcm > int(10.*ms_ntimes):
                 print('Bad divisor for solutions_per_direction DDE solve. DP3 Solint > number of timeslots in the MS')
                 sys.exit()
         print('------------')
@@ -2277,35 +2442,36 @@ def tweak_solintsold(solints, solval=20):
     return solints_return
 
 
-def tweak_solints(solints, solvalthresh=11, ms_ntimes=None):
+def tweak_solints(solints, solvalthresh=11, ms_ntimes=None, verbose=False):
     """
     Returns modified solints that can be factorized by 2 or 3 if input contains number >= solvalthresh
     """
     solints_return = []
-    if np.max(solints) < solvalthresh:
-        return solints
-    
+
     # shorten solint to length of MS at most
     if ms_ntimes is not None:
         solints_copy = []
         for solint in solints:
+    
             if solint > ms_ntimes:
                 solints_copy.append(ms_ntimes)
             else:
                 solints_copy.append(solint)
         solints = solints_copy
-        
-    possible_solints = listof2and3prime(startval=2, stopval=10000)
+    
+    # range to 15 gives a mximum solint of 24576 below which should be more than enough    
+    possible_solints = sorted([2**i + 2**(i-1) for i in range(1,15)] + [2**i for i in range(0,15)])
+    if verbose: print('Possible solints:', possible_solints)
     if ms_ntimes is not None:
         possible_solints = remove_bad_endrounding(possible_solints, ms_ntimes)
-    
+
     for sol in solints:
         solints_return.append(find_nearest(possible_solints, sol))
 
     return solints_return
 
 
-def tweak_solints_single(solint, ms_ntimes, solvalthresh=11, ):
+def tweak_solints_single(solint, ms_ntimes, solvalthresh=11):
     """
     def tweak_solints_single(solint, ms_ntimes, solvalthresh=11):
         Adjusts the given solution interval (`solint`) to avoid having a small number 
@@ -2337,7 +2503,7 @@ def tweak_solints_single(solint, ms_ntimes, solvalthresh=11, ):
     return find_nearest(possible_solints, solint)
 
 
-def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
+def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=13, fraction_lastslot=0.25):
     """
     Filters a list of solution intervals (solints) to remove those that result in 
     significant rounding errors when dividing the total number of timeslots (ms_ntimes) 
@@ -2348,7 +2514,7 @@ def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
         solints (list of int): A list of possible solution intervals to evaluate.
         ms_ntimes (int): The total number of timeslots in the measurement set (MS).
         ignorelessthan (int, optional): The minimum solution interval to consider. 
-            Solution intervals smaller than this value will be excluded. Defaults to 11.
+            Solution intervals smaller than this value will be excluded. Defaults to 13.
 
     Returns:
         list of int: A filtered list of solution intervals that meet the criteria.
@@ -2356,7 +2522,7 @@ def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=11):
     solints_out = []
     for solint in solints:
         if (float(ms_ntimes) / float(solint)) - (
-                np.floor(float(ms_ntimes) / float(solint))) > 0.5 or solint < ignorelessthan:
+                np.floor(float(ms_ntimes) / float(solint))) > fraction_lastslot or solint < ignorelessthan:
             solints_out.append(solint)
     return solints_out
 
@@ -9903,7 +10069,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     cmd += 'ddecal.maxiter=' + str(int(maxiter)) + ' ddecal.propagatesolutions=True '
     # Do list comprehension if solint is a list
-    if type(solint) == list:
+    if antenna_averaging_factors is not None:
+        max_aaf = max(int(x.split(':')[1]) for x in antenna_averaging_factors.split(','))
+    if type(solint) != list:
+        solint = [solint] # convert to list for easier handling below
+    if type(solint) == list and len(solint) > 1:
         if len(dir_id_kept) > 0:
             print(solint)
             print(dir_id_kept)
@@ -9911,12 +10081,30 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         solints = [int(format_solint(x, ms)) for x in solint]
         solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
         lcm = math.lcm(*solints)
+        if antenna_averaging_factors is not None: # also means max_aaf is defined
+            if max_aaf > max([int(lcm / i) for i in solints]):     
+                upscale_factor = int(np.ceil(max_aaf/max([int(lcm / i) for i in solints])))
+                if lcm * upscale_factor < 4096: # avoid too large solints
+                    lcm = lcm * upscale_factor
+                    print('Updated divisors and lcm:', [int(lcm / i) for i in solints], lcm)
+                else:     
+                    print('max_aaf', max_aaf, 'is too large for the divisors (=solutions_per_direction)')
+                    print('divisors', [int(lcm / i) for i in solints], 'lcm', lcm)
+                    print('This is not allowed by DP3')
+                    sys.exit(1)
         divisors = [int(lcm / i) for i in solints]
         cmd += 'ddecal.solint=' + str(lcm) + ' '
         cmd += 'ddecal.solutions_per_direction=' + "'" + str(divisors).replace(' ', '') + "' "
-    else:
-        solint_integer = format_solint(solint, ms)  # create the integer number for DP3
-        cmd += 'ddecal.solint=' + str(tweak_solints_single(int(solint_integer), ms_ntimes)) + ' '
+    else: # in this case we just have a single solint value
+        solints =format_solint(solint[0], ms)  # create the integer str
+        solints =[int(tweak_solints_single(int(solints), ms_ntimes))]
+        lcm = math.lcm(*solints)
+        if antenna_averaging_factors is not None: # also means max_aaf is defined
+            print('max_aaf', max_aaf, 'udating lcm')
+            lcm = lcm * max_aaf  # increase the lcm by the maximum antenna averaging factor
+        divisors = [int(lcm / i) for i in solints] # divisors
+        cmd += 'ddecal.solint=' + str(lcm) + ' '
+        cmd += 'ddecal.solutions_per_direction=' + "'" + str(divisors).replace(' ', '') + "' "
     cmd += 'ddecal.nchan=' + format_nchan(nchan, ms) + ' '
     cmd += 'ddecal.h5parm=' + parmdb + ' '
 
@@ -9942,10 +10130,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if bdaaverager  and pixelscale is not None and imsize is not None:
         cmd += 'bda.frequencybase= ' + 'bda.minchannels=' + format_nchan(nchan, ms) + ' '
-        if type(solint) == list:
-            cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm / np.max(divisors)) + ' '
-        else:
-            cmd += 'bda.timebase= ' + 'bda.maxinterval=' + format_solint(solint, ms) + ' '
+        cmd += 'bda.timebase= ' + 'bda.maxinterval=' + int(lcm / np.max(divisors)) + ' '
+        
 
     # preapply H5 from previous pertubation for DDE solves with DP3
     if (len(modeldatacolumns) > 1) and (len(preapplyH5_dde) > 0):
@@ -13307,7 +13493,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '15.8.0'
+    facetselfcal_version = '16.0.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -13546,6 +13732,8 @@ def main():
         solve_msinstartchan_list, antenna_averaging_factors_list, antenna_smoothness_factors_list = \
         setinitial_solint(mslist, options)
 
+    check_antenna_factors(antenna_averaging_factors_list, antenna_smoothness_factors_list, \
+                          mslist, args['facetdirections'])
  
     # Get restoring beam for DDFACET in case it is needed
     restoringbeam = calculate_restoringbeam(mslist, LBA)
