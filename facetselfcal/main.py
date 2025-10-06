@@ -1120,8 +1120,7 @@ def set_channelsout(mslist, factor=1):
     if telescope == 'LOFAR':
         channelsout = round_up_to_even(f_bw * 12 * factor)
     elif telescope == 'MeerKAT':
-        channelsout = round_up_to_even(f_bw * 13 * factor) 
-        # should result in channelsout=12 for L-band, with bandpass edges removed
+        channelsout = 12 # use this as default for MeerKAT
     else:
         channelsout = round_up_to_even(f_bw * 12 * factor)
     return channelsout
@@ -1361,9 +1360,9 @@ def set_fitspectralpol(channelsout):
         fitspectralpol = 3
     elif channelsout <= 8:
         fitspectralpol = 5
-    elif channelsout <= 12:
+    elif channelsout <= 10:
         fitspectralpol = 7
-    elif channelsout > 12:
+    elif channelsout > 10:
         fitspectralpol = 9
     else:
         print('channelsout', channelsout)
@@ -3900,7 +3899,7 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
             f.write(line)
 
 
-def auto_direction(selfcalcycle=0):
+def auto_direction(selfcalcycle=0, telescope=None, imagename=None, idg=None, channelsout=None):
     """
     Automatically determines and processes calibration directions for self-calibration cycles.
     Parameters:
@@ -3908,6 +3907,17 @@ def auto_direction(selfcalcycle=0):
     selfcalcycle : int, optional
         The self-calibration cycle number (default is 0). Determines the parameters for 
         artifact catalog creation and filtering.
+    telescope : str, optional
+        The name of the telescope (not used in current implementation). Default is None.
+    imagename : str, optional
+        The base name of the image file (without cycle number and suffix). If provided,
+        it overrides the global `args` dictionary for standalone usage. Default is None.
+    idg : bool, optional
+        Indicates whether the image is an IDG image (default is None). If provided,
+        it overrides the global `args` dictionary for standalone usage.
+    channelsout : int, optional
+        The number of output channels (default is None). If provided, it overrides
+        the global `args` dictionary for standalone usage. Default is None.    
     Returns:
     --------
     str
@@ -3935,7 +3945,14 @@ def auto_direction(selfcalcycle=0):
     - Requires the `astropy.io.fits` module for handling FITS files.
     - Assumes the presence of helper functions for error map generation, catalog creation, and plotting.
     """
-    
+    # set input parameters for standalone usage
+    if imagename is not None:
+        args = {'imagename': imagename}
+    if idg is not None:
+        args |= {'idg': idg}
+    if channelsout is not None:
+        args |= {'channelsout': channelsout}
+
     if selfcalcycle == 0:
         keep_N_brightest = 15
         distance = 20
@@ -3997,6 +4014,7 @@ def auto_direction(selfcalcycle=0):
     facetdirections = 'directions_' + str(selfcalcycle).zfill(3) + '.txt'
     directions_reg =  'directions_' + str(selfcalcycle).zfill(3) + '.reg'
     outplotname =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.png'
+    outputfluxcatalog = args['imagename'] + str(selfcalcycle).zfill(3) + '-compactsource-flux.fits'
     
     if selfcalcycle > 0:
         previous_catalog =  args['imagename'] + str(selfcalcycle-1).zfill(3) + '-errormap.srl.filtered.fits'
@@ -4006,6 +4024,9 @@ def auto_direction(selfcalcycle=0):
     else:
         previous_catalog = None  
     
+    # create compact source catalog from which we can get peak fluxes
+    write_compactsource_flux(fitsimage, outputfluxcatalog)
+
     # make the error map
     print('Making artifact map from:', fitsimage)
     calibration_error_map(fitsimage,  outputerrormap, kernelsize=31, rebin=31)
@@ -5439,8 +5460,8 @@ def inputchecker(args, mslist):
             print('--uvmin needs to be positive')
             raise Exception('--uvmin needs to be positive')
     if args['uvminim'] is not None and type(args['uvminim']) is not list:
-        if args['uvminim'] < 0.0:
-            print('--uvminim needs to be positive')
+        if args['uvminim'] <= 0.0:
+            print('--uvminim needs to be positive and non-zero')
             raise Exception('--uvminim needs to be positive')
     if args['uvmaxim'] is not None and args['uvminim'] is not None and type(args['uvmaxim']) is not list and type(
             args['uvminim']) is not list:
@@ -5688,9 +5709,16 @@ def inputchecker(args, mslist):
 
     # Check boxfile and imsize settings
     if args['boxfile'] is None and args['imsize'] is None:
-        if not checklongbaseline(sorted(args['ms'])[0]):
+        if not checklongbaseline(sorted(args['ms'])[0]) and telescope == 'LOFAR':
             print('Incomplete input detected, either boxfile or imsize is required')
             raise Exception('Incomplete input detected, either boxfile or imsize is required')
+        elif telescope == 'MeerKAT':
+            if not args['auto'] or args['DDE']:  # auto will set imsize for MeerKAT
+                print('Incomplete input detected, either boxfile or imsize is required')
+                raise Exception('Incomplete input detected, either boxfile or imsize is required')
+        else:
+            print('Incomplete input detected, either boxfile or imsize is required')
+            raise Exception('Incomplete input detected, either boxfile or imsize is required')       
 
     if args['boxfile'] is not None and args['imsize'] is not None:
         print('Wrong input detected, both boxfile and imsize are set')
@@ -12249,6 +12277,33 @@ def calculate_solintnchan(compactflux):
     return int(nchan), int(solint_phase), int(solint_ap)
 
 
+def write_compactsource_flux(fitsimage, outputcatalog):
+    """
+    Processes a FITS image to detect compact sources and writes their flux information to an output catalog.
+    Parameters:
+        fitsimage (str): Path to the input FITS image file.
+        outputcatalog (str): Path to the output catalog file where detected source fluxes will be saved.
+    Returns:
+        None
+    Notes:
+        - The function reads the FITS header to determine beam size and pixel size, then calculates appropriate box sizes for background RMS estimation.
+        - Uses the PyBDSF (bdsf) library to process the image and extract source information.
+        - The output catalog is written in FITS format and contains a source list with flux measurements.
+    """
+    with fits.open(fitsimage) as hdul:
+        bmaj = hdul[0].header['BMAJ']
+        bmin = hdul[0].header['BMIN']
+        avgbeam = 3600. * 0.5 * (bmaj + bmin)
+        pixsize = 3600. * (hdul[0].header['CDELT2'])
+        # use small rmsbox to pick up small scale noise variations so that extened emission is not picked up
+        rmsbox1 = int(7. * avgbeam / pixsize)
+        rmsbox2 = int((rmsbox1 / 10.) + 1.) 
+    img = bdsf.process_image(fitsimage, mean_map='zero', rms_map=True, rms_box=(rmsbox1, rmsbox2))
+    img.write_catalog(format='fits', outfile=outputcatalog, catalog_type='srl', clobber=True)
+    del img
+    return
+
+
 def determine_compactsource_flux(fitsimage):
     """
     return total flux in compect sources in the fitsimage
@@ -12680,6 +12735,8 @@ def basicsetup(mslist):
         # Determine HBA or LBA
     t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
     freq = np.median(t.getcol('CHAN_FREQ')[0])
+    freqs = t.getcol('CHAN_FREQ')[0]
+    chan_width = np.median(t.getcol('CHAN_WIDTH')[0])
     t.close()
     # set telescope
     t = table(mslist[0] + '/OBSERVATION', ack=False)
@@ -12716,7 +12773,7 @@ def basicsetup(mslist):
             if telescope == 'LOFAR':
                 args['uvminim'] = 80.
             else:
-                args['uvminim'] = 10.  # MeerKAt for example
+                args['uvminim'] = 10.  # MeerKAT for example
 
     if args['pixelscale'] is None and telescope == 'LOFAR':
         if LBA:
@@ -12760,15 +12817,18 @@ def basicsetup(mslist):
         if args['imsize'] is None:
             args['imsize'] = 2048
 
+
     if args['boxfile'] is not None:
         if args['DDE']:
             args['imsize'] = getimsize(args['boxfile'], args['pixelscale'], increasefactor=1.025)
         else:
             args['imsize'] = getimsize(args['boxfile'], args['pixelscale'])
     if args['niter'] is None:
+        if args['auto'] and telescope == 'MeerKAT' and not args['DDE']:
+            args['imsize'] = 12000 # default for MeerKAT in auto mode
         args['niter'] = niter_from_imsize(args['imsize'])
 
-    if args['auto'] and not longbaseline:
+    if args['auto'] and telescope == 'LOFAR' and not longbaseline:
         args['update_uvmin'] = True
         args['usemodeldataforsolints'] = True
         args['forwidefield'] = True
@@ -12780,6 +12840,40 @@ def basicsetup(mslist):
             if args['autofrequencyaverage_calspeedup']:
                 args['soltypecycles_list'] = [0, 999, 2]
                 args['stop'] = 8
+
+    if args['auto'] and telescope == 'MeerKAT' and not args['DDE']:
+        args['channelsout'] = set_channelsout(mslist)
+        args['fitspectralpol'] = set_fitspectralpol(args['channelsout'])
+        args['update_uvmin'] = False
+        args['usemodeldataforsolints'] = False
+        args['forwidefield'] = True
+        args['autofrequencyaverage'] = False
+        args['multiscale'] = True
+        args['multiscale_start'] = 0
+        args['useaoflagger'] = True
+        args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua' #'default_StokesQUV.lua'
+        args['noarchive'] = True
+        args['soltype_list'] = ['scalarphase']
+        args['soltypecycles_list'] = [0] 
+        args['solint_list'] = ['1min']
+        args['uvminim'] = 10.
+
+        if freq < 1.0e9:  # UHF-band 
+            args['smoothnessconstraint_list'] = [50.] 
+        if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
+            args['smoothnessconstraint_list'] = [100.] 
+        if (freq >= 1.7e9) and (freq < 4.0e9):  # S-band
+            args['smoothnessconstraint_list'] = [150.] 
+
+        args['niter'] = 45000
+        args['stop'] = 3
+
+        # try to automatically set arg['msinstartchan'] and arg['msinnchan']
+        if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
+            startfreq = 906e6
+            endfreq = 1655e6
+            args['msinstartchan'], args['msinnchan'] = set_startchan_nchan(freqs, startfreq, endfreq)
+            
 
     if args['paralleldeconvolution'] == 0: # means determine automatically
         if args['imsize'] > 1600 and telescope == 'MeerKAT':
@@ -12818,7 +12912,7 @@ def basicsetup(mslist):
     if args['delaycal'] and longbaseline and not LBA:
         args['update_uvmin'] = False
         # args['usemodeldataforsolints'] = True # NEEDS SPECIAL SETTINGS to be implemented
-        args['solint_list'] = "['5min','32sec','1hr']"
+        args['solint_list'] = ['5min','32sec','1hr']
         args['forwidefield'] = True
         args['autofrequencyaverage'] = True
         args['update_multiscale'] = True
@@ -12908,6 +13002,21 @@ def basicsetup(mslist):
     return longbaseline, LBA, HBAorLBA, freq, fitsmask, \
         maskthreshold_selfcalcycle, automaskthreshold_selfcalcycle, outtarname, telescope
 
+def set_startchan_nchan(freqs, startfreq, endfreq):
+    """
+    Try to automatically set arg['msinstartchan'] and arg['msinnchan']
+    :param freqs: frequency array
+    :param startfreq: start frequency
+    :param endfreq: end frequency
+    :return: msinstartchan, msinnchan
+    """
+    msinstartchan = (np.abs(freqs - startfreq)).argmin()
+    highestchannel = (np.abs(freqs - endfreq)).argmin()
+    msinnchan = highestchannel - msinstartchan + 1
+    # make sure args['msinnchan'] can be divided by 4 and 3, and if not adjust it downwards
+    while msinnchan % 4 != 0 or msinnchan % 3 != 0:
+        msinnchan -= 1
+    return msinstartchan, msinnchan
 
 def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
     """
@@ -13493,7 +13602,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '16.0.0'
+    facetselfcal_version = '16.1.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -14012,7 +14121,7 @@ def main():
 
         modeldatacolumns = []
         if args['DDE']:
-            if args['auto_directions']: args['facetdirections'] = auto_direction(i)
+            if args['auto_directions']: args['facetdirections'] = auto_direction(i, telscope=telescope)
             modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], telescope=telescope))
