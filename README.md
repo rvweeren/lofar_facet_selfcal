@@ -53,7 +53,7 @@ L-band example from SDP-pipeline output:
 python /<path>/lofar_facet_selfcal/facetselfcal.py -i imageDI --forwidefield --noarchive 
    --fitspectralpol=9 --solint-list="['1min']" --soltype-list="['scalarphase']" 
    --soltypecycles-list=[0] --smoothnessconstraint-list=[100.] --imsize=12000 --channelsout=12 
-   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=default_StokesQUV.lua 
+   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=defaultMeerKAT_StokesQUV.lua 
    --multiscale-start=0 --parallelgridding=2 --msinnchan=3576 --msinstartchan=80 
    --avgfreqstep=2 MyTarget.ms 
 ```
@@ -63,7 +63,7 @@ L-band example from SDP-pipeline output with factor 2 frequency averaging:
 python /<path>/lofar_facet_selfcal/facetselfcal.py -i imageDI --forwidefield --noarchive
    --fitspectralpol=9 --solint-list="['1min']" --soltype-list="['scalarphase']"
    --soltypecycles-list=[0] --smoothnessconstraint-list=[100.] --imsize=12000 --channelsout=12
-   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=default_StokesQUV.lua
+   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=defaultMeerKAT_StokesQUV.lua 
    --multiscale-start=0 --parallelgridding=2 --msinnchan=1788 --msinstartchan=40 MyTarget.ms 
 ```
 
@@ -72,7 +72,7 @@ UHF-band example from SDP-pipeline output:
 python /<path>/lofar_facet_selfcal/facetselfcal.py -i imageDI --forwidefield --noarchive
    --fitspectralpol=9 --solint-list="['32sec']" --soltype-list="['scalarphase']"
    --soltypecycles-list=[0] --smoothnessconstraint-list=[50.] --imsize=12000 --channelsout=12
-   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=default_StokesQUV.lua
+   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=defaultMeerKAT_StokesQUV.lua 
    --multiscale-start=0 --parallelgridding=2 --msinnchan=3420 --msinstartchan=220
    --avgfreqstep=2 MyTarget.ms 
 ```
@@ -82,7 +82,7 @@ UHF-band example from SDP-pipeline output with factor 2 frequency averaging:
 python /<path>/lofar_facet_selfcal/facetselfcal.py -i imageDI --forwidefield --noarchive
    --fitspectralpol=9 --solint-list="['32sec']" --soltype-list="['scalarphase']"
    --soltypecycles-list=[0] --smoothnessconstraint-list=[50.] --imsize=12000 --channelsout=12
-   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=default_StokesQUV.lua
+   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=defaultMeerKAT_StokesQUV.lua 
    --multiscale-start=0 --parallelgridding=2 --msinnchan=1710 --msinstartchan=110 MyTarget.ms 
 ```
 
@@ -91,7 +91,7 @@ S1-band example from SDP-pipeline output:
 python /<path>/lofar_facet_selfcal/facetselfcal.py -i imageDI --forwidefield --noarchive 
    --fitspectralpol=7 --solint-list="['1min']" --soltype-list="['scalarphase']" 
    --soltypecycles-list=[0] --smoothnessconstraint-list=[100.] --imsize=12000 --channelsout=8 
-   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=default_StokesQUV.lua 
+   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=defaultMeerKAT_StokesQUV.lua 
    --multiscale-start=0 --parallelgridding=2 --msinnchan=3420 --msinstartchan=200 
    --avgfreqstep=2 MyTarget.ms 
 ```
@@ -101,6 +101,6 @@ S1-band example from SDP-pipeline output with factor 2 frequency averaging:
 python /<path>/lofar_facet_selfcal/facetselfcal.py -i imageDI --forwidefield --noarchive
    --fitspectralpol=7 --solint-list="['1min']" --soltype-list="['scalarphase']"
    --soltypecycles-list=[0] --smoothnessconstraint-list=[100.] --imsize=12000 --channelsout=8
-   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=default_StokesQUV.lua
+   --niter=45000 --stop=3 --multiscale --useaoflagger --aoflagger-strategy=defaultMeerKAT_StokesQUV.lua 
    --multiscale-start=0 --parallelgridding=2 --msinnchan=1710 --msinstartchan=100 MyTarget.ms 
 ```
