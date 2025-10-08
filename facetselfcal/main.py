@@ -3730,7 +3730,7 @@ def calibration_error_map(fitsimage, outputfitsfile, kernelsize=31, rebin=None):
     return
 
 
-def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5,thresh_isl=7.5):
+def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5, thresh_isl=7.5, interactive=False):
     """
     Creates a calibration error catalog from a given image file using the PyBDSF library.
 
@@ -3743,11 +3743,38 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5,thresh_is
     Returns:
         None
     """
+    if os.path.isfile(outfile):
+        os.system('rm -f ' + outfile)
+    empty_catalog = False
     img = bdsf.process_image(filename,mean_map='const', rms_map=True, \
                              rms_box=(35,5), thresh_pix=thresh_pix,thresh_isl=thresh_isl)
     img.write_catalog(format='fits', outfile=outfile, catalog_type='srl', clobber=True)
+    if not os.path.isfile(outfile):
+        print('\033[93m' + 'No sources found, cannot write empty catalog' + '\033[0m')
+        empty_catalog = True  
+    if interactive:
+        matplotlib.use('TkAgg')
+        img.show_fit()
+        matplotlib.use('Agg')
     del img
-    return
+    return empty_catalog
+
+def get_number_of_sources_in_catalog(catalogfile):
+    """
+    Returns the number of sources in a given FITS catalog file. 
+    Parameters:
+    -----------
+    catalogfile : str
+        Path to the input catalog file in FITS format.
+    Returns:
+    --------
+    int
+        Number of sources in the catalog.
+    """
+    hdu_list = fits.open(catalogfile)
+    catalog = Table(hdu_list[1].data)
+    hdu_list.close()
+    return len(catalog)
 
 def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., keep_N_brightest=20, previous_catalog=None, N_dir_max=45):
     """
@@ -3822,7 +3849,7 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
     new_catalog.write(outcatalogfile, format='fits', overwrite=True)
 
 
-def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_region='directions.reg'):
+def write_facet_directions(catalogfile, freq, facetdirections = 'directions.txt', ds9_region='directions.reg', telescope = 'LOFAR'):
     """
     Writes facet directions to a text file and generates a DS9 region file.
     This function processes a FITS catalog file to extract source information 
@@ -3832,11 +3859,15 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
     -----------
     catalogfile : str
         Path to the FITS catalog file containing source information.
+    freq : float
+        Frequency in Hz.    
     facetdirections : str, optional
         Name of the output text file containing facet directions. 
         Default is 'directions.txt'.
     ds9_region : str, optional
         Name of the output DS9 region file. Default is 'directions.reg'.
+    telescope : str, optional
+        Name of the telescope (e.g., 'LOFAR', 'MeerKAT'). Default is 'LOFAR'.    
     Outputs:
     --------
     - A text file (`facetdirections`) containing RA, DEC, self-calibration 
@@ -3853,7 +3884,7 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
     - The function assumes the FITS catalog contains columns 'RA' and 'DEC'.
     Example:
     --------
-    write_facet_directions('source_catalog.fits', 'output_directions.txt', 'output_regions.reg')
+    write_facet_directions('source_catalog.fits', freq, 'output_directions.txt', 'output_regions.reg')
     """
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
@@ -3861,36 +3892,61 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
     #print(catalog['Peak_flux'])
     hdu_list.close()
     selfcalcycle = 0 # hard coded at zero is ok
-    solints_bright = ["'32sec'", "'2min'", "'10min'","'192sec'"]
-    solints = ["'32sec'", "'2min'", "'20min'","'192sec'"]
-    smoothing_bright = [10,25,5,25]
-    smoothing = [10,25,15,25]
-    N_bright = 4 # first N_bright get less smoothness and solint
-    N_normal = 45 # beyond this we have pertubative directions
-    N_amps   = 35 # directions for scalarcomplexgain solve
     
-    inclusion_flags = [True,True,True,True]
-    inclusion_flags_no_amps = [True,True,False,True]
-    inclusion_flags_pert = [False,False,False,True]
-    
+    if telescope == 'LOFAR':
+        solints_bright = ["'32sec'", "'2min'", "'10min'","'192sec'"]
+        solints = ["'32sec'", "'2min'", "'20min'","'192sec'"]
+        smoothing_bright = [10,25,5,25]
+        smoothing = [10,25,15,25]
+        N_bright = 4 # first N_bright get less smoothness and solint
+        N_normal = 45 # beyond this we have pertubative directions
+        N_amps   = 35 # directions for scalarcomplexgain solve
+        
+        inclusion_flags = [True,True,True,True]
+        inclusion_flags_no_amps = [True,True,False,True]
+        inclusion_flags_pert = [False,False,False,True]
+    elif telescope == 'MeerKAT':
+        solints_vbright = ["'32sec'", "'5min'"]
+        solints_bright = ["'32sec'", "'10min'"]
+        solints = ["'64sec'", "'30min'"]
+        smoothing_vbright = [50,5]
+        smoothing_bright = [50,20]
+        smoothing = [100,100]
+        inclusion_flags = [True,True]
+    else:
+        raise ValueError('Telescope not supported', telescope)   
+
     write_ds9_regions(catalog['RA'], catalog['DEC'], filename=ds9_region) 
   
     with open(facetdirections,"w") as f:
         f.write('#RA DEC start solints smoothness soltypelist_includedir\n')
         for source_counter,source in enumerate(catalog):
-            if source_counter < N_bright: 
-                smoothnessvals = smoothing_bright
-                solintvals    = solints_bright
-            else:
-                smoothnessvals = smoothing
-                solintvals = solints
-            if source_counter < N_amps:
-                inclusion_flagsvals = inclusion_flags # include all solve types
-            elif source_counter >= N_amps and source_counter < N_normal: 
-                inclusion_flagsvals = inclusion_flags_no_amps # skip amp solving, but include first phases
-            else:
-                inclusion_flagsvals = inclusion_flags_pert # pertubative phases only
-                
+            if telescope == 'LOFAR':
+                if source_counter < N_bright: 
+                    smoothnessvals = smoothing_bright
+                    solintvals    = solints_bright
+                else:
+                    smoothnessvals = smoothing
+                    solintvals = solints
+                if source_counter < N_amps:
+                    inclusion_flagsvals = inclusion_flags # include all solve types
+                elif source_counter >= N_amps and source_counter < N_normal: 
+                    inclusion_flagsvals = inclusion_flags_no_amps # skip amp solving, but include first phases
+                else:
+                    inclusion_flagsvals = inclusion_flags_pert # pertubative phases only
+            elif telescope == 'MeerKAT':
+                # use AFLUX to determine very bright sources
+                if source['AFLUX'] > 0.25*((freq/1.28e9)**(-0.7)): # very bright source
+                    smoothnessvals = smoothing_vbright
+                    solintvals    = solints_vbright
+                elif source['AFLUX'] > 0.05*((freq/1.28e9)**(-0.7)): # bright source
+                    smoothnessvals = smoothing_bright  
+                    solintvals    = solints_bright
+                else:
+                    smoothnessvals = smoothing
+                    solintvals = solints
+                inclusion_flagsvals = inclusion_flags # include all solve types         
+
             line = f"{source['RA']} {source['DEC']} {selfcalcycle} " \
                    f"[{','.join(solintvals)}] " \
                    f"[{','.join(str(s) for s in smoothnessvals)}] " \
@@ -3898,8 +3954,63 @@ def write_facet_directions(catalogfile, facetdirections = 'directions.txt', ds9_
                    f"# direction Dir{source_counter:02d}\n"
             f.write(line)
 
+def add_peak_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.5):
+    """
+    Adds peak flux values from a flux catalog to an existing catalog based on positional matching.
+    Parameters:
+    -----------
+    catalogfile : str
+        Path to the input catalog file in FITS format where peak flux values will be added.
+    fluxcatalogfile : str
+        Path to the flux catalog file in FITS format containing peak flux values.
+    match_radius : float, optional
+        Maximum separation distance (in arcminutes) for matching sources between the two catalogs. Default is 1.5 arcminutes.
+    Returns:
+    --------
+    None
+        The updated catalog is saved back to the original `catalogfile`.
+    Notes:
+    ------
+    - The function reads both catalogs and checks for the presence of the 'AFLUX' column in the input catalog.
+    - If 'AFLUX' is not present, it is added and initialized to zero.
+    - For each source in the input catalog, the function searches for sources in the flux catalog within the specified `match_radius`.
+    - If multiple matches are found, the source with the highest peak flux is used to update the 'AFLUX' value.
+    - The updated catalog is written back to the original file, overwriting it.
+    """
+    hdu_list = fits.open(catalogfile)
+    catalog = Table(hdu_list[1].data)
+    
+    # add colunn 'AFLUX' if not present to catalog
+    if 'AFLUX' not in catalog.colnames:
+        # make columns with the same type as Peak_flux
+        catalog['AFLUX'] = np.zeros(len(catalog), dtype=catalog['Peak_flux'].dtype)
+        print('Added AFLUX column to catalog')
+    hdu_list.close()
 
-def auto_direction(selfcalcycle=0, telescope=None, imagename=None, idg=None, channelsout=None):
+    hdu_list_flux = fits.open(fluxcatalogfile)
+    catalog_flux = Table(hdu_list_flux[1].data)
+    hdu_list_flux.close()
+
+    for source_id, source in enumerate(catalog):
+        # find sources in flux catalog within match_radius arcmin
+        c1 = SkyCoord(source['RA']*units.degree, source['DEC']*units.degree, frame='icrs')
+        for fluxsource_id, fluxsource in enumerate(catalog_flux):
+            c2 = SkyCoord(fluxsource['RA']*units.degree, fluxsource['DEC']*units.degree, frame='icrs')
+            # find sources closer than 1.5 arcmin
+            # from these sources, pick the one with the highest flux
+            if c1.separation(c2).to(units.arcmin).value < match_radius:
+                #print('Found flux source with ID', fluxsource['Source_id'], 'for error catalog source ID', source['Source_id'])
+                #print('Peak flux error catalog / flux source:', catalog['Peak_flux'][source_id], fluxsource['Peak_flux'])
+                # only update catalog if Peak_flux is higher than current value
+                if fluxsource['Peak_flux'] > catalog['AFLUX'][source_id]:
+                    catalog['AFLUX'][source_id] = fluxsource['Peak_flux']  
+        print('-- Set AFLUX to', catalog['AFLUX'][source_id], 'for source ID', source['Source_id'], '--')
+                    
+    # save updated catalog
+    catalog.write(catalogfile, format='fits', overwrite=True)
+    return
+
+def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, idg=None, channelsout=None):
     """
     Automatically determines and processes calibration directions for self-calibration cycles.
     Parameters:
@@ -3907,8 +4018,10 @@ def auto_direction(selfcalcycle=0, telescope=None, imagename=None, idg=None, cha
     selfcalcycle : int, optional
         The self-calibration cycle number (default is 0). Determines the parameters for 
         artifact catalog creation and filtering.
+    freq : float, optional
+        The frequency in Hz (default is 150e6 Hz). Used for solution setting purposes.
     telescope : str, optional
-        The name of the telescope (not used in current implementation). Default is None.
+        The name of the telescope (not used in current implementation). Default is None.   
     imagename : str, optional
         The base name of the image file (without cycle number and suffix). If provided,
         it overrides the global `args` dictionary for standalone usage. Default is None.
@@ -3945,6 +4058,9 @@ def auto_direction(selfcalcycle=0, telescope=None, imagename=None, idg=None, cha
     - Requires the `astropy.io.fits` module for handling FITS files.
     - Assumes the presence of helper functions for error map generation, catalog creation, and plotting.
     """
+    global args # this is specifically needed here
+    # otherwise during compilation it sees the args = {'imagename': imagename} removing the connection to the global args
+
     # set input parameters for standalone usage
     if imagename is not None:
         args = {'imagename': imagename}
@@ -3953,51 +4069,79 @@ def auto_direction(selfcalcycle=0, telescope=None, imagename=None, idg=None, cha
     if channelsout is not None:
         args |= {'channelsout': channelsout}
 
-    if selfcalcycle == 0:
-        keep_N_brightest = 15
-        distance = 20
-        N_dir_max = 15
-    if selfcalcycle == 1:
-        keep_N_brightest = 20 
-        distance = 20
-        N_dir_max = 25
-    if selfcalcycle == 2:
-        keep_N_brightest = 30
-        distance = 15
-        N_dir_max = 35
-    if selfcalcycle == 3:
-        keep_N_brightest = 40   
-        distance = 15
-        N_dir_max = 45
-    if selfcalcycle == 4:
-        keep_N_brightest = 40   
-        distance = 15
-        N_dir_max = 45
-    if selfcalcycle == 5:
-        keep_N_brightest = 50   
-        distance = 10
-        N_dir_max = 60
-    if selfcalcycle == 6:
-        keep_N_brightest = 60   
-        distance = 10
-        N_dir_max = 70
-    if selfcalcycle == 7:
-        keep_N_brightest = 70   
-        distance = 10
-        N_dir_max = 80
-    if selfcalcycle == 8:
-        keep_N_brightest = 80   
-        distance = 10
-        N_dir_max = 90
-    if selfcalcycle == 9:
-        keep_N_brightest = 90   
-        distance = 10
-        N_dir_max = 100
-    if selfcalcycle >= 10:
-        keep_N_brightest = 100   
-        distance = 10
-        N_dir_max = 100
-
+    if telescope == 'LOFAR':
+        thresh_pix = 7.5
+        thresh_isl = 7.5
+        if selfcalcycle == 0:
+            keep_N_brightest = 15
+            distance = 20
+            N_dir_max = 15
+        if selfcalcycle == 1:
+            keep_N_brightest = 20 
+            distance = 20
+            N_dir_max = 25
+        if selfcalcycle == 2:
+            keep_N_brightest = 30
+            distance = 15
+            N_dir_max = 35
+        if selfcalcycle == 3:
+            keep_N_brightest = 40   
+            distance = 15
+            N_dir_max = 45
+        if selfcalcycle == 4:
+            keep_N_brightest = 40   
+            distance = 15
+            N_dir_max = 45
+        if selfcalcycle == 5:
+            keep_N_brightest = 50   
+            distance = 10
+            N_dir_max = 60
+        if selfcalcycle == 6:
+            keep_N_brightest = 60   
+            distance = 10
+            N_dir_max = 70
+        if selfcalcycle == 7:
+            keep_N_brightest = 70   
+            distance = 10
+            N_dir_max = 80
+        if selfcalcycle == 8:
+            keep_N_brightest = 80   
+            distance = 10
+            N_dir_max = 90
+        if selfcalcycle == 9:
+            keep_N_brightest = 90   
+            distance = 10
+            N_dir_max = 100
+        if selfcalcycle >= 10:
+            keep_N_brightest = 100   
+            distance = 10
+            N_dir_max = 100
+    elif telescope == 'MeerKAT':
+        thresh_pix = 4.5 # MeerKAT smaller artifacts, so use lower thresholds
+        thresh_isl = 4.5      
+        if selfcalcycle == 0:
+            keep_N_brightest = 3
+            distance = 20 # this assumes a reasonable field of view
+            N_dir_max = 3
+        if selfcalcycle == 1:
+            thresh_pix = 4. # lower thresholds for higher cycles
+            thresh_isl = 4.  
+            keep_N_brightest = 5 
+            distance = 20
+            N_dir_max = 5
+        if selfcalcycle >= 2:
+            thresh_pix = 3.5 # lower thresholds for higher cycles
+            thresh_isl = 3.5   
+        if selfcalcycle == 2:
+            keep_N_brightest = 8
+            distance = 15
+            N_dir_max = 10
+        if selfcalcycle >= 3:
+            keep_N_brightest = 15   
+            distance = 15
+            N_dir_max = 15
+    else:
+        raise Exception('Telescope not supported for auto_directions:', telescope)    
     
     # set image name input to compute error map
     if args['idg']:
@@ -4032,13 +4176,40 @@ def auto_direction(selfcalcycle=0, telescope=None, imagename=None, idg=None, cha
     calibration_error_map(fitsimage,  outputerrormap, kernelsize=31, rebin=31)
     
     # create the artifact sources catalog 
-    create_calibration_error_catalog(outputerrormap, outputcatalog, thresh_pix=7.5,thresh_isl=7.5)
+    empty_catalog = create_calibration_error_catalog(outputerrormap, outputcatalog, thresh_pix=thresh_pix,thresh_isl=thresh_isl)
     
+    # check if just one/twp sources were found in catalog in selfcalcycle 0
+    if selfcalcycle == 0 and not empty_catalog:
+        if get_number_of_sources_in_catalog(outputcatalog) == 1:
+            # we will add two extra sources to the catalog, at the location of a bright source in the image
+            print('\033[93m' + 'Only one artifact source found, adding two extra sources at the location of a bright source in the outputfluxcatalog' + '\033[0m')
+            add_source_to_catalog(outputcatalog, outputfluxcatalog, distance=distance)
+            add_source_to_catalog(outputcatalog, outputfluxcatalog, distance=distance)
+        elif get_number_of_sources_in_catalog(outputcatalog) == 2:   
+            # we will add an thrid extra source to the catalog, at the location of a bright source in the image
+            print('\033[93m' + 'Only two artifact sources found, adding an extra source at the location of a bright source in the outputfluxcatalog' + '\033[0m')
+            add_source_to_catalog(outputcatalog, outputfluxcatalog, distance=distance)
+        # in principle we can repeat adding sources, for now stick to one/two extra sources         
+
     # update the artifact catalog (keep only N-brightest, remove closely seperated sources, merge with previous catalog)
-    update_calibration_error_catalog(outputcatalog,outputcatalog_filtered, distance=distance, keep_N_brightest=keep_N_brightest, previous_catalog=previous_catalog, N_dir_max=N_dir_max)
-    
+    if not empty_catalog: 
+        update_calibration_error_catalog(outputcatalog,outputcatalog_filtered, distance=distance, keep_N_brightest=keep_N_brightest, previous_catalog=previous_catalog, N_dir_max=N_dir_max)
+    elif previous_catalog is not None: # this can happend when the calibration is already very good and no new artifact sources are found
+        print('No new sources found, copying previous catalog to current cycle')
+        if os.path.isfile(outputcatalog_filtered): # delete existing filtered catalog if it exists
+            os.system('rm -f {}'.format(outputcatalog_filtered))
+        os.system('cp {} {}'.format(previous_catalog, outputcatalog_filtered))
+    else:
+        # print in green text
+        print('\033[92m' + 'No artefact sources found on first image, cannot continue, there is no need for DDE calibration' + '\033[0m')
+        sys.exit(0)
+
+    # find peak fluxes from compact source catalog and add to filtered catalog (put in AFLUX column)
+    add_peak_flux_to_catalog(outputcatalog_filtered, outputfluxcatalog)
+
     # write facet direction file (for facetselfcal), also output directions.reg for visualization
-    write_facet_directions(outputcatalog_filtered, facetdirections=facetdirections, ds9_region=directions_reg)
+    write_facet_directions(outputcatalog_filtered, freq, facetdirections=facetdirections, 
+                           ds9_region=directions_reg, telescope=telescope)
 
     # plot, # hardcode minmax to always usage image000 so it is easier to compare
     hdulist = fits.open(args['imagename'] + str(0).zfill(3) + '-errormap.fits') 
@@ -4048,6 +4219,89 @@ def auto_direction(selfcalcycle=0, telescope=None, imagename=None, idg=None, cha
     plotimage_astropy(outputerrormap, outplotname, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
     return facetdirections
 
+def add_source_to_catalog(catalogfile, fluxcatalogfile, distance=20.):
+    # add new source to catalog file, which can contain multiple sources
+    # ensure new source is at least distance arcmin away from all existing sources
+    hdu_list = fits.open(catalogfile)
+    catalog = Table(hdu_list[1].data)
+    hdu_list.close()
+    # create copy of catalog to which we will add a source
+    new_catalog = catalog.copy()
+    hdu_list_flux = fits.open(fluxcatalogfile)
+    catalog_flux = Table(hdu_list_flux[1].data)
+    # sort flux catalog on Peak_flux, with the brightest first
+    idx = catalog_flux.argsort(keys='Peak_flux', reverse=True)
+    catalog_flux = catalog_flux[idx]
+    hdu_list_flux.close()
+    for fluxsource_id, fluxsource in enumerate(catalog_flux):
+        c2 = SkyCoord(fluxsource['RA']*units.degree, fluxsource['DEC']*units.degree, frame='icrs')
+        too_close = False
+        for source_id, source in enumerate(catalog):
+            c1 = SkyCoord(source['RA']*units.degree, source['DEC']*units.degree, frame='icrs')
+            if c1.separation(c2).to(units.arcmin).value < distance:
+                too_close = True
+                break
+        if not too_close:
+            print('Adding source with ID', fluxsource['Source_id'], 'to error catalog, it is at least', distance, 'arcmin away from all existing sources')
+            new_catalog.add_row(fluxsource)
+            # update the Peak_flux and to the new source setting it to a low value
+            new_catalog['Peak_flux'][-1] = 1e-3 # 1 mJy, should not trigger bright source criteria
+            break
+    new_catalog.write(catalogfile, format='fits', overwrite=True)
+    return
+
+
+
+def add_source_to_catalog1(catalogfile, fluxcatalogfile, distance=20.):
+    '''
+    Add a source from the fluxcatalogfile to the catalogfile if only one source is found
+    in the catalogfile. The new source should be at least distance arcmin away from the
+    existing source.
+    Parameters:
+    -----------
+    catalogfile : str
+        Path to the input catalog file in FITS format where a new source will be added.
+    fluxcatalogfile : str
+        Path to the flux catalog file in FITS format containing potential new sources.
+    distance : float, optional
+        Minimum separation distance (in arcminutes) to consider the new source as distinct. Default is 20 arcminutes.
+    Returns:
+    --------
+    None
+        The updated catalog is saved back to the original `catalogfile`.
+    Notes:
+    ------
+    - The function reads both catalogs and asserts that the input catalog contains exactly one source.
+    - It searches the flux catalog for a source that is at least `distance` arcminutes away from the existing source.
+    - The first source found that meets this criterion is added to the input catalog.
+    - The updated catalog is written back to the original file, overwriting it.
+    '''
+    hdu_list = fits.open(catalogfile)
+    catalog = Table(hdu_list[1].data)
+    hdu_list.close()
+    assert len(catalog) == 1, 'Catalog should contain exactly one source'
+    # create copy of catalog to which we will add a source
+    new_catalog = catalog.copy()
+
+    hdu_list_flux = fits.open(fluxcatalogfile)
+    catalog_flux = Table(hdu_list_flux[1].data)
+    # sort flux catalog on Peak_flux, with the brightest first
+    idx = catalog_flux.argsort(keys='Peak_flux', reverse=True)
+    catalog_flux = catalog_flux[idx]
+    hdu_list_flux.close()
+    
+    existing_source = catalog[0]
+    c1 = SkyCoord(existing_source['RA']*units.degree, existing_source['DEC']*units.degree, frame='icrs')
+    for fluxsource_id, fluxsource in enumerate(catalog_flux):
+        c2 = SkyCoord(fluxsource['RA']*units.degree, fluxsource['DEC']*units.degree, frame='icrs')
+        if c1.separation(c2).to(units.arcmin).value > distance:
+            print('Adding source with ID', fluxsource['Source_id'], 'to error catalog, it is', c1.separation(c2).to(units.arcmin).value, 'arcmin away from existing source')
+            new_catalog.add_row(fluxsource)
+            # update the Peak_flux and to the new source setting it to a low value
+            new_catalog['Peak_flux'][-1] = 1e-3 # 1 mJy, should not trigger bright source criteria
+            break
+    new_catalog.write(catalogfile, format='fits', overwrite=True)
+    return
 
 
 def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol='MODEL_DATA', stepsize=1000000):
@@ -5313,9 +5567,9 @@ def inputchecker(args, mslist):
        print('--auto_directions can only be used in combination with --DDE')
        raise Exception('--auto_directions can only be used in combination with --DDE')
 
-    if args['auto_directions'] and telescope != 'LOFAR':
-       print('--auto_directions can only be used with LOFAR observations for now')
-       raise Exception('--auto_directions can only be used with LOFAR observations for now')
+    if args['auto_directions'] and telescope not in ['LOFA','MeeKAT']:
+       print('--auto_directions can only be used with LOFAR and MeerKAT observations for now')
+       raise Exception('--auto_directions can only be used with LOFAR  and MeerKAT observations for now')
 
     if args['DP3_BDA_imaging'] and not args['DDE']:
         print('--DP3-BDA-imaging can only be used in combination with --DDE')
@@ -5395,10 +5649,6 @@ def inputchecker(args, mslist):
                 if 'CORRECTED_DATA' in t.colnames():  # not allowed for DDE runs (because solving from DATA and imaging from DATA with an h5)
                     print(ms, 'contains a CORRECTED_DATA column, this is not allowed when using --DDE')
                     raise Exception('CORRECTED_DATA should not be present when using option --DDE')
-
-    if args['DDE'] and not args['forwidefield']:
-        print('--forwidefield needs to be set in DDE mode')
-        raise Exception('--forwidefield needs to be set in DDE mode')
 
     if args['DDE'] and args['idg']:
         print('Option --idg cannot be used with option --DDE')
@@ -6033,7 +6283,7 @@ def smearing_time_ms_imsize(msin, imsize, pixelscale):
         time = np.unique(t.getcol('TIME'))
         tint = np.abs(time[1] - time[0])
     res = get_resolution(msin)
-    r_dis = 3600.*np.sqrt(2)*imsize*pixelscale # image diagonal length in arcsec
+    r_dis = np.sqrt(2)*(imsize/2)*pixelscale # image diagonal length in arcsec
     return smearing_time(r_dis, res, tint)
 
 def flag_smeared_data(msin):
@@ -12715,15 +12965,17 @@ def makemaskthresholdlist(maskthresholdlist, stop):
     return maskthresholdselfcalcycle
 
 
-def niter_from_imsize(imsize):
+def niter_from_imsize(imsize, paralleldeconvolution=-1):
     if imsize is None:
         print('imsize not set')
         raise Exception('imsize not set')
-    if imsize < 1024:
-        niter = 15000  # minimum  value
+    if paralleldeconvolution < 0:
+        if imsize < 1024:
+            niter = 15000  # minimum  value
+        else:
+            niter = 15000 * int((float(imsize) / 1024.))
     else:
-        niter = 15000 * int((float(imsize) / 1024.))
-
+        niter = 40 * int(paralleldeconvolution)
     return niter
 
 
@@ -12754,6 +13006,8 @@ def basicsetup(mslist):
         HBAorLBA = 'other'
         LBA = False
         HBA = False
+
+    if args['DDE']: args['forwidefield'] = True  # force widefield imaging if DDE
 
     # set some default values if not provided
     if args['uvmin'] is None:
@@ -12817,16 +13071,23 @@ def basicsetup(mslist):
         if args['imsize'] is None:
             args['imsize'] = 2048
 
-
     if args['boxfile'] is not None:
         if args['DDE']:
             args['imsize'] = getimsize(args['boxfile'], args['pixelscale'], increasefactor=1.025)
         else:
             args['imsize'] = getimsize(args['boxfile'], args['pixelscale'])
+    
+    if args['auto'] and telescope == 'MeerKAT' and not args['DDE']:
+        if args['imsize'] is None: args['imsize'] = 12000 # default for MeerKAT in auto mode
+
+    if args['paralleldeconvolution'] == 0: # means determine automatically
+        if args['imsize'] > 1600 and telescope == 'MeerKAT':
+            args['paralleldeconvolution'] = 1200
+        elif args['imsize'] > 1600: 
+            args['paralleldeconvolution'] =  np.min([2600, int(args['imsize'] / 2)])
+
     if args['niter'] is None:
-        if args['auto'] and telescope == 'MeerKAT' and not args['DDE']:
-            args['imsize'] = 12000 # default for MeerKAT in auto mode
-        args['niter'] = niter_from_imsize(args['imsize'])
+        args['niter'] = niter_from_imsize(args['imsize'], args['paralleldeconvolution'])
 
     if args['auto'] and telescope == 'LOFAR' and not longbaseline:
         args['update_uvmin'] = True
@@ -12841,46 +13102,56 @@ def basicsetup(mslist):
                 args['soltypecycles_list'] = [0, 999, 2]
                 args['stop'] = 8
 
-    if args['auto'] and telescope == 'MeerKAT' and not args['DDE']:
+    if args['auto'] and telescope == 'MeerKAT':
         args['channelsout'] = set_channelsout(mslist)
         args['fitspectralpol'] = set_fitspectralpol(args['channelsout'])
         args['update_uvmin'] = False
         args['usemodeldataforsolints'] = False
         args['forwidefield'] = True
-        args['autofrequencyaverage'] = False
+        args['autofrequencyaverage'] = True
         args['multiscale'] = True
         args['multiscale_start'] = 0
-        args['useaoflagger'] = True
-        args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua' #'default_StokesQUV.lua'
         args['noarchive'] = True
-        args['soltype_list'] = ['scalarphase']
-        args['soltypecycles_list'] = [0] 
-        args['solint_list'] = ['1min']
         args['uvminim'] = 10.
-
-        if freq < 1.0e9:  # UHF-band 
-            args['smoothnessconstraint_list'] = [50.] 
-        if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
-            args['smoothnessconstraint_list'] = [100.] 
-        if (freq >= 1.7e9) and (freq < 4.0e9):  # S-band
-            args['smoothnessconstraint_list'] = [150.] 
-
-        args['niter'] = 45000
-        args['stop'] = 3
-
-        # try to automatically set arg['msinstartchan'] and arg['msinnchan']
-        if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
-            startfreq = 906e6
-            endfreq = 1655e6
-            args['msinstartchan'], args['msinnchan'] = set_startchan_nchan(freqs, startfreq, endfreq)
+        args['mask_extended'] = True
+        if not args['DDE']:
+            args['useaoflagger'] = True
+            args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua' #'default_StokesQUV.lua'
+            if args['preapplybandpassH5_list'][0] is None:
+                args['soltype_list'] = ['scalarphase']
+            else: 
+                args['soltype_list'] = ['phaseonly'] # becuause XX and YY may not be perfectly calibrated
+            args['soltypecycles_list'] = [0] 
+            args['solint_list'] = ['1min']
+            args['stop'] = 3
+            if freq < 1.0e9:  # UHF-band 
+                args['smoothnessconstraint_list'] = [50.] 
+            if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
+                args['smoothnessconstraint_list'] = [100.] 
+            if (freq >= 1.7e9) and (freq < 4.0e9):  # S-band
+                args['smoothnessconstraint_list'] = [150.] 
+            
+            # try to automatically set arg['msinstartchan'] and arg['msinnchan'] for L-band
+            if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
+                startfreq = 906e6
+                endfreq = 1655e6
+                args['msinstartchan'], args['msinnchan'] = set_startchan_nchan(freqs, startfreq, endfreq)
+            if freq < 1.0e9:  # UHF-band 
+                startfreq = 595e6
+                endfreq = 1049e6
+                args['msinstartchan'], args['msinnchan'] = set_startchan_nchan(freqs, startfreq, endfreq)
+            # for S0 to S5 bands to do       
+        else: # so this is a DDE run
+            args['soltype_list'] = ['scalarphase','scalarcomplexgain']
+            args['stop'] = 5
+            args['soltypecycles_list'] = [0,0]
+            args['solint_list'] = ['1min','30min']
+            args['nchan_list'] = [1,1]
+            args['smoothnessconstraint_list'] = [100.,100.]
+            args['auto_directions'] = True
+            args['normamps_list'] = [None,'normamps']
             
 
-    if args['paralleldeconvolution'] == 0: # means determine automatically
-        if args['imsize'] > 1600 and telescope == 'MeerKAT':
-            args['paralleldeconvolution'] = 1200
-        elif args['imsize'] > 1600: 
-            args['paralleldeconvolution'] =  np.min([2600, int(args['imsize'] / 2)])
-            
     if args['auto'] and longbaseline and not args['delaycal']:
         args['update_uvmin'] = False
         args['usemodeldataforsolints'] = True
@@ -13602,7 +13873,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '16.1.0'
+    facetselfcal_version = '16.2.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -13670,7 +13941,6 @@ def main():
         copy_over_solutions_from_skipped_directions(modeldatacolumnsin, id_kept)
         merge_splitted_h5_ordered(modeldatacolumnsin, 'test.h5', clean_up=False)
         sys.exit()
-
 
 
     # fix bad GMRT weights for LR and LR (because they are set to zero if created by fixuGMRT_revised.py)
@@ -14121,7 +14391,7 @@ def main():
 
         modeldatacolumns = []
         if args['DDE']:
-            if args['auto_directions']: args['facetdirections'] = auto_direction(i, telscope=telescope)
+            if args['auto_directions']: args['facetdirections'] = auto_direction(i, freq=freq, telescope=telescope)
             modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], telescope=telescope))
