@@ -3810,7 +3810,7 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
     print(catalog.columns)
     hdu_list.close()
     
-    # sort catalog at Peak flux
+    # sort catalog at Peak flux, brightest first
     idx = catalog.argsort(keys='Peak_flux', reverse=True)
     catalog = catalog[idx]
     
@@ -3979,7 +3979,7 @@ def add_peak_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.5):
     """
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
-    
+
     # add colunn 'AFLUX' if not present to catalog
     if 'AFLUX' not in catalog.colnames:
         # make columns with the same type as Peak_flux
@@ -4004,7 +4004,8 @@ def add_peak_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.5):
                 # only update catalog if Peak_flux is higher than current value
                 if fluxsource['Peak_flux'] > catalog['AFLUX'][source_id]:
                     catalog['AFLUX'][source_id] = fluxsource['Peak_flux']  
-        print('-- Set AFLUX to', catalog['AFLUX'][source_id], 'for source ID', source['Source_id'], '--')
+                    print('CC', catalog['AFLUX'][source_id],fluxsource['Peak_flux'])
+        print('-- Set AFLUX to', catalog['AFLUX'][source_id], 'for source', source_id, 'Matching radius (arcmin)', match_radius ,'--')
                     
     # save updated catalog
     catalog.write(catalogfile, format='fits', overwrite=True)
@@ -4160,6 +4161,11 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
     outplotname =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.png'
     outputfluxcatalog = args['imagename'] + str(selfcalcycle).zfill(3) + '-compactsource-flux.fits'
     
+
+    with fits.open(fitsimage) as hdul:
+        pixsize = 3600. * (hdul[0].header['CDELT2']) # in arcsec
+        match_radius = pixsize*31.*4/60.
+
     if selfcalcycle > 0:
         previous_catalog =  args['imagename'] + str(selfcalcycle-1).zfill(3) + '-errormap.srl.filtered.fits'
         if not os.path.isfile(previous_catalog) or not os.path.isfile(args['imagename'] + str(0).zfill(3) + '-errormap.fits'):
@@ -4205,7 +4211,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
         sys.exit(0)
 
     # find peak fluxes from compact source catalog and add to filtered catalog (put in AFLUX column)
-    add_peak_flux_to_catalog(outputcatalog_filtered, outputfluxcatalog)
+    add_peak_flux_to_catalog(outputcatalog_filtered, outputfluxcatalog, match_radius=match_radius)
 
     # write facet direction file (for facetselfcal), also output directions.reg for visualization
     write_facet_directions(outputcatalog_filtered, freq, facetdirections=facetdirections, 
