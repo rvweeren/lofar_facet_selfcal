@@ -630,7 +630,7 @@ def option_parser():
                         default='facetselfcal_config.txt',
                         type=str)
     parser.add_argument('--auto',
-                        help='Trigger fully automated processing for HBA extracted datasets, HBA long baseline facet-calibrators, MeerKAT L-band DI, and MeerKAT UHF-band DI',
+                        help='Trigger fully automated processing for HBA extracted datasets, HBA long baseline facet-calibrators, MeerKAT L-band DI/DD, and MeerKAT UHF-band DI/DD. For DD --auto-directions functionality is used.',
                         action='store_true')
     parser.add_argument('--auto-directions',
                         help='Automatically determine directions for DD solves (under development).',
