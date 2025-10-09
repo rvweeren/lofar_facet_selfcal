@@ -105,4 +105,38 @@ jobs:
       - name: Run multi-facet calibration
         run: |
           singularity exec --bind "$(pwd)":/repo flocs.sif \
-          python /repo/facetselfcal.py
+          python /repo/facetselfcal.py \
+          -i image_A1775_DD \
+          --forwidefield \
+          --noarchive \
+          --skipbackup \
+          --solint-list="['2min','30min']" \
+          --soltype-list="['scalarphase','scalarcomplexgain']" \
+          --soltypecycles-list=[0,2] \
+          --smoothnessconstraint-list=[10.,10.] \
+          --niter=15000 \
+          --stop=2 \
+          --multiscale \
+          --multiscale-start=0 \
+          --DDE \
+          --facetdirection=/repo/.github/data/directions.txt \
+          --uvmin=750 \
+          --boxfile=/repo/.github/data/PSZ2G031.93+78.71.ds9.reg \
+          --antennaconstraint-list="['core',None]" \
+          --resetdir-list="[None,None]" \
+          --fitspectralpol=1 \
+          --channelsout=2 \
+          --remove-outside-center \
+          --remove-outside-center-box=/repo/.github/data/A1775ddbox.reg \
+          --test \
+          /repo/.github/data/test2.ms
+
+      - name: Show free space at end (debug)
+        if: always()
+        run: df -h
+
+      - name: Clean Singularity cache (always)
+        if: always()
+        run: |
+          singularity cache clean -a || true
+          rm -rf "$SINGULARITY_CACHEDIR" || true
