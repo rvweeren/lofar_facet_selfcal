@@ -3807,7 +3807,7 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
     """
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
-    print(catalog.columns)
+    #print(catalog.columns)
     hdu_list.close()
     
     # sort catalog at Peak flux, brightest first
@@ -4146,7 +4146,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
             N_dir_max = 10
         if selfcalcycle >= 3:
             keep_N_brightest = 15   
-            distance = 15
+            distance = 10
             N_dir_max = 15
     else:
         raise Exception('Telescope not supported for auto_directions:', telescope)    
@@ -6296,7 +6296,7 @@ def smearing_time_ms_imsize(msin, imsize, pixelscale):
         time = np.unique(t.getcol('TIME'))
         tint = np.abs(time[1] - time[0])
     res = get_resolution(msin)
-    r_dis = np.sqrt(2)*(imsize/2)*pixelscale # image diagonal length in arcsec
+    r_dis = np.sqrt(2)*(imsize/2)*pixelscale # image half diagonal length in arcsec
     return smearing_time(r_dis, res, tint)
 
 def flag_smeared_data(msin):
