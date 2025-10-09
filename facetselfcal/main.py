@@ -3986,29 +3986,36 @@ def add_peak_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.5):
         catalog['AFLUX'] = np.zeros(len(catalog), dtype=catalog['Peak_flux'].dtype)
         print('Added AFLUX column to catalog')
     hdu_list.close()
+    
+    # set all catalog['AFLUX'] to zero because there can be NaNs for new entries
+    # this is caused by a vstack in update_calibration_error_catalog() with merges one catalog with and one without the 'AFLUX' column
+    catalog['AFLUX'] = 0.0
+    
 
     hdu_list_flux = fits.open(fluxcatalogfile)
     catalog_flux = Table(hdu_list_flux[1].data)
     hdu_list_flux.close()
 
+    new_catalog = catalog.copy()
     for source_id, source in enumerate(catalog):
         # find sources in flux catalog within match_radius arcmin
         c1 = SkyCoord(source['RA']*units.degree, source['DEC']*units.degree, frame='icrs')
         for fluxsource_id, fluxsource in enumerate(catalog_flux):
             c2 = SkyCoord(fluxsource['RA']*units.degree, fluxsource['DEC']*units.degree, frame='icrs')
-            # find sources closer than 1.5 arcmin
+            # find sources closer than match_radius arcmin
             # from these sources, pick the one with the highest flux
             if c1.separation(c2).to(units.arcmin).value < match_radius:
                 #print('Found flux source with ID', fluxsource['Source_id'], 'for error catalog source ID', source['Source_id'])
                 #print('Peak flux error catalog / flux source:', catalog['Peak_flux'][source_id], fluxsource['Peak_flux'])
                 # only update catalog if Peak_flux is higher than current value
-                if fluxsource['Peak_flux'] > catalog['AFLUX'][source_id]:
-                    catalog['AFLUX'][source_id] = fluxsource['Peak_flux']  
-                    print('CC', catalog['AFLUX'][source_id],fluxsource['Peak_flux'])
-        print('-- Set AFLUX to', catalog['AFLUX'][source_id], 'for source', source_id, 'Matching radius (arcmin)', match_radius ,'--')
+                #print('match found', fluxsource['Peak_flux'],new_catalog['AFLUX'][source_id])
+                if fluxsource['Peak_flux'] > new_catalog['AFLUX'][source_id]:
+                    new_catalog['AFLUX'][source_id] = fluxsource['Peak_flux']  
+                    #print('CC', new_catalog['AFLUX'][source_id],fluxsource['Peak_flux'])
+        print('-- Set AFLUX to', new_catalog['AFLUX'][source_id], 'for source', source_id, 'Matching radius (arcmin)', match_radius ,'--')
                     
     # save updated catalog
-    catalog.write(catalogfile, format='fits', overwrite=True)
+    new_catalog.write(catalogfile, format='fits', overwrite=True)
     return
 
 def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, idg=None, channelsout=None):
@@ -4164,7 +4171,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
 
     with fits.open(fitsimage) as hdul:
         pixsize = 3600. * (hdul[0].header['CDELT2']) # in arcsec
-        match_radius = pixsize*31.*4/60.
+        match_radius = pixsize*31.*3./60.
 
     if selfcalcycle > 0:
         previous_catalog =  args['imagename'] + str(selfcalcycle-1).zfill(3) + '-errormap.srl.filtered.fits'
@@ -12533,7 +12540,7 @@ def calculate_solintnchan(compactflux):
     return int(nchan), int(solint_phase), int(solint_ap)
 
 
-def write_compactsource_flux(fitsimage, outputcatalog):
+def write_compactsource_flux(fitsimage, outputcatalog, interactive=False):
     """
     Processes a FITS image to detect compact sources and writes their flux information to an output catalog.
     Parameters:
@@ -12556,6 +12563,10 @@ def write_compactsource_flux(fitsimage, outputcatalog):
         rmsbox2 = int((rmsbox1 / 10.) + 1.) 
     img = bdsf.process_image(fitsimage, mean_map='zero', rms_map=True, rms_box=(rmsbox1, rmsbox2))
     img.write_catalog(format='fits', outfile=outputcatalog, catalog_type='srl', clobber=True)
+    if interactive:
+        matplotlib.use('TkAgg')
+        img.show_fit()
+        matplotlib.use('Agg')
     del img
     return
 
