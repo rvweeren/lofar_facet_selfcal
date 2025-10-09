@@ -1,75 +1,86 @@
 name: Test facetselfcal
 
 on:
-  pull_request:  # Run on any PR
+  pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Free disk space
+        uses: insightsengineering/disk-space-reclaimer@v1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+
+      - name: Show free space before install
+        run: df -h
+
       - name: Disable Microsoft Repo
         run: |
-          sudo sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/microsoft-prod.list
+          sudo sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/microsoft-prod.list || true
           sudo apt-get update
 
       - name: Install Singularity
         run: |
           sudo apt-get install -y singularity-container
 
-      - name: Download flocs Singularity
+      - name: Configure Singularity cache
         run: |
-          singularity pull flocs.sif \
-          https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif
+          echo "SINGULARITY_CACHEDIR=$RUNNER_TEMP/singularity-cache" >> $GITHUB_ENV
+          mkdir -p "$RUNNER_TEMP/singularity-cache"
+
+      - name: Download flocs SIF (no cache)
+        run: |
+          curl -L "https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif" -o flocs.sif
+          ls -lh flocs.sif
+          df -h
 
       - name: Run --help on main.py
         run: |
-          singularity exec --bind $(pwd):/repo flocs.sif \
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/facetselfcal/main.py --help
 
       - name: Run --help on h5_merger
         run: |
-          singularity exec --bind $(pwd):/repo flocs.sif \
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/submods/h5_merger.py --help
 
       - name: Run --help on ds9facetgenerator
         run: |
-          singularity exec --bind $(pwd):/repo flocs.sif \
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/submods/ds9facetgenerator.py --help
 
       - name: Multi-directional merge h5_merger
         run: |
-          singularity exec --bind $(pwd):/repo flocs.sif \
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/submods/h5_merger.py \
           -in /repo/.github/data/dirtest?.h5 -out merged.h5 --single_pol --add_directions [0,0]
 
       - name: Full-Jones merge h5_merger
         run: |
-          singularity exec --bind $(pwd):/repo flocs.sif \
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/submods/h5_merger.py \
           -in /repo/.github/data/fulljones?.h5 -out fulljonesmerged.h5 --circ2lin
 
-#      - name: Test h5_merger output
-#        run: |
-#          singularity exec --bind $(pwd):/repo flocs.sif \
-#          python /repo/.github/scripts/test_h5_merger_output.py
-
       - name: Run --auto with facetselfcal
         run: |
-          singularity exec --bind $(pwd):/repo flocs.sif \
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/facetselfcal.py --auto --testing --stop 2 --channelsout 2 --fitspectralpol 1 /repo/.github/data/test.ms
 
       - name: Run self-calibration with config file
         run: |
-          singularity exec --bind $(pwd):/repo flocs.sif \
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/facetselfcal.py --configpath /repo/.github/data/config_dd.txt /repo/.github/data/test.ms
 
       - name: Run calibration with skymodel
         run: |
-          singularity exec --bind $(pwd):/repo flocs.sif \
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/facetselfcal.py \
           --imsize=1600 \
           -i testdi \
@@ -98,32 +109,8 @@ jobs:
           --stopafterskysolve \
           --test \
           /repo/.github/data/test.ms
-      
+
       - name: Run multi-facet calibration
         run: |
-          singularity exec --bind $(pwd):/repo flocs.sif \
-          python /repo/facetselfcal.py \
-          -i image_A1775_DD \
-          --forwidefield \
-          --noarchive \
-          --skipbackup \
-          --solint-list="['2min','30min']" \
-          --soltype-list="['scalarphase','scalarcomplexgain']" \
-          --soltypecycles-list=[0,2] \
-          --smoothnessconstraint-list=[10.,10.] \
-          --niter=15000 \
-          --stop=2 \
-          --multiscale \
-          --multiscale-start=0 \
-          --DDE \
-          --facetdirection=/repo/.github/data/directions.txt \
-          --uvmin=750 \
-          --boxfile=/repo/.github/data/PSZ2G031.93+78.71.ds9.reg \
-          --antennaconstraint-list="['core',None]" \
-          --resetdir-list="[None,None]" \
-          --fitspectralpol=1 \
-          --channelsout=2 \
-          --remove-outside-center \
-          --remove-outside-center-box=/repo/.github/data/A1775ddbox.reg \
-          --test \
-          /repo/.github/data/test2.ms
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
+          python /repo/facetselfcal.py
