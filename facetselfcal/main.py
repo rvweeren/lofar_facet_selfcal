@@ -13197,7 +13197,7 @@ def basicsetup(mslist):
             args['update_multiscale'] = True  # HBA only
             if args['autofrequencyaverage_calspeedup']:
                 args['soltypecycles_list'] = [0, 999, 2]
-                args['stop'] = 8
+                if args['start'] == 0: args['stop'] = 8
 
     if args['auto'] and telescope == 'MeerKAT':
         args['channelsout'] = set_channelsout(mslist)
@@ -13296,7 +13296,7 @@ def basicsetup(mslist):
         args['antennaconstraint_list'] = ['alldutch', None, None]
         args['nchan_list'] = [1, 1, 1]
         args['uvmin'] = 40000
-        args['stop'] = 8
+        if args['start'] == 0: args['stop'] = 8
         args['maskthreshold'] = [5]
         args['docircular'] = True
 
