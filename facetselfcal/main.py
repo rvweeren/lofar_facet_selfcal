@@ -3563,7 +3563,20 @@ def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=Fals
 
 
 def addcol(t, incol, outcol, write_outcol=False, dysco=False):
-    """ Add a new column to a MS. """
+    """ 
+    Adds a new column to a table by copying the description and data from an existing column.
+    If the output column already exists, it will not be added again.
+    Optionally, the data from the input column can be copied to the output column.
+    Args:
+        t (table): the table to which the column will be added.
+        incol (str): name of the input column to copy (meta)data from.
+        outcol (str): name of the output column that will be created.
+        write_outcol (bool): If True, copy the data from the input column to the output column.
+        dysco (bool): If True, use Dysco compression for the new column.
+    Returns:
+        None
+    """
+    
     if outcol not in t.colnames():
         logging.info('Adding column: ' + outcol)
         coldmi = t.getdminfo(incol)
@@ -3580,8 +3593,34 @@ def addcol(t, incol, outcol, write_outcol=False, dysco=False):
         # copy over the columns
         taql("UPDATE $t SET " + outcol + "=" + incol)
 
-def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA',
-                           backup=True):
+def create_weight_spectrum(inmslist, outweightcol, updateweights=False, 
+                           updateweights_from_thiscolumn='MODEL_DATA', backup=True):
+    """
+    Creates or updates a weight spectrum column in one or more Measurement Sets (MS).
+    This function adds a new weight spectrum column (`outweightcol`) to the specified MS files,
+    optionally backing up the existing weight spectrum column and updating weights based on a model data column.
+
+    Parameters
+    ----------
+    inmslist : str or list of str
+        Path(s) to the input Measurement Set(s). Can be a single string or a list of strings.
+    outweightcol : str
+        Name of the output weight spectrum column to be created or updated.
+    updateweights : bool, optional
+        If True, update the weights using the specified model data column. Default is False.
+    updateweights_from_thiscolumn : str, optional
+        Name of the column from which to update weights (typically 'MODEL_DATA'). Default is 'MODEL_DATA'.
+    backup : bool, optional
+        If True, create a backup of the original weight spectrum column as 'WEIGHT_SPECTRUM_BACKUP'. Default is True.
+
+    Notes
+    -----
+    - For LoTSS-DR2 datasets, uses 'WEIGHT_SPECTRUM_SOLVE' if available.
+    - The function processes the MS in steps to handle large datasets efficiently.
+    - The weights are updated by multiplying with the squared absolute value of the model data if `updateweights` is True.
+    - Requires the `table` and `addcol` utilities, and NumPy for array operations.
+    """
+
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     stepsize = 1000000
@@ -3626,8 +3665,28 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False, updatewe
         del weight, model
 
 
-def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False,
-                                updateweights_from_thiscolumn='MODEL_DATA'):
+def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA'):
+    """
+    Creates or updates a weight spectrum column in one or more Measurement Sets using TAQL.
+    Parameters
+    ----------
+    inmslist : str or list of str
+        Path(s) to the Measurement Set(s) to process. If a single string is provided, it is converted to a list.
+    outweightcol : str
+        Name of the output weight column to create or update in the Measurement Set(s).
+    updateweights : bool, optional
+        If True, updates the weights using the specified column. Default is False.
+    updateweights_from_thiscolumn : str, optional
+        Name of the column from which to update weights. Default is 'MODEL_DATA'.
+    Notes
+    -----
+    - If the output weight column does not exist, it is added based on the reference weight column.
+    - For LoTSS-DR2 datasets, uses 'WEIGHT_SPECTRUM_SOLVE' as the reference weight column if available.
+    - Updates the specified column's polarization channels and computes the new weights.
+    - Prints the mean input weights and change factor for diagnostic purposes.
+    - Closes the Measurement Set table after processing.
+    """
+
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
@@ -4233,8 +4292,29 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
     return facetdirections
 
 def add_source_to_catalog(catalogfile, fluxcatalogfile, distance=20.):
-    # add new source to catalog file, which can contain multiple sources
-    # ensure new source is at least distance arcmin away from all existing sources
+    '''
+    Add a source from the fluxcatalogfile to the catalogfile if no sources are found
+    in the catalogfile. The new source should be at least distance arcmin away from all
+    existing sources.
+    Parameters:
+    -----------
+    catalogfile : str
+        Path to the input catalog file in FITS format where a new source will be added.
+    fluxcatalogfile : str
+        Path to the flux catalog file in FITS format containing potential new sources.
+    distance : float, optional
+        Minimum separation distance (in arcminutes) to consider the new source as distinct. Default is 20 arcminutes.
+    Returns:
+    --------
+    None
+        The updated catalog is saved back to the original `catalogfile`.
+    Notes:
+    ------
+    - The function reads both catalogs and checks if the input catalog is empty.
+    - It searches the flux catalog for a source that is at least `distance` arcminutes away from all existing sources.
+    - The first source found that meets this criterion is added to the input catalog.
+    - The updated catalog is written back to the original file, overwriting it.
+    '''
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
     hdu_list.close()
@@ -12986,7 +13066,7 @@ def niter_from_imsize(imsize, paralleldeconvolution=-1):
     if imsize is None:
         print('imsize not set')
         raise Exception('imsize not set')
-    if paralleldeconvolution < 0:
+    if paralleldeconvolution <= 0:
         if imsize < 1024:
             niter = 15000  # minimum  value
         else:
@@ -13117,7 +13197,7 @@ def basicsetup(mslist):
             args['update_multiscale'] = True  # HBA only
             if args['autofrequencyaverage_calspeedup']:
                 args['soltypecycles_list'] = [0, 999, 2]
-                args['stop'] = 8
+                if args['start'] == 0: args['stop'] = 8
 
     if args['auto'] and telescope == 'MeerKAT':
         args['channelsout'] = set_channelsout(mslist)
@@ -13140,7 +13220,9 @@ def basicsetup(mslist):
                 args['soltype_list'] = ['phaseonly'] # becuause XX and YY may not be perfectly calibrated
             args['soltypecycles_list'] = [0] 
             args['solint_list'] = ['1min']
-            args['stop'] = 3
+            
+            if args['start'] == 0: args['stop'] = 3 # this means we can do restarting runs as well
+            
             if freq < 1.0e9:  # UHF-band 
                 args['smoothnessconstraint_list'] = [50.] 
             if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
@@ -13160,7 +13242,7 @@ def basicsetup(mslist):
             # for S0 to S5 bands to do       
         else: # so this is a DDE run
             args['soltype_list'] = ['scalarphase','scalarcomplexgain']
-            args['stop'] = 5
+            if args['start'] == 0: args['stop'] = 5 # this means we can do restarting runs as well
             args['soltypecycles_list'] = [0,0]
             args['solint_list'] = ['1min','30min']
             args['nchan_list'] = [1,1]
@@ -13214,7 +13296,7 @@ def basicsetup(mslist):
         args['antennaconstraint_list'] = ['alldutch', None, None]
         args['nchan_list'] = [1, 1, 1]
         args['uvmin'] = 40000
-        args['stop'] = 8
+        if args['start'] == 0: args['stop'] = 8
         args['maskthreshold'] = [5]
         args['docircular'] = True
 
