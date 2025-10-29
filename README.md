@@ -7,7 +7,7 @@ If you use facetselfcal or extraction for scientific work, please cite van Weere
 https://ui.adsabs.harvard.edu/abs/2021A%26A...651A.115V/abstract 
 
 Requirements:
-- Container with all standard LOFAR software: https://tikk3r.github.io/flocs/ 
+- Container with all standard LOFAR software can be downloaded here: https://tikk3r.github.io/flocs/ 
 
 Installation:
 \
@@ -16,8 +16,12 @@ Installation:
 `pip install git+https://github.com/rvweeren/lofar_facet_selfcal.git`
 \
 \
-(with pip install, you install ```facetselfcal```, ```h5_merger```, ```ds9facetgenerator```, ```sub_sources_outside_region```
-as command line functionalities)
+With pip install, you install ```facetselfcal```, ```h5_merger```, ```ds9facetgenerator```, ```sub_sources_outside_region```
+as command line functionalities. Note that facetselfcal is also included in the Singularity container and can be called directly using ```facetselfcal```. However, by cloning the master version from GitHub, you are guaranteed to have the latest version. If you do not care about having the latest version you only need the download Singularity container to start using facetselfcal and the installation step can be skipped.
+\
+\
+Some basic help is given by:\
+`python /<path>/lofar_facet_selfcal/facetselfcal.py -h`, or `facetselfcal -h` if you want to use the pre-installed version in the Singularity container.
 
 
 # LOFAR
