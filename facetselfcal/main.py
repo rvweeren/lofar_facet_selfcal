@@ -8,7 +8,6 @@
 # auto update channels out and fitspectralpol for high dynamic range
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
-# compression: blosc2
 # useful? https://learning-python.com/thumbspage.html
 # add html summary overview
 # Stacking check that freq and time axes are identical
@@ -2589,8 +2588,37 @@ def get_time_preavg_factor_LTAdata(ms):
 
 def add_dummyms(msfiles):
     """
-    Add dummy ms to create a regular freuqency grid when doing a concat with DPPP
+    Add dummy measurement sets to create a regular frequency grid when concatenating with DPPP.
+    This function analyzes a list of measurement set files and inserts dummy MS entries
+    where there are gaps in the frequency spacing. This ensures a regular frequency grid
+    when the measurement sets are concatenated using DPPP.
+    Parameters
+    ----------
+    msfiles : list of str
+        List of paths to measurement set files to be processed.
+    Returns
+    -------
+    list of str
+        Updated list of measurement set files with dummy MS entries ('dummyX.ms') 
+        inserted where needed to maintain regular frequency spacing. If only one MS
+        is provided, returns the original list unchanged.
+    Notes
+    -----
+    - The function first checks the REF_FREQUENCY values in each MS. If these are
+      identical (which can happen after DPPP split in frequency), it falls back
+      to using CHAN_FREQ values.
+    - The input MS files are automatically sorted by increasing frequency.
+    - Dummy MS filenames follow the pattern 'dummy0.ms', 'dummy1.ms', etc.
+    - The function prints information about added dummy MS files and the final list.
+    Examples
+    --------
+    >>> msfiles = ['observation1.ms', 'observation3.ms']
+    >>> result = add_dummyms(msfiles)
+    Added dummy: dummy0.ms
+    Updated ms list with dummies inserted to create a regular frequency grid
+    ['observation1.ms', 'dummy0.ms', 'observation3.ms']
     """
+    
     if len(msfiles) == 1:
         return msfiles
     keyname = 'REF_FREQUENCY'
@@ -2732,6 +2760,43 @@ def mscolexist(ms, colname):
 
 
 def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True, metadata_compression=True):
+    """
+    Concatenate measurement sets from the same observation into regular frequency grids.
+
+    This function groups measurement sets by observation ID and concatenates them into
+    single output measurement sets with regular frequency grids. Missing frequency blocks
+    are filled with dummy measurement sets to maintain grid regularity.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of input measurement set paths to be concatenated.
+    outnamebase : str
+        Base name for output concatenated measurement sets. The observation number
+        will be appended (e.g., 'outnamebase_0.ms', 'outnamebase_1.ms').
+    colname : str, optional
+        Name of the data column to concatenate (default: 'DATA').
+    dysco : bool, optional
+        If True, use Dysco storage manager for compression (default: True).
+    metadata_compression : bool, optional
+        If True, enable compression for UVW coordinates, antenna data, and flags
+        (default: True).
+
+    Returns
+    -------
+    None
+        The function writes concatenated measurement sets to disk but returns nothing.
+
+    Notes
+    -----
+    - The function uses DP3 (DPPP) for the concatenation process.
+    - Missing measurement sets or those without the specified column are replaced
+      with dummy entries labeled 'missing<number>'.
+    - Existing output measurement sets are removed before creation.
+    - The function assumes `number_of_unique_obsids`, `getobsmslist`, `add_dummyms`,
+      `mscolexist`, and `run` are defined elsewhere in the codebase.
+    """
+
     for observation in range(number_of_unique_obsids(mslist)):
         # insert dummies for completely missing blocks to create a regular freuqency grid for DPPP
         obs_mslist = getobsmslist(mslist, observation)
@@ -2770,6 +2835,23 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True, met
 
 
 def fix_equidistant_times(mslist, dryrun, dysco=True, metadata_compression=False):
+    """
+    Ensures that the measurement sets (MS) in the provided list have equidistant time axes.
+    For non-LOFAR telescopes, checks if the time axis is regular; if not, regularizes and splits the MS as needed.
+    For LOFAR telescopes, no changes are made.
+
+    Args:
+        mslist (list of str): List of paths to measurement sets (MS).
+        dryrun (bool): If True, performs a dry run without making changes.
+        dysco (bool, optional): If True, enables DYSCO compression during splitting. Defaults to True.
+        metadata_compression (bool, optional): If True, enables metadata compression during splitting. Defaults to False.
+
+    Returns:
+        tuple:
+            - sorted_mslist (list of str): Sorted list of processed MS paths.
+            - all_splitting_performed (bool): True if splitting was performed for all MS, False otherwise.
+    """
+
     with table(mslist[0] + '/OBSERVATION', ack=False) as t:
         telescope = t.getcol('TELESCOPE_NAME')[0]
     mslist_return = []
@@ -2794,7 +2876,38 @@ def fix_equidistant_times(mslist, dryrun, dysco=True, metadata_compression=False
 
 
 def check_equidistant_times(mslist, stop=True, return_result=False, tolerance=0.2):
-    """ Check if times in mslist are equidistant"""
+    """
+    Checks whether the time axis in the given Measurement Set (MS) files is equidistant.
+
+    For each MS file in `mslist`, the function examines the 'TIME' column and determines if the time intervals
+    between consecutive entries are consistent within a specified tolerance. If any time slots deviate beyond
+    the tolerance, a warning is printed and, by default, the program exits unless `stop` is set to False.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to Measurement Set files to check.
+    stop : bool, optional
+        If True (default), the function will exit the program if non-equidistant time slots are found.
+        If False, the function will continue execution after printing warnings.
+    return_result : bool, optional
+        If True, the function returns a boolean indicating whether all MS files have equidistant time axes.
+        If False (default), the function does not return anything.
+    tolerance : float, optional
+        Relative tolerance (default 0.2) for detecting deviations from the median time interval.
+
+    Returns
+    -------
+    bool or None
+        If `return_result` is True, returns True if all MS files have equidistant time axes, False otherwise.
+        If `return_result` is False, returns None.
+
+    Notes
+    -----
+    - If non-equidistant time slots are detected, the function prints detailed information about the deviations.
+    - It is recommended to average data with DP3 rather than CASA or CARACal to avoid time axis irregularities.
+    - The function may exit the program if irregularities are found and `stop` is True.
+    """
 
     for ms in mslist:
         with table(ms, ack=False) as t:
