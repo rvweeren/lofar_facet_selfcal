@@ -49,4 +49,4 @@ Information on how to use the [extract option](https://github.com/rvweeren/lofar
 # MeerKAT
 - Support for UHF, L-band, and S-band
 - direction-independent and direction-dependent self-calibration
-Specific MeerKAT information can be found [here](https://github.com/rvweeren/lofar_facet_selfcal/wiki/FACETSELFCAL-OVERVIEW#meerkat-data-reduction)
+Specific MeerKAT information can be found [here](https://github.com/rvweeren/lofar_facet_selfcal/wiki/FACETSELFCAL-OVERVIEW#meerkat-data-reduction).
