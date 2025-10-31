@@ -5800,7 +5800,8 @@ def inputchecker(args, mslist):
             print('--bandpass cannot be used with --stack, --DDE, --stopafterskysolve, or --stopafterpreapply')
             raise Exception('--bandpass cannot be used with --stack or --DDE')
         if args['skymodel'] is None and args['skymodelpointsource'] is None \
-            and args['wscleanskymodel'] is None and not args['skymodelsetjy']:
+            and args['wscleanskymodel'] is None and not args['skymodelsetjy'] \
+            and telescope != 'MeerKAT':
             print('skymodel, skymodelpointsource, skymodelsetjy, or wscleanskymodel needs to be set')
             raise Exception('skymodel, skymodelpointsource, or wscleanskymodel needs to be set')
 
@@ -13098,6 +13099,22 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.close()
     return parset
 
+def check_if_ms_exists(mslist):
+    """
+    Check if all measurement sets in the provided list exist.
+    Args:
+        mslist (list of str): List of paths to Measurement Set directories to check.
+    Raises:
+        Exception: If any MS directory does not exist.
+    Returns:
+        None
+    """
+    for ms in mslist:
+        if not os.path.isdir(ms):
+            # print in red color
+            print("\033[91m" + ms + "\033[0m", "\033[91m does not exist\033[0m")
+            raise Exception('ms does not exist')
+    return
 
 # to remove H5/h5 and other files out of a wildcard selection if needed
 def removenonms(mslist):
@@ -13318,13 +13335,13 @@ def basicsetup(mslist):
         args['update_uvmin'] = False
         args['usemodeldataforsolints'] = False
         args['forwidefield'] = True
-        args['autofrequencyaverage'] = True
-        args['multiscale'] = True
+        if not args['bandpass']: args['autofrequencyaverage'] = True
+        if not args['bandpass']: args['multiscale'] = True
         args['multiscale_start'] = 0
         args['noarchive'] = True
         args['uvminim'] = 10.
-        args['mask_extended'] = True
-        if not args['DDE']:
+        if not args['bandpass']: args['mask_extended'] = True
+        if not args['DDE'] and not args['bandpass']:
             args['useaoflagger'] = True
             args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua' #'default_StokesQUV.lua'
             if args['preapplybandpassH5_list'][0] is None:
@@ -13362,7 +13379,26 @@ def basicsetup(mslist):
             args['smoothnessconstraint_list'] = [100.,100.]
             args['auto_directions'] = True
             args['normamps_list'] = [None,'normamps']
-            
+        if args['bandpass']:
+            args['keepusingstartingskymodel'] = True
+            args['solint_list'] = ['8sec','2min','2min']
+            args['soltype_list'] = ['phaseonly','complexgain']
+            args['smoothnessconstraint_list'] = [50.,0.0]
+            args['soltypecycles_list'] = [0,0]
+            args['imsize'] = 1024
+            args['niter'] = 10000
+            args['useaoflagger'] = True
+            args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua'
+            args['nchan_list'] = [1,1]
+            # try to automatically set arg['msinstartchan'] and arg['msinnchan'] for L-band
+            if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
+                startfreq = 906e6
+                endfreq = 1655e6
+                args['msinstartchan'], args['msinnchan'] = set_startchan_nchan(freqs, startfreq, endfreq)
+            if freq < 1.0e9:  # UHF-band 
+                startfreq = 595e6
+                endfreq = 1049e6
+                args['msinstartchan'], args['msinnchan'] = set_startchan_nchan(freqs, startfreq, endfreq)
 
     if args['auto'] and longbaseline and not args['delaycal']:
         args['update_uvmin'] = False
@@ -14085,7 +14121,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '16.2.0'
+    facetselfcal_version = '16.3.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -14116,8 +14152,8 @@ def main():
         args['skymodelpointsource'] = [x for _, x in sorted(zip(args['ms'], args['skymodelpointsource']))]
     mslist = sorted(args['ms'])
 
-    # remove non-ms that ended up in mslist
-    # mslist = removenonms(mslist)
+    # check if all MS exist
+    check_if_ms_exists(mslist)
 
     # turn of metadata_compression for non-LOFAR data if needed
     set_metadata_compression(mslist)
