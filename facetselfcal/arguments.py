@@ -611,8 +611,8 @@ def option_parser():
                         default=0,
                         type=int)
     parser.add_argument('--stop',
-                        help='Stop selfcal cycle at this iteration number. The default is 10.',
-                        default=10,
+                        help='Stop selfcal cycle at this iteration number. If the value is not set, it defaults to 10. The exception is for MeerKAT data where it defaults to 2, or 6 in case of a --DDE solve.',
+                        default=None,
                         type=int)
     parser.add_argument('--stopafterskysolve',
                         help='Stop calibration after solving against external skymodel.',
