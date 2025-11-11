@@ -5787,6 +5787,18 @@ def inputchecker(args, mslist):
     with table(mslist[0] + '/OBSERVATION', ack=False) as t:
         telescope = t.getcol('TELESCOPE_NAME')[0]
 
+    assert args['start'] >= 0, '--start must be >= 0'
+    if args['stop'] is not None:
+        assert args['stop'] >= 1, '--stop must be >= 1'
+
+    if args['start'] > 0 and args['stop'] is None:
+        print('--start>0 cannot be used without specifying --stop')
+        raise Exception('--start>0 cannot be used without specifying --stop')
+
+    if args['stop'] is not None and args['stop'] < args['start']:
+        print('--stop must be greater or equal to --start')
+        raise Exception('--stop must be greater or equal to --start')
+
     if 0 in args['useaoflagger_correcteddata_selfcalcycle_list']:
         print('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0')
         raise Exception('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0') 
@@ -13278,7 +13290,7 @@ def MeerKAT_autodetect_highDR(fitsimage):
 
     # check that the brightest source is above 0.05 Jy
     if catalog['Peak_flux'][0] < (0.05*(freq/1e9))**(-0.7):
-        return False
+        return False, catalog['Peak_flux'][0]  # no high DR settings needed
 
     # check that the brightest source is within the primary beam FWHM/4
     ra_center = fits.getheader(fitsimage)['CRVAL1']
@@ -13305,8 +13317,8 @@ def MeerKAT_autodetect_highDR(fitsimage):
                     print('Brightest source flux:', brightest_flux, 'Jy, 2nd source flux:', source_flux, 'Jy')
                     print('Brightest source position:', ra_source, dec_source)
                     print('Other source position:', ra_source, dec_source)
-                    return False # we can stop here, no high DR settings can be used
-    return True # if we end up here we can use high DR settings
+                    return False, catalog['Peak_flux'][0] # we can stop here, no high DR settings can be used
+    return True, catalog['Peak_flux'][0]  # if we end up here we can use high DR settings
 
 def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
     """
@@ -13719,7 +13731,8 @@ def basicsetup(mslist):
             args['update_multiscale'] = True  # HBA only
             if args['autofrequencyaverage_calspeedup']:
                 args['soltypecycles_list'] = [0, 999, 2]
-                if args['start'] == 0: args['stop'] = 8
+                if args['start'] == 0 and args['stop'] is None:
+                    args['stop'] = 8
 
     if args['auto'] and telescope == 'MeerKAT':
         args['channelsout'] = set_channelsout(mslist)
@@ -13743,11 +13756,12 @@ def basicsetup(mslist):
                 args['soltype_list'] = ['phaseonly', 'complexgain', 'scalarcomplexgain'] # becuause XX and YY may not be perfectly calibrated
             args['soltypecycles_list'] = [0, 999, 999] # 999 but can be updated in case high DR is detected
             args['solint_list'] = ['1min', '10min', '2min']
-            
-            if args['start'] == 0: args['stop'] = 3 # this means we can do restarting runs as well
-            
-            if freq < 1.0e9:  # UHF-band 
-                args['smoothnessconstraint_list'] = [50., 5.0, 50.] 
+
+            if args['start'] == 0 and args['stop'] is None:
+                args['stop'] = 3 # this means we can do restarting runs as well
+
+            if freq < 1.0e9:  # UHF-band
+                args['smoothnessconstraint_list'] = [50., 5.0, 50.]
             if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
                 args['smoothnessconstraint_list'] = [100., 5.0, 75.] 
             if (freq >= 1.7e9) and (freq < 4.0e9):  # S-band
@@ -13765,7 +13779,8 @@ def basicsetup(mslist):
             # for S0 to S5 bands to do       
         else: # so this is a DDE run
             args['soltype_list'] = ['scalarphase','scalarcomplexgain']
-            if args['start'] == 0: args['stop'] = 5 # this means we can do restarting runs as well
+            if args['start'] == 0 and args['stop'] is None:
+                args['stop'] = 5 # this means we can do restarting runs as well
             args['soltypecycles_list'] = [0,0]
             args['solint_list'] = ['1min','30min']
             args['nchan_list'] = [1,1]
@@ -13838,7 +13853,8 @@ def basicsetup(mslist):
         args['antennaconstraint_list'] = ['alldutch', None, None]
         args['nchan_list'] = [1, 1, 1]
         args['uvmin'] = 40000
-        if args['start'] == 0: args['stop'] = 8
+        if args['start'] == 0 and args['stop'] is None:
+            args['stop'] = 8
         args['maskthreshold'] = [5]
         args['docircular'] = True
 
@@ -14459,7 +14475,7 @@ def early_stopping(station: str = 'international', cycle: int = None):
 
     return False
 
-def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solint_list):
+def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solint_list, smoothnessconstraint_list):
     """
     Automatically detect if high dynamic range (DR) settings are needed for MeerKAT data and update calibration cycles accordingly.
 
@@ -14480,19 +14496,25 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
     t.close()
 
     if args['auto'] and not args['DDE'] and telescope == 'MeerKAT':
-        if MeerKAT_autodetect_highDR(args['imagename'] + str(selfcalcycle).zfill(3) + '-MFS-image.fits'):
+        highDR, peak_flux = MeerKAT_autodetect_highDR(args['imagename'] + str(selfcalcycle).zfill(3) + '-MFS-image.fits')
+        if highDR:
             # update soltypecycles_list (this is a nested list of ms)
             for ms_id, ms in enumerate(mslist):
                 soltypecycles_list[1][ms_id] = 2 # set soltypecycles_list[1][ms_id] to 2 for high DR MeerKAT data
                 soltypecycles_list[2][ms_id] = 3 # set soltypecycles_list[2][ms_id] to 3 for high DR MeerKAT data
                 if freq > 2e9:  # S band
-                    solint_list[0][ms_id] = ['32sec']
+                    solint_list[0][ms_id] = '32sec'
                 elif freq > 1e9:  # L band
-                    solint_list[0][ms_id] = ['16sec']
+                    solint_list[0][ms_id] = '16sec'
                 elif freq <= 1e9:  # UHF band
-                    solint_list[0][ms_id] = ['8sec']
+                    solint_list[0][ms_id] = '8sec'
 
-                if args['start'] == 0: args['stop'] = 6 # do some extra selfcal cycles for high DR MeerKAT data
+                if peak_flux > (5.*(freq/1e9))**(-0.7):
+                    solint_list[2][ms_id] = '32sec' # for scalarcomplexgain2, very short time intervals to deal with scintillations
+                    smoothnessconstraint_list[1][ms_id] = 2.0 # for scalarcomplexgain1, for fine-scale bandpass corrections
+
+                if args['start'] == 0 and args['stop'] is None:
+                    args['stop'] = 6 # do some extra selfcal cycles for high DR MeerKAT data
                 #this means we can do restarting runs as well in case which stop is decided by the user
     # update maskthreshold_selfcalcycle and automaskthreshold_selfcalcycle in case of extra cycles
     maskthreshold_selfcalcycle = makemaskthresholdlist(args['maskthreshold'], args['stop'] + 1) # add extra in case of an extract step 
@@ -14503,7 +14525,7 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
         if automaskthreshold_selfcalcycle[selfcalcycle_id] > mval:
             automaskthreshold_selfcalcycle[selfcalcycle_id] = maskthreshold_selfcalcycle[selfcalcycle_id]
 
-    return soltypecycles_list, solint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle
+    return soltypecycles_list, solint_list, smoothnessconstraint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle
 
 ###############################
 ############## MAIN ###########
@@ -15116,7 +15138,7 @@ def main():
             aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_correcteddata'], column='CORRECTED_DATA')
 
         # CHECK FOR HIGH DYNAMIC RANGE DATA AND ADJUST SETTINGS (DI-SOLVES ONLY)
-        soltypecycles_list, solint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle = autodetect_highDR(i, mslist, telescope, soltypecycles_list, solint_list)
+        soltypecycles_list, solint_list, smoothnessconstraint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle = autodetect_highDR(i, mslist, telescope, soltypecycles_list, solint_list, smoothnessconstraint_list)
        
         # REDETERMINE SOLINTS IF REQUESTED
         if (i >= 0) and (args['usemodeldataforsolints']):
