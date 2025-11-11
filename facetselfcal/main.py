@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 # rotationmeasure updates
+# use phase slope fitting for bandpass step?
 # https://ui.adsabs.harvard.edu/abs/2022ApJ...932..110K/abstract
 #std exception detected: The TEC constraints do not yet support direction-dependent intervals
 #python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy.subtracted
-# run with less disk-space usage, remove all but merged h5, remove columns
+# run with less disk-space usage, remove all but merged h5
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
 # time, timefreq, freq med/avg steps (via losoto)
@@ -20,7 +21,6 @@
 # log command into the FITS header
 # BLsmooth constant smooth for gain solves
 # use scalarphasediff sols stats for solints? test amplitude stats as well
-# parallel solving with DP3, given that DP3 often does not use all cores?
 # uvmin, uvmax, uvminim, uvmaxim per ms per soltype
 
 # antidx = 0
@@ -396,8 +396,8 @@ def split_multidir_ms(ms):
     
     mslist = []
     for field_id in field_ids:
-                        
-        outname = ms + '.' + source_names[field_id] 
+
+        outname = os.path.basename(ms) + '.' + source_names[field_id]
         # Remove  MS if it exists
         if os.path.isdir(outname):
             os.system('rm -rf {}'.format(outname))
@@ -487,7 +487,7 @@ def write_processing_history(cmd, version, imagebasename):
             hdul[0].header['COMMENT'] = "                 van Weeren et al. (2021, A&A, 651, 115)                "
             hdul[0].header['COMMENT'] = "========================================================================"
 
-def write_primarybeam_info(cmd, imagebasename):
+def write_primarybeam_info(cmd, imagebasename, telescope=None):
     """
     Updates the FITS header of images matching the given basename with primary beam correction information.
 
@@ -514,7 +514,13 @@ def write_primarybeam_info(cmd, imagebasename):
                 hdul[0].header['COMMENT'] = "Full primary beam correction applied. Image is science ready."
             if '-apply-facet-beam' not in cmd and '-apply-facet-solutions' in cmd:   
                 hdul[0].header['COMMENT'] = "Full primary beam correction has not been applied." 
-                hdul[0].header['COMMENT'] = "Manually correct your image for the primary beam."
+                if telescope is not None:
+                    if telescope == 'MeerKAT':
+                        hdul[0].header['COMMENT'] = "You can use the <imagename>-MFS-image-manualpb.fits file."
+                    else:
+                        hdul[0].header['COMMENT'] = "Manually correct your image for the primary beam."        
+                else:
+                    hdul[0].header['COMMENT'] = "Manually correct your image for the primary beam."        
             if '-apply-primary-beam' in cmd:
                 hdul[0].header['COMMENT'] = "Full primary beam correction applied. Image is science ready."
 
@@ -3919,7 +3925,8 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5, thresh_i
         os.system('rm -f ' + outfile)
     empty_catalog = False
     img = bdsf.process_image(filename,mean_map='const', rms_map=True, \
-                             rms_box=(35,5), thresh_pix=thresh_pix,thresh_isl=thresh_isl)
+                             rms_box=(35,5), thresh_pix=thresh_pix,thresh_isl=thresh_isl,\
+                             advanced_opts=True, minpix_isl=2)
     img.write_catalog(format='fits', outfile=outfile, catalog_type='srl', clobber=True)
     if not os.path.isfile(outfile):
         print('\033[93m' + 'No sources found, cannot write empty catalog' + '\033[0m')
@@ -4332,12 +4339,19 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
         fitsimage = fitsimage.replace('-MFS', '').replace('-I', '')    
    
     # set input/output names
-    outputerrormap =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.fits'
-    outputcatalog  =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.srl.fits'
+    outputerrormap1 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap1.fits'
+    outputerrormap2 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap2.fits'
+    outputerrormap3 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap3.fits'
+    outputcatalog1 =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap1.srl.fits'
+    outputcatalog2 =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap2.srl.fits'
+    outputcatalog3 =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap3.srl.fits'
+    outputcatalog  =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.merged.srl.fits'
     outputcatalog_filtered =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.srl.filtered.fits'
     facetdirections = 'directions_' + str(selfcalcycle).zfill(3) + '.txt'
     directions_reg =  'directions_' + str(selfcalcycle).zfill(3) + '.reg'
-    outplotname =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.png'
+    outplotname1 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap1.png'
+    outplotname2 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap2.png'
+    outplotname3 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap3.png'
     outputfluxcatalog = args['imagename'] + str(selfcalcycle).zfill(3) + '-compactsource-flux.fits'
     
 
@@ -4357,13 +4371,41 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
     write_compactsource_flux(fitsimage, outputfluxcatalog)
 
     # make the error map
-    print('Making artifact map from:', fitsimage)
-    calibration_error_map(fitsimage,  outputerrormap, kernelsize=31, rebin=31)
+    print('Making artifact maps from:', fitsimage)
+
+    # compute the calibration error map, run 1 with small kernel to pick up small scale errors
+    calibration_error_map(fitsimage,  outputerrormap1, kernelsize=31, rebin=31)
+    # compute the calibration error map, run 2 with medium kernel to pick up medium scale errors
+    calibration_error_map(fitsimage,  outputerrormap2, kernelsize=31*2, rebin=31*2)
+    # compute the calibration error map, run 3 with large kernel to pick up large scale errors
+    calibration_error_map(fitsimage,  outputerrormap3, kernelsize=31*4, rebin=31*4)
+
+    # create the artifact sources catalog
+    empty_catalog1 = create_calibration_error_catalog(outputerrormap1, outputcatalog1, thresh_pix=thresh_pix, thresh_isl=thresh_isl)
+    empty_catalog2 = create_calibration_error_catalog(outputerrormap2, outputcatalog2, thresh_pix=max([thresh_pix-0.5,3.5]), thresh_isl=max([thresh_pix-0.5,3.5]))
+    empty_catalog3 = create_calibration_error_catalog(outputerrormap3, outputcatalog3, thresh_pix=max([thresh_pix-0.5,3.5]), thresh_isl=max([thresh_pix-0.5,3.5]))
+
+    # create list of catalogs to merge
+    catalog_list = []
+    if not empty_catalog1:
+        catalog_list.append(outputcatalog1)
+    if not empty_catalog2:
+        catalog_list.append(outputcatalog2)
+    if not empty_catalog3:
+        catalog_list.append(outputcatalog3)
+    if len(catalog_list) > 1:
+        print('Merging artifact source catalogs')
+        merge_catalogs(catalog_list, outputcatalog)
+        # remove duplicates and sources that are close to each other
+        update_calibration_error_catalog(outputcatalog, outputcatalog, distance=distance, keep_N_brightest=keep_N_brightest, N_dir_max=N_dir_max)
     
-    # create the artifact sources catalog 
-    empty_catalog = create_calibration_error_catalog(outputerrormap, outputcatalog, thresh_pix=thresh_pix,thresh_isl=thresh_isl)
-    
-    # check if just one/twp sources were found in catalog in selfcalcycle 0
+    if len(catalog_list) == 0:
+        print('No artifact sources found in any catalog')
+        empty_catalog = True
+    else:
+        empty_catalog = False
+
+    # check if just one/two sources were found in catalog in selfcalcycle 0
     if selfcalcycle == 0 and not empty_catalog:
         if get_number_of_sources_in_catalog(outputcatalog) == 1:
             # we will add two extra sources to the catalog, at the location of a bright source in the image
@@ -4371,10 +4413,13 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
             add_source_to_catalog(outputcatalog, outputfluxcatalog, distance=distance)
             add_source_to_catalog(outputcatalog, outputfluxcatalog, distance=distance)
         elif get_number_of_sources_in_catalog(outputcatalog) == 2:   
-            # we will add an thrid extra source to the catalog, at the location of a bright source in the image
+            # we will add an third extra source to the catalog, at the location of a bright source in the image
             print('\033[93m' + 'Only two artifact sources found, adding an extra source at the location of a bright source in the outputfluxcatalog' + '\033[0m')
             add_source_to_catalog(outputcatalog, outputfluxcatalog, distance=distance)
         # in principle we can repeat adding sources, for now stick to one/two extra sources         
+
+    # add very bright sources to catalog to ensure they are included
+    add_bright_source_to_catalog(outputcatalog, outputfluxcatalog, freq)
 
     # update the artifact catalog (keep only N-brightest, remove closely seperated sources, merge with previous catalog)
     if not empty_catalog: 
@@ -4401,8 +4446,59 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
     imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
     plotminmax = [-2.*imagenoise, 35.*imagenoise]
     hdulist.close()
-    plotimage_astropy(outputerrormap, outplotname, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
+    plotimage_astropy(outputerrormap1, outplotname1, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
+    plotimage_astropy(outputerrormap2, outplotname2, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
+    plotimage_astropy(outputerrormap3, outplotname3, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
     return facetdirections
+
+
+def add_bright_source_to_catalog(catalogfile, fluxcatalogfile, freq):
+    '''
+    Add the brightest source from the fluxcatalogfile to the catalogfile to ensure very bright sources are included as directions
+    Parameters:
+    -----------
+    catalogfile : str
+        Path to the input catalog file in FITS format where a new source will be added.
+    fluxcatalogfile : str
+        Path to the flux catalog file in FITS format containing potential new sources.
+    Returns:
+    --------
+    None
+        The updated catalog is saved back to the original `catalogfile`.
+    Notes:
+    ------
+    - The function reads both catalogs and checks for the presence of very bright sources in the flux catalog.
+    - All sources found that meet this criterion are added to the input catalog.
+    - The updated catalog is written back to the original file, overwriting it.
+    '''
+    if freq > 1e9:
+       threshold = 0.1*(freq/1e9)**(-0.7)
+    elif freq > 300e6:
+       threshold = 1.0*(freq/700e6)**(-0.7)
+    elif freq > 100e6:
+       threshold = 2.0*(freq/150e6)**(-0.7)
+    elif freq > 30e6:      
+       threshold = 5.0*(freq/50e6)**(-0.7)
+    elif freq <= 30e6:
+       threshold = 20.0*(freq/20e6)**(-0.7)   
+
+    # sort flux catalog on Peak_flux, with the brightest first
+    hdu_list_flux = fits.open(fluxcatalogfile)
+    catalog_flux = Table(hdu_list_flux[1].data)
+    idx = catalog_flux.argsort(keys='Peak_flux', reverse=True)
+    catalog_flux = catalog_flux[idx]
+    hdu_list_flux.close()
+
+    # open catalog to which we will add sources
+    hdu_list = fits.open(catalogfile)
+    catalog = Table(hdu_list[1].data)
+    hdu_list.close()
+    new_catalog = catalog.copy()
+    for fluxsource_id, fluxsource in enumerate(catalog_flux):
+        if fluxsource['Peak_flux'] > threshold:
+            print('Adding bright source with ID', fluxsource['Source_id'], 'to error catalog, Peak_flux:', fluxsource['Peak_flux'])
+            new_catalog.add_row(fluxsource)
+    return
 
 def add_source_to_catalog(catalogfile, fluxcatalogfile, distance=20.):
     '''
@@ -4449,59 +4545,6 @@ def add_source_to_catalog(catalogfile, fluxcatalogfile, distance=20.):
                 break
         if not too_close:
             print('Adding source with ID', fluxsource['Source_id'], 'to error catalog, it is at least', distance, 'arcmin away from all existing sources')
-            new_catalog.add_row(fluxsource)
-            # update the Peak_flux and to the new source setting it to a low value
-            new_catalog['Peak_flux'][-1] = 1e-3 # 1 mJy, should not trigger bright source criteria
-            break
-    new_catalog.write(catalogfile, format='fits', overwrite=True)
-    return
-
-
-
-def add_source_to_catalog1(catalogfile, fluxcatalogfile, distance=20.):
-    '''
-    Add a source from the fluxcatalogfile to the catalogfile if only one source is found
-    in the catalogfile. The new source should be at least distance arcmin away from the
-    existing source.
-    Parameters:
-    -----------
-    catalogfile : str
-        Path to the input catalog file in FITS format where a new source will be added.
-    fluxcatalogfile : str
-        Path to the flux catalog file in FITS format containing potential new sources.
-    distance : float, optional
-        Minimum separation distance (in arcminutes) to consider the new source as distinct. Default is 20 arcminutes.
-    Returns:
-    --------
-    None
-        The updated catalog is saved back to the original `catalogfile`.
-    Notes:
-    ------
-    - The function reads both catalogs and asserts that the input catalog contains exactly one source.
-    - It searches the flux catalog for a source that is at least `distance` arcminutes away from the existing source.
-    - The first source found that meets this criterion is added to the input catalog.
-    - The updated catalog is written back to the original file, overwriting it.
-    '''
-    hdu_list = fits.open(catalogfile)
-    catalog = Table(hdu_list[1].data)
-    hdu_list.close()
-    assert len(catalog) == 1, 'Catalog should contain exactly one source'
-    # create copy of catalog to which we will add a source
-    new_catalog = catalog.copy()
-
-    hdu_list_flux = fits.open(fluxcatalogfile)
-    catalog_flux = Table(hdu_list_flux[1].data)
-    # sort flux catalog on Peak_flux, with the brightest first
-    idx = catalog_flux.argsort(keys='Peak_flux', reverse=True)
-    catalog_flux = catalog_flux[idx]
-    hdu_list_flux.close()
-    
-    existing_source = catalog[0]
-    c1 = SkyCoord(existing_source['RA']*units.degree, existing_source['DEC']*units.degree, frame='icrs')
-    for fluxsource_id, fluxsource in enumerate(catalog_flux):
-        c2 = SkyCoord(fluxsource['RA']*units.degree, fluxsource['DEC']*units.degree, frame='icrs')
-        if c1.separation(c2).to(units.arcmin).value > distance:
-            print('Adding source with ID', fluxsource['Source_id'], 'to error catalog, it is', c1.separation(c2).to(units.arcmin).value, 'arcmin away from existing source')
             new_catalog.add_row(fluxsource)
             # update the Peak_flux and to the new source setting it to a low value
             new_catalog['Peak_flux'][-1] = 1e-3 # 1 mJy, should not trigger bright source criteria
@@ -5570,6 +5613,11 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
     if not isinstance(inparmdblist, list):
         inparmdblist = [inparmdblist]
 
+    # sisco compression does not support reading and writing to the same column
+    msoutcol_orig = msoutcol # save original name
+    if msincol == msoutcol and msout == '.' and modelstoragemanager == 'sisco':
+        msoutcol = msoutcol + '_SISCO_TEMP'
+
     cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), 8])) + ' msin=' + ms
     cmd += ' msout=' + msout + ' '
     
@@ -5713,6 +5761,14 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
 
     print('DP3 applycal:', cmd)
     run(cmd, log=True)
+    
+    if msincol == msoutcol_orig and msout == '.' and modelstoragemanager == 'sisco':
+        # copy back from temporary column to original column with taql
+        taql_cmd = f"taql 'UPDATE {ms} SET {msoutcol_orig} = {msoutcol}'"
+        print('Copying back from temporary column to original column with taql:', taql_cmd)
+        run(taql_cmd, log=True)
+        # remove temporary column
+        remove_column_ms(ms, msoutcol)
     return
 
 
@@ -9047,7 +9103,7 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', marke
     f.write('minmax = [-0.2,0.2]\n')
     f.write('figSize=[120,20]\n')
     f.write('markerSize=%s\n' % int(markersize))
-    f.write('prefix = plotlosoto%s/%s\n' % (ms, outplotname))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname))
     f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -9074,7 +9130,7 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
     f.write('axisInTable = ant\n')
     f.write('minmax = [-1.57,1.57]\n')  # rotation needs to be plotted from -pi/2 to pi/2
     f.write('figSize=[120,20]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (ms, outplotname))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname))
     f.write('refAnt = %s\n' % refant)
     f.close()
     return parset
@@ -9107,7 +9163,7 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
     f.write('figSize=[120,20]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (ms, outplotname))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname))
     f.write('refAnt = %s\n' % refant)
 
     if not onepol:
@@ -9125,7 +9181,7 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
         f.write('figSize=[120,20]\n')
-        f.write('prefix = plotlosoto%s/%spoldiff\n' % (ms, outplotname))
+        f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), outplotname))
         f.write('refAnt = %s\n' % refant)
         f.write('axisDiff=pol\n')
 
@@ -9165,7 +9221,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     # else:
     f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
     # f.write('minmax = [0,2.5]\n')
-    f.write('prefix = plotlosoto%s/%samp\n\n\n' % (ms, outplotname))
+    f.write('prefix = plotlosoto%s/%samp\n\n\n' % (os.path.basename(ms), outplotname))
 
     if fulljones:
         f.write('[plotampXYYX]\n')
@@ -9182,7 +9238,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [%s,%s]\n' % (str(0.0), str(0.5)))
-        f.write('prefix = plotlosoto%s/%sampXYYX\n\n\n' % (ms, outplotname))
+        f.write('prefix = plotlosoto%s/%sampXYYX\n\n\n' % (os.path.basename(ms), outplotname))
 
     if includesphase:
         f.write('[plotphase]\n')
@@ -9202,7 +9258,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = plotlosoto%s/%sphase\n' % (ms, outplotname))
+        f.write('prefix = plotlosoto%s/%sphase\n' % (os.path.basename(ms), outplotname))
         f.write('refAnt = %s\n\n\n' % refant)
 
         if not onepol and not fulljones:
@@ -9220,7 +9276,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
             f.write('figSize=[120,20]\n')
-            f.write('prefix = plotlosoto%s/%spoldiff\n' % (ms, outplotname))
+            f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), outplotname))
             f.write('refAnt = %s\n' % refant)
             f.write('axisDiff=pol\n\n\n')
 
@@ -9285,7 +9341,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('axisInTable = ant\n')
         # f.write('minmax = [0,2.5]\n')
         f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
-        f.write('prefix = plotlosoto%s/%sampfl\n\n\n' % (ms, outplotname))
+        f.write('prefix = plotlosoto%s/%sampfl\n\n\n' % (os.path.basename(ms), outplotname))
 
         if includesphase and flagphases:
             f.write('[plotphase_after]\n')
@@ -9305,7 +9361,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
-            f.write('prefix = plotlosoto%s/%sphasefl\n' % (ms, outplotname))
+            f.write('prefix = plotlosoto%s/%sphasefl\n' % (os.path.basename(ms), outplotname))
             f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -10062,7 +10118,8 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             solve_msinnchan=solve_msinnchan_list[soltypenumber][msnumber],
                             solve_msinstartchan=solve_msinstartchan_list[soltypenumber][msnumber],
                             antenna_averaging_factors=antenna_averaging_factors_list[soltypenumber][msnumber],
-                            antenna_smoothness_factors=antenna_smoothness_factors_list[soltypenumber][msnumber])
+                            antenna_smoothness_factors=antenna_smoothness_factors_list[soltypenumber][msnumber], 
+                            auto_flag_antennas=args['auto_flag_antennas'])
                 parmdbmslist.append(parmdb)
                 parmdbmergelist[msnumber].append(parmdb)  # for h5_merge
 
@@ -10228,7 +10285,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
         for ms in mslist:
             run('python3 NeReVar.py --filename=' + ms + \
                 ' --dt=' + str(args['QualityBasedWeights_dtime']) + ' --dnu=' + str(args['QualityBasedWeights_dfreq']) + \
-                ' --DiagDir=plotlosoto' + ms + '/NeReVar/ --basename=_selfcalcycle' + str(selfcalcycle).zfill(
+                ' --DiagDir=plotlosoto' + os.path.basename(ms) + '/NeReVar/ --basename=_selfcalcycle' + str(selfcalcycle).zfill(
                 3) + ' --modelcol=MODEL_DATA')
 
 
@@ -10272,7 +10329,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None,
                 normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None, skymodelsetjy=False,
                 solve_msinnchan='all', solve_msinstartchan=0,
-                antenna_averaging_factors=None, antenna_smoothness_factors=None):
+                antenna_averaging_factors=None, antenna_smoothness_factors=None, auto_flag_antennas=False):
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
     with table(ms + '/OBSERVATION', ack=False) as t:
@@ -10981,6 +11038,16 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             flaglowamps(parmdb, lowampval=clipsollow, flagging=True, setweightsphases=True)
             flaghighamps(parmdb, highampval=clipsolhigh, flagging=True, setweightsphases=True)
 
+    # find bad antennas based on solution stats
+    if auto_flag_antennas:
+        if telescope == 'MeerKAT': # only MeerKAT for now
+            if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude']:
+                flag_ant_list = find_bad_deviating_antennas(parmdb)
+                for ant in flag_ant_list:
+                    print('Auto-flagging bad MeerKAT antennas based on solution stats:', flag_ant_list)
+                    # use taql function to flag antennas
+                    flag_antenna_taql(ms, ant)
+
     # ---------------------------------
     # ---------------------------------
     # makes plots and do LOSOTO flagging
@@ -11244,6 +11311,9 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     hdul = fits.open(imagebasename + '-MFS-image.fits')
     header = hdul[0].header
 
+    with table(mslist[0] + '/OBSERVATION', ack=False) as t:
+        telescope = t.getcol('TELESCOPE_NAME')[0]
+
     if len(h5list) != 0:
         datacolumn = 'DATA'  # for DDE
     else:
@@ -11264,8 +11334,22 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         userbox = 'templatebox.reg' # set this as we are going to use the template region file                 
     except:
         pass # userbox is not a number    
-
+        
+    if userbox == 'auto':
+        if args['remove_outside_center_auto_minboxsize'] is not None:
+            min_extract_size = args['remove_outside_center_auto_minboxsize']
+        elif telescope == 'MeerKAT':
+            min_extract_size = (57.5/60)*(1.5e9/header['CRVAL3'])  # MeerKAT FWHM primary beam in degr
+        elif telescope == 'GMRT':
+            min_extract_size = (32.25/60)*(1.08e9/header['CRVAL3'])  # GMRT FWHM primary beam in degr
+        elif telescope == 'ASKAP':
+            min_extract_size = 1.83*(850e6/header['CRVAL3'])  # ASKAP FWHM primary beam in degr
+        else:
+            min_extract_size = 1.0  # degr     
+        boxsize = auto_determine_extractregion(imagebasename + '-MFS-image.fits', min_extract_size=min_extract_size)
+        userbox = 'templatebox.reg' # set this as we are going to use the template region file
     # create square box file templatebox.reg
+
     region_string = """
     # Region file format: DS9 version 4.1
     global color=green dashlist=8 3 width=1 font="helvetica 10 normal roman" select=1
@@ -11784,10 +11868,21 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
 
         clean_up_images(imageout)
-        
+
+           # do manual  pbcor for MeerKAT images if -applybeam or -apply-facet-beam was not used
+        if telescope == 'MeerKAT':
+            if '-apply-facet-beam' not in cmd and '-apply-primary-beam' not in cmd:
+                print('Doing manual primary beam correction for MeerKAT image')
+                if os.path.isfile(imageout + '-MFS-image-pb.fits'):
+                    outfile = (imageout + '-MFS-image-pb.fits').replace('-MFS-image-pb.fits', '-MFS-image-manualpb.fits')
+                    MeerKAT_pbcor_Lband(imageout + '-MFS-image-pb.fits', outfile, ms=mslist[0])
+                else: #so this must be a run without facets
+                    outfile = (imageout + '-MFS-image.fits').replace('-MFS-image.fits', '-MFS-image-manualpb.fits')
+                    MeerKAT_pbcor_Lband(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
+
         # write info about how the primary beam correction was done to the FITS header and processing history
         write_processing_history(' '.join(map(str, sys.argv)), facetselfcal_version, imageout)
-        write_primarybeam_info(cmd, imageout)
+        write_primarybeam_info(cmd, imageout, telescope=telescope)
         
         # REMOVE nagetive model components, these are artifacts (only for Stokes I)
         if removenegativecc:
@@ -13011,7 +13106,7 @@ def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (ms, outplotname + 'phases_fitFR'))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname + 'phases_fitFR'))
     f.write('refAnt = %s\n\n\n' % refant)
     f.close()
     return parset
@@ -13045,7 +13140,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (ms, outplotname + 'phases_beforeFR'))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname + 'phases_beforeFR'))
     f.write('refAnt = %s\n\n\n' % refant)
 
     f.write('[faraday]\n')
@@ -13061,7 +13156,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('soltab = sol000/rotationmeasure000\n')
     f.write('axesInPlot = [time]\n')
     f.write('axisInTable = ant\n')
-    f.write('prefix = plotlosoto%s/%s\n\n\n' % (ms, outplotname + 'FR'))
+    f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), outplotname + 'FR'))
 
     if dejump:
         f.write('[frdejump]\n')
@@ -13075,7 +13170,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
         f.write('soltab = sol000/rotationmeasure001\n')
         f.write('axesInPlot = [time]\n')
         f.write('axisInTable = ant\n')
-        f.write('prefix = plotlosoto%s/%s\n\n\n' % (ms, outplotname + 'FRdejumped'))
+        f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), outplotname + 'FRdejumped'))
 
     f.write('[residuals]\n')
     f.write('operation = RESIDUALS\n')
@@ -13092,7 +13187,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('AxisInTable = ant\n')
     f.write('AxisDiff = pol\n')
     f.write('plotFlag = True\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (ms, outplotname + 'residualphases_afterFR'))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname + 'residualphases_afterFR'))
     f.write('refAnt = %s\n' % refant)
     f.write('minmax = [-3.14,3.14]\n\n\n')
 
@@ -13135,6 +13230,270 @@ def removenonms(mslist):
         else:
             newmslist.append(ms)
     return newmslist
+
+def merge_catalogs(cataloglist, outputcatalog):
+    """
+    Merge multiple FITS catalogs into a single catalog.
+    Parameters:
+        cataloglist (list of str): List of paths to the input FITS catalog files.
+        outputcatalog (str): Path to the output merged catalog file.
+    Returns:
+        None
+    Notes:
+        - The function reads each input catalog, combines their data, and writes the merged data to the output catalog.
+        - The output catalog is written in FITS format.
+    """
+    for catalog_id, catalogfile in enumerate(cataloglist):
+        with fits.open(catalogfile) as hdul:
+            if catalog_id == 0:
+                merged_catalog = Table(hdul[1].data)
+            else:
+                catalog = Table(hdul[1].data)
+                merged_catalog = vstack([merged_catalog, catalog])
+    merged_catalog.write(outputcatalog, format='fits', overwrite=True)
+    return
+
+def MeerKAT_autodetect_highDR(fitsimage):
+    """
+    Determine if high dynamic range settings are needed for imaging a MeerKAT image based on the compact source fluxes within the primary beam FWHM/2.
+    Input: a fits image
+    Output: True if high dynamic range settings can be used, False if not
+    """
+    outputfluxcatalog = fitsimage.replace('.fits', '_compactsource_fluxcatalog.DRcheck.fits')
+    # get image frequency
+    with fits.open(fitsimage, ignore_missing_end=True) as hdu:
+        freq = hdu[0].header['CRVAL3']
+    # determine FWHM of the MeerKAT primary beam at this frequency
+    FWHM_PB = (57.5/60)*(1.5e9/freq) # in degrees
+    # create compact source catalog from which we can get peak fluxes
+    write_compactsource_flux(fitsimage, outputfluxcatalog)
+
+    # determine if high dynamic range is needed based on the compact source fluxes within the primary beam FWHM
+    hdu_list = fits.open(outputfluxcatalog)
+    # sort this on peak flux
+    catalog = Table(hdu_list[1].data)
+    hdu_list.close()
+    idx = catalog.argsort(keys='Peak_flux', reverse=True)
+    catalog = catalog[idx]
+
+    # check that the brightest source is above 0.05 Jy
+    if catalog['Peak_flux'][0] < (0.05*(freq/1e9))**(-0.7):
+        return False
+
+    # check that the brightest source is within the primary beam FWHM/4
+    ra_center = fits.getheader(fitsimage)['CRVAL1']
+    dec_center = fits.getheader(fitsimage)['CRVAL2']
+    ra_source = catalog['RA'][0]
+    dec_source = catalog['DEC'][0]
+    # compute angular separation of the brightest source to the image center
+    c1 = SkyCoord(ra=ra_center*units.degree, dec=dec_center*units.degree, frame='icrs')
+    c2 = SkyCoord(ra=ra_source*units.degree, dec=dec_source*units.degree, frame='icrs')
+    separation = c1.separation(c2).degree
+    if separation < (FWHM_PB / 4.): # high dynamic range might be needed
+        # now loop over all other sources and check that their peak flux is less than 30% of the brightest source
+        brightest_flux = catalog['Peak_flux'][0]
+        for source_id in range(1, len(catalog)):
+            source_flux = catalog['Peak_flux'][source_id]
+            if source_flux > (0.3 * brightest_flux): # so we have another bright source
+                # check if this source is outside the FWHM_PB / 4.
+                ra_source = catalog['RA'][source_id]
+                dec_source = catalog['DEC'][source_id]
+                c2 = SkyCoord(ra=ra_source*units.degree, dec=dec_source*units.degree, frame='icrs')
+                separation = c1.separation(c2).degree
+                if separation > (FWHM_PB / 4.): # we have found a bright source outside the FWHM/4      
+                    print('Found multiple bright sources, cannot use high DR settings')
+                    print('Brightest source flux:', brightest_flux, 'Jy, 2nd source flux:', source_flux, 'Jy')
+                    print('Brightest source position:', ra_source, dec_source)
+                    print('Other source position:', ra_source, dec_source)
+                    return False # we can stop here, no high DR settings can be used
+    return True # if we end up here we can use high DR settings
+
+def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
+    """
+    Determine the extract region size based on the brightest calibration artifact source in the image.
+    Input: a fits image
+    Optional: min_extract_size in degrees (default 0.5 deg)
+              margin in arcsec to add to the extract size (default 300 arcsec)
+    Output: extract size in degrees
+    """
+    thresh_pix = 4.5
+    thresh_isl = 4.5  
+    outputfluxcatalog = fitsimage.replace('.fits', '_compactsource_fluxcatalog.fits')
+    outputerrormap1 = fitsimage.replace('.fits', '_artifact_errormap1.fits')
+    outputcatalog1 = fitsimage.replace('.fits', '_artifact_sources_catalog1.fits')
+    outputerrormap2 = fitsimage.replace('.fits', '_artifact_errormap2.fits')
+    outputcatalog2 = fitsimage.replace('.fits', '_artifact_sources_catalog2.fits')
+    outputerrormap3 = fitsimage.replace('.fits', '_artifact_errormap3.fits')
+    outputcatalog3 = fitsimage.replace('.fits', '_artifact_sources_catalog3.fits')
+    outputerrormap4 = fitsimage.replace('.fits', '_artifact_errormap4.fits')
+    outputcatalog4 = fitsimage.replace('.fits', '_artifact_sources_catalog4.fits')
+
+    with fits.open(fitsimage, ignore_missing_end=True) as hdu:
+        freq = hdu[0].header['CRVAL3']  # in Hz
+        pixsize = 3600. * (hdu[0].header['CDELT2']) # in arcsec
+        match_radius = pixsize*31.*3./60. # arcmin
+
+    # make the error map
+    print('Making artifact map from:', fitsimage)
+    
+    # compute the calibration error map, run 1 with small kernel to pick up small scale errors
+    calibration_error_map(fitsimage,  outputerrormap1, kernelsize=31, rebin=31)
+    # compute the calibration error map, run 2 with medium kernel to pick up medium scale errors
+    calibration_error_map(fitsimage,  outputerrormap2, kernelsize=31*2, rebin=31*2)
+    # compute the calibration error map, run 3 with large kernel to pick up large scale errors
+    calibration_error_map(fitsimage,  outputerrormap3, kernelsize=31*4, rebin=31*4)
+    # compute the calibration error map, run 4 with extra large kernel to pick up extra large scale errors
+    calibration_error_map(fitsimage,  outputerrormap4, kernelsize=31*6, rebin=31*6)
+
+    # create the artifact sources catalog
+    empty_catalog1 = create_calibration_error_catalog(outputerrormap1, outputcatalog1, thresh_pix=thresh_pix, thresh_isl=thresh_isl)
+    empty_catalog2 = create_calibration_error_catalog(outputerrormap2, outputcatalog2, thresh_pix=4.0, thresh_isl=4.0)
+    empty_catalog3 = create_calibration_error_catalog(outputerrormap3, outputcatalog3, thresh_pix=3.5, thresh_isl=3.5)
+    empty_catalog4 = create_calibration_error_catalog(outputerrormap4, outputcatalog4, thresh_pix=3.5, thresh_isl=3.5)
+
+    # create list of catalogs to merge
+    catalog_list = []
+    if not empty_catalog1:
+        catalog_list.append(outputcatalog1)
+    if not empty_catalog2:
+        catalog_list.append(outputcatalog2)
+    if not empty_catalog3:
+        catalog_list.append(outputcatalog3)
+    if not empty_catalog4:
+        catalog_list.append(outputcatalog4)     
+    if len(catalog_list) > 1:
+        print('Merging artifact source catalogs')
+        merged_catalog = fitsimage.replace('.fits', '_artifact_sources_merged_catalog.fits')
+        merge_catalogs(catalog_list, merged_catalog)
+        # remove duplicate sources that are close to each other (within 3 arcmin), keep the brightest
+        update_calibration_error_catalog(merged_catalog,merged_catalog, distance=3, keep_N_brightest=999, N_dir_max=999)
+    
+    # create compact source catalog from which we can get peak fluxes
+    write_compactsource_flux(fitsimage, outputfluxcatalog)
+
+    # check if just one/two sources were found in catalog in selfcalcycle 0
+    if len(catalog_list) == 0:
+        if freq < 1e9:  # UHF band
+            extract_size = 3.0  # degrees
+        elif freq >= 1e9 and freq < 2e9:  # L band
+            extract_size = 1.5  # degrees
+        elif freq >= 2e9:  # S band
+            extract_size = 0.75  # degrees
+        return extract_size
+
+    # find peak fluxes from compact source catalog and add to filtered catalog (put in AFLUX column)
+    add_peak_flux_to_catalog(merged_catalog, outputfluxcatalog, match_radius=match_radius)
+
+    # determine extract region based on the brighest artifact source
+  
+    # load the catalog
+    hdu_list = fits.open(merged_catalog)
+    catalog = Table(hdu_list[1].data)
+    hdu_list.close()
+    
+    # sort catalog at Peak flux, brightest first
+    idx = catalog.argsort(keys='Peak_flux', reverse=True)
+    catalog = catalog[idx]
+
+    # get the X Y positions of the artifact sources in fitsimage
+
+    extract_size_start = 0.0
+    hdu = flatten(fits.open(fitsimage, ignore_missing_end=True))
+    w = WCS(hdu.header)
+    x_center = hdu.header['NAXIS1'] / 2
+    y_center = hdu.header['NAXIS2'] / 2
+    # loop over sources
+    for source in catalog:
+        ra_source = source['RA']
+        dec_source = source['DEC']
+            
+        x_source, y_source = w.wcs_world2pix(ra_source, dec_source, 0)
+        x_dist = abs(x_source - x_center)
+        y_dist = abs(y_source - y_center)
+        #print('Artifact source pixel position:', x_source, y_source)
+        #print('E-W/N-S artifact distance to image center (pixels):', x_dist, y_dist)
+        max_distance = max([x_dist, y_dist])
+        print('Max artifact distance (E-W/N-S) to image center (degrees):', max_distance * pixsize / 3600.)
+        if 2 * (max_distance * pixsize) / 3600. > extract_size_start:  # in degrees
+            extract_size_start = (2 * (max_distance * pixsize) / 3600.) + ((pixsize * margin) / 3600.)  # in degrees
+    
+    if extract_size_start < min_extract_size:
+        extract_size_start = min_extract_size
+    return extract_size_start # in degrees
+
+def find_bad_deviating_antennas(h5, threshold=0.075):
+    """
+    Find antennas with high deviation in amplitude solutions.
+    Useful for MeerKAT observations to deal with antennas that have a bad pointing accuracy
+    First compute the median amplitude solutions, by taking the median along the antenna axis of the h5
+    The find antennas that deviate more than threshold (default 30%) from the median
+    Args:
+        h5 (str): Path to the H5 parmdb file.
+        threshold (float): Deviation threshold to identify bad antennas.
+    Returns:
+        list: List of bad antenna names.
+    """
+    fulljones = fulljonesparmdb(h5)  # True/False
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5)
+    if not hasamps:
+        print('No amplitude000 solutions found in', h5)
+        raise Exception('No amplitude000 solutions found in ' + h5)
+    if fulljones:
+        print('Amplitude solutions are fulljones, cannot determine bad antennas based on amplitude deviations')
+        raise Exception('Amplitude solutions are fulljones, cannot determine bad antennas based on amplitude deviations')
+
+    H = tables.open_file(h5)
+
+    amps = H.root.sol000.amplitude000.val[:]
+    weights = H.root.sol000.amplitude000.weight[:]
+    antennas = H.root.sol000.amplitude000.ant[:]
+    axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+    ndir = len(H.root.sol000.amplitude000.dir[:])
+    H.close()
+    badants = []
+    # Find the antenna axis
+    antennaxis = axisn.index('ant')
+
+    
+    # Compute median amplitude solutions along the antenna axis
+    median_amps = np.median(amps, axis=antennaxis, keepdims=True)
+    print('Median amplitudes shape:', median_amps.shape)
+    print('Amplitudes shape:', amps.shape)
+    # Calculate deviation from median for each antenna
+    # the deviation array should have the same shape as amps
+    deviation = np.abs(np.log10(amps) - np.log10(median_amps))    
+
+    # now create an array with one value, taking the median over time and frequency for each antenna, keep all other axis like polarization and direction in the array
+    # --only-- take median along the time,freq axis(!)
+    timeaxis = axisn.index('time')
+    freqaxis = axisn.index('freq')
+
+    # also take the weights into, so do not consider data points with zero weight
+    deviation = deviation * (weights > 0)   
+    median_deviation_per_ant = np.abs(np.median(deviation, axis=(timeaxis, freqaxis), keepdims=False))
+    print('Median deviation per antenna shape:', median_deviation_per_ant.shape)
+    if 'pol' in axisn:
+        polaxis = axisn.index('pol')
+        # find number of polarizations
+        npol = amps.shape[polaxis]
+        for pol_id in range(npol):
+            for direction_id in range(ndir):
+                for ant_id, ant in enumerate(antennas):
+                    if median_deviation_per_ant[ant_id, direction_id, pol_id] > threshold:
+                        print('Antenna, direction, polarization:', ant.decode() if isinstance(ant, bytes) else ant, direction_id, pol_id, 'Median deviation:', median_deviation_per_ant[ant_id, direction_id, pol_id], 'marked as bad antenna')
+                        # convert ant to normal string if it is byte string
+                        badants.append(ant.decode() if isinstance(ant, bytes) else ant)
+    else: # for h5 without polarization axis
+            for direction_id in range(ndir):
+                for ant_id, ant in enumerate(antennas):
+                    if median_deviation_per_ant[ant_id, direction_id] > threshold:
+                        print('Antenna, direction, polarization:', ant.decode() if isinstance(ant, bytes) else ant, direction_id, 'Median deviation:', median_deviation_per_ant[ant_id, direction_id], 'marked as bad antenna')
+                        # convert ant to normal string if it is byte string
+                        badants.append(ant.decode() if isinstance(ant, bytes) else ant)
+
+    # only keep the unique bad antennas
+    badants = list(set(badants))    
+    return badants
 
 
 
@@ -13193,6 +13552,39 @@ def makemaskthresholdlist(maskthresholdlist, stop):
 
 
 def niter_from_imsize(imsize, paralleldeconvolution=-1):
+    """
+    Calculate the number of deconvolution iterations based on image size.
+    This function determines the appropriate number of iterations (niter) for
+    deconvolution based on the image size and parallel deconvolution settings.
+    Parameters
+    ----------
+    imsize : int or None
+        The size of the image in pixels. Must be provided (not None).
+    paralleldeconvolution : int, optional
+        The number of parallel deconvolution processes. Default is -1.
+        If <= 0, niter is calculated based on imsize.
+        If > 0, niter is calculated as 40 * paralleldeconvolution.
+    Returns
+    -------
+    int
+        The number of iterations to use for deconvolution.
+        - If paralleldeconvolution <= 0 and imsize < 1024: returns 15000
+        - If paralleldeconvolution <= 0 and imsize >= 1024: returns 15000 * (imsize / 1024)
+        - If paralleldeconvolution > 0: returns 40 * paralleldeconvolution
+    Raises
+    ------
+    Exception
+        If imsize is None.
+    Examples
+    --------
+    >>> niter_from_imsize(512)
+    15000
+    >>> niter_from_imsize(2048)
+    30000
+    >>> niter_from_imsize(1024, paralleldeconvolution=10)
+    400
+    """
+
     if imsize is None:
         print('imsize not set')
         raise Exception('imsize not set')
@@ -13335,6 +13727,7 @@ def basicsetup(mslist):
         args['update_uvmin'] = False
         args['usemodeldataforsolints'] = False
         args['forwidefield'] = True
+        args['auto_flag_antennas'] = True # will be invoked for soltype scalarcomplexgain, complexgain, scalaramplitude, amplitudeonly
         if not args['bandpass']: args['autofrequencyaverage'] = True
         if not args['bandpass']: args['multiscale'] = True
         args['multiscale_start'] = 0
@@ -13345,20 +13738,20 @@ def basicsetup(mslist):
             args['useaoflagger'] = True
             args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua' #'default_StokesQUV.lua'
             if args['preapplybandpassH5_list'][0] is None:
-                args['soltype_list'] = ['scalarphase']
+                args['soltype_list'] = ['scalarphase', 'scalarcomplexgain', 'scalarcomplexgain']
             else: 
-                args['soltype_list'] = ['phaseonly'] # becuause XX and YY may not be perfectly calibrated
-            args['soltypecycles_list'] = [0] 
-            args['solint_list'] = ['1min']
+                args['soltype_list'] = ['phaseonly', 'complexgain', 'scalarcomplexgain'] # becuause XX and YY may not be perfectly calibrated
+            args['soltypecycles_list'] = [0, 999, 999] # 999 but can be updated in case high DR is detected
+            args['solint_list'] = ['1min', '10min', '2min']
             
             if args['start'] == 0: args['stop'] = 3 # this means we can do restarting runs as well
             
             if freq < 1.0e9:  # UHF-band 
-                args['smoothnessconstraint_list'] = [50.] 
+                args['smoothnessconstraint_list'] = [50., 5.0, 50.] 
             if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
-                args['smoothnessconstraint_list'] = [100.] 
+                args['smoothnessconstraint_list'] = [100., 5.0, 75.] 
             if (freq >= 1.7e9) and (freq < 4.0e9):  # S-band
-                args['smoothnessconstraint_list'] = [150.] 
+                args['smoothnessconstraint_list'] = [150., 7.5, 100.] 
             
             # try to automatically set arg['msinstartchan'] and arg['msinnchan'] for L-band
             if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
@@ -13477,8 +13870,8 @@ def basicsetup(mslist):
     else:
         outtarname = 'calibrateddata' + '.tar.gz'
 
-    maskthreshold_selfcalcycle = makemaskthresholdlist(args['maskthreshold'], args['stop'])
-    automaskthreshold_selfcalcycle = makemaskthresholdlist(args['automask_threshold'], args['stop'])
+    maskthreshold_selfcalcycle = makemaskthresholdlist(args['maskthreshold'], args['stop'] + 1) # add extra in case of an extract step 
+    automaskthreshold_selfcalcycle = makemaskthresholdlist(args['automask_threshold'], args['stop'] + 1) # add one extra in case of an extract step
 
 
     # ensure automaskthreshold_selfcalcycle is always smaller than maskthreshold_selfcalcycle
@@ -14066,6 +14459,52 @@ def early_stopping(station: str = 'international', cycle: int = None):
 
     return False
 
+def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solint_list):
+    """
+    Automatically detect if high dynamic range (DR) settings are needed for MeerKAT data and update calibration cycles accordingly.
+
+    Parameters:
+        selfcalcycle (int): The current self-calibration cycle number.
+        mslist (list): List of measurement set file paths.
+        telescope (str): Name of the telescope (e.g., 'MeerKAT').
+        soltypecycles_list (list): Nested list of solution type cycles per MS.
+        solint_list (list): Nested list of solution intervals per MS.
+
+    Returns:
+        tuple: Updated (soltypecycles_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle).
+    """
+    
+    # get frequency
+    t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
+    freq = np.median(t.getcol('CHAN_FREQ')[0]) / 1e6  # in MHz
+    t.close()
+
+    if args['auto'] and not args['DDE'] and telescope == 'MeerKAT':
+        if MeerKAT_autodetect_highDR(args['imagename'] + str(selfcalcycle).zfill(3) + '-MFS-image.fits'):
+            # update soltypecycles_list (this is a nested list of ms)
+            for ms_id, ms in enumerate(mslist):
+                soltypecycles_list[1][ms_id] = 2 # set soltypecycles_list[1][ms_id] to 2 for high DR MeerKAT data
+                soltypecycles_list[2][ms_id] = 3 # set soltypecycles_list[2][ms_id] to 3 for high DR MeerKAT data
+                if freq > 2e9:  # S band
+                    solint_list[0][ms_id] = ['32sec']
+                elif freq > 1e9:  # L band
+                    solint_list[0][ms_id] = ['16sec']
+                elif freq <= 1e9:  # UHF band
+                    solint_list[0][ms_id] = ['8sec']
+
+                if args['start'] == 0: args['stop'] = 6 # do some extra selfcal cycles for high DR MeerKAT data
+                #this means we can do restarting runs as well in case which stop is decided by the user
+    # update maskthreshold_selfcalcycle and automaskthreshold_selfcalcycle in case of extra cycles
+    maskthreshold_selfcalcycle = makemaskthresholdlist(args['maskthreshold'], args['stop'] + 1) # add extra in case of an extract step 
+    automaskthreshold_selfcalcycle = makemaskthresholdlist(args['automask_threshold'], args['stop'] + 1) # add one extra in case of an extract step
+    
+    # ensure automaskthreshold_selfcalcycle is always smaller than maskthreshold_selfcalcycle
+    for selfcalcycle_id, mval in enumerate(maskthreshold_selfcalcycle):
+        if automaskthreshold_selfcalcycle[selfcalcycle_id] > mval:
+            automaskthreshold_selfcalcycle[selfcalcycle_id] = maskthreshold_selfcalcycle[selfcalcycle_id]
+
+    return soltypecycles_list, solint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle
+
 ###############################
 ############## MAIN ###########
 ###############################
@@ -14121,7 +14560,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '16.3.0'
+    facetselfcal_version = '17.0.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -14412,9 +14851,10 @@ def main():
     check_applyfacetbeam_MeerKAT(mslist, args['imsize'], args['pixelscale'], telescope, args['DDE'])
 
     # ----- START SELFCAL LOOP -----
-    for i in range(args['start'], args['stop']):
+    for i in range(args['start'], 999):  # large number, will break when i == args['stop']-1
 
-        # update removenegativefrommodel setting, for high dynamic range it is better to keep negative clean components (based on a very clear 3C84 test case)
+        # UPDATE REMOVENEGATIVEFROMMODEL SETTING, 
+        # for high dynamic range it is better to keep negative clean components (based on a very clear 3C84 test case)
         if args['autoupdate_removenegativefrommodel'] and i > 1 and not args['DDE']:
             args['removenegativefrommodel'] = False
         if args['autoupdate_removenegativefrommodel'] and args[
@@ -14558,7 +14998,7 @@ def main():
         if not args['DDE'] and  args['start'] != 0 and i == args['start']: 
             applycal_restart_di(mslist, i)
 
-        #  --- start imaging part ---
+        #  --- START IMAGING PART ---
         for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
             if args['stack']:
                 stackstr = '_stack' + str(msim_id).zfill(2)
@@ -14635,7 +15075,7 @@ def main():
 
             # PLOT IMAGE
             plotimage(i, stackstr, mask=fitsmask_list[msim_id], regionfile='facets.reg' if (args['DDE'] and facetregionfile is not None) else None)
-        #  --- end imaging part ---
+        #  --- END IMAGING PART ---
 
         modeldatacolumns = []
         if args['DDE']:
@@ -14658,6 +15098,7 @@ def main():
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
         
+        # COMPUTE BANDPASS IF REQUESTED
         if args['bandpass'] and args['bandpass_stop'] == 0: 
             print('Stopping as requested via --bandpass and compute bandpass')
             for parmdb_id, parmdb in enumerate(create_mergeparmdbname(mslist, i, skymodelsolve=True)):
@@ -14669,11 +15110,14 @@ def main():
                 os.system('mv ' + parmdb + ' ' + parmdb.replace('merged_', 'bandpass_'))    
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
-        
-        # run aoflagger on the corrected data culumn if requested  
+
+        # RUN AOFLAGGER ON THE CORRECTED DATA COLUMN IF REQUESTED
         if i in args['useaoflagger_correcteddata_selfcalcycle_list'] and args['useaoflagger_correcteddata']:
             aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_correcteddata'], column='CORRECTED_DATA')
-                    
+
+        # CHECK FOR HIGH DYNAMIC RANGE DATA AND ADJUST SETTINGS (DI-SOLVES ONLY)
+        soltypecycles_list, solint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle = autodetect_highDR(i, mslist, telescope, soltypecycles_list, solint_list)
+       
         # REDETERMINE SOLINTS IF REQUESTED
         if (i >= 0) and (args['usemodeldataforsolints']):
             print('Recomputing solints .... ')
@@ -14716,7 +15160,7 @@ def main():
                                               skymodelsetjy=args['skymodelsetjy'] if args['keepusingstartingskymodel'] else False,
                                               longbaseline=longbaseline,
                                               predictskywithbeam=args['predictskywithbeam'], skymodelsource=args['skymodelsource'],                                          
-                                              mslist_beforephaseup=mslist_beforephaseup,
+                                              mslist_beforephaseup=mslist_beforephaseup, telescope=telescope,
                                               modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                               DDE_predict=args['DDE_predict'],
                                               mslist_beforeremoveinternational=mslist_beforeremoveinternational,
@@ -14735,19 +15179,19 @@ def main():
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
 
-        # update uvmin if allowed/requested
+        # UPDATE UVMIN IF ALLOWED/REQUESTED
         update_uvmin(fitsmask, longbaseline, LBA)
 
-        # update fitsmake if allowed/requested
+        # UPDATE FITSMASK IF ALLOWED/REQUESTED
         fitsmask, fitsmask_list, imagename = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args, mslist, telescope, longbaseline)
 
-        # update to multiscale cleaning if large island is present
+        # UPDATE TO MULTISCALE CLEANING IF LARGE ISLAND IS PRESENT
         args['multiscale'] = multiscale_trigger(fitsmask)
 
-        # update channelsout
+        # UPDATE CHANNELSOUT
         args['channelsout'] = update_channelsout(i, mslist)
 
-        # update fitspectralpol
+        # UPDATE FITSPECTRALPOL
         args['fitspectralpol'] = update_fitspectralpol()
 
         # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
@@ -14755,6 +15199,11 @@ def main():
             logger.info("WARNING: --early-stopping not yet developed for multiple input MeasurementSets.\nSkipping early-stopping evaluation.")
         elif args['early_stopping'] and early_stopping(station='international' if longbaseline else 'alldutch', cycle=i):
             break
+
+        # STOP IF REQUESTED
+        if i == args['stop']-1:
+            print('Reached requested stop selfcal cycle')
+            break    
 
     # Write config file to merged h5parms
     h5s = glob.glob('best_*solutions.h5') if args['early_stopping'] else glob.glob("merged_*.h5")
