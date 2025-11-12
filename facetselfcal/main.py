@@ -11056,7 +11056,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude']:
                 flag_ant_list = find_bad_deviating_antennas(parmdb)
                 for ant in flag_ant_list:
-                    print('Auto-flagging bad MeerKAT antennas based on solution stats:', flag_ant_list)
+                    logger.info('Auto-flagging bad MeerKAT antenna based on solution stats: ' + str(ant) + ' in ' + ms)
+                    print('Auto-flagging bad MeerKAT antennas based on solution stats: ' + str(ant) + ' in ' + ms)
                     # use taql function to flag antennas
                     flag_antenna_taql(ms, ant)
 
@@ -11505,7 +11506,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     
     if args['modelstoragemanager'] == 'stokes_i':
         modelstoragemanagerwsclean = 'stokes-i' # because WSclean uses a different name than DP3
-                
+    else:
+        modelstoragemanagerwsclean =  args['modelstoragemanager']
+
     fitspectrallogpol = False  # for testing Perseus
     msliststring = ' '.join(map(str, mslist))
     if idg:
@@ -13431,6 +13434,8 @@ def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
     
     if extract_size_start < min_extract_size:
         extract_size_start = min_extract_size
+    logger.info('Determined extract size of ' + str(extract_size_start) + ' degrees based on artifact sources')
+    print('Determined extract size of ' + str(extract_size_start) + ' degrees based on artifact sources')
     return extract_size_start # in degrees
 
 def find_bad_deviating_antennas(h5, threshold=0.075):
@@ -14499,6 +14504,8 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
         highDR, peak_flux = MeerKAT_autodetect_highDR(args['imagename'] + str(selfcalcycle).zfill(3) + '-MFS-image.fits')
         if highDR:
             # update soltypecycles_list (this is a nested list of ms)
+            logger.info('High dynamic range MeerKAT data detected, updating self-calibration settings accordingly...')
+            logger.info(f'Peak flux: {peak_flux} Jy/beam at frequency: {freq/1e6} MHz')
             for ms_id, ms in enumerate(mslist):
                 soltypecycles_list[1][ms_id] = 2 # set soltypecycles_list[1][ms_id] to 2 for high DR MeerKAT data
                 soltypecycles_list[2][ms_id] = 3 # set soltypecycles_list[2][ms_id] to 3 for high DR MeerKAT data
@@ -14510,10 +14517,12 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
                     solint_list[0][ms_id] = '8sec'
 
                 if peak_flux > (5.*(freq/1e9))**(-0.7):
+                    print('Very high dynamic range MeerKAT data detected, updating self-calibration settings accordingly...')
+                    logger.info('Very high dynamic range MeerKAT data detected, updating self-calibration settings accordingly...')
                     solint_list[2][ms_id] = '32sec' # for scalarcomplexgain2, very short time intervals to deal with scintillations
                     smoothnessconstraint_list[1][ms_id] = 2.0 # for scalarcomplexgain1, for fine-scale bandpass corrections
 
-                if args['start'] == 0 and args['stop'] is None:
+                if args['start'] == 0 and args['stop'] <= 4:
                     args['stop'] = 6 # do some extra selfcal cycles for high DR MeerKAT data
                 #this means we can do restarting runs as well in case which stop is decided by the user
     # update maskthreshold_selfcalcycle and automaskthreshold_selfcalcycle in case of extra cycles
