@@ -14497,15 +14497,18 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
     
     # get frequency
     t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
-    freq = np.median(t.getcol('CHAN_FREQ')[0]) / 1e6  # in MHz
+    freq = np.median(t.getcol('CHAN_FREQ')[0]) # in Hz
     t.close()
-
+    
     if args['auto'] and not args['DDE'] and telescope == 'MeerKAT':
         highDR, peak_flux = MeerKAT_autodetect_highDR(args['imagename'] + str(selfcalcycle).zfill(3) + '-MFS-image.fits')
         if highDR:
             # update soltypecycles_list (this is a nested list of ms)
             logger.info('High dynamic range MeerKAT data detected, updating self-calibration settings accordingly...')
             logger.info(f'Peak flux: {peak_flux} Jy/beam at frequency: {freq/1e6} MHz')
+            print('High dynamic range MeerKAT data detected, updating self-calibration settings accordingly...')
+            print(f'Peak flux: {peak_flux} Jy/beam at frequency: {freq/1e6} MHz')
+             # update soltypecycles_list (this is a nested list of ms)
             for ms_id, ms in enumerate(mslist):
                 soltypecycles_list[1][ms_id] = 2 # set soltypecycles_list[1][ms_id] to 2 for high DR MeerKAT data
                 soltypecycles_list[2][ms_id] = 3 # set soltypecycles_list[2][ms_id] to 3 for high DR MeerKAT data
@@ -15148,7 +15151,7 @@ def main():
 
         # CHECK FOR HIGH DYNAMIC RANGE DATA AND ADJUST SETTINGS (DI-SOLVES ONLY)
         soltypecycles_list, solint_list, smoothnessconstraint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle = autodetect_highDR(i, mslist, telescope, soltypecycles_list, solint_list, smoothnessconstraint_list)
-       
+
         # REDETERMINE SOLINTS IF REQUESTED
         if (i >= 0) and (args['usemodeldataforsolints']):
             print('Recomputing solints .... ')
