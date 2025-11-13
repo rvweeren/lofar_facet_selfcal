@@ -5800,6 +5800,13 @@ def inputchecker(args, mslist):
         print('--stop must be greater or equal to --start')
         raise Exception('--stop must be greater or equal to --start')
 
+    if not args['remove_outside_center']
+        # do not allow start to be the same as stop when --remove-outside-center is not set
+        if args['stop'] is not None:
+            if args['start'] == args['stop']:
+                print('--start cannot be equal to --stop when --remove-outside-center is not set')
+                raise Exception('--start cannot be equal to --stop when --remove-outside-center is not set')
+
     if 0 in args['useaoflagger_correcteddata_selfcalcycle_list']:
         print('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0')
         raise Exception('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0') 
@@ -10104,8 +10111,62 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
 
 
 def is_scalar_array_for_wsclean(h5list):
-    is_scalar = True  # Start with True to catch cases where the last polarization dimension is missing
+    """
+    Determine if the solutions in H5parm files are scalar (polarization-independent) for WSClean.
 
+    This function checks whether the calibration solutions stored in H5parm files can be
+    treated as scalar values, meaning they are either missing a polarization axis or have
+    identical values across all polarizations.
+
+    Parameters
+    ----------
+    h5list : list of str
+        List of paths to H5parm files containing calibration solutions.
+
+    Returns
+    -------
+    bool
+        True if solutions are scalar (no polarization axis or identical across polarizations),
+        False if solutions differ between polarizations.
+
+    Notes
+    -----
+    The function performs two checks:
+    1. First checks if any solutions lack a polarization axis entirely
+    2. For solutions with a polarization axis, compares values between first and last
+       polarization indices to determine if they are identical
+
+    The function examines both 'phase000' and 'amplitude000' solution tables within
+    the 'sol000' solution set. The polarization axis is assumed to be the last dimension
+    of the solution arrays (shape: time, freq, ant, dir, pol).
+    """
+
+    is_scalar = True  # Start with True
+    pol_axis = False # Start with False
+
+    # check for arrays that do not have a pol-axis
+    for h5 in h5list:
+        with tables.open_file(h5) as H:
+            # try amplitude first
+            try:
+                axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                if 'pol' in axisn:
+                    pol_axis = True
+            except AttributeError:
+                pass
+            # then try phase
+            try:
+                axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+                if 'pol' in axisn:
+                    pol_axis = True
+            except AttributeError:
+                pass
+
+    if not pol_axis:
+        print('Detected solutions without a polarization axis')
+        return is_scalar  # True
+
+    # for arrays that do have a pol-axis (assume pol is last axis)
     for h5 in h5list:
         with tables.open_file(h5, mode='r') as H5:
             for sol_type in ['phase000', 'amplitude000']:
@@ -15115,7 +15176,6 @@ def main():
 
     if args['start'] > 0 and  args['stop'] == args['start'] and args['remove_outside_center']:
         print('Only doing an imaging and extract step')
-        args['stop'] = args['stop'] + 1 # increase stop so we go into the selfcal loop
         remove_outside_center_only = True
     else:
         remove_outside_center_only = False
@@ -15486,6 +15546,8 @@ def main():
         add_version_to_h5(h5, facetselfcal_version)
 
     # remove sources outside central region after selfcal (to prepare for DDE solves)
+    print(args['remove_outside_center'], args['remove_outside_center_box'])
+    print('Here we are at the end of selfcal cycle ', i)
     if args['remove_outside_center']:
         # make image after calibration so the calibration and images match
         # normally we would finish with calibration and not have the subsequent image, make this i+1 image here
