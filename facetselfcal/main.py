@@ -1455,7 +1455,7 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
     return
 
 def read_MeerKAT_wscleanmodel_5spix(filename, outfile):
-    '''
+    """
     Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
     This model is for 5-spectral index terms
     These are used by the SDP pipeline
@@ -1464,7 +1464,7 @@ def read_MeerKAT_wscleanmodel_5spix(filename, outfile):
     Parameters:
     filename (str): input filename
     outfile (str): ouptput filename
-    '''
+    """
     assert filename !=  outfile # prevent overwriting the input
     data = ascii.read(filename, delimiter=' ')
 
@@ -1516,7 +1516,7 @@ def read_MeerKAT_wscleanmodel_5spix(filename, outfile):
     return    
 
 def read_MeerKAT_wscleanmodel_4spix(filename, outfile):
-    '''
+    """
     Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
     This model is for 4-spectral index terms
     These are used by the SDP pipeline
@@ -1525,7 +1525,7 @@ def read_MeerKAT_wscleanmodel_4spix(filename, outfile):
     Parameters:
     filename (str): input filename
     outfile (str): ouptput filename
-    '''
+    """
     assert filename !=  outfile # prevent overwriting the input
     data = ascii.read(filename, delimiter=' ')
 
@@ -1575,7 +1575,7 @@ def read_MeerKAT_wscleanmodel_4spix(filename, outfile):
 
 
 def read_MeerKAT_wscleanmodel_3spix(filename, outfile):
-    '''
+    """
     Read in skymodel from https://github.com/ska-sa/katsdpcal/tree/master/katsdpcal/conf/sky_models
     This model is for 3-spectral index terms
     These are used by the SDP pipeline
@@ -1584,7 +1584,7 @@ def read_MeerKAT_wscleanmodel_3spix(filename, outfile):
     Parameters:
     filename (str): input filename
     outfile (str): ouptput filename
-    '''
+    """
     assert filename !=  outfile # prevent overwriting the input
     data = ascii.read(filename, delimiter=' ')
 
@@ -4453,7 +4453,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
 
 
 def add_bright_source_to_catalog(catalogfile, fluxcatalogfile, freq):
-    '''
+    """
     Add the brightest source from the fluxcatalogfile to the catalogfile to ensure very bright sources are included as directions
     Parameters:
     -----------
@@ -4470,7 +4470,8 @@ def add_bright_source_to_catalog(catalogfile, fluxcatalogfile, freq):
     - The function reads both catalogs and checks for the presence of very bright sources in the flux catalog.
     - All sources found that meet this criterion are added to the input catalog.
     - The updated catalog is written back to the original file, overwriting it.
-    '''
+    """
+    # determine threshold based on frequency
     if freq > 1e9:
        threshold = 0.1*(freq/1e9)**(-0.7)
     elif freq > 300e6:
@@ -4501,7 +4502,7 @@ def add_bright_source_to_catalog(catalogfile, fluxcatalogfile, freq):
     return
 
 def add_source_to_catalog(catalogfile, fluxcatalogfile, distance=20.):
-    '''
+    """
     Add a source from the fluxcatalogfile to the catalogfile if no sources are found
     in the catalogfile. The new source should be at least distance arcmin away from all
     existing sources.
@@ -4523,7 +4524,7 @@ def add_source_to_catalog(catalogfile, fluxcatalogfile, distance=20.):
     - It searches the flux catalog for a source that is at least `distance` arcminutes away from all existing sources.
     - The first source found that meets this criterion is added to the input catalog.
     - The updated catalog is written back to the original file, overwriting it.
-    '''
+    """
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
     hdu_list.close()
@@ -9381,12 +9382,12 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
 
 
 def create_losoto_bandpassparset(intype, ms, h5):
-    '''
+    """
     Create losoto parset than takes median along the time axis
     Can be used to create a bandpass
     Parameters:
     intype (str): set "phase" or "amplitude" or amplitude and phase ("a&p") smoothing, input should be one of these strings
-    '''
+    """
     assert intype == 'phase' or intype == 'amplitude' or intype == 'a&p'
     parset = 'losoto_bandpass.parset'
     os.system('rm -f ' + parset)
@@ -9517,8 +9518,29 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
 
 def check_phaseup(H5name):
     """
-    Check if the antenna 'ST001' is present in any solution type within the H5 file.
+    Check if the H5parm file contains phased-up stations.
+
+    This function opens an H5parm file and checks if 'ST001' (indicating a phased-up
+    superstation) is present in the antenna list of any available solution table.
+
+    Parameters
+    ----------
+    H5name : str
+        Path to the H5parm file to be checked.
+
+    Returns
+    -------
+    bool
+        True if 'ST001' is found in the antenna list, indicating phased-up stations
+        are present. False otherwise.
+
+    Notes
+    -----
+    The function searches through multiple solution types in the following order:
+    'phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000'.
+    It stops at the first solution type where antennas are successfully found.
     """
+
     with tables.open_file(H5name, mode='r') as H5:
         ants = []
         for sol_type in ['phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000']:
@@ -9532,6 +9554,41 @@ def check_phaseup(H5name):
 
 
 def fixbeam_ST001(H5name):
+    """
+    Fix the beam calibration solutions for station ST001 in an H5Parm file.
+
+    This function handles a special case where ST001 station exists in the solution set.
+    It replaces ST001's amplitude and phase solutions with values from a reference 
+    remote station (RS).
+
+    Parameters
+    ----------
+    H5name : str
+        Path to the H5Parm file containing calibration solutions.
+
+    Returns
+    -------
+    bool
+        True if ST001 was present in the antenna list and corrections were applied,
+        False otherwise.
+
+    Notes
+    -----
+    - Opens the H5Parm file in read-write mode
+    - Searches for ST001 in the antenna list of solution set 'sol000'
+    - If ST001 exists:
+      - Uses the first RS* station as a reference
+      - Copies amplitude values from the reference RS station to ST001
+      - Sets phase values for ST001 to 0.0
+      - Updates both 'amplitude000' and 'phase000' solution tables
+    - The H5Parm file is properly closed before returning
+
+    The function assumes the H5Parm structure contains:
+    - A solution set named 'sol000'
+    - Solution tables 'amplitude000' and 'phase000'
+    - At least one RS* station if ST001 is present
+    """
+
     H5 = h5parm.h5parm(H5name, readonly=False)
 
     ants = H5.getSolset('sol000').getAnt().keys()
@@ -9568,8 +9625,28 @@ def fixbeam_ST001(H5name):
 
 def split_facetdirections(facetregionfile):
     """
-    split composite facet region file into individual polygon region files
+    Split a facet region file into individual region files for each facet.
+
+    This function reads a region file containing multiple facet definitions and creates
+    separate region files for each individual facet. Each output file is named 
+    'facet<N>.reg' where N is the facet index.
+
+    Args:
+        facetregionfile (str): Path to the input region file containing multiple facet 
+                              definitions that can be parsed by pyregion.
+
+    Returns:
+        None: The function writes output files to disk but does not return a value.
+
+    Side Effects:
+        Creates multiple region files in the current working directory, one for each
+        facet found in the input file. Files are named as 'facet0.reg', 'facet1.reg', etc.
+
+    Example:
+        >>> split_facetdirections('all_facets.reg')
+        # Creates facet0.reg, facet1.reg, facet2.reg, etc.
     """
+
     r = pyregion.open(facetregionfile)
     for facet_id, facet in enumerate(r):
         r[facet_id:facet_id + 1].write('facet' + str(facet_id) + '.reg')
@@ -9581,12 +9658,65 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
                             facetdirections=None, imsizemargin=100, restart=False,
                             via_h5=False, h5=None):
     """
-    Create a facet region file based on an input image or file provided by the user
-    if there is an image use lsmtool tessellation algorithm
+    Create a facet region file based on an input image or file provided by the user.
 
-    This function also returns the solints and smoothness obtained out of the facetdirections file (if avail). It is up to
-    the function that calls this to do something with it or not.
+    If there is an image, uses lsmtool tessellation algorithm to generate facet directions.
+    This function also returns the solints and smoothness obtained from the facetdirections 
+    file (if available). It is up to the calling function to utilize these values or not.
+
+    Parameters
+    ----------
+    imagename : str
+        Base name of the input image file or path to a skymodel file.
+    selfcalcycle : int
+        Current self-calibration cycle number. Processing only occurs when cycle is 0
+        unless facetdirections is provided.
+    targetFlux : float, optional
+        Target flux in Jy for tessellation algorithm. Default is 1.0.
+    ms : str, optional
+        Path to the measurement set. Required for generating DS9 region files.
+    imsize : int, optional
+        Image size in pixels. Required for generating DS9 region files.
+    pixelscale : float, optional
+        Pixel scale in arcseconds. Required for generating DS9 region files.
+    numClusters : int, optional
+        Number of clusters for grouping algorithm. If 0, uses tessellation. Default is 0.
+    weightBySize : bool, optional
+        Whether to weight tessellation by source size. Default is False.
+    facetdirections : str, optional
+        Path to existing facet directions file (text format or pickle). If provided,
+        skips image-based facet generation.
+    imsizemargin : int, optional
+        Margin to add to image size (not currently used in function body). Default is 100.
+    restart : bool, optional
+        If True, preserves existing facets.reg file when facetdirections is provided.
+        Default is False.
+    via_h5 : bool, optional
+        If True, uses h5 file path for quick DS9 facet generation and returns early.
+        Default is False.
+    h5 : str, optional
+        Path to h5 file when via_h5 is True.
+
+    Returns
+    -------
+    solints : int or None
+        Solution intervals parsed from facetdirections file, or None if not available.
+    smoothness : float or None
+        Smoothness parameter parsed from facetdirections file, or None if not available.
+    soltypelist_includedir : list or None
+        Solution type list parsed from facetdirections file, or None if not available.
+    None
+        Returns None when via_h5 is True (early return).
+
+    Notes
+    -----
+    - Generates 'facetdirections.p' pickle file containing patch positions array.
+    - Generates 'facets.reg' DS9 region file when ms, imsize, and pixelscale are provided.
+    - When selfcalcycle == 0 and no facetdirections file is provided, runs PyBDSF on
+      the image and uses lsmtool for source grouping.
+    - Patch positions are stored as [RA, Dec] in radians.
     """
+
     if via_h5: # this is quick call to ds9facetgenerator using an h5 file and a None return
         cmd = f'python {submodpath}/ds9facetgenerator.py '
         cmd += '--ms=' + ms + ' --h5=' + h5 + ' '
@@ -9689,9 +9819,49 @@ def write_ds9_regions(ra_array, dec_array, filename="directions.reg", radius=120
 
 def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True):
     """
-       parse the facetdirections.txt file and return a list of facet directions
-       for the given selfcalcycle. In the future, this function should also return a
-       list of solints, smoothness, nchans and other things
+    Parse a facet directions file and return selected positions and optional parameters.
+    This function reads a file containing facet directions (RA/DEC positions) and optional
+    parameters for self-calibration. It filters directions based on the current selfcal cycle
+    and returns arrays/lists suitable for further processing.
+    Parameters
+    ----------
+    facetdirections : str
+        Path to the facet directions file. The file should be in ASCII format with a 
+        commented header line. Required columns are 'RA' and 'DEC'. Optional columns 
+        include 'start', 'solints', 'soltypelist_includedir', and 'smoothness'.
+    selfcalcycle : int
+        Current self-calibration cycle number. Only directions with start <= selfcalcycle
+        will be selected.
+    writeregioncircles : bool, optional
+        If True, write DS9 region file with facet center positions (default: True).
+    Returns
+    -------
+    PatchPositions_array : np.ndarray
+        Array of shape (N, 2) containing RA and DEC positions in radians for selected
+        directions.
+    solints : list of list or None
+        List of solution intervals for each selected direction, parsed from string 
+        representation. None if 'solints' column not present in file.
+    smoothness : list of list or None
+        List of smoothness parameters for each selected direction, parsed from string
+        representation. None if 'smoothness' column not present in file.
+    soltypelist_includedir_sel : np.ndarray or None
+        2D boolean array of shape (N, M) indicating which solution types to include
+        for each direction, where M is len(args['soltype_list']). None if 
+        'soltypelist_includedir' column not present in file.
+    Raises
+    ------
+    ValueError
+        If the number of entries in 'solints', 'smoothness', or 'soltypelist_includedir'
+        does not match the length of args['soltype_list'].
+    Notes
+    -----
+    - The function strips inline comments from the input file before parsing.
+    - Full-line comments (starting with '#') are skipped except for the header.
+    - Requires global variable 'args' with 'soltype_list' key for validation when
+      'soltypelist_includedir' is present.
+    - Uses astropy.io.ascii for reading the table data.
+    - Coordinates are converted from degrees to radians in the output array.
     """
     
     # Preprocess the file to strip inline comments
@@ -14312,12 +14482,81 @@ def flag_uGMRT_badfreqs(mslist):
     return
 
 def mslist_return_stack(mslist, stack):
-    """Returns the full mslist if 'stack' is True; otherwise, returns a list containing only the first element."""
+    """
+    Returns a modified MS list based on the stack parameter.
+    Args:
+        mslist (list): A list of measurement set (MS) file paths or identifiers.
+        stack (bool): If True, returns the entire mslist. If False, returns a list 
+                      containing only the first element of mslist.
+    Returns:
+        list: The full mslist if stack is True, otherwise a single-element list 
+              containing the first item from mslist.
+    Examples:
+        >>> mslist_return_stack(['ms1.ms', 'ms2.ms', 'ms3.ms'], True)
+        ['ms1.ms', 'ms2.ms', 'ms3.ms']
+        >>> mslist_return_stack(['ms1.ms', 'ms2.ms', 'ms3.ms'], False)
+        ['ms1.ms']
+    """
     return mslist if stack else [mslist[0]]
 
 
 def set_skymodels_external_surveys(args, mslist):
-    # Make starting skymodel from TGSS, VLASS, or LOFAR/LINC GSM if requested
+    """
+    Set up sky models from external surveys (TGSS, VLASS, GSM) or FITS images.
+    This function generates sky models based on the specified external survey options
+    (TGSS, VLASS, GSM, or arbitrary FITS images) for radio interferometry calibration.
+    It processes measurement sets and creates appropriate sky models while validating
+    input parameters to prevent conflicting options.
+    Parameters
+    ----------
+    args : dict
+        Dictionary of arguments containing:
+        - startfromtgss : bool
+            Flag to start from TGSS survey data
+        - startfromvlass : bool
+            Flag to start from VLASS survey data
+        - startfromgsm : bool
+            Flag to start from Global Sky Model
+        - startfromimage : bool
+            Flag to start from arbitrary FITS image
+        - skymodel : str or None
+            Path to sky model file (can be FITS or other format)
+        - skymodelpointsource : str or None
+            Path to point source sky model
+        - start : int
+            Starting cycle number
+        - stack : bool
+            Whether to stack multiple measurement sets
+        - boxfile : str
+            Path to box file for region definition
+        - tgssfitsimage : str
+            Path to TGSS FITS image
+        - pixelscale : float
+            Pixel scale in arcseconds
+        - imsize : int
+            Image size in pixels
+    mslist : list of str
+        List of measurement set paths to process
+    Returns
+    -------
+    args : dict
+        Updated arguments dictionary with skymodel field set to generated sky model(s)
+    tgssfitsfile : str or None
+        Path to TGSS FITS file if generated, None otherwise
+    Raises
+    ------
+    Exception
+        If conflicting options are provided (e.g., manual skymodel with startfrom* flags)
+        If skymodel is not a FITS file when using --startfromimage
+        If --startfromimage is not set when providing a FITS file as skymodel
+    Notes
+    -----
+    - Only one external survey option should be used at a time
+    - When using external surveys, manual skymodel provision is not allowed
+    - If processing stacked measurement sets, returns list of skymodels
+    - If processing single measurement set, returns single skymodel string
+    """
+    
     skymodel_list = []
     tgssfitsfile = None
     # --- TGSS ---
