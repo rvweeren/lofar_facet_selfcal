@@ -2,8 +2,8 @@
 # rotationmeasure updates
 # use phase slope fitting for bandpass step?
 # https://ui.adsabs.harvard.edu/abs/2022ApJ...932..110K/abstract
-#std exception detected: The TEC constraints do not yet support direction-dependent intervals
-#python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy.subtracted
+# std exception detected: The TEC constraints do not yet support direction-dependent intervals
+# python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy.subtracted
 # run with less disk-space usage, remove all but merged h5
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
@@ -4442,12 +4442,20 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
                            ds9_region=directions_reg, telescope=telescope)
 
     # plot, # hardcode minmax to always usage image000 so it is easier to compare
-    hdulist = fits.open(args['imagename'] + str(0).zfill(3) + '-errormap.fits') 
-    imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
-    plotminmax = [-2.*imagenoise, 35.*imagenoise]
-    hdulist.close()
+    with fits.open(args['imagename'] + str(0).zfill(3) + '-errormap1.fits') as hdulist:
+        imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
+        plotminmax = [-2.*imagenoise, 35.*imagenoise]
     plotimage_astropy(outputerrormap1, outplotname1, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
+
+    # plot, # hardcode minmax to always usage image000 so it is easier to compare
+    with fits.open(args['imagename'] + str(0).zfill(3) + '-errormap2.fits') as hdulist:
+        imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
+        plotminmax = [-2.*imagenoise, 35.*imagenoise]
     plotimage_astropy(outputerrormap2, outplotname2, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
+        # plot, # hardcode minmax to always usage image000 so it is easier to compare
+    with fits.open(args['imagename'] + str(0).zfill(3) + '-errormap3.fits') as hdulist:
+        imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
+        plotminmax = [-2.*imagenoise, 35.*imagenoise]
     plotimage_astropy(outputerrormap3, outplotname3, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
     return facetdirections
 
