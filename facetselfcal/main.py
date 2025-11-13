@@ -5800,7 +5800,7 @@ def inputchecker(args, mslist):
         print('--stop must be greater or equal to --start')
         raise Exception('--stop must be greater or equal to --start')
 
-    if not args['remove_outside_center']
+    if not args['remove_outside_center']:
         # do not allow start to be the same as stop when --remove-outside-center is not set
         if args['stop'] is not None:
             if args['start'] == args['stop']:
@@ -15546,8 +15546,6 @@ def main():
         add_version_to_h5(h5, facetselfcal_version)
 
     # remove sources outside central region after selfcal (to prepare for DDE solves)
-    print(args['remove_outside_center'], args['remove_outside_center_box'])
-    print('Here we are at the end of selfcal cycle ', i)
     if args['remove_outside_center']:
         # make image after calibration so the calibration and images match
         # normally we would finish with calibration and not have the subsequent image, make this i+1 image here
