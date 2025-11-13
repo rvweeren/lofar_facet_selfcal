@@ -78,10 +78,17 @@ def option_parser():
                                default=None,
                                type=floatlist_or_float)
     imagingparser.add_argument('--pixelscale', '--pixelsize',
-                               help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations (these are also the default values). For LOFAR ILT the defaults are 0.04 and 0.08 for HBA and LBA, repspectively. For MeerKAT the defaults are 1.8,1.0, and 0.5 for UHF, L, and S-band, repspectively.',
+                               help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations \
+                               (these are also the default values). For LOFAR ILT the defaults are 0.04 and 0.08 for \
+                               HBA and LBA, repspectively. For MeerKAT the defaults are 1.8, 1.0, and 0.5 for UHF, L, \
+                               and S-band, repspectively. For ASKAP the defaults are 1.5 and 1.0 for the lower and upper \
+                               parts of the band, respectively. For the GMRT the defaults are 3, 1.25, 0.75, 0.35, for \
+                               band2, 3, 4, and 5, respectively.',
                                type=float)
     imagingparser.add_argument('--channelsout',
-                               help='Number of channels out during imaging (see WSClean documentation). This is by default 6.',
+                               help='Number of channels out during imaging (see WSClean documentation). \
+                               This is by default 6 for LOFAR and 12 for MeerKAT UHF/L-band, and \
+                               8 for MeerKAT S-band.',
                                default=6,
                                type=int)
     imagingparser.add_argument('--mgain',
@@ -472,6 +479,9 @@ def option_parser():
                                 action='store_true')
     flaggingparser.add_argument('--aoflagger-strategy-afterbandpassapply',
                                 help='Use this strategy for AOflagger on applyinng the bandpass solutions (options are: "default_StokesV.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',type=str)
+    flaggingparser.add_argument("--auto-flag-antennas", 
+                                help='Automatically flag antennas that show deviating amplitude solutions (for MeerKAT only).',
+                                action='store_true')                        
     
     flaggingparser.add_argument('--flagtimesmeared',
                                 help='Flag data that is severely time smeared. Warning: expert only',
@@ -556,8 +566,22 @@ def option_parser():
                         help='Subtract sources that are outside the central parts of the FoV, square box is used in the phase center with sizes of 3.0, 2.0, 1.5 degr for MeerKAT UHF, L, and S-band, repspectively. In case you want something else set --remove-outside-center-box. In case of a --DDE solve the solution closest to the box center is applied.',
                         action='store_true')
     parser.add_argument('--remove-outside-center-box',
-                        help='User defined box DS9 region file to subtract sources that are outside this part of the image, see also --remove-outside-center. If "keepall" is set then no subtract is done and everything is kept, this is mainly useful if you are already working on box-extracted data. If number is given a boxsize of this size (degr) will be used in the phase center. In case of a --DDE solve the solution closest to the box center is applied (unless "keepall" is set).',
+                        help='User defined box DS9 region file to subtract sources that are outside \
+                        this part of the image, see also --remove-outside-center. If "keepall" is \
+                        set then no subtract is done and everything is kept, this is mainly useful \
+                        if you are already working on box-extracted data. If number is given a \
+                        boxsize of this size (degr) will be used in the phase center. The option \
+                        "auto" will determine the boxsize automatically based on the artifacts \
+                        detected in last selfcal image the image. In case of a --DDE solve the \
+                        solution closest to the box center is applied (unless of a --DDE solve the \
+                        solution closest to the box center is applied (unless "keepall" is set).',
                         type=str_or_float,
+                        default=None)
+    parser.add_argument('--remove-outside-center-auto-minboxsize',
+                        help='Required minimum box size (degrees) when automatically determining the \
+                        box size for --remove-outside-center-box="auto". Default is the FWHM of the \
+                        primary beam for MeerKAT',
+                        type=float,
                         default=None)
     parser.add_argument('--single-dual-speedup',
                         help='Speed up calibration and imaging if possible using datause=single/dual in DP3 and -scalar/diagonal-visibilities in WSClean. Requires a recent (mid July 2024) DP3 and WSClean versions. Default is True. Set to --single-dual-speedup=False to disable to speed-up',
@@ -587,8 +611,8 @@ def option_parser():
                         default=0,
                         type=int)
     parser.add_argument('--stop',
-                        help='Stop selfcal cycle at this iteration number. The default is 10.',
-                        default=10,
+                        help='Stop selfcal cycle at this iteration number. If the value is not set, it defaults to 10. The exception is for MeerKAT data where it defaults to 2, or 6 in case of a --DDE solve.',
+                        default=None,
                         type=int)
     parser.add_argument('--stopafterskysolve',
                         help='Stop calibration after solving against external skymodel.',
