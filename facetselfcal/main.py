@@ -4361,8 +4361,8 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
 
     if selfcalcycle > 0:
         previous_catalog =  args['imagename'] + str(selfcalcycle-1).zfill(3) + '-errormap.srl.filtered.fits'
-        if not os.path.isfile(previous_catalog) or not os.path.isfile(args['imagename'] + str(0).zfill(3) + '-errormap.fits'):
-            print('One of both of these files are missing:',previous_catalog, args['imagename'] + str(0).zfill(3) + '-errormap.fits')    
+        if not os.path.isfile(previous_catalog) or not os.path.isfile(args['imagename'] + str(0).zfill(3) + '-errormap1.fits'):
+            print('One of both of these files are missing:',previous_catalog, args['imagename'] + str(0).zfill(3) + '-errormap1.fits')    
             raise Exception('Missing files')
     else:
         previous_catalog = None  
@@ -4398,7 +4398,10 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
         merge_catalogs(catalog_list, outputcatalog)
         # remove duplicates and sources that are close to each other
         update_calibration_error_catalog(outputcatalog, outputcatalog, distance=distance, keep_N_brightest=keep_N_brightest, N_dir_max=N_dir_max)
-    
+    if len(catalog_list) == 1:
+        print('Only one artifact source catalog found, using this one directly')
+        os.system('cp -f {} {}'.format(catalog_list[0], outputcatalog))
+
     if len(catalog_list) == 0:
         print('No artifact sources found in any catalog')
         empty_catalog = True
