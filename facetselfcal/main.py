@@ -12794,7 +12794,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
                         beamlib=losotobeamlib)
 
         phasedup = fixbeam_ST001(H5name)
-        parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name, telescope=telescope), update_poltable=update_poltable)
+        parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name, telescope=telescope))
         force_close(H5name)
 
         # print('Phase up dataset, cannot use DPPP beam, do manual correction')
