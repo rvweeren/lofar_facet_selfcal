@@ -68,10 +68,9 @@ def option_parser():
                                help='Start multiscale deconvolution at this selfcal cycle. This is by default 1.',
                                default=1,
                                type=int)
-
     imagingparser.add_argument('--uvminim',
-                               help='Inner uv-cut for imaging in lambda. The default is 80.',
-                               default=80.,
+                               help='Inner uv-cut for imaging in lambda. The default is 80 for LOFAR and 10 for all other telescopes.',
+                               default=None,
                                type=floatlist_or_float)
     imagingparser.add_argument('--uvmaxim',
                                help='Outer uv-cut for imaging in lambda. The default is None',

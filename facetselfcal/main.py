@@ -368,6 +368,56 @@ def remove_antennas(ms_path, antennas_to_remove):
             antenna_table.removerows(rows_to_remove)
             print(f"Removed rows from ANTENNA: {rows_to_remove}")
  
+def fix_twopol_ms(mslist):
+    """
+    Fixes 2-polarisation Measurement Sets (MS) by converting them to 4-polarisation format.
+    This function checks each Measurement Set in the provided list to determine if it is a 2-polarisation MS.
+    If so, it runs a helper script to create fake cross-hand correlations, effectively converting
+    the MS to a 4-polarisation format.
+    Parameters:
+        mslist (list of str): List of paths to Measurement Sets (MS) to process.
+    Notes:
+        - The function assumes the existence of a helper script 'fix_twopol_ms.py' located in the 'submodpath' directory.
+    """
+    # for standalone running
+    if 'submodpath' not in globals():
+        datapath = os.path.dirname(os.path.abspath(__file__))
+        submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
+    
+    # check if mslist is of type list, if not convert it to a list
+    if not isinstance(mslist, list):
+        mslist = [mslist]
+    for ms in mslist:
+        if is_two_pol_ms(ms):
+            print('Fixing 2-pol MS:', ms)
+            print('Convert to 4-pol by creating fake cross-hand correlations')
+            cmd = f'python {submodpath}/fix_twopol_ms.py -c 10000 {ms}'
+            print(cmd)
+            run(cmd)
+
+def split_columns(ms, outms, column='CORRECTED_DATA'):
+    """
+    Split a column from a Measurement Set (MS), mimickiqng CASA split.
+    Parameters:
+        ms (str): Path to the Measurement Set to split.
+        outms (str): Path to the output Measurement Set.
+        column (str): Name of the column to split. Default is 'CORRECTED_DATA'.
+    Returns:
+        str: Path to the newly created Measurement Set containing only the specified column.
+    Notes:
+        - The output MS will contain only the specified column, with other data columns removed.
+        - Existing output MS directories will be removed before new ones are created.
+    """ 
+    # Remove  MS if it exists
+    if os.path.isdir(outms):
+        os.system('rm -rf {}'.format(outms))
+    cmd = "taql 'select FLAG_CATEGORY,WEIGHT,SIGMA,ARRAY_ID,DATA_DESC_ID,EXPOSURE,\
+           FEED1,FEED2,FIELD_ID,FLAG_ROW,INTERVAL,OBSERVATION_ID,PROCESSOR_ID,\
+           SCAN_NUMBER,STATE_ID,TIME,TIME_CENTROID,UVW,ANTENNA1,ANTENNA2,FLAG,\
+           WEIGHT_SPECTRUM,{} from {} giving {} as plain'".format(column, ms, outms)   
+    print(cmd)
+    run(cmd)
+    return
 
 def split_multidir_ms(ms):
     """
@@ -563,7 +613,25 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope, DDE):
             print("\033[33m" + "Save Fov [deg]: " + str(safe_diameter/3600) + "\033[0m")
             logger.warning('Your image FoV is too large to use -apply-facet-beam in WSClean. The option --disable-primary-beam is automatically invoked: ' + ms)
         return    
-        
+
+def is_two_pol_ms(ms):
+    """
+    Determines if a Measurement Set (MS) contains only two polarisation correlations
+    Parameters:
+        ms (str): Path to the Measurement Set.
+    Returns:
+        bool: True if the MS contains only two polarisation correlations, False otherwise.
+    Notes:
+        - The function reads the 'CORR_TYPE' column from the POLARIZATION table of the MS.
+        - It checks if the correlation types correspond to two polarisation correlations.
+    """
+    with table(ms + '/POLARIZATION', ack=False, readonly=True) as t:
+        corr_type = t.getcol('CORR_TYPE')
+        if np.size(corr_type) == 2:
+            return True
+        else:
+            return False  
+
 def set_metadata_compression(mslist):
     """
     Sets the metadata compression flag based on the telescope name in the provided Measurement Set list.
@@ -13972,6 +14040,8 @@ def basicsetup(mslist):
         args['usemodeldataforsolints'] = True
         args['forwidefield'] = True
         args['autofrequencyaverage'] = True
+        if args['start'] == 0 and args['stop'] is None:
+            args['stop'] = 10
         if LBA:
             args['BLsmooth_list'] = [True] * len(args['soltype_list'])
         else:
@@ -14061,7 +14131,8 @@ def basicsetup(mslist):
         args['forwidefield'] = True
         args['autofrequencyaverage'] = True
         args['update_multiscale'] = True
-
+        if args['start'] == 0 and args['stop'] is None:
+            args['stop'] = 10
         args['soltypecycles_list'] = [0, 3]
         args['soltype_list'] = [args['targetcalILT'], 'scalarcomplexgain']
         if args['targetcalILT'] == 'tec' or args['targetcalILT'] == 'tecandphase':
@@ -14118,6 +14189,9 @@ def basicsetup(mslist):
         args['doflagging'] = False
         args['clipsolutions'] = False
 
+    # set stop in case it was not set above
+    if args['start'] == 0 and args['stop'] is None:
+        args['stop'] = 10
  
     args['imagename'] = args['imagename'] + '_'
     if args['fitsmask'] is not None:
@@ -14905,7 +14979,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.0.0'
+    facetselfcal_version = '17.1.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
