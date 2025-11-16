@@ -14189,6 +14189,9 @@ def basicsetup(mslist):
         args['doflagging'] = False
         args['clipsolutions'] = False
 
+    # set stop in case it was not set above
+    if args['start'] == 0 and args['stop'] is None:
+        args['stop'] = 10
  
     args['imagename'] = args['imagename'] + '_'
     if args['fitsmask'] is not None:
