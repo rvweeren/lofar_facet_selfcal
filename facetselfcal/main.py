@@ -14040,6 +14040,8 @@ def basicsetup(mslist):
         args['usemodeldataforsolints'] = True
         args['forwidefield'] = True
         args['autofrequencyaverage'] = True
+        if args['start'] == 0 and args['stop'] is None:
+            args['stop'] = 10
         if LBA:
             args['BLsmooth_list'] = [True] * len(args['soltype_list'])
         else:
@@ -14129,7 +14131,8 @@ def basicsetup(mslist):
         args['forwidefield'] = True
         args['autofrequencyaverage'] = True
         args['update_multiscale'] = True
-
+        if args['start'] == 0 and args['stop'] is None:
+            args['stop'] = 10
         args['soltypecycles_list'] = [0, 3]
         args['soltype_list'] = [args['targetcalILT'], 'scalarcomplexgain']
         if args['targetcalILT'] == 'tec' or args['targetcalILT'] == 'tecandphase':
