@@ -7354,7 +7354,7 @@ def fix_phasereference(h5parm, refant):
     return
 
 
-def resetsolsforstations(h5parm, stationlist, refant=None):
+def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     """ Reset solutions for stations
 
     Args:
@@ -7394,25 +7394,25 @@ def resetsolsforstations(h5parm, stationlist, refant=None):
     # in this case we have pertubative direction
     # in this case h5_merger has already been run which created a phase000 entry
     if refant is None and hasphase:
-        refant = findrefant_core(h5parm)
+        refant = findrefant_core(h5parm, telescope=telescope)
         force_close(h5parm)
 
     # should not be needed as h5_merger does not create rotation000
     # keep this code in case of future h5_merger updates so we are safe
     if refant is None and hasrotation:
-        refant = findrefant_core(h5parm)
+        refant = findrefant_core(h5parm, telescope=telescope)
         force_close(h5parm)
 
     # should not be needed as h5_merger does not create rotationmeasure000
     # keep this code in case of future h5_merger updates so we are safe
     if refant is None and hasrotationmeasure:
-        refant = findrefant_core(h5parm)
+        refant = findrefant_core(h5parm, telescope=telescope)
         force_close(h5parm)
 
     # should not be needed as h5_merger does not create tec000
     # keep this code in case of future h5_merger updates so we are safe
     if refant is None and hastec:
-        refant = findrefant_core(h5parm)
+        refant = findrefant_core(h5parm, telescope=telescope)
         force_close(h5parm)
 
     if hasamps:
@@ -7642,7 +7642,7 @@ def check_soltabs(h5parm):
     return hasphase, hasamps, hasrotation, hastec, hasrotationmeasure
 
 
-def resetsolsfordir(h5parm, dirlist, refant=None):
+def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
     """ Reset solutions for directions (DDE solves only)
 
     Args:
@@ -7659,25 +7659,25 @@ def resetsolsfordir(h5parm, dirlist, refant=None):
     # in this case we have pertubative direction
     # in this case h5_merger has already been run which created a phase000 entry
     if refant is None and hasphase:
-        refant = findrefant_core(h5parm)
+        refant = findrefant_core(h5parm, telescope=telescope)
         force_close(h5parm)
 
     # should not be needed as h5_merger does not create rotation000
     # keep this code in case of future h5_merger updates so we are safe
     if refant is None and hasrotation:
-        refant = findrefant_core(h5parm)
+        refant = findrefant_core(h5parm, telescope=telescope)
         force_close(h5parm)
 
     # should not be needed as h5_merger does not create hasrotationmeasure000
     # keep this code in case of future h5_merger updates so we are safe
     if refant is None and hasrotationmeasure:
-        refant = findrefant_core(h5parm)
+        refant = findrefant_core(h5parm, telescope=telescope)
         force_close(h5parm)
 
     # should not be needed as h5_merger does not create tec000
     # keep this code in case of future h5_merger updates so we are safe
     if refant is None and hastec:
-        refant = findrefant_core(h5parm)
+        refant = findrefant_core(h5parm, telescope=telescope)
         force_close(h5parm)
 
     H = tables.open_file(h5parm, mode='r+')
@@ -10590,7 +10590,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                                                        medamp=get_median_amp(parmdbmergename),
                                                        outplotname=
                                                        parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0],
-                                                       refant=findrefant_core(parmdbmergename),
+                                                       refant=findrefant_core(parmdbmergename, telescope=telescope),
                                                        fulljones=fulljonesparmdb(parmdbmergename),
                                                        onepol=single_pol_merge)
         run('losoto ' + parmdbmergename + ' ' + losotoparset)
@@ -11229,7 +11229,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase']:
         remove_nans(parmdb, 'rotation000')
         fix_weights_rotationh5(parmdb)
-        refant = findrefant_core(parmdb)
+        refant = findrefant_core(parmdb, telescope=telescope)
         force_close(parmdb)
         fix_rotationreference(parmdb, refant)
 
@@ -11238,14 +11238,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
         remove_nans(parmdb, 'rotationmeasure000')
         fix_weights_rotationmeasureh5(parmdb)
-        refant = findrefant_core(parmdb)
+        refant = findrefant_core(parmdb, telescope=telescope)
         force_close(parmdb)
         fix_rotationmeasurereference(parmdb, refant)
 
     # tec checking
     if soltype in ['tec', 'tecandphase']:
         remove_nans(parmdb, 'tec000')
-        refant = findrefant_core(parmdb)
+        refant = findrefant_core(parmdb, telescope=telescope)
         fix_tecreference(parmdb, refant)
         force_close(parmdb)
 
@@ -11255,7 +11255,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    'scalarcomplexgain', 'complexgain', 'scalarphase',
                    'phaseonly', 'faradayrotation+diagonal', 'faradayrotation+scalar', 'faradayrotation+diagonalphase', 'faradayrotation+scalarphase']:
         remove_nans(parmdb, 'phase000')
-        refant = findrefant_core(parmdb)
+        refant = findrefant_core(parmdb, telescope=telescope)
         fix_phasereference(parmdb, refant)
         force_close(parmdb)
 
@@ -11267,7 +11267,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if incol == 'DATA_CIRCULAR_PHASEDIFF':
         print('Manually updating H5 to get the phase difference correct')
-        refant = findrefant_core(parmdb)  # phase matrix plot
+        refant = findrefant_core(parmdb, telescope=telescope)  # phase matrix plot
         force_close(parmdb)
         makephasediffh5(parmdb, refant)
     if incol == 'DATA_CIRCULAR_PHASEDIFF' and soltypein == 'scalarphasediffFR':
@@ -11275,11 +11275,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         # work with copies H5 because losoto changes the format splitting off the length 1 direction axis creating issues
         # with H5merge (also add additional solution talbes which we do not want)
         os.system('cp -f ' + parmdb + ' ' + 'FRcopy' + parmdb)
-        losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb), outplotname=outplotname,
+        losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb, telescope=telescope), outplotname=outplotname,
                                                  dejump=dejumpFR)
         run('losoto ' + 'FRcopy' + parmdb + ' ' + losoto_parsetFR)
         rotationmeasure_to_phase('FRcopy' + parmdb, parmdb, dejump=dejumpFR)
-        run('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb),
+        run('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb, telescope=telescope),
                                                                      outplotname=outplotname))
         force_close(parmdb)
 
@@ -11293,24 +11293,24 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
                        'rotation+diagonalamplitude', 'rotation+diagonalphase',
                        'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
-            refant = findrefant_core(parmdb)
+            refant = findrefant_core(parmdb, telescope=telescope)
             force_close(parmdb)
         else:
             refant = None
         resetsolsforstations(parmdb, antennaconstraintstr(resetsols, antennasms, HBAorLBA, useforresetsols=True,
-                                                          telescope=telescope), refant=refant)
+                                                          telescope=telescope), refant=refant, telescope=telescope)
 
     if resetdir is not None:
         if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
                        'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
                        'rotation+diagonalamplitude', 'rotation+diagonalphase',
                        'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
-            refant = findrefant_core(parmdb)
+            refant = findrefant_core(parmdb, telescope=telescope)
             force_close(parmdb)
         else:
             refant = None
 
-        resetsolsfordir(parmdb, resetdir, refant=refant)
+        resetsolsfordir(parmdb, resetdir, refant=refant, telescope=telescope)
 
     if number_freqchan_h5(parmdb) > 1:
         onechannel = False
@@ -11379,32 +11379,43 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    'rotation+scalarphase', 'rotation+diagonalphase']:
 
         losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname + 'ROT',
-                                                             refant=findrefant_core(parmdb))  # phase matrix plot
+                                                             refant=findrefant_core(parmdb, telescope=telescope))  # phase matrix plot
         force_close(parmdb)
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
-        print(cmdlosoto)
-        logger.info(cmdlosoto)
-        run(cmdlosoto)
-
-        if soltype in ['rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase','faradayrotation+diagonalphase']:
-            losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
-                                                               outplotname=outplotname,
-                                                               refant=findrefant_core(parmdb),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
-            cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
-            force_close(parmdb)
+        if onechannel and (ntimesH5(parmdb) == 1): 
+            print('Skipping losoto rotation plot because only one time and one frequency channel')
+        else:
             print(cmdlosoto)
             logger.info(cmdlosoto)
             run(cmdlosoto)
 
+        if soltype in ['rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase','faradayrotation+diagonalphase']:
+            losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
+                                                               outplotname=outplotname,
+                                                               refant=findrefant_core(parmdb, telescope=telescope), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
+            cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
+            force_close(parmdb)
+
+            # cannot plot if only one time AND one frequency channel
+            if onechannel and (ntimesH5(parmdb) == 1): 
+                print('Skipping losoto phase plot for rotation+scalarphase or rotation+diagonalphase because only one time and one frequency channel')
+            else:
+                print(cmdlosoto)
+                logger.info(cmdlosoto)
+                run(cmdlosoto)
+
     if soltype in ['phaseonly', 'scalarphase'] and not args['phasediff_only']:
         losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                            outplotname=outplotname,
-                                                           refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
+                                                           refant=findrefant_core(parmdb, telescope=telescope), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
         force_close(parmdb)
-        print(cmdlosoto)
-        logger.info(cmdlosoto)
-        run(cmdlosoto)
+        if onechannel and (ntimesH5(parmdb) == 1): 
+            print('Skipping losoto phase plot for phaseonly or scalarphase because only one time and one frequency channel')
+        else:
+            print(cmdlosoto)
+            logger.info(cmdlosoto)
+            run(cmdlosoto)
 
     if soltype in ['tecandphase', 'tec']:
         tecandphaseplotter(parmdb, ms,
@@ -11412,7 +11423,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if soltype in ['tec']:
         losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname,
-                                                   refant=findrefant_core(parmdb),
+                                                   refant=findrefant_core(parmdb, telescope=telescope), onetime=ntimesH5(parmdb)==1,
                                                    markersize=compute_markersize(parmdb))
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_tec
         print(cmdlosoto)
@@ -11433,13 +11444,13 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                                                maxrmsphase=flagslowphaserms,
                                                                includesphase=includesphase, onechannel=onechannel,
                                                                medamp=medamp, flagphases=flagslowphases, onepol=onepol,
-                                                               outplotname=outplotname, refant=findrefant_core(parmdb), onetime=ntimesH5(parmdb)==1, markersize=compute_markersize(parmdb))
+                                                               outplotname=outplotname, refant=findrefant_core(parmdb, telescope=telescope), onetime=ntimesH5(parmdb)==1, markersize=compute_markersize(parmdb))
                 force_close(parmdb)
         else:
             losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase,
                                                            onechannel=onechannel, medamp=medamp, onepol=onepol,
                                                            outplotname=outplotname,
-                                                           refant=findrefant_core(parmdb),
+                                                           refant=findrefant_core(parmdb, telescope=telescope),
                                                            fulljones=fulljonesparmdb(parmdb),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))
             force_close(parmdb)
 
@@ -11447,9 +11458,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if flagging:
             os.system('cp -f ' + parmdb + ' ' + parmdb + '.backup')
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset
-        print(cmdlosoto)
-        logger.info(cmdlosoto)
-        run(cmdlosoto)
+        if onechannel and (ntimesH5(parmdb) == 1): 
+            print('Skipping losoto amplitude plot because only one time and one frequency channel')
+        else:
+            print(cmdlosoto)
+            logger.info(cmdlosoto)
+            run(cmdlosoto)
     
     if is_multidir(parmdb):
         same_weights_multidir(parmdb)
@@ -12186,7 +12200,6 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
             logger.info(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
             run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
-
         else:
             print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
             logger.info(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
@@ -12737,6 +12750,9 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
     """
     correct a ms for the beam in the phase center (array_factor only)
     """
+    # get telescope from MS
+    with table(ms + '/OBSERVATION', ack=False) as tobs:
+        telescope = tobs.getcol('TELESCOPE_NAME')[0]
 
     # check if there are applybeam corrections in the header
     # should be there unless a very old DP3 version has been used
@@ -12778,7 +12794,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
                         beamlib=losotobeamlib)
 
         phasedup = fixbeam_ST001(H5name)
-        parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name))
+        parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name, telescope=telescope), update_poltable=update_poltable)
         force_close(H5name)
 
         # print('Phase up dataset, cannot use DPPP beam, do manual correction')
@@ -13266,7 +13282,7 @@ def has0coordinates(h5):
     return False
 
 
-def findrefant_core(H5file):
+def findrefant_core(H5file, telescope='LOFAR'):
     """
     Basically like the other one, but now it actually uses losoto
     """
@@ -13284,122 +13300,30 @@ def findrefant_core(H5file):
     if 'ST001' in ants:
         H.close()
         return 'ST001'
-    cs_indices = np.where(['CS' in ant for ant in ants])[0]
+    
+    if telescope == 'LOFAR':
+        # try core stations first
+        cs_indices = np.where(['CS' in ant for ant in ants])[0]
+        if len(cs_indices) == 0:  # in case there are no CS stations try with RS
+            cs_indices = np.where(['RS' in ant for ant in ants])[0]
 
-    #  MeerKAT
-    if 'm013' in ants:
-        H.close()
-        return 'm013'
-    if 'm012' in ants:
-        H.close()
-        return 'm012'
-    if 'm011' in ants:
-        H.close()
-        return 'm011'
-    if 'm010' in ants:
-        H.close()
-        return 'm010'
-    if 'm009' in ants:
-        H.close()
-        return 'm009'
-    if 'm002' in ants:
-        H.close()
-        return 'm002'
-    if 'm001' in ants:
-        H.close()
-        return 'm001'
+    if telescope == 'MeerKAT':
+        possible_refants = ['m013', 'm012', 'm011', 'm010', 'm009', 'm002', 'm001','m000','m008','m007','m006','m005','m004','m003']
+        cs_indices = np.where([ant in possible_refants for ant in ants])[0]
+    
+    if telescope == 'GMRT':
+        possible_refants = ['C00','C01','C02','C03','C04','C05','C06','C08','C09','C10','C11','C12','C13','C14']
+        cs_indices = np.where([ant in possible_refants for ant in ants])[0]
 
-    #  GMRT
-    if 'C00' in ants:
-        H.close()
-        return 'C00'
-    if 'C01' in ants:
-        H.close()
-        return 'C01'
-    if 'C02' in ants:
-        H.close()
-        return 'C02'
-    if 'C03' in ants:
-        H.close()
-        return 'C03'
-    if 'C04' in ants:
-        H.close()
-        return 'C04'
-    if 'C05' in ants:
-        H.close()
-        return 'C05'
-    if 'C06' in ants:
-        H.close()
-        return 'C06'
-    if 'C08' in ants:
-        H.close()
-        return 'C08'
-    if 'C09' in ants:
-        H.close()
-        return 'C09'
-    if 'C10' in ants:
-        H.close()
-        return 'C10'
-    if 'C11' in ants:
-        H.close()
-        return 'C11'    
-    if 'C12' in ants:
-        H.close()
-        return 'C12'   
-    if 'C13' in ants:
-        H.close()
-        return 'C13'       
-    if 'C14' in ants:
-        H.close()
-        return 'C14'   
-
-    #  ASKAP
-    if 'ak01' in ants:
-        H.close()
-        return 'ak01'
-    if 'ak02' in ants:
-        H.close()
-        return 'ak02'
-    if 'ak03' in ants:
-        H.close()
-        return 'ak03'
-    if 'ak04' in ants:
-        H.close()
-        return 'ak04'
-    if 'ak05' in ants:
-        H.close()
-        return 'ak05'
-    if 'ak06' in ants:
-        H.close()
-        return 'ak06'
-    if 'ak07' in ants:
-        H.close()
-        return 'ak07'
-    if 'ak08' in ants:
-        H.close()
-        return 'ak08'
-    if 'ak09' in ants:
-        H.close()
-        return 'ak09'
-    if 'ak10' in ants:
-        H.close()
-        return 'ak10'
-    if 'ak11' in ants:
-        H.close()
-        return 'ak11'    
-    if 'ak12' in ants:
-        H.close()
-        return 'ak12'   
-    if 'ak13' in ants:
-        H.close()
-        return 'ak13'       
-    if 'ak14' in ants:
-        H.close()
-        return 'ak14' 
-
-    if len(cs_indices) == 0:  # in case there are no CS stations try with RS
-        cs_indices = np.where(['RS' in ant for ant in ants])[0]
-
+    if telescope == 'ASKAP':
+        possible_refants = ['ak01','ak02','ak03','ak04','ak05','ak06','ak07','ak08','ak09','ak10','ak11','ak12','ak13','ak14']
+        cs_indices = np.where([ant in possible_refants for ant in ants])[0]
+    
+    if len(cs_indices) == 0:
+        # print in red
+        print('\033[91mWarning: no reference stations found, using all antennas to find refant\033[0m')
+        cs_indices = np.arange(len(ants))
+   
     # Find the antennas and which dimension that corresponds to
     ant_index = np.where(np.array(soltab.getAxesNames()) == 'ant')[0][0]
 
@@ -13412,7 +13336,6 @@ def findrefant_core(H5file):
         weightsum.append(np.nansum(soltab.getValues(weight=True)[0][tuple(slc)]))
     maxant = np.argmax(weightsum)
     H.close()
-    # force_close(H5file) this does not work for some reasons, because it is inside a function that's called in a function call ass argument?
     return ants[maxant]
 
 
