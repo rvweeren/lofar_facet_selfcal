@@ -648,6 +648,7 @@ def main():
     parser.add_argument('--nopredict',
                         help='Do not do predict step (for use if repeating last step in case of failure)',
                         action='store_true')
+    parser.add_argument('--stopafterpredict', help='Stop after prediction', action='store_true')
     parser.add_argument('--onlyuseweightspectrum',
                         help='Only use WEIGHT_SPECTRUM, ignore IMAGING_WEIGHT (if internation station are present this is automatically set to True',
                         action='store_true')
@@ -901,6 +902,9 @@ def main():
 
     # clear up ddfcache files to save disk space
     os.system('rm -rf *.ddfcache')
+
+    if args['stopafterpredict']:
+        sys.exit(0)
 
     # Subtract the columns
     if dosubtract:
