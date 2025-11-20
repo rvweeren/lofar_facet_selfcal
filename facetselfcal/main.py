@@ -10417,7 +10417,6 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             SMconstraintrefdistance=smoothnessrefdistance_list[soltypenumber][msnumber],
                             antennaconstraint=antennaconstraint_list[soltypenumber][msnumber],
                             resetsols=resetsols_list[soltypenumber][msnumber],
-                            resetsols_list=resetsols_list,
                             resetdir=resetdir_list[soltypenumber][msnumber],
                             restoreflags=args['restoreflags'], flagging=args['doflagging'], skymodel=skymodel,
                             flagslowphases=args['doflagslowphases'], flagslowamprms=args['flagslowamprms'],
@@ -10635,7 +10634,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 SMconstraint=0.0, SMconstraintreffreq=0.0,
                 SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None,
-                resetsols=None, resetsols_list=[None], resetdir=None,
+                resetsols=None, resetdir=None,
                 resetdir_list=[None], restoreflags=False,
                 maxiter=100, tolerance=1e-4, flagging=False, skymodel=None, flagslowphases=True,
                 flagslowamprms=7.0, flagslowphaserms=7.0, incol='DATA',
@@ -11288,7 +11287,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         # makephaseCDFh5(parmdb)
         makephaseCDFh5_h5merger(parmdb, ms, modeldatacolumns)
 
-    if resetsols is not None:
+    if resetsols is not None and resetsols != 'all':
+        # if resetsols == 'all' we postpone the reset to after the  autoauto_flag_antennas step further below
         if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
                        'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
                        'rotation+diagonalamplitude', 'rotation+diagonalphase',
@@ -11370,6 +11370,20 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                     print('Auto-flagging bad MeerKAT antennas based on solution stats: ' + str(ant) + ' in ' + ms)
                     # use taql function to flag antennas
                     flag_antenna_taql(ms, ant)
+
+    if resetsols == 'all':
+        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
+                       'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
+                       'rotation+diagonalamplitude', 'rotation+diagonalphase',
+                       'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
+            refant = findrefant_core(parmdb, telescope=telescope)
+            force_close(parmdb)
+        else:
+            refant = None
+        # make a backup of the parmdb before resetting all solutions
+        os.system('cp -f ' + parmdb + ' ' + parmdb + '.allresetsolbackup')
+        resetsolsforstations(parmdb, antennaconstraintstr(resetsols, antennasms, HBAorLBA, useforresetsols=True,
+                                                          telescope=telescope), refant=refant, telescope=telescope)
 
     # ---------------------------------
     # ---------------------------------
@@ -13671,7 +13685,7 @@ def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
     print('Determined extract size of ' + str(extract_size_start) + ' degrees based on artifact sources')
     return extract_size_start # in degrees
 
-def find_bad_deviating_antennas(h5, threshold=0.075):
+def find_bad_deviating_antennas(h5, ms, threshold=0.075):
     """
     Find antennas with high deviation in amplitude solutions.
     Useful for MeerKAT observations to deal with antennas that have a bad pointing accuracy
@@ -13692,11 +13706,21 @@ def find_bad_deviating_antennas(h5, threshold=0.075):
         print('Amplitude solutions are fulljones, cannot determine bad antennas based on amplitude deviations')
         raise Exception('Amplitude solutions are fulljones, cannot determine bad antennas based on amplitude deviations')
 
+    with table(ms + '/FIELD', readonly=True, ack=False) as t:
+        ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze()
+        center_ms = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')
+        #print(center_ms)
     H = tables.open_file(h5)
 
     amps = H.root.sol000.amplitude000.val[:]
     weights = H.root.sol000.amplitude000.weight[:]
     antennas = H.root.sol000.amplitude000.ant[:]
+    freqs = H.root.sol000.amplitude000.freq[:]
+    directions = H.root.sol000.source[:]
+    #print(directions.shape)
+    #print(directions[1])[1]
+    #print(directions[2])[1]    
+    #sys.exit()
     axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
     ndir = len(H.root.sol000.amplitude000.dir[:])
     H.close()
@@ -13704,45 +13728,91 @@ def find_bad_deviating_antennas(h5, threshold=0.075):
     # Find the antenna axis
     antennaxis = axisn.index('ant')
 
-    
+    # maximum radius in arcmin for MeerKAT at highest frequency to trust solutions
+    max_radius = 2.0 * 57.5 * (1.5e9/np.max(freqs))/2 # radius of 2.0xFWHM_maxfreq arcmin
+
     # Compute median amplitude solutions along the antenna axis
     median_amps = np.median(amps, axis=antennaxis, keepdims=True)
     print('Median amplitudes shape:', median_amps.shape)
     print('Amplitudes shape:', amps.shape)
     # Calculate deviation from median for each antenna
     # the deviation array should have the same shape as amps
-    deviation = np.abs(np.log10(amps) - np.log10(median_amps))    
+    deviation = np.log10(amps) - np.log10(median_amps)   
+    print('Deviation shape:', deviation.shape)
+    
+    
+    if False: # for testing
+        import matplotlib.pyplot as plt
+        # set backend to TkAgg for interactive plotting
+        import matplotlib
+        matplotlib.use('TkAgg')
+    
+        for antid, ant in enumerate(antennas):
+            #plt.imshow(deviation[:,:,antid,1].T , aspect='auto', cmap='viridis', vmin=0.0, vmax=0.02)
+            #plt.colorbar(label='Mean log10 deviation from median amplitude')
+            #plt.title('Antenna: ' + (ant.decode() if isinstance(ant, bytes) else ant) +' ' + np.median(deviation[:,:,antid,1]).astype(str))
+            #plt.ylabel('Frequency channels')
+            #plt.xlabel('Time slots')
+            #plt.show()
+            ww = weights[:,:,antid,1]
+            dd = deviation[:,:,antid,1]
+            # get values where weights are zero
+            idx = np.where(ww == 0.)
+            dn = dd.copy()
+            dn[idx] = np.nan 
+            print('Antenna: ' + (ant.decode() if isinstance(ant, bytes) else ant) +' ' + str(np.median(deviation[:,:,antid,1])) +' with weights: ' + str(np.nanmedian(dn)))
 
+        matplotlib.use('Agg')  # reset backend to non-interactive
+    
     # now create an array with one value, taking the median over time and frequency for each antenna, keep all other axis like polarization and direction in the array
     # --only-- take median along the time,freq axis(!)
     timeaxis = axisn.index('time')
     freqaxis = axisn.index('freq')
+    print('Time axis:', timeaxis, 'Freq axis:', freqaxis)
 
-    # also take the weights into, so do not consider data points with zero weight
-    deviation = deviation * (weights > 0)   
-    median_deviation_per_ant = np.abs(np.median(deviation, axis=(timeaxis, freqaxis), keepdims=False))
-    print('Median deviation per antenna shape:', median_deviation_per_ant.shape)
+    # also take the weights into, so do not consider data points with zero weight 
+    idx = np.where(weights == 0.)
+    # put in NaN values where weights are zero
+    deviation[idx] = np.nan
+
+    deviation_per_ant = np.nanmean(deviation, axis=(timeaxis, freqaxis), keepdims=False)
+    print('Mean deviation per antenna shape:', deviation_per_ant.shape)
+    print('Min/max values deviation per antenna', np.nanmin(deviation_per_ant), np.nanmax(deviation_per_ant))
+    #print('Deviation per antenna shape:', deviation_per_ant)
     if 'pol' in axisn:
         polaxis = axisn.index('pol')
         # find number of polarizations
         npol = amps.shape[polaxis]
         for pol_id in range(npol):
-            for direction_id in range(ndir):
+            for direction_id, direction in enumerate(directions):
                 for ant_id, ant in enumerate(antennas):
-                    if median_deviation_per_ant[ant_id, direction_id, pol_id] > threshold:
-                        print('Antenna, direction, polarization:', ant.decode() if isinstance(ant, bytes) else ant, direction_id, pol_id, 'Median deviation:', median_deviation_per_ant[ant_id, direction_id, pol_id], 'marked as bad antenna')
-                        # convert ant to normal string if it is byte string
-                        badants.append(ant.decode() if isinstance(ant, bytes) else ant)
+                    # check if median deviation value is finite and larger than +threshold and smaller than -threshold
+                    if np.isfinite(deviation_per_ant[ant_id, direction_id, pol_id]):
+                        ra_dir, dec_dir = direction[1]
+                        c2 = SkyCoord(ra_dir * units.radian, dec_dir * units.radian, frame='icrs')
+                        angsep = center_ms.separation(c2).to(units.arcmin).value
+                        # check angular separation to center because solutions far out might be quite bad due to primary beam effects
+                        if angsep <= max_radius and (np.abs(deviation_per_ant[ant_id, direction_id, pol_id]) > threshold):
+                            print('Antenna, direction, polarization:', ant.decode() if isinstance(ant, bytes) else ant, direction_id, pol_id, 'Mean deviation:', deviation_per_ant[ant_id, direction_id, pol_id], 'marked as bad antenna')
+                            print('Angular separation solution direction to center (arcmin):', angsep, 'max radius:', max_radius)
+                            # convert ant to normal string if it is byte string
+                            badants.append(ant.decode() if isinstance(ant, bytes) else ant)
     else: # for h5 without polarization axis
-            for direction_id in range(ndir):
+            for direction_id, direction in enumerate(directions):
                 for ant_id, ant in enumerate(antennas):
-                    if median_deviation_per_ant[ant_id, direction_id] > threshold:
-                        print('Antenna, direction, polarization:', ant.decode() if isinstance(ant, bytes) else ant, direction_id, 'Median deviation:', median_deviation_per_ant[ant_id, direction_id], 'marked as bad antenna')
-                        # convert ant to normal string if it is byte string
-                        badants.append(ant.decode() if isinstance(ant, bytes) else ant)
+                    ra_dir, dec_dir = direction[1]
+                    c2 = SkyCoord(ra_dir * units.radian, dec_dir * units.radian, frame='icrs')
+                    angsep = center_ms.separation(c2).to(units.arcmin).value
+                    # check angular separation to center because solutions far out might be quite bad due to primary beam effects
+                    if angsep <= max_radius and np.isfinite(deviation_per_ant[ant_id, direction_id]):
+                        if (np.abs(deviation_per_ant[ant_id, direction_id]) > threshold):
+                            print('Antenna, direction, polarization:', ant.decode() if isinstance(ant, bytes) else ant, direction_id, 'Mean deviation:', deviation_per_ant[ant_id, direction_id], 'marked as bad antenna')
+                            print('Angular separation solution direction to center (arcmin):', angsep, 'max radius:', max_radius)
+                            # convert ant to normal string if it is byte string
+                            badants.append(ant.decode() if isinstance(ant, bytes) else ant)
 
     # only keep the unique bad antennas
-    badants = list(set(badants))    
+    badants = list(set(badants)) 
     return badants
 
 
@@ -13991,21 +14061,29 @@ def basicsetup(mslist):
             args['useaoflagger'] = True
             args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua' #'default_StokesQUV.lua'
             if args['preapplybandpassH5_list'][0] is None:
-                args['soltype_list'] = ['scalarphase', 'scalarcomplexgain', 'scalarcomplexgain']
+                args['soltype_list'] = ['scalarphase', 'scalarcomplexgain', 'scalarcomplexgain', 'scalarcomplexgain']
             else: 
-                args['soltype_list'] = ['phaseonly', 'complexgain', 'scalarcomplexgain'] # becuause XX and YY may not be perfectly calibrated
-            args['soltypecycles_list'] = [0, 999, 999] # 999 but can be updated in case high DR is detected
-            args['solint_list'] = ['1min', '10min', '2min']
+                args['soltype_list'] = ['phaseonly', 'complexgain', 'scalarcomplexgain', 'complexgain'] # becuause XX and YY may not be perfectly calibrated
+            args['soltypecycles_list'] = [0, 999, 999, 1] # will be updated automatically in case highDR is detected
+            args['solint_list'] = ['1min', '10min', '2min', '30min']
+            args['resetsols_list'] = [None, None, None, 'all'] 
+            
+            # last (fourth) entry just of soltype_list is for auto_flag_antennas 
+            # all solutions will be reset, so nothing happens apart from possible flagging of bad antennas
+            # if highDR is detected than args['soltypecycles_list'] = [0, 2, 3, 999]
 
             if args['start'] == 0 and args['stop'] is None:
-                args['stop'] = 3 # this means we can do restarting runs as well
-
+                if args['preapplybandpassH5_list'][0] is None: # SDP-fully-calibrated data
+                    args['stop'] = 3 # this means we can do restarting runs as well
+                else:   
+                    args['stop'] = 4 # one extra cycle because we are using bandpass solutions without full SDP-calibrated products
+            
             if freq < 1.0e9:  # UHF-band
-                args['smoothnessconstraint_list'] = [50., 5.0, 50.]
+                args['smoothnessconstraint_list'] = [50., 5.0, 50., 50.]
             if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
-                args['smoothnessconstraint_list'] = [100., 5.0, 75.] 
+                args['smoothnessconstraint_list'] = [100., 5.0, 75., 75.] 
             if (freq >= 1.7e9) and (freq < 4.0e9):  # S-band
-                args['smoothnessconstraint_list'] = [150., 7.5, 100.] 
+                args['smoothnessconstraint_list'] = [150., 7.5, 100., 100.] 
             
             # try to automatically set arg['msinstartchan'] and arg['msinnchan'] for L-band
             if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
@@ -14025,7 +14103,8 @@ def basicsetup(mslist):
             args['solint_list'] = ['1min','30min']
             args['nchan_list'] = [1,1]
             args['smoothnessconstraint_list'] = [100.,100.]
-            args['auto_directions'] = True
+            if args['facetdirections'] is None: # allow auto mode with user-provided facet directions
+                args['auto_directions'] = True
             args['normamps_list'] = [None,'normamps']
         if args['bandpass']:
             args['keepusingstartingskymodel'] = True
@@ -14820,6 +14899,7 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
             for ms_id, ms in enumerate(mslist):
                 soltypecycles_list[1][ms_id] = 2 # set soltypecycles_list[1][ms_id] to 2 for high DR MeerKAT data
                 soltypecycles_list[2][ms_id] = 3 # set soltypecycles_list[2][ms_id] to 3 for high DR MeerKAT data
+                soltypecycles_list[3][ms_id] = 999 # turn off as auto_flag_antennas is already performed 
                 if freq > 2e9:  # S band
                     solint_list[0][ms_id] = '32sec'
                 elif freq > 1e9:  # L band
@@ -14902,7 +14982,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.1.0'
+    facetselfcal_version = '17.2.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -15012,7 +15092,6 @@ def main():
         args['flag_antenna_list'] = None  # since we use it above set flag_antenna_list to None now
         if args['useaoflagger'] and args['useaoflaggerbeforeavg']:
             args['useaoflagger'] = False # turn off now because we used it above    
-
 
     # flag known bad frequencies for uGMRT data
     if args['start'] == 0: flag_uGMRT_badfreqs(mslist)
