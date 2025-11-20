@@ -11364,7 +11364,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if auto_flag_antennas:
         if telescope == 'MeerKAT': # only MeerKAT for now
             if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude']:
-                flag_ant_list = find_bad_deviating_antennas(parmdb)
+                flag_ant_list = find_bad_deviating_antennas(parmdb, ms)
                 for ant in flag_ant_list:
                     logger.info('Auto-flagging bad MeerKAT antenna based on solution stats: ' + str(ant) + ' in ' + ms)
                     print('Auto-flagging bad MeerKAT antennas based on solution stats: ' + str(ant) + ' in ' + ms)
