@@ -6192,7 +6192,7 @@ def inputchecker(args, mslist):
         if not os.path.isfile(args['facetdirections']):
             print('--facetdirections file does not exist')
             raise Exception('--facetdirections file does not exist')
-        check_for_BDPbug_longsolint(mslist, args['facetdirections'])
+        #check_for_BDPbug_longsolint(mslist, args['facetdirections'])
 
     if args['DDE']:
         if 'fulljones' in args['soltype_list']:
@@ -9972,6 +9972,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     data = ascii.read(cleaned_data, format='commented_header', comment="\\s*#")
     ra, dec = data['RA'], data['DEC']
 
+
     try:
         start = data['start']
     except KeyError:
@@ -9995,7 +9996,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     a = np.where((start <= selfcalcycle))[0]
     rasel = ra[a]
     decsel = dec[a]
-
+    
     if soltypelist_includedir is not None and 'args' in globals():
         soltypelist_includedir_sel_tmp = soltypelist_includedir[a]
 
@@ -14249,6 +14250,10 @@ def basicsetup(mslist):
             args['parallelgridding'] = 4
         if args['imsize'] < 6000:
             args['parallelgridding'] = 6
+
+
+    if args['facetdirections'] is not None:
+        check_for_BDPbug_longsolint(mslist, args['facetdirections'])
 
     return longbaseline, LBA, HBAorLBA, freq, fitsmask, \
         maskthreshold_selfcalcycle, automaskthreshold_selfcalcycle, outtarname, telescope
