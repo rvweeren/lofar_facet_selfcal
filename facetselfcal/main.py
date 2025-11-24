@@ -2273,7 +2273,7 @@ def test_antenna_averaging_factors(antenna_averaging_factors_list, mslist, facet
     #sys.exit()
     return
 
-def check_for_BDPbug_longsolint(mslist, facetdirections):
+def check_for_highmem_longsolint(mslist, facetdirections):
     dirs, solints, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)
 
     if solints is None:
@@ -2575,7 +2575,7 @@ def tweak_solints_single(solint, ms_ntimes, solvalthresh=11):
     return find_nearest(possible_solints, solint)
 
 
-def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=13, fraction_lastslot=0.25):
+def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=13, fraction_lastslot=0.2):
     """
     Filters a list of solution intervals (solints) to remove those that result in 
     significant rounding errors when dividing the total number of timeslots (ms_ntimes) 
@@ -2587,6 +2587,9 @@ def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=13, fraction_lasts
         ms_ntimes (int): The total number of timeslots in the measurement set (MS).
         ignorelessthan (int, optional): The minimum solution interval to consider. 
             Solution intervals smaller than this value will be excluded. Defaults to 13.
+        fraction_lastslot (float, optional): The maximum allowed fraction of leftover 
+            time slots after division. Solution intervals resulting in a leftover 
+            fraction greater than this value will be excluded. Defaults to 0.2.    
 
     Returns:
         list of int: A filtered list of solution intervals that meet the criteria.
@@ -6192,7 +6195,6 @@ def inputchecker(args, mslist):
         if not os.path.isfile(args['facetdirections']):
             print('--facetdirections file does not exist')
             raise Exception('--facetdirections file does not exist')
-        #check_for_BDPbug_longsolint(mslist, args['facetdirections'])
 
     if args['DDE']:
         if 'fulljones' in args['soltype_list']:
@@ -11810,6 +11812,25 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
             # remove uncorrected file to save disk space
             os.system('rm -rf ' + ms + '.subtracted')
 
+     
+    # print the imsize for the user
+    if userbox is not None and userbox != 'keepall':
+        print('Box size used for remove-outside-center: {} degrees'.format(boxsize))
+        # round up the the nearest even integer
+        imsize_to_use = int(boxsize * 3600.0 / pixsize)
+        if imsize_to_use % 2 != 0:
+            imsize_to_use += 1
+        print('Imsize to use after this extract step: {}'.format(imsize_to_use))
+    elif userbox == 'keepall':
+        print('No box used for remove-outside-center, entire field kept as per user request')
+        print('Imsize to use after this extract step: {}'.format(imsize))
+    else: # --remove-outside-center-box was not set
+        print('Box size used for remove-outside-center: {} degrees'.format(boxsize))
+        # round up the the nearest even integer
+        imsize_to_use = int(boxsize * 3600.0 / pixsize)
+        if imsize_to_use % 2 != 0:
+            imsize_to_use += 1
+        print('Imsize to use after this extract step: {}'.format(imsize_to_use))   
     return
 
 
@@ -12218,6 +12239,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         else:
             print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
             logger.info(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
+            #if imageout != 'imageDD_auto_003':
             run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
 
         clean_up_images(imageout)
@@ -13718,10 +13740,7 @@ def find_bad_deviating_antennas(h5, ms, threshold=0.075):
     antennas = H.root.sol000.amplitude000.ant[:]
     freqs = H.root.sol000.amplitude000.freq[:]
     directions = H.root.sol000.source[:]
-    #print(directions.shape)
-    #print(directions[1])[1]
-    #print(directions[2])[1]    
-    #sys.exit()
+
     axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
     ndir = len(H.root.sol000.amplitude000.dir[:])
     H.close()
@@ -14251,9 +14270,6 @@ def basicsetup(mslist):
         if args['imsize'] < 6000:
             args['parallelgridding'] = 6
 
-
-    if args['facetdirections'] is not None:
-        check_for_BDPbug_longsolint(mslist, args['facetdirections'])
 
     return longbaseline, LBA, HBAorLBA, freq, fitsmask, \
         maskthreshold_selfcalcycle, automaskthreshold_selfcalcycle, outtarname, telescope
@@ -14987,7 +15003,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.2.0'
+    facetselfcal_version = '17.3.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -15195,6 +15211,10 @@ def main():
 
     for ms in mslist:
         compute_distance_to_pointingcenter(ms, HBAorLBA=HBAorLBA, warn=longbaseline, returnval=False)
+
+    # this needs to be done after averaging because of time averaging changing the intervals
+    if args['facetdirections'] is not None:
+        check_for_highmem_longsolint(mslist, args['facetdirections'])
 
     # extra flagging if requested
     #if args['start'] == 0 and args['useaoflagger'] and not args['useaoflaggerbeforeavg']:
