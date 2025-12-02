@@ -4204,9 +4204,9 @@ def write_facet_directions(catalogfile, freq, facetdirections = 'directions.txt'
                    f"# direction Dir{source_counter:02d}\n"
             f.write(line)
 
-def add_peak_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.5):
+def add_peak_total_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.5):
     """
-    Adds peak flux values from a flux catalog to an existing catalog based on positional matching.
+    Adds peak and total flux values from a flux catalog to an existing catalog based on positional matching.
     Parameters:
     -----------
     catalogfile : str
@@ -4221,10 +4221,10 @@ def add_peak_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.5):
         The updated catalog is saved back to the original `catalogfile`.
     Notes:
     ------
-    - The function reads both catalogs and checks for the presence of the 'AFLUX' column in the input catalog.
-    - If 'AFLUX' is not present, it is added and initialized to zero.
+    - The function reads both catalogs and checks for the presence of the 'AFLUX' or 'TFLUX' column in the input catalog.
+    - If 'AFLUX' or 'TFLUX' is not present, they are added and initialized to zero.
     - For each source in the input catalog, the function searches for sources in the flux catalog within the specified `match_radius`.
-    - If multiple matches are found, the source with the highest peak flux is used to update the 'AFLUX' value.
+    - If multiple matches are found, the source with the highest peak flux is used to update the 'AFLUX/TFLUX' value.
     - The updated catalog is written back to the original file, overwriting it.
     """
     hdu_list = fits.open(catalogfile)
@@ -4237,10 +4237,17 @@ def add_peak_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.5):
         print('Added AFLUX column to catalog')
     hdu_list.close()
     
-    # set all catalog['AFLUX'] to zero because there can be NaNs for new entries
+    # add column 'TFLUX' if not present to catalog
+    if 'TFLUX' not in catalog.colnames:
+        # make columns with the same type as Total_flux
+        catalog['TFLUX'] = np.zeros(len(catalog), dtype=catalog['Total_flux'].dtype)
+        print('Added TFLUX column to catalog')
+    hdu_list.close()
+
+    # set all catalog['AFLUX'] and 'TFLUX' to zero because there can be NaNs for new entries
     # this is caused by a vstack in update_calibration_error_catalog() with merges one catalog with and one without the 'AFLUX' column
     catalog['AFLUX'] = 0.0
-    
+    catalog['TFLUX'] = 0.0
 
     hdu_list_flux = fits.open(fluxcatalogfile)
     catalog_flux = Table(hdu_list_flux[1].data)
@@ -4260,9 +4267,11 @@ def add_peak_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.5):
                 # only update catalog if Peak_flux is higher than current value
                 #print('match found', fluxsource['Peak_flux'],new_catalog['AFLUX'][source_id])
                 if fluxsource['Peak_flux'] > new_catalog['AFLUX'][source_id]:
-                    new_catalog['AFLUX'][source_id] = fluxsource['Peak_flux']  
+                    new_catalog['AFLUX'][source_id] = fluxsource['Peak_flux']
+                    new_catalog['TFLUX'][source_id] = fluxsource['Total_flux']
                     #print('CC', new_catalog['AFLUX'][source_id],fluxsource['Peak_flux'])
         print('-- Set AFLUX to', new_catalog['AFLUX'][source_id], 'for source', source_id, 'Matching radius (arcmin)', match_radius ,'--')
+        print('-- Set TFLUX to', new_catalog['TFLUX'][source_id], 'for source', source_id, 'Matching radius (arcmin)', match_radius ,'--')
                     
     # save updated catalog
     new_catalog.write(catalogfile, format='fits', overwrite=True)
@@ -4509,7 +4518,10 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
         sys.exit(0)
 
     # find peak fluxes from compact source catalog and add to filtered catalog (put in AFLUX column)
-    add_peak_flux_to_catalog(outputcatalog_filtered, outputfluxcatalog, match_radius=match_radius)
+    add_peak_total_flux_to_catalog(outputcatalog_filtered, outputfluxcatalog, match_radius=match_radius)
+
+    # filter out sources too low peak flux
+    filter_catalog_on_flux(outputcatalog_filtered, freq, telescope, min_peakflux=0.02)
 
     # write facet direction file (for facetselfcal), also output directions.reg for visualization
     write_facet_directions(outputcatalog_filtered, freq, facetdirections=facetdirections, 
@@ -4532,6 +4544,40 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
         plotminmax = [-2.*imagenoise, 35.*imagenoise]
     plotimage_astropy(outputerrormap3, outplotname3, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
     return facetdirections
+
+def filter_catalog_on_flux(catalogfile, freq, telescope, min_peakflux=0.02):
+    # use AFLUX and TFLUX columns for filtering
+    
+    if telescope != 'LOFAR' and telescope != 'MeerKAT':
+        return
+    
+    hdu_list = fits.open(catalogfile)
+    catalog = Table(hdu_list[1].data)
+    hdu_list.close()
+    new_catalog = catalog.copy()
+    for source_id, source in enumerate(catalog):
+        if source['AFLUX'] < min_peakflux*((freq/1.3e9)**(-0.7)) and \
+           (source['AFLUX']*((source['TFLUX']/ source['AFLUX'])**(0.4))) <  min_peakflux*((freq/1.3e9)**(-0.7)):
+            
+            print('Removing source with ID', source['Source_id'], 'from catalog, AFLUX:', source['AFLUX'], 'below min_peakflux threshold:', min_peakflux*((freq/1.278e9)**(-0.7)))
+            removeidx = np.where((new_catalog['Peak_flux'] == source['Peak_flux']) & (new_catalog['Source_id'] == source['Source_id']))[0] # do a double comparson because the vstack from catalog_prev can merger sources with the same source_id
+            assert len(removeidx) <= 1
+            if len(removeidx) > 0:
+                new_catalog.remove_row(removeidx[0])
+    
+    print('Catalog entries before / after filtering on peak flux', len(catalog), len(new_catalog))
+    
+    # check that there are at least two sources left
+    if len(new_catalog) < 2:
+        # print in red text
+        print('\033[91m' + 'Warning: less than two sources left in catalog after filtering on peak flux' + '\033[0m')
+        print('Cannot proceed with less than two directions, run with user specified facetdirections file')
+        sys.exit(1)
+    
+    new_catalog.write(catalogfile, format='fits', overwrite=True)
+    return
+
+
 
 
 def add_bright_source_to_catalog(catalogfile, fluxcatalogfile, freq):
@@ -4880,6 +4926,28 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
             t.putcol(outcol, data)
         del data
     return
+
+def gzip_model_images(imagebasename):
+    """ Gzips all model images with the given base name.
+    Parameters
+    ----------
+    imagebasename : str
+        The base filename for model images (e.g., 'myimage_001' if files are named  like
+        'myimage_001-0001-model-pb.fits').
+    """
+    imagelist1 = glob.glob(imagebasename + '-????-model-*.fits') # channel maps
+    imagelist2 = glob.glob(imagebasename + '-???-model-*.fits') # MFS maps
+    imagelist = sorted(imagelist1) + sorted(imagelist2)
+    for image in imagelist:
+        # check if gzipped version already exists
+        if os.path.isfile(image + '.gz'):
+            # remove uncompressed version
+            print('Removing ' + image + ' because ' + image + '.gz already exists')
+            os.system('rm -f ' + image)
+        else:
+            print('Now gzip ' + image)
+            os.system('gzip ' + image)
+    return        
 
 def fix_fpb_images(modelimagebasename):
     """
@@ -10934,6 +11002,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd += 'ddecal.solveralgorithm=' + solveralgorithm + ' '
 
     cmd += 'ddecal.maxiter=' + str(int(maxiter)) + ' ddecal.propagatesolutions=True '
+    # important to avoid propagating very bad solutions which then screw all subsequent solutions
+    cmd += 'ddecal.propagateconvergedonly=True '
     # Do list comprehension if solint is a list
     if antenna_averaging_factors is not None:
         max_aaf = max(int(x.split(':')[1]) for x in antenna_averaging_factors.split(','))
@@ -11936,6 +12006,11 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 cmd += '-name ' + 'box_' + imageout + ' ' + msliststring
             print('PREDICT STEP: ', cmd)
             run(cmd)
+
+            # remove box_ model files to save space
+            if squarebox is not None:
+                for model in sorted(glob.glob('box_' + imageout + '-????-*model*.fits')):
+                    os.system('rm -f ' + model)
         return
     #  --- end predict only ---
 
@@ -11995,6 +12070,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if DDE_predict == 'WSCLEAN':
             print('DDE PREDICT STEP: ', cmd)
             run(cmd)
+        # remove box_ model files to save space
+        for model in sorted(glob.glob('box_' + imageout + '-????-*model*.fits')):
+            os.system('rm -f ' + model)
         return
         #  --- NO-FACET-LOOP end DDE CORRUPT-predict only ---
 
@@ -13667,7 +13745,7 @@ def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
         return extract_size
 
     # find peak fluxes from compact source catalog and add to filtered catalog (put in AFLUX column)
-    add_peak_flux_to_catalog(merged_catalog, outputfluxcatalog, match_radius=match_radius)
+    add_peak_total_flux_to_catalog(merged_catalog, outputfluxcatalog, match_radius=match_radius)
 
     # determine extract region based on the brighest artifact source
   
@@ -15003,7 +15081,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.3.0'
+    facetselfcal_version = '17.5.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -15538,6 +15616,9 @@ def main():
         else:
             dde_skymodel = None
 
+        # compress model images with gzip to save space
+        gzip_model_images(args['imagename'] + str(i).zfill(3))
+
         if args['stopafterskysolve']:
             print('Stopping as requested via --stopafterskysolve')
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
@@ -15651,7 +15732,7 @@ def main():
             break    
 
     # Write config file to merged h5parms
-    h5s = glob.glob('best_*solutions.h5') if args['early_stopping'] else glob.glob("merged_*.h5")
+    h5s = glob.glob('best_*solutions.h5') if args['early_stopping'] else [f for ms in mslist for f in glob.glob('merged_*selfcalcycle???_' + os.path.basename(ms) + '.h5')]
     for h5 in h5s:
         # Write the user-specified configuration file to h5parm and otherwise all input parameters if config file not specified
         add_config_to_h5(h5, args['configpath']) if args['configpath'] is not None else add_config_to_h5(h5, 'full_config.txt')
@@ -15683,6 +15764,8 @@ def main():
                            userbox=args['remove_outside_center_box'], idg=args['idg'],
                            h5list=wsclean_h5list, facetregionfile=facetregionfile,
                            disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'], metadata_compression=args['metadata_compression'])
+        # compress model images with gzip to save space
+        gzip_model_images(args['imagename'] + str(i + 1).zfill(3))
 
     # REMOVE MODEL_DATA type columns after selfcal
     if not args['keepmodelcolumns']: remove_model_columns(mslist)
