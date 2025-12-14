@@ -419,11 +419,12 @@ def split_columns(ms, outms, column='CORRECTED_DATA'):
     run(cmd)
     return
 
-def split_multidir_ms(ms):
+def split_multidir_ms(ms, field_names=None):
     """
     Splits a multisource Measurement Set (MS) into separate single-source MS files.
     Parameters:
         ms (str): Path to the multisource Measurement Set to be split.
+        field_names (list of str, optional): List of source names corresponding to source names for each FIELD_ID.
     Returns:
         list of str: List of paths to the newly created single-source Measurement Sets. 
                      If the input MS contains only a single source, returns a list containing the original MS path.
@@ -443,10 +444,15 @@ def split_multidir_ms(ms):
         source_names = t.getcol('NAME')
         field_ids = t.getcol('SOURCE_ID')
 
-    
     mslist = []
-    for field_id in field_ids:
+    # if field_names is not None, only split those sources
+    if field_names is not None:
+        field_ids = [i for i, name in enumerate(source_names) if name in field_names]
+        print('Splitting the following sources from the MS:', field_names)
+    else:
+        print('Splitting all sources from the MS:', source_names) 
 
+    for field_id in field_ids:
         outname = os.path.basename(ms) + '.' + source_names[field_id]
         # Remove  MS if it exists
         if os.path.isdir(outname):
@@ -466,7 +472,6 @@ def split_multidir_ms(ms):
     print(f"Splitting completed. Created {len(mslist)} single source MS.")
     return mslist
  
-
 def check_pointing_centers(mslist):
     """
     Checks whether the pointing centers of the provided measurement sets (MS) are aligned within a specified tolerance.
@@ -6016,10 +6021,10 @@ def inputchecker(args, mslist):
             print('--BLsmooth-list length does not match the length of --soltype-list')
             raise Exception('--BLsmooth-list length does not match the length of --soltype-list')
 
-    if args['modelstoragemanager'] not in ['stokes_i', 'sisco'] and args['modelstoragemanager'] is not None:
+    if args['modelstoragemanager'] not in ['stokes_i', 'sisco', 'auto'] and args['modelstoragemanager'] is not None:
          print(args['modelstoragemanager'])
-         print('Wrong input for --modelstoragemanager, needs to be "stokes_i", "sisco", or None')
-         raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i, sisco, or None')
+         print('Wrong input for --modelstoragemanager, needs to be "stokes_i", "sisco" , "auto", or None')
+         raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i, sisco, auto, or None')
 
     if args['bandpass']:
         if args['stack'] or args['DDE'] or args['stopafterskysolve'] or args['stopafterpreapply']:
@@ -14870,6 +14875,68 @@ def set_skymodels_external_surveys(args, mslist):
 
     return args, tgssfitsfile
 
+def set_modelstoragemanager(telescope):
+    """
+    Set the model storage manager for wsclean based on telescope capabilities and user arguments.
+
+    This function determines which model storage manager to use for wsclean based on:
+    1. User-specified preference in args['modelstoragemanager']
+    2. Available options supported by the installed wsclean version
+    3. Telescope-specific compatibility (for stokes_i compression)
+
+    Args:
+        telescope: The telescope configuration object used to check stokes_i model type compatibility.
+
+    Returns:
+        str or None: The selected model storage manager ('stokes_i', 'sisco', or None).
+            - 'stokes_i': Stokes I model compression (if supported and allowed for telescope)
+            - 'sisco': SISCO model compression (fallback option)
+            - None: No model compression (if not available or wsclean doesn't support the option)
+
+    Raises:
+        None
+
+    Note:
+        - Requires args dictionary to be available in the calling scope
+        - Checks wsclean capabilities by querying its help output
+        - Falls back to 'sisco' compression if 'stokes_i' is unavailable but requested
+        - Disables model storage manager if no compression method is available
+    """
+
+    modelstoragemanager = None
+    if args['modelstoragemanager'] == 'auto':
+        if '-model-storage-manager' in subprocess.check_output(['wsclean'], text=True):
+            if is_stokesi_modeltype_allowed(args, telescope):
+                print('Using stokes_i model compression')
+                modelstoragemanager = 'stokes_i'
+            elif 'sisco' in subprocess.check_output(['wsclean'], text=True):
+                print('Cannot use stokes_i model compression, using sisco instead')
+                modelstoragemanager = 'sisco'
+            else:
+                print('No model compression possible, disabling model storage manager')
+                modelstoragemanager = None  # we are here because wsclean does not support sisco compression    
+        else:
+            modelstoragemanager = None  # we are here because wsclean does not support the option -model-storage-manager            
+    elif args['modelstoragemanager'] == 'stokes_i':
+        if is_stokesi_modeltype_allowed(args, telescope):
+            print('Using stokes_i model compression')
+        elif 'sisco' in subprocess.check_output(['wsclean'], text=True):
+            print('Cannot use stokes_i model compression, using sisco instead')
+            modelstoragemanager = 'sisco'
+        else:
+            print('No model compression possible, disabling model storage manager')
+            modelstoragemanager = None  # we are here because wsclean does not support sisco compression  
+    elif args['modelstoragemanager'] == 'sisco':
+        if 'sisco' in subprocess.check_output(['wsclean'], text=True):
+            print('Using sisco model compression')
+        else:
+            print('No model compression possible, disabling model storage manager')
+            modelstoragemanager = None  # we are here because wsclean does not support sisco compression
+    print('Storage manager:', modelstoragemanager)
+    logger.info('Storage manager: ' + str(modelstoragemanager))
+    return modelstoragemanager
+
+
 
 def early_stopping(station: str = 'international', cycle: int = None):
     """
@@ -15026,6 +15093,27 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
 
     return soltypecycles_list, solint_list, smoothnessconstraint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle
 
+def get_telescope_from_ms(mslist):
+    """
+    Determine the telescope name from the first Measurement Set (MS) in the provided list.
+    This function reads the 'TELESCOPE_NAME' from the 'OBSERVATION' table of the first MS
+    in the given list and returns it as a string.
+    Parameters:
+    mslist (list of str): List of paths to Measurement Set directories.
+    Returns:
+    str: The name of the telescope associated with the first MS.
+    Raises:
+    Exception: If the 'TELESCOPE_NAME' cannot be found in the MS.
+    """
+    # if input is string, make it a list
+    if isinstance(mslist, str):
+        mslist = [mslist]
+
+    t = table(mslist[0] + '/OBSERVATION', ack=False)
+    telescope = t.getcol('TELESCOPE_NAME')[0]
+    t.close()
+
+
 ###############################
 ############## MAIN ###########
 ###############################
@@ -15076,12 +15164,13 @@ def main():
     if args['skymodelsetjy']:
         args['dysco'] = False  # no dysco compression allowed as CASA does not work with dysco compression
 
+
     global submodpath, datapath, facetselfcal_version
     datapath = os.path.dirname(os.path.abspath(__file__))
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.5.0'
+    facetselfcal_version = '17.6.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -15174,6 +15263,9 @@ def main():
     if args['remove_flagged_from_startend']:
         mslist = sorted(remove_flagged_data_startend(mslist))
 
+    if args['auto'] and get_telescope_from_ms(mslist) == 'MeerKAT' and not args['DDE']:
+        args['removemostlyflaggedstations'] = True  # for MeerKAT auto remove mostly flagged stations
+
     if not args['skipbackup']:  # work on copy of input data as a backup
         print('Creating a copy of the data and work on that....')
         mslist = average(mslist, freqstep=[1] * len(mslist), timestep=1, start=args['start'], makecopy=True,
@@ -15234,17 +15326,9 @@ def main():
     longbaseline, LBA, HBAorLBA, freq, fitsmask, maskthreshold_selfcalcycle, \
         automaskthreshold_selfcalcycle, outtarname, telescope = basicsetup(mslist)
 
-    # set model storagemanager
-    if args['modelstoragemanager'] == 'stokes_i' and '-model-storage-manager' in subprocess.check_output(['wsclean'], text=True):
-        if is_stokesi_modeltype_allowed(args, telescope):
-            print('Using stokes_i model compression')
-        else:
-            print('Cannot use stokes_i model compression')
-            args['modelstoragemanager'] = None
-    elif args['modelstoragemanager'] != 'sisco':
-        args['modelstoragemanager'] = None  # we are here because wsclean does not support -model-storage-manager   
-
-    print(args['modelstoragemanager'])
+    # SET MODEL STORAGE MANAGER
+    args['modelstoragemanager'] = set_modelstoragemanager(telescope)
+    #args['modelstoragemanager'] = 'sisco' # TEMPORARY OVERRIDE FOR TESTING
 
     # check if we could average more
     avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
