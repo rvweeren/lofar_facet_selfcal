@@ -1193,12 +1193,24 @@ def set_channelsout(mslist, factor=1):
         # Get the telescope name from the first MS in the list
         telescope = t.getcol('TELESCOPE_NAME')[0]
     
+    # get median frequency of the first MS
+    with table(mslist[0] + '/SPECTRAL_WINDOW', ack=False) as t:
+        freq = np.median(t.getcol('REF_FREQUENCY'))
+
     f_bw = get_fractional_bandwidth(mslist)
 
     if telescope == 'LOFAR':
-        channelsout = round_up_to_even(f_bw * 12 * factor)
+        channelsout = 6
+        #channelsout = round_up_to_even(f_bw * 12 * factor)
     elif telescope == 'MeerKAT':
-        channelsout = 12 # use this as default for MeerKAT
+        if freq >= 1.7e9: # S-band:
+            channelsout = 8 # use this for MeerKAT S-band
+        else:
+            channelsout = 12 # use this as default for MeerKAT L-band and UHF-band
+    elif telescope == 'GMRT':
+        channelsout = 8 # use this as default for GMRT
+    elif telescope == 'ASKAP':
+        channelsout = 8 # use this as default for ASKAP    
     else:
         channelsout = round_up_to_even(f_bw * 12 * factor)
     return channelsout
@@ -5965,6 +5977,14 @@ def inputchecker(args, mslist):
     if 0 in args['useaoflagger_correcteddata_selfcalcycle_list']:
         print('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0')
         raise Exception('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0') 
+
+    if type(args['channelsout']) is str:
+        if args['channelsout'] != 'auto':
+            raise Exception("channelsout needs to be an integer or 'auto'")
+    else:
+        if args['channelsout'] < 1:
+            print('channelsout', args['channelsout'])
+            raise Exception("channelsout needs to be a positive integer")
 
     if args['useaoflagger_correcteddata'] and args['DDE']:
         print('--useaoflagger-correcteddata cannot be used together with --DDE')
@@ -14148,7 +14168,8 @@ def basicsetup(mslist):
                     args['stop'] = 8
 
     if args['auto'] and telescope == 'MeerKAT':
-        args['channelsout'] = set_channelsout(mslist)
+        if isinstance(args['channelsout'], str) and args['channelsout'] == 'auto':
+            args['channelsout'] = set_channelsout(mslist)
         args['fitspectralpol'] = set_fitspectralpol(args['channelsout'])
         args['update_uvmin'] = False
         args['usemodeldataforsolints'] = False
@@ -14327,15 +14348,8 @@ def basicsetup(mslist):
     t.close()
     # idgin = args['idg'] # store here as we update args['idg'] at some point to made image000 for selfcalcycle 0 in when --DDE is enabled
 
-    if type(args['channelsout']) is str:
-        if args['channelsout'] == 'auto':
-            args['channelsout'] = set_channelsout(mslist)
-        else:
-            raise Exception("channelsout needs to be an integer or 'auto'")
-    else:
-        if args['channelsout'] < 1:
-            print('channelsout', args['channelsout'])
-            raise Exception("channelsout needs to be a positive integer")
+    if isinstance(args['channelsout'], str) and args['channelsout'] == 'auto':
+        args['channelsout'] = set_channelsout(mslist)
 
     if type(args['fitspectralpol']) is str:
         if args['fitspectralpol'] == 'auto':
@@ -15170,7 +15184,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.6.0'
+    facetselfcal_version = '17.7.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
