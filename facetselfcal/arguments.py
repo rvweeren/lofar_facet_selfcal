@@ -598,9 +598,9 @@ def option_parser():
                         type=ast.literal_eval,
                         default=True)
     parser.add_argument('--modelstoragemanager',
-                        help='String input option for the compression of MODEL_DATA. The default is stokes_i. Another option is sisco. If set to stokes_i, it might be turned off (set to None) automatically if the solve types do not allow for stokes_i compression. Set to None if you want to turn off MODEL_DATA compression entirely.',
+                        help='String input option for the compression of MODEL_DATA. The default is auto. Other options are sisco or stokes_i; stokes_i might be turned off automatically if the solve types do not allow for stokes_i compression. Set to None if you want to turn off MODEL_DATA compression entirely.',
                         type=str,
-                        default='stokes_i')
+                        default='auto')
     parser.add_argument('--resetweights',
                         help='If you want to ignore weight_spectrum_solve.',
                         action='store_true')
