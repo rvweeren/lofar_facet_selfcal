@@ -88,8 +88,8 @@ def option_parser():
                                help='Number of channels out during imaging (see WSClean documentation). \
                                This is by default 6 for LOFAR and 12 for MeerKAT UHF/L-band, and \
                                8 for MeerKAT S-band.',
-                               default=6,
-                               type=int)
+                               default='auto',
+                               type=str_or_int)
     imagingparser.add_argument('--mgain',
                                help='Deconvolution --mgain setting for WSCLean, see WSClean documentation. The default value is 0.75',
                                default=0.75,
