@@ -18,7 +18,6 @@
 # fix RR-LL referencing for flaged solutions, check for possible superterp reference station
 # put all fits images in images folder, all solutions in solutions folder? to reduce clutter
 # phase detrending.
-# log command into the FITS header
 # BLsmooth constant smooth for gain solves
 # use scalarphasediff sols stats for solints? test amplitude stats as well
 # uvmin, uvmax, uvminim, uvmaxim per ms per soltype
@@ -252,7 +251,11 @@ def setjy_casa(ms):
     - Requires access to model images named according to the calibrator and frequency band.
     - Relies on external scripts and functions: `casa_setjy.py` and `set_polarised_model_3C286`.
     """
-    
+    # for standalone running
+    if 'submodpath' not in globals():
+        datapath = os.path.dirname(os.path.abspath(__file__))
+        submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
+
     # find which calibrators is present in the MS (this cannot be a mulitsource MS), so fieldid is 0
     
     c_3C147 = np.array([85.650575, 49.852009])
@@ -310,7 +313,76 @@ def setjy_casa(ms):
     if (cdatta.separation(SkyCoord(c_3C286[0]*units.deg, c_3C286[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
         print('Setting polarised model for 3C286')
         set_polarised_model_3C286(ms, chunksize=1000)
-        
+
+def gmrt_uvfits2ms(uvfits, msout, flagfile=''): 
+    """
+    Convert GMRT uvfits file to CASA Measurement Set format using casapy importgmrt.
+    Parameters
+    ----------
+    uvfits : str
+        Path to the input GMRT uvfits file.
+    msout : str
+        Path to the output Measurement Set.
+    flagfile : str, optional
+        Path to the flag file (default is an empty string). If provided, this file will be used during the import process.
+    Notes
+    -----
+    This function constructs and runs a command to execute the casapy importgmrt task via a helper script.
+    """
+    # for standalone running
+    if 'submodpath' not in globals():
+        datapath = os.path.dirname(os.path.abspath(__file__))
+        submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
+
+    cmdcasa = f'python {submodpath}/casa_importgmrt.py '
+    cmdcasa += '--uvfits=' + uvfits + ' --msout=' + msout + ' --flagfile=' + flagfile + ' '
+    if os.path.isdir(msout):
+        raise Exception('Output MS ' + msout + ' already exists, please remove it first')
+    run(cmdcasa)
+
+def parse_input_args(namespace):
+    return [f"{k}={repr(v)}" for k, v in vars(namespace).items()]
+
+def insert_history_ms(ms_path, parameters=[], message='parameters', app='facetselfcal', appver='1.0.0', origin='facetselfcal (https://github.com/rvweeren/lofar_facet_selfcal)'):
+    """
+    Insert history in MeasurementSet
+    
+    Args:
+        ms_path: Path to MeasurementSet
+        parameters: Parameters
+        message: Message
+        app: Application
+        appver: Application ersion
+        origin: Software origin
+
+    """
+    history_table_path = ms_path.rstrip('/') + '/HISTORY'
+    with table(history_table_path, readonly=False, ack=False) as t:
+
+        nrows = len(t)
+        t.addrows(1)
+
+        now = time.time()
+        columns = t.colnames()
+
+        if 'TIME' in columns:
+            t.putcell('TIME', nrows, now)
+        if 'OBSERVATION_ID' in columns:
+            t.putcell('OBSERVATION_ID', nrows, 0)
+        if 'MESSAGE' in columns:
+            t.putcell('MESSAGE', nrows, message)
+        if 'PRIORITY' in columns:
+            t.putcell('PRIORITY', nrows, 'NORMAL')
+        if 'ORIGIN' in columns:
+            t.putcell('ORIGIN', nrows, origin+" "+appver)
+        if 'APPLICATION' in columns:
+            t.putcell('APPLICATION', nrows, app)
+        if 'CLI_COMMAND' in columns:
+            t.putcell('CLI_COMMAND', nrows, [])
+        if 'APP_PARAMS' in columns:
+            t.putcell('APP_PARAMS', nrows, parameters)
+
+
 
 def fix_antenna_info_gmrt(mslist):
     """
@@ -4176,9 +4248,21 @@ def write_facet_directions(catalogfile, freq, facetdirections = 'directions.txt'
         solints_vbright = ["'32sec'", "'5min'"]
         solints_bright = ["'32sec'", "'10min'"]
         solints = ["'64sec'", "'30min'"]
-        smoothing_vbright = [50,5]
-        smoothing_bright = [50,20]
-        smoothing = [100,100]
+        smoothing_vbright = [50, 5]
+        smoothing_bright = [75 ,20]
+        if freq < 1.0e9: # UHF band
+            smoothing = [100, 100]
+            smoothing_faint = [200,  200]
+            solints_faint = ["'128sec'", "'30min'"]
+        elif freq<= 1.7e9: # L band
+            smoothing = [200, 100]
+            smoothing_faint = [300, 200]   
+            solints_faint = ["'192sec'", "'30min'"]
+        else: # S band
+            smoothing = [300, 100]
+            smoothing_faint = [400, 200]
+            solints_faint = ["'256sec'", "'30min'"]
+        
         inclusion_flags = [True,True]
     else:
         raise ValueError('Telescope not supported', telescope)   
@@ -4209,9 +4293,12 @@ def write_facet_directions(catalogfile, freq, facetdirections = 'directions.txt'
                 elif source['AFLUX'] > 0.05*((freq/1.28e9)**(-0.7)): # bright source
                     smoothnessvals = smoothing_bright  
                     solintvals    = solints_bright
-                else:
-                    smoothnessvals = smoothing
-                    solintvals = solints
+                elif source['AFLUX'] > 0.03*((freq/1.28e9)**(-0.7)): # normal source
+                    smoothnessvals = smoothing  
+                    solintvals    = solints
+                else: # faint source
+                    smoothnessvals = smoothing_faint  
+                    solintvals    = solints_faint
                 inclusion_flagsvals = inclusion_flags # include all solve types         
 
             line = f"{source['RA']} {source['DEC']} {selfcalcycle} " \
@@ -4697,6 +4784,336 @@ def add_source_to_catalog(catalogfile, fluxcatalogfile, distance=20.):
             break
     new_catalog.write(catalogfile, format='fits', overwrite=True)
     return
+
+def convert_lta_to_uvfits(lta_file_name, uvfits_file_name=None, target_list=[],
+                          stokes_list=['RR', 'RL', 'LR', 'LL'], keep_all_cals=True, max_scans=256,
+                          scan_offset=0, correction_list=[], version='2.03', flag_scans=[],
+                          bpcal_names=[]):
+    """
+    Convert LTA file to UVFITS format. Original code by Huib Intema, modified and made compatible with Python 3.
+    For more information on SPAM and LTA to UVFITS conversion, see:
+    https://www.intema.nl/doku.php?id=huibintema:spam:start (Intema et al., 2009 2009, A&A, 501, 1185).
+    Original code reference: https://ui.adsabs.harvard.edu/abs/2014ascl.soft08006I/abstract
+    Parameters:
+    -----------
+    lta_file_name : str
+        Path to the input LTA file.
+    uvfits_file_name : str, optional
+        Path to the output UVFITS file. If None, it will be set to the input LTA file name with '.UVFITS' appended.
+    target_list : list of str, optional
+        List of target source names to include. Default is an empty list (include all).
+    stokes_list : list of str, optional
+        List of Stokes parameters to include. Default is ['RR', 'RL', 'LR', 'LL'].
+    keep_all_cals : bool, optional
+        Whether to keep all calibration scans. Default is True.
+    max_scans : int, optional
+        Maximum number of scans to process. Default is 256.
+    scan_offset : int, optional
+        Offset to apply to scan numbers. Default is 0.
+    correction_list : list of str, optional
+        List of corrections to apply. Default is an empty list.
+    version : str, optional
+        Version of the listscan/gvfits tools to use. Default is '2.03'.
+    flag_scans : list of int, optional
+        List of scan numbers to flag. Default is an empty list.
+    bpcal_names : list of str, optional
+        List of bandpass calibrator source names. Default is an empty list.
+    Returns:
+    --------
+    source_list : list of str
+        List of source names included in the UVFITS file.
+    Notes:
+    ------
+    
+
+
+    Copied from SPAM Huib Intema's original code and modified for Python 3.
+   
+    For listscan/gvfits versions, see
+    https://ftp.strw.leidenuniv.nl/intema/spam/
+    """
+    
+
+
+    
+    import shutil
+    # for standalone usage
+    if 'datapath' not in globals():
+        datapath = os.path.dirname(os.path.abspath(__file__))
+    
+    # copy nessesary files to current directory
+    gmrtdatapath = '/'.join(datapath.split('/')[0:-1])+'/facetselfcal/gmrt'
+    os.system(f'cp -f {gmrtdatapath}/listscan-{version} .')
+    os.system(f'cp -f {gmrtdatapath}/gvfits-{version} .')
+    libsgmrt = glob.glob(f'{gmrtdatapath}/lib/*.so*')
+    for lib in libsgmrt:
+        os.system(f'cp -f {lib} .')
+
+    # make excutable
+    os.system(f'chmod +x listscan-{version}')
+    os.system(f'chmod +x gvfits-{version}')
+
+    # version of listscan/gvfits
+    listscan = './listscan-%s' % (version)
+    gvfits = './gvfits-%s' % (version)
+
+    # hard-coded
+    pad_char_offset = 127
+    record_length = 336
+    name_length = 12
+    name_offset_start = -5 * 16
+    name_offset_end = 14 * 16
+    
+    # check presence of files
+    if not os.path.isfile(lta_file_name):
+        raise Exception('LTA file %s does not exist' % (lta_file_name))
+    if uvfits_file_name is None:
+        uvfits_file_name = os.path.basename(lta_file_name) + '.UVFITS'
+    if os.path.isfile(uvfits_file_name):
+        raise Exception('UVFITS file %s already exist' % (uvfits_file_name))
+    print(uvfits_file_name)
+   
+    # list contents of LTA file
+    file_name = lta_file_name.split('/')[-1]
+    extension = file_name.split('.')[-1]
+    if extension in ['lta', 'ltb']:
+        extension = ''
+    else:
+        extension = '.' + extension
+        file_name = file_name[0:-len(extension)]
+    ltab = file_name.split('.')[-1]
+    if ltab not in ['lta', 'ltb']:
+        raise Exception('LTA file name %s extension not recognized' % (lta_file_name))
+    file_name = file_name[:file_name.index('.' + ltab)]
+    lsin_file_name = file_name + '.log'
+    if os.path.isfile(lsin_file_name):
+        os.remove(lsin_file_name)
+    plan_file_name = file_name + '.plan'
+    if os.path.isfile(plan_file_name):
+        os.remove(plan_file_name)
+  
+    if sys.stdout.name == '<stdout>':
+        result = os.system('%s %s' % (listscan, lta_file_name))
+    else:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        result = os.system('%s %s >> %s 2>&1' % (listscan, lta_file_name, sys.stdout.name))
+        sys.stdout.flush()
+        sys.stderr.flush()
+    if result != 0:
+        raise Exception('LTA to UVFITS conversion failed for %s' % (lta_file_name))
+
+    # get overview of scans
+    scan_list = []
+    source_list = []
+    with open(lsin_file_name, mode='r') as lsin_file:
+        lsin_list = lsin_file.readlines()
+    
+    for line in lsin_list:
+        words = line.split()
+        if len(words) == 0:
+            continue
+        if words[0] != 'Scan':
+            continue
+        if len(words) == 7:
+            words = words[0:2] + [''] + words[2:]
+        if len(words) != 8:
+            raise Exception('unknown formatted line in listscan log')
+        scan_list.append(int(words[1]))
+        source_list.append(words[2])
+    
+    with open(plan_file_name, mode='rb') as plan_file:
+        plan_data = plan_file.read()
+    
+    index_list = []
+    index = -name_length
+    pad_char = None
+    for source in source_list:
+        if len(source) > 0:
+            dindex = plan_data[index + name_length:].find(source.encode() if isinstance(source, str) else source)
+            if dindex == -1:
+                raise Exception('mismatch between listscan log and plan files')
+            index = index + name_length + dindex
+        else:
+            index = index + record_length
+        index_list.append(index)
+        if pad_char is None:
+            char_val = plan_data[index + name_length - 1]
+            if isinstance(char_val, int):
+                char_val = chr(char_val)
+            if char_val in ['\x00', ' ']:
+                pad_char = char_val
+    
+    # fix listscan files if needed
+    if len(correction_list) > 0:
+        for scan_id, old_name, new_name in correction_list:
+            if (scan_id >= 0) and (scan_id not in scan_list):
+                raise Exception('scan id %d not found in observation' % (scan_id))
+            if scan_id >= 0:
+                if source_list[scan_list.index(scan_id)] != old_name:
+                    raise Exception('source name %s does not correspond to scan id %d' %
+                                    (old_name, scan_id))
+            else:
+                if old_name not in source_list:
+                    raise Exception('source name %s not found in observation' % (old_name))
+    
+    if len(correction_list) > 0:
+        for scan_id, old_name, new_name in correction_list:
+            if scan_id >= 0:
+                for j, line in enumerate(lsin_list):
+                    words = line.split()
+                    if len(words) == 0:
+                        continue
+                    if words[0] != 'Scan':
+                        continue
+                    if len(words) == 7:
+                        words = words[0:2] + [''] + words[2:]
+                    if int(words[1]) != scan_id:
+                        continue
+                    if len(words[2]) > 0:
+                        index = line.index(words[2])
+                    else:
+                        index = 10
+                    lsin_list[j] = (line[:index] + new_name.ljust(name_length) +
+                                    line[index + name_length:])
+                    break
+                old_index = index_list[scan_list.index(scan_id)]
+                try:
+                    new_index = index_list[source_list.index(new_name)]
+                except ValueError:
+                    print('WARNING: source %s to replace %s is not found in source list, skipping' %
+                          (new_name, old_name))
+                    flag_scans.append(scan_id)
+                    continue
+                plan_data = (plan_data[:old_index + name_offset_start] +
+                             plan_data[new_index + name_offset_start:new_index + name_offset_end] +
+                             plan_data[old_index + name_offset_end:])
+                source_list[scan_id] = new_name
+            else:
+                i = -1
+                while old_name in source_list[i + 1:]:
+                    i = i + 1 + source_list[i + 1:].index(old_name)
+                    for j, line in enumerate(lsin_list):
+                        words = line.split()
+                        if len(words) == 0:
+                            continue
+                        if words[0] != 'Scan':
+                            continue
+                        if int(words[1]) != scan_list[i]:
+                            continue
+                        index = line.index(words[2])
+                        lsin_list[j] = (line[:index] + new_name.ljust(name_length) +
+                                        line[index + name_length:])
+                        break
+                    old_index = index_list[i]
+                    new_index = index_list[source_list.index(new_name)]
+                    plan_data = (plan_data[:old_index + name_offset_start] +
+                                 plan_data[new_index + name_offset_start:new_index + name_offset_end] +
+                                 plan_data[old_index + name_offset_end:])
+                    source_list[scan_list[i]] = new_name
+        
+        with open(plan_file_name, mode='wb') as plan_file:
+            plan_file.write(plan_data)
+    
+    # filter contents of LTA file
+    if len(bpcal_names) == 0:
+        bpcal_names = ['3C48', '3C138', '3C147', '3C196', '3C286', '3C295', '3C380', '3C468.1']
+    
+    lsout_file_name = lsin_file_name + '.sel'
+    if os.path.isfile(lsout_file_name):
+        os.remove(lsout_file_name)
+    
+    file_name = (file_name + ltab[-1:]).upper() + '.UVFITS' + extension
+    if os.path.isfile(file_name):
+        os.remove(file_name)
+    
+    with open(lsout_file_name, mode='w') as lsout_file:
+        source_list = []
+        scan_in_range = False
+        for line in lsin_list:
+            words = line.split()
+            if len(words) == 0:
+                lsout_file.write(line)
+                continue
+            if words[0] == 'FITS':
+                line = line[:line.index(words[1])]
+                line = line + file_name + '\n'
+            elif words[0] == 'STOKES':
+                line = line[:line.index(words[1])]
+                for stoke in stokes_list:
+                    if stoke in words[1:]:
+                        line = line + ' ' + stoke
+                line = line + '\n'
+            elif words[0] == 'Scan':
+                if len(words) == 7:
+                    words = words[0:2] + [''] + words[2:]
+                if int(words[1]) not in range(scan_offset, scan_offset + max_scans):
+                    continue
+                if int(words[1]) in flag_scans:
+                    continue
+                scan_in_range = True
+                keep_scan = False
+                if (not keep_scan) and (words[2] in bpcal_names):
+                    keep_scan = True
+                if (not keep_scan) and (words[2] in target_list):
+                    keep_scan = True
+                if (not keep_scan) and (len(target_list) == 0):
+                    if len(words[2]) == 8:
+                        try:
+                            dummy = int(words[2][0:4])
+                            dummy = int(words[2][5:8])
+                        except (ValueError, IndexError):
+                            keep_scan = True
+                        else:
+                            if words[2][4] in ['+', '-']:
+                                if keep_all_cals:
+                                    keep_scan = True
+                            else:
+                                keep_scan = True
+                    else:
+                        keep_scan = True
+                if not keep_scan:
+                    continue
+                if words[2] not in source_list:
+                    source_list.append(words[2])
+            lsout_file.write(line)
+    
+    if not scan_in_range:
+        os.remove(lsin_file_name)
+        os.remove(lsout_file_name)
+        return None
+    
+    # convert to UVFITS and clean up
+    if len(source_list) > 0:
+        if sys.stdout.name == '<stdout>':
+            result = os.system('%s %s' % (gvfits, lsout_file_name))
+        else:
+            sys.stdout.flush()
+            sys.stderr.flush()
+            result = os.system('%s %s >> %s 2>&1' % (gvfits, lsout_file_name, sys.stdout.name))
+            sys.stdout.flush()
+            sys.stderr.flush()
+        if result != 0:
+            raise Exception('LTA to UVFITS conversion failed for %s' % (lta_file_name))
+        shutil.move(file_name, uvfits_file_name)
+        if os.path.isfile('gvfits.log'):
+            os.remove('gvfits.log')
+    
+    if os.path.isfile(lsin_file_name):
+        os.remove(lsin_file_name)
+    if os.path.isfile(lsout_file_name):
+        os.remove(lsout_file_name)
+    if os.path.isfile(plan_file_name):
+        os.remove(plan_file_name)
+    
+    # cleanup copied libraries
+    os.system('rm -f listscan-%s gvfits-%s' % (version, version))
+    for lib in libsgmrt:
+        libname = os.path.basename(lib)
+        if os.path.isfile(libname):
+            os.remove(libname)
+    return source_list
+
 
 
 def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol='MODEL_DATA', stepsize=1000000):
@@ -15184,8 +15601,9 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.7.0'
+    facetselfcal_version = '17.8.0'
     print_title(facetselfcal_version)
+
 
     # copy h5s locally
     for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
@@ -15470,6 +15888,10 @@ def main():
 
     # check if we can use -apply-facet-beam or disable_primary_beam needs to be set
     check_applyfacetbeam_MeerKAT(mslist, args['imsize'], args['pixelscale'], telescope, args['DDE'])
+
+    # Insert MS history from facetselfcal
+    for ms in mslist:
+        insert_history_ms(ms, parse_input_args(options), appver=facetselfcal_version)
 
     # ----- START SELFCAL LOOP -----
     for i in range(args['start'], 999):  # large number, will break when i == args['stop']-1
