@@ -63,6 +63,19 @@ class MS(object):
         return (columnName in columnNames)
 
 
+    def two_pol_ms(self):
+        '''
+        Check whether the MS has two polarizations (XX and YY or RR and LL) only.
+        '''
+        corr_type = self.tpol.getcol("CORR_TYPE")
+
+        if np.size(corr_type) == 2:
+            logging.info("MS has two polarizations.")
+            return True
+        logging.info("MS has {} polarizations.".format(np.size(corr_type)))
+        return False
+
+
     def removeColumns(self):
         '''
         Remove columns that are never used by the LOFAR software, and are thus a waste of disk space (e.g. "SIGMA_SPECTRUM"),
@@ -127,6 +140,34 @@ class MS(object):
 
         # Set 'FIELD_ID' to 0 in the main table.
         tables.taql("update $pathMS set FIELD_ID=0")
+
+    def fix_crosshand(self):
+        '''
+        set the XY/RL and YX/LR correlations to XX/RR and YY/LL values to avoid zeros in crosshand pols
+        '''
+    
+        logging.info("- Adaptation of cross-hand polarisation visibility data -")
+        logging.info("Fixing crosshand polarizations in MS %s", self.ms_file)
+        if not self.columnExists("DATA"):
+            logging.warning("DATA column not found, skipping.")
+            return
+
+        # Check shape using a single-row sample
+        sample = self.t.getcol("DATA", startrow=0, nrow=1)
+        if sample.shape[-1] != 4:
+            logging.warning("Expected 4 pols in DATA, found %d. Skipping.", sample.shape[-1])
+            return
+
+        total_rows = self.t.nrows()
+        for start_row in range(0, total_rows, self.chunk_size):
+            nrow = min(self.chunk_size, total_rows - start_row)
+            chunk = self.t.getcol("DATA", startrow=start_row, nrow=nrow)
+            # chunk shape: (nrow, nchan, 4)
+            chunk[:, :, 1] = (chunk[:, :, 0] - chunk[:, :, 3])  # XY/RL = XX/RR - YY/LL (Stokes Q/V)
+            chunk[:, :, 2] = (chunk[:, :, 0] - chunk[:, :, 3])  # YX/LR = XX/RR - YY/LL (Stokes Q/V)
+            self.t.putcol("DATA", chunk, startrow=start_row, nrow=nrow)
+            del chunk
+            gc.collect()
 
 
     def updateIntervals(self):
@@ -353,12 +394,15 @@ if (__name__ == "__main__"):
         MSs.append(MS(ms_file, chunk_size=chunk_size))
 
     for MS in MSs:
+        twopol = MS.two_pol_ms()
         MS.removeColumns()
         MS.updatePolarisation()
         updateFreq = MS.updateFreqMetadata()
         MS.updateFieldMetadata()
         MS.updateIntervals()
         MS.updateColumns(updateFreq)
+        if twopol:
+            MS.fix_crosshand()
         MS.close()
 
     logging.debug('Running time %.0f s' % (time.time() - start_time))
