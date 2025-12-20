@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lofar_facet_selfcal"
-version = "14.6.0"
+version = "17.8.0"
 description = "LOFAR facet selfcal"
 requires-python = ">=3.9"
 
