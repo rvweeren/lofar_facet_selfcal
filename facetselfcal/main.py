@@ -314,6 +314,33 @@ def setjy_casa(ms):
         print('Setting polarised model for 3C286')
         set_polarised_model_3C286(ms, chunksize=1000)
 
+
+def flag_shadowed_antenna(mslist): 
+    """
+    Flag shadowed antennas in a CASA Measurement Set using casapy flagdata.
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Sets to process.
+    -----
+    This function constructs and runs a command to execute the casapy flagdata task via a helper script.
+    """
+    # for standalone running
+    if 'submodpath' not in globals():
+        datapath = os.path.dirname(os.path.abspath(__file__))
+        submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
+    
+    # check if mslist is of type list, if not convert it to a list
+    if not isinstance(mslist, list):
+        mslist = [mslist]
+
+    for ms in mslist:
+        cmdcasa = f'python {submodpath}/casa_flagshadowed.py '
+        cmdcasa += '--ms=' + ms
+        run(cmdcasa)
+
+
+
 def gmrt_uvfits2ms(uvfits, msout, flagfile=''): 
     """
     Convert GMRT uvfits file to CASA Measurement Set format using casapy importgmrt.
