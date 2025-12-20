@@ -14488,6 +14488,9 @@ def basicsetup(mslist):
 
     if args['DDE']: args['forwidefield'] = True  # force widefield imaging if DDE
 
+    if telescope != 'LOFAR':
+        args['noarchive'] = True  # force noarchive for these telescopes
+
     # set some default values if not provided
     if args['uvmin'] is None:
         if longbaseline:
