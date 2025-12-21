@@ -251,10 +251,9 @@ def setjy_casa(ms):
     - Requires access to model images named according to the calibrator and frequency band.
     - Relies on external scripts and functions: `casa_setjy.py` and `set_polarised_model_3C286`.
     """
-    # for standalone running
-    if 'submodpath' not in globals():
-        datapath = os.path.dirname(os.path.abspath(__file__))
-        submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
+ 
+    datapathc = os.path.dirname(os.path.abspath(__file__))
+    submodpathc = '/'.join(datapathc.split('/')[0:-1])+'/submods'
 
     # find which calibrators is present in the MS (this cannot be a mulitsource MS), so fieldid is 0
     
@@ -306,10 +305,11 @@ def setjy_casa(ms):
         print('No calibrator found in MS that matches the coordinates of 3C147, 3C138, 3C286, or 3C48: cannot use CASA setjy')
         raise Exception('No calibrator found in MS that matches the coordinates of 3C147, 3C138, 3C286, or 3C48: cannot use CASA setjy')    
     print('Using model image for CASA setjy: ' + modelimage)
-    cmdsetjy = f'python {submodpath}/casa_setjy.py '
+    cmdsetjy = f'python {submodpathc}/casa_setjy.py '
     cmdsetjy += '--ms=' + ms + ' --fieldid=0 --modelimage=' + modelimage + ' '
- 
+    print(cmdsetjy)
     run(cmdsetjy)
+    #sys.exit()
     if (cdatta.separation(SkyCoord(c_3C286[0]*units.deg, c_3C286[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
         print('Setting polarised model for 3C286')
         set_polarised_model_3C286(ms, chunksize=1000)
@@ -326,16 +326,15 @@ def flag_shadowed_antenna(mslist):
     This function constructs and runs a command to execute the casapy flagdata task via a helper script.
     """
     # for standalone running
-    if 'submodpath' not in globals():
-        datapath = os.path.dirname(os.path.abspath(__file__))
-        submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
+    datapathc = os.path.dirname(os.path.abspath(__file__))
+    submodpathc = '/'.join(datapathc.split('/')[0:-1])+'/submods'
     
     # check if mslist is of type list, if not convert it to a list
     if not isinstance(mslist, list):
         mslist = [mslist]
 
     for ms in mslist:
-        cmdcasa = f'python {submodpath}/casa_flagshadowed.py '
+        cmdcasa = f'python {submodpathc}/casa_flagshadowed.py '
         cmdcasa += '--ms=' + ms
         run(cmdcasa)
 
@@ -356,12 +355,14 @@ def gmrt_uvfits2ms(uvfits, msout, flagfile=''):
     -----
     This function constructs and runs a command to execute the casapy importgmrt task via a helper script.
     """
-    # for standalone running
-    if 'submodpath' not in globals():
-        datapath = os.path.dirname(os.path.abspath(__file__))
-        submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
+    
+    datapathc = os.path.dirname(os.path.abspath(__file__))
+    submodpathc = '/'.join(datapathc.split('/')[0:-1])+'/submods'
 
-    cmdcasa = f'python {submodpath}/casa_importgmrt.py '
+    if not os.path.isfile(uvfits):
+        raise Exception('Input uvfits file ' + uvfits + ' does not exist')
+
+    cmdcasa = f'python {submodpathc}/casa_importgmrt.py '
     cmdcasa += '--uvfits=' + uvfits + ' --msout=' + msout + ' --flagfile=' + flagfile + ' '
     if os.path.isdir(msout):
         raise Exception('Output MS ' + msout + ' already exists, please remove it first')
@@ -479,9 +480,8 @@ def fix_twopol_ms(mslist):
         - The function assumes the existence of a helper script 'fix_twopol_ms.py' located in the 'submodpath' directory.
     """
     # for standalone running
-    if 'submodpath' not in globals():
-        datapath = os.path.dirname(os.path.abspath(__file__))
-        submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
+    datapathc = os.path.dirname(os.path.abspath(__file__))
+    submodpathc = '/'.join(datapathc.split('/')[0:-1])+'/submods'
     
     # check if mslist is of type list, if not convert it to a list
     if not isinstance(mslist, list):
@@ -490,7 +490,7 @@ def fix_twopol_ms(mslist):
         if is_two_pol_ms(ms):
             print('Fixing 2-pol MS:', ms)
             print('Convert to 4-pol by creating fake cross-hand correlations')
-            cmd = f'python {submodpath}/fix_twopol_ms.py -c 10000 {ms}'
+            cmd = f'python {submodpathc}/fix_twopol_ms.py -c 10000 {ms}'
             print(cmd)
             run(cmd)
 
@@ -1339,8 +1339,8 @@ def flag_antenna_taql(ms, antennaname):
     -----------
     ms : str
         The path to the Measurement Set (MS) to be modified. This should include the full directory name of the MS.
-    antennaname : str
-        The name of the antenna to flag. This name should match exactly with the entry in the ANTENNA table of the MS.
+    antennaname : str or list
+        The name of the antenna(s) to flag. This name should match exactly with the entry in the ANTENNA table of the MS.
 
     Functionality:
     --------------
@@ -1369,11 +1369,15 @@ def flag_antenna_taql(ms, antennaname):
     --------
     None
     """
-    cmd = "taql 'UPDATE " + ms + ' '
-    cmd += "SET FLAG=true WHERE ANTENNA1 IN (SELECT ROWID() FROM " + ms
-    cmd += "::ANTENNA WHERE NAME=\"" + antennaname + "\") OR ANTENNA2 IN "
-    cmd += "(SELECT ROWID() FROM " + ms + "::ANTENNA WHERE NAME=\"" + antennaname + "\")' "
-    print(cmd)
+    # check is input is string or list, if string convert to list
+    if isinstance(antennaname, str):
+        antennaname = [antennaname]
+    for ant in antennaname:
+        cmd = "taql 'UPDATE " + ms + ' '
+        cmd += "SET FLAG=true WHERE ANTENNA1 IN (SELECT ROWID() FROM " + ms
+        cmd += "::ANTENNA WHERE NAME=\"" + ant + "\") OR ANTENNA2 IN "
+        cmd += "(SELECT ROWID() FROM " + ms + "::ANTENNA WHERE NAME=\"" + ant + "\")' "
+        print(cmd)
     run(cmd)
     return
 
@@ -4861,20 +4865,18 @@ def convert_lta_to_uvfits(lta_file_name, uvfits_file_name=None, target_list=[],
     """
     
 
-
-    
     import shutil
     # for standalone usage
-    if 'datapath' not in globals():
-        datapath = os.path.dirname(os.path.abspath(__file__))
+    datapathc = os.path.dirname(os.path.abspath(__file__))
     
     # copy nessesary files to current directory
-    gmrtdatapath = '/'.join(datapath.split('/')[0:-1])+'/facetselfcal/gmrt'
+    gmrtdatapath = '/'.join(datapathc.split('/')[0:-1])+'/facetselfcal/gmrt'
     os.system(f'cp -f {gmrtdatapath}/listscan-{version} .')
     os.system(f'cp -f {gmrtdatapath}/gvfits-{version} .')
     libsgmrt = glob.glob(f'{gmrtdatapath}/lib/*.so*')
+    os.system('mkdir -p lib')
     for lib in libsgmrt:
-        os.system(f'cp -f {lib} .')
+        os.system(f'cp -f {lib} lib/')
 
     # make excutable
     os.system(f'chmod +x listscan-{version}')
@@ -4883,6 +4885,13 @@ def convert_lta_to_uvfits(lta_file_name, uvfits_file_name=None, target_list=[],
     # version of listscan/gvfits
     listscan = './listscan-%s' % (version)
     gvfits = './gvfits-%s' % (version)
+
+    # add lib to LD_LIBRARY_PATH
+    # export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${SPAM_PATH}/lib
+    if 'LD_LIBRARY_PATH' in os.environ:
+        os.environ['LD_LIBRARY_PATH'] = os.path.abspath('lib') + ':' + os.environ['LD_LIBRARY_PATH']
+    else:
+        os.environ['LD_LIBRARY_PATH'] = os.path.abspath('lib')
 
     # hard-coded
     pad_char_offset = 127
@@ -5135,12 +5144,24 @@ def convert_lta_to_uvfits(lta_file_name, uvfits_file_name=None, target_list=[],
     
     # cleanup copied libraries
     os.system('rm -f listscan-%s gvfits-%s' % (version, version))
-    for lib in libsgmrt:
-        libname = os.path.basename(lib)
-        if os.path.isfile(libname):
-            os.remove(libname)
-    return source_list
+    os.system('rm -rf lib')
+    #for lib in libsgmrt:
+    #    libname = os.path.basename(lib)
+    #    if os.path.isfile(libname):
+    #        os.remove(libname)
 
+    # remove lib from LD_LIBRARY_PATH
+    # export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${SPAM_PATH}/lib
+    if 'LD_LIBRARY_PATH' in os.environ:
+        paths = os.environ['LD_LIBRARY_PATH'].split(':')
+        new_paths = []
+        for path in paths:
+            if path != os.path.abspath('lib'):
+                new_paths.append(path)
+        os.environ['LD_LIBRARY_PATH'] = ':'.join(new_paths)
+
+
+    return file_name, source_list 
 
 
 def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol='MODEL_DATA', stepsize=1000000):
@@ -15624,14 +15645,14 @@ def main():
         args['noarchive'] = True
     if args['skymodelsetjy']:
         args['dysco'] = False  # no dysco compression allowed as CASA does not work with dysco compression
-
+        args['modelstoragemanager'] = None  # no model compression allowed as CASA does not work with dysco compression
 
     global submodpath, datapath, facetselfcal_version
     datapath = os.path.dirname(os.path.abspath(__file__))
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.8.0'
+    facetselfcal_version = '17.9.0'
     print_title(facetselfcal_version)
 
 
