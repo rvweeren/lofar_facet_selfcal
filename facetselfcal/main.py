@@ -15177,7 +15177,7 @@ def flag_autocorr(mslist):
        run(cmd)
     return   
 
-def flag_antennas_timerange_ms(ms, timerange, antenna):
+def flag_antenna_timerange_ms(ms, timerange, antenna):
     """
     Flag time range of of a specific antennas in an MS with DP3 preflagger
     Parameters
@@ -15195,7 +15195,7 @@ def flag_antennas_timerange_ms(ms, timerange, antenna):
     Notes
     -----
     Example:
-    flag_antennas_timerange_ms('mydata.ms', '01:23:45..01:45:00', 'CS001HBA0')
+    flag_antenna_timerange_ms('mydata.ms', '01:23:45..01:45:00', 'CS001HBA0')
     See https://dp3.readthedocs.io/en/latest/steps/PreFlagger.html
     Ranges of times (using .. or +-) since the start of the observation. A time can be given like 1:30:0 or 20s.    
     """
@@ -15362,12 +15362,12 @@ def set_skymodels_external_surveys(args, mslist):
     # --- Arbitrary FITS image ---
     for mstmp_id, mstmp in enumerate(mslist_return_stack(mslist, args['stack'])):
         if args['startfromimage'] and args['start'] == 0:
-            if args['skymodel'].endswith('.fits') and args['skymodelpointsource'] is None:
+            if args['skymodel'].lower().endswith('.fits') and args['skymodelpointsource'] is None:
                 skymodel_list.append(makeBBSmodelforFITS(args['skymodel'], extrastrname=str(mstmp_id)))
-            elif args['skymodel'].endswith('.fits') and (args['skymodelpointsource'] is not None):
+            elif args['skymodel'].lower().endswith('.fits') and (args['skymodelpointsource'] is not None):
                 print('You cannot provide skymodelpointsource manually while using --startfromimage')
                 raise Exception('You cannot provide skymodelpointsource manually while using --startfromimage')
-            elif (not args['skymodel'].endswith('.fits')) and args['skymodelpointsource'] is None:
+            elif (not args['skymodel'].lower().endswith('.fits')) and args['skymodelpointsource'] is None:
                 print('skymodel must be a FITS file and have the fits extension while using --startfromimage')
                 raise Exception('skymodel must be a FITS file while using --startfromimage')
             else:
