@@ -14585,13 +14585,13 @@ def basicsetup(mslist):
         elif freq < 2.0e9:  # L-band-high
             args['pixelscale'] = pixelscale = 1.0
     elif args['pixelscale'] is None and telescope == 'GMRT':
-        if freq < 250e9:  # band2
+        if freq < 250e6:  # band2
             args['pixelscale'] = pixelscale = 3.0
-        elif freq >= 250e9 and freq < 500e9:  # band3
+        elif freq >= 250e6 and freq < 500e6:  # band3
             args['pixelscale'] = pixelscale = 1.25
-        elif freq >= 500e9 and freq < 1000e9:  # band4
+        elif freq >= 500e6 and freq < 1e9:  # band4
             args['pixelscale'] = pixelscale = 0.75
-        elif freq >= 1000e9:  # band5
+        elif freq >= 1e9:  # band5
             args['pixelscale'] = pixelscale = 0.35
     elif args['pixelscale'] is None:
         print('pixelscale not set and cannot be determined for telescope', telescope)
