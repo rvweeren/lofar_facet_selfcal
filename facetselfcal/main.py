@@ -14681,11 +14681,11 @@ def basicsetup(mslist):
             if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
                 startfreq = 906e6
                 endfreq = 1655e6
-                args['msinstartchan'], args['msinnchan'] = set_startchan_nchan(freqs, startfreq, endfreq)
+                args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
             if freq < 1.0e9:  # UHF-band 
                 startfreq = 595e6
                 endfreq = 1049e6
-                args['msinstartchan'], args['msinnchan'] = set_startchan_nchan(freqs, startfreq, endfreq)
+                args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
             # for S0 to S5 bands to do       
         else: # so this is a DDE run
             args['soltype_list'] = ['scalarphase','scalarcomplexgain']
@@ -14713,11 +14713,11 @@ def basicsetup(mslist):
             if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
                 startfreq = 906e6
                 endfreq = 1655e6
-                args['msinstartchan'], args['msinnchan'] = set_startchan_nchan(freqs, startfreq, endfreq)
+                args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
             if freq < 1.0e9:  # UHF-band 
                 startfreq = 595e6
                 endfreq = 1049e6
-                args['msinstartchan'], args['msinnchan'] = set_startchan_nchan(freqs, startfreq, endfreq)
+                args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
 
     if args['auto'] and longbaseline and not args['delaycal']:
         args['update_uvmin'] = False
@@ -14839,7 +14839,7 @@ def basicsetup(mslist):
     return longbaseline, LBA, HBAorLBA, freq, fitsmask, \
         maskthreshold_selfcalcycle, automaskthreshold_selfcalcycle, outtarname, telescope
 
-def set_startchan_nchan(freqs, startfreq, endfreq):
+def get_startchan_nchan(freqs, startfreq, endfreq):
     """
     Try to automatically set arg['msinstartchan'] and arg['msinnchan']
     :param freqs: frequency array
@@ -15595,7 +15595,25 @@ def get_telescope_from_ms(mslist):
     telescope = t.getcol('TELESCOPE_NAME')[0]
     t.close()
 
+def get_frequencies_from_ms(mslist):
+    """
+    Retrieve the channel frequencies of the measurement sets (MS) in the provided list.
+    Parameters:
+    mslist (list of str): List of paths to Measurement Set directories.
+    Returns:
+    list of numpy.ndarray: A list where each element is an array of channel frequencies (in Hz)
+                           for the corresponding MS in the input list.
+    Raises:
+    Exception: If the channel frequencies cannot be found in any of the MS.
+    """
+    # if input is string, make it a list
+    if isinstance(mslist, str):
+        mslist = [mslist]
 
+    t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
+    freqs = t.getcol('CHAN_FREQ')[0]  # in Hz
+    t.close()
+    return freqs
 ###############################
 ############## MAIN ###########
 ###############################
@@ -15652,7 +15670,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.9.0'
+    facetselfcal_version = '17.10.0'
     print_title(facetselfcal_version)
 
 
