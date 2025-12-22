@@ -15177,6 +15177,36 @@ def flag_autocorr(mslist):
        run(cmd)
     return   
 
+def flag_antennas_timerange_ms(ms, timerange, antenna):
+    """
+    Flag time range of of a specific antennas in an MS with DP3 preflagger
+    Parameters
+    ----------
+    ms : str
+        Measurement Set to flag
+    timerange : str
+        Relative timerange to flag in format 'starttime..endtime'
+    antenna : str
+        Antenna name to flag
+    Returns
+    -------
+    None
+    ------
+    Notes
+    -----
+    Example:
+    flag_antennas_timerange_ms('mydata.ms', '01:23:45..01:45:00', 'CS001HBA0')
+    See https://dp3.readthedocs.io/en/latest/steps/PreFlagger.html
+    Ranges of times (using .. or +-) since the start of the observation. A time can be given like 1:30:0 or 20s.    
+    """
+   
+    cmd = 'DP3 msin=' + ms + ' msout=. steps=[pr] '
+    cmd += 'pr.type=preflagger pr.reltime="[' + timerange + ']" ' + 'pr.baseline=' + antenna + '"&&*"'
+    print(cmd)
+    run(cmd)
+    return
+
+
 def flag_uGMRT_badfreqs(mslist):
     """
     Flag known bad frequency ranges for uGMRT bands
