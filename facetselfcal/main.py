@@ -5815,7 +5815,7 @@ def checklongbaseline(ms):
 
 
 def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartchan=0.,
-            phaseshiftbox=None, msinntimes=None, makecopy=False,
+            phaseshiftbox=None, msinntimes=None, msinstarttimeslot=None, makecopy=False,
             makesubtract=False, delaycal=False, freqresolution='195.3125kHz',
             dysco=True, cmakephasediffstat=False, dataincolumn='DATA',
             removeinternational=False, removemostlyflaggedstations=False, 
@@ -5832,6 +5832,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
         msinstartchan (int or float, optional): Starting channel index for input MS. Default is 0.
         phaseshiftbox (str or None, optional): Region or reference for phase shifting. If 'align', aligns to the first MS's phase center. Default is None.
         msinntimes (int, optional): Number of input time slots to use from each MS. Default is None (use all).
+        msinstarttimeslot (int, optional): Starting time slot index for input MS. Default is None.
         makecopy (bool, optional): If True, output MS will have '.copy' suffix. Default is False.
         makesubtract (bool, optional): If True, output MS will have '.subtracted' suffix. Default is False.
         delaycal (bool, optional): If True, perform delay calibration. Default is False.
@@ -5867,7 +5868,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
     for ms_id, ms in enumerate(mslist):
         if (int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep is not None) or (
                 msinnchan is not None) or \
-                (phaseshiftbox is not None) or (msinntimes is not None) \
+                (phaseshiftbox is not None) or (msinntimes is not None) or (msinstarttimeslot is not None) \
                 or removeinternational or removemostlyflaggedstations:  # if this is True then average
 
             # set this first, change name if needed below
@@ -5955,6 +5956,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 cmd += 'msin.startchan=' + str(msinstartchan) + ' '
             if msinntimes is not None:
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
+            if msinstarttimeslot is not None:
+                cmd += 'msin.starttimeslot=' + str(msinstarttimeslot) + ' '
             if useaoflagger:
                 cmd += 'ao.type=aoflag '
                 cmd += 'ao.keepstatistics=False '
@@ -6033,6 +6036,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 cmd += 'msin.startchan=' + str(msinstartchan) + ' '
             if msinntimes is not None:
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
+            if msinstarttimeslot is not None:
+                cmd += 'msin.starttimeslot=' + str(msinstarttimeslot) + ' '
 
             if start == 0:
                 with table(ms) as t:
@@ -15820,10 +15825,12 @@ def main():
         mslist = average(mslist, freqstep=[1] * len(mslist), timestep=1, start=args['start'], makecopy=True,
                          dysco=args['dysco'], useaoflagger=(args['useaoflagger'] and args['useaoflaggerbeforeavg']), 
                          aoflagger_strategy=args['aoflagger_strategy'], metadata_compression=args['metadata_compression'],
-                         msinnchan=args['msinnchan'], msinstartchan=args['msinstartchan'], msinntimes=args['msinntimes'],
+                         msinnchan=args['msinnchan'], msinstartchan=args['msinstartchan'], msinntimes=args['msinntimes'], 
+                         msinstarttimeslot=args['msinstarttimeslot'],
                          removeinternational=args['removeinternational'], phaseshiftbox=args['phaseshiftbox'],
                          removemostlyflaggedstations=args['removemostlyflaggedstations'], flag_antennas=args['flag_antenna_list'])
         args['msinntimes'] = None # since we use it above set msinntimes to to None now
+        args['msinstarttimeslot'] = None  # since we use it above set msinstarttimeslot to None now
         args['msinnchan'] = None  # since we use it above set msinnchan to None now
         args['msinstartchan'] = 0  # since we use it above set msinstartchan to 0 now
         args['removeinternational'] = False  # since we use it above set removeinternational to False now
@@ -15915,7 +15922,7 @@ def main():
     # AVERAGE if requested/possible
     mslist = average(mslist, freqstep=avgfreqstep, timestep=args['avgtimestep'],
                      start=args['start'], msinnchan=args['msinnchan'], msinstartchan=args['msinstartchan'],
-                     phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'],
+                     phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'], msinstarttimeslot=args['msinstarttimeslot'],
                      dysco=args['dysco'], removeinternational=args['removeinternational'],
                      removemostlyflaggedstations=args['removemostlyflaggedstations'], useaoflagger=args['useaoflagger'], aoflagger_strategy=args['aoflagger_strategy'], useaoflaggerbeforeavg=args['useaoflaggerbeforeavg'],
                      metadata_compression=args['metadata_compression'], flag_antennas=args['flag_antenna_list'])
