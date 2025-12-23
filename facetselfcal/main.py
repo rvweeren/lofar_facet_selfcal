@@ -5856,6 +5856,13 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
         print('Hmm, made a mistake with freqstep?')
         raise Exception('len(mslist) != len(freqstep)')
 
+    # prevent GMRT data from being in time because of UVW coordinates issue
+    # DP3 fills in UVW coordinates incorrectly for GMRT data when time gaps are present
+    if timestep is not None and get_telescope_from_ms(mslist[0]) == 'GMRT':
+        if timestep > 1:
+            print('Time averaging cannot be used for GMRT data due to UVW issues')
+            raise Exception('Time averaging cannot be used for GMRT data due to UVW issues')
+
     outmslist = []
     for ms_id, ms in enumerate(mslist):
         if (int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep is not None) or (
@@ -6419,6 +6426,15 @@ def inputchecker(args, mslist):
     # set telescope
     with table(mslist[0] + '/OBSERVATION', ack=False) as t:
         telescope = t.getcol('TELESCOPE_NAME')[0]
+
+    if telescope == 'GMRT':
+        # do not allow any time averaging for GMRT data
+        # this is because of issues with the UVW coordinates for time gaps that are filled with DP3
+        # the UVW coordinates in this filled gaps are not correct and lead to image artifacts 
+        if args['avgtimestep'] is not None:
+            if args['avgtimestep'] > 1:
+                print('Time averaging cannot be used for GMRT data due to UVW issues')
+                raise Exception('Time averaging cannot be used for GMRT data due to UVW issues')
 
     assert args['start'] >= 0, '--start must be >= 0'
     if args['stop'] is not None:
@@ -14613,8 +14629,10 @@ def basicsetup(mslist):
     if args['paralleldeconvolution'] == 0: # means determine automatically
         if args['imsize'] > 1600 and telescope == 'MeerKAT':
             args['paralleldeconvolution'] = 1200
+        elif args['imsize'] > 1600 and telescope == 'GMRT':
+            args['paralleldeconvolution'] = 1200
         elif args['imsize'] > 1600: 
-            args['paralleldeconvolution'] =  np.min([2600, int(args['imsize'] / 2)])
+            args['paralleldeconvolution'] =  np.min([2400, int(args['imsize'] / 2)])
 
     if args['niter'] is None:
         args['niter'] = niter_from_imsize(args['imsize'], args['paralleldeconvolution'])
@@ -15700,7 +15718,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.10.0'
+    facetselfcal_version = '17.11.0'
     print_title(facetselfcal_version)
 
 
