@@ -127,8 +127,8 @@ def option_parser():
                                action='store_true')
     imagingparser.add_argument('--fitspectralpol',
                                help="Use fit-spectral-pol in WSClean (see WSClean documentation) with this order. The default is 3. fit-spectral-pol can be disabled by setting it to a value less than 1",
-                               default=3,
-                               type=int)
+                               default='auto',
+                               type=str_or_int)
     imagingparser.add_argument('--ddpsfgrid',
                                help="Value for option -dd-psf-grid with WSClean (integer, by default this value is None and the option is not used",
                                type=int, default=None)
