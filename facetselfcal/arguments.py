@@ -60,6 +60,9 @@ def option_parser():
     imagingparser.add_argument('--DS9cleanmaskregionfile',
                                help='A DS9 region file (with WCS coordinates) that will be added to the clean mask used in combination with breizorro.',
                                type=str)
+    imagingparser.add_argument('--DS9cleanmaskregionfile-exclude',
+                               help='A DS9 region file (with WCS coordinates) that will exclude this region end up in the clean mask (i.e., to ensure that artefacts are not cleaned). Only works if the cleaning is employing a fitsmask, by default this is the case as we use breizorro to make masks automatically.',
+                               type=str)                           
     imagingparser.add_argument('--robust',
                                help='Briggs robust parameter for imagaging. The default is -0.5. Also allowed are the strings uniform or naturual which will override Briggs weighting.',
                                default=-0.5,
@@ -640,6 +643,9 @@ def option_parser():
                         action='store_true')
     parser.add_argument('--keepmodelcolumns',
                         help='Leave the MODEL_DATA-type columns in the MS. By default these are removed to save disk space.',
+                        action='store_true')
+    parser.add_argument('--createresidualdatacolumn',
+                        help='Create a RESIDUAL_DATA column in the MS at the last selfcal cycle.',
                         action='store_true')
     parser.add_argument('--phasediff_only',
                         help='For finding only the phase difference, we want to stop after calibrating and before imaging',
