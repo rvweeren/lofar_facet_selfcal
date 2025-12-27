@@ -5409,6 +5409,32 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
         del data
     return
 
+
+def tmpmakeantresidual():
+
+    msname = '44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg'
+    cmdwsclean = 'wsclean -no-update-model-required -minuv-l 10.0 -size 5736 5736 -reorder -weight briggs 0.0 -parallel-reordering 4 -mgain 0.75 -data-column RESIDUAL_DATA  -join-channels -channels-out 8 -parallel-gridding 6 -fit-spectral-pol 5 -pol i -gridder wgridder -wgridder-accuracy 0.0001 -no-min-grid-resolution -facet-regions facets.reg -apply-facet-solutions merged_selfcalcycle008_44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg.h5 amplitude000,phase000 -diagonal-visibilities -name imageDD_009 -scale 0.75arcsec -nmiter 1 -niter 1'
+
+    # full residual
+    os.system(cmdwsclean + ' -name imageDD_009_residualfull ' + msname)
+
+
+
+    ant_table = table(msname+'/ANTENNA', ack=False)
+    antenna_names = ant_table.getcol('NAME')
+    ant_table.close()
+    print(antenna_names)
+    for ant in antenna_names:
+        if os.path.isdir(msname + '_' + ant):
+            os.system('rm -rf ' + msname + '_' + ant) 
+        os.system('cp -r ' + msname + ' ' + msname + '_' + ant) 
+        # flag atenna
+        flag_antenna_taql(msname + '_'  + ant, [ant])
+        os.system(cmdwsclean + ' -name imageDD_009_residual_' + ant + ' ' + msname + '_' + ant)
+        os.system('rm -rf ' +  msname + '_' + ant)
+
+
+
 def gzip_model_images(imagebasename):
     """ Gzips all model images with the given base name.
     Parameters
@@ -5417,8 +5443,8 @@ def gzip_model_images(imagebasename):
         The base filename for model images (e.g., 'myimage_001' if files are named  like
         'myimage_001-0001-model-pb.fits').
     """
-    imagelist1 = glob.glob(imagebasename + '-????-model-*.fits') # channel maps
-    imagelist2 = glob.glob(imagebasename + '-???-model-*.fits') # MFS maps
+    imagelist1 = glob.glob(imagebasename + '-????-model*.fits') # channel maps
+    imagelist2 = glob.glob(imagebasename + '-???-model*.fits') # MFS maps
     imagelist = sorted(imagelist1) + sorted(imagelist2)
     for image in imagelist:
         # check if gzipped version already exists
@@ -6453,12 +6479,12 @@ def inputchecker(args, mslist):
         print('--stop must be greater or equal to --start')
         raise Exception('--stop must be greater or equal to --start')
 
-    if not args['remove_outside_center']:
+    if not args['remove_outside_center'] and not args['createresidualdatacolumn']:
         # do not allow start to be the same as stop when --remove-outside-center is not set
         if args['stop'] is not None:
             if args['start'] == args['stop']:
-                print('--start cannot be equal to --stop when --remove-outside-center is not set')
-                raise Exception('--start cannot be equal to --stop when --remove-outside-center is not set')
+                print('--start cannot be equal to --stop when --remove-outside-center/createresidualdatacolumn is not set')
+                raise Exception('--start cannot be equal to --stop when --remove-outside-center/createresidualdatacolumn is not set')
 
     if 0 in args['useaoflagger_correcteddata_selfcalcycle_list']:
         print('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0')
@@ -6867,6 +6893,10 @@ def inputchecker(args, mslist):
             print('Cannot find DS9cleanmaskregionfile, file does not exist')
             raise Exception('Cannot find DS9cleanmaskregionfile, file does not exist')
 
+    if args['DS9cleanmaskregionfile_exclude'] is not None: 
+        if not (os.path.isfile(args['DS9cleanmaskregionfile_exclude'])):
+            print('Cannot find DS9cleanmaskregionfile_exclude, file does not exist')
+            raise Exception('Cannot find DS9cleanmaskregionfile_exclude, file does not exist')
 
     if args['skymodel'] is not None:
         if type(args['skymodel']) is str:
@@ -7778,6 +7808,58 @@ def copyoverscalarphase(scalarh5, phasexxyyh5):
     return
 
 
+def create_residual_data_column(mslist, imagebasename, pixsize, imsize,
+                       channelsout, single_dual_speedup=True,
+                       outcol='RESIDUAL_DATA', dysco=True,
+                       idg=False, h5list=[], facetregionfile=None,
+                       disable_primary_beam=False, ddcor=True, modelstoragemanager=None, parallelgridding=1,
+                       metadata_compression=True):
+    # get imageheader to check frequency
+    telescope = get_telescope_from_ms(mslist[0])
+    stepsize = 100000
+    if len(h5list) != 0:
+        datacolumn = 'DATA'  # for DDE
+    else:
+        datacolumn = 'CORRECTED_DATA'
+ 
+    # predict the model non-DDE case
+    if len(h5list) == 0:
+        makeimage(mslist, imagebasename, pixsize, imsize,
+                  channelsout, onlypredict=True,
+                  idg=idg, disable_primarybeam_predict=disable_primary_beam,
+                  fulljones_h5_facetbeam=not single_dual_speedup, 
+                  parallelgridding=parallelgridding)
+    else:  # so this we are in DDE mode as h5list is not empty
+        makeimage(mslist, imagebasename, pixsize, imsize,
+                  channelsout, onlypredict=True, squarebox='keepall',
+                  idg=idg, h5list=h5list, facetregionfile=facetregionfile,
+                  disable_primarybeam_predict=disable_primary_beam,
+                  fulljones_h5_facetbeam=not single_dual_speedup, 
+                  parallelgridding=parallelgridding)
+     
+    # write new data column with residuals
+    for ms in mslist:
+        # check if outcol exists, if not create it with DP3
+        with table(ms) as t:
+            colnames = t.colnames()
+        if outcol not in colnames:
+            cmd = 'DP3 msin=' + ms + ' msout=. steps=[] msout.datacolumn=' + outcol + ' '
+            cmd += 'msin.datacolumn=' + datacolumn + ' '
+            if dysco:
+                cmd += 'msout.storagemanager=dysco '
+                cmd += 'msout.storagemanager.weightbitrate=16 '
+            print(cmd)
+            run(cmd)
+        t = table(ms, readonly=False)
+        if t.nrows() < stepsize: stepsize = t.nrows()
+        for row in range(0, t.nrows(), stepsize):
+            print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
+            data = t.getcol(datacolumn, startrow=row, nrow=stepsize, rowincr=1)
+            model = t.getcol('MODEL_DATA', startrow=row, nrow=stepsize, rowincr=1)
+            t.putcol(outcol, data - model, startrow=row, nrow=stepsize, rowincr=1)
+        t.close()
+    return
+        
 def copyovergain(gaininh5, gainouth5, soltype):
     """
     Copies gain solutions (amplitude and phase) from an input HDF5 file to an output HDF5 file,
@@ -12299,7 +12381,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     r[0].coord_list[2] = boxsize  # units degr
     r[0].coord_list[3] = boxsize  # units degr
     r.write('templatebox.reg')
-
+    hdul.close()
     # predict the model non-DDE case
     if len(h5list) == 0:
         if userbox is None:
@@ -12458,6 +12540,15 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     telescope = t.getcol('TELESCOPE_NAME')[0]
     t.close()
 
+    # update the fitsmask if user provided DS9cleanmaskregionfile-exclude
+    if fitsmask is not None and args['DS9cleanmaskregionfile_exclude'] is not None:
+        # make a new fitsmask with the excluded regions masked out
+        # input is overwritten
+        print('Updating fitsmask', fitsmask, 'with excluded regions from', args['DS9cleanmaskregionfile_exclude'])
+        logging.info('Updating fitsmask {} with excluded regions from {}'.format(fitsmask, args['DS9cleanmaskregionfile_exclude']))
+        mask_region(fitsmask, args['DS9cleanmaskregionfile_exclude'], fitsmask)
+
+
     #if telescope != 'LOFAR' and not onlypredict and facetregionfile is not None:
     #    nosmallinversion = True
     if telescope != 'LOFAR':
@@ -12530,8 +12621,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     if onlypredict and facetregionfile is not None and predict and squarebox is not None:
         # do the masking
         for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
-            print(squarebox, model, 'box_' + model)
-            mask_region(model, squarebox, 'box_' + model)
+            if squarebox != 'keepall':
+                print(squarebox, model, 'box_' + model)
+                mask_region(model, squarebox, 'box_' + model)
 
             # predict with wsclean
         cmd = 'wsclean -predict '
@@ -12577,13 +12669,18 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if args['modelstoragemanager'] is not None:
             cmd += '-model-storage-manager ' + modelstoragemanagerwsclean + ' '
 
-        cmd += '-name box_' + imageout + ' ' + msliststring
+        if squarebox != 'keepall':
+            cmd += '-name box_' + imageout + ' ' + msliststring
+        else:
+            cmd += '-name ' + imageout + ' ' + msliststring    
+        
         if DDE_predict == 'WSCLEAN':
             print('DDE PREDICT STEP: ', cmd)
             run(cmd)
         # remove box_ model files to save space
-        for model in sorted(glob.glob('box_' + imageout + '-????-*model*.fits')):
-            os.system('rm -f ' + model)
+        if squarebox != 'keepall':
+            for model in sorted(glob.glob('box_' + imageout + '-????-*model*.fits')):
+                os.system('rm -f ' + model)
         return
         #  --- NO-FACET-LOOP end DDE CORRUPT-predict only ---
 
@@ -15723,7 +15820,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.11.0'
+    facetselfcal_version = '17.12.0'
     print_title(facetselfcal_version)
 
 
@@ -16010,6 +16107,12 @@ def main():
     else:
         remove_outside_center_only = False
 
+    if args['start'] > 0 and  args['stop'] == args['start'] and args['createresidualdatacolumn']:
+        print('Only creating RESIDUAL_DATA')
+        createresidualdatacolumn_only = True
+    else:
+        createresidualdatacolumn_only = False
+
     # check if we can use -apply-facet-beam or disable_primary_beam needs to be set
     check_applyfacetbeam_MeerKAT(mslist, args['imsize'], args['pixelscale'], telescope, args['DDE'])
 
@@ -16194,14 +16297,26 @@ def main():
                       disable_primarybeam_predict=args['disable_primary_beam'],
                       fulljones_h5_facetbeam=not args['single_dual_speedup'])
             
-            if remove_outside_center_only:
-                remove_outside_box(mslist, args['imagename'] + str(i).zfill(3), args['pixelscale'],
-                    args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
-                    dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'],
-                    h5list=wsclean_h5list, facetregionfile=facetregionfile,
-                    disable_primary_beam=args['disable_primary_beam'], 
-                    modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'],
-                    metadata_compression=args['metadata_compression'])
+            if remove_outside_center_only or createresidualdatacolumn_only:
+                if remove_outside_center_only:
+                    remove_outside_box(mslist, args['imagename'] + str(i).zfill(3), args['pixelscale'],
+                                       args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
+                                       dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'],
+                                       h5list=wsclean_h5list, facetregionfile=facetregionfile,
+                                       disable_primary_beam=args['disable_primary_beam'], 
+                                       modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'],
+                                       metadata_compression=args['metadata_compression'])
+                if createresidualdatacolumn_only:
+                    create_residual_data_column(mslist, args['imagename'] + str(i).zfill(3), 
+                                           args['pixelscale'], args['imsize'], 
+                                           args['channelsout'], 
+                                           single_dual_speedup=args['single_dual_speedup'],
+                                           dysco=args['dysco'], idg=args['idg'],
+                                           h5list=wsclean_h5list, facetregionfile=facetregionfile,
+                                           disable_primary_beam=args['disable_primary_beam'], 
+                                           modelstoragemanager=args['modelstoragemanager'], 
+                                           parallelgridding=args['parallelgridding'], 
+                                           metadata_compression=args['metadata_compression'])
                 if not args['keepmodelcolumns']: remove_model_columns(mslist)
                 return
             
@@ -16383,7 +16498,8 @@ def main():
         add_version_to_h5(h5, facetselfcal_version)
 
     # remove sources outside central region after selfcal (to prepare for DDE solves)
-    if args['remove_outside_center']:
+    # or create RESIDUAL_DATA column if requested
+    if args['remove_outside_center'] or args['createresidualdatacolumn']:
         # make image after calibration so the calibration and images match
         # normally we would finish with calibration and not have the subsequent image, make this i+1 image here
         makeimage(mslistim, args['imagename'] + str(i + 1).zfill(3),
@@ -16401,13 +16517,33 @@ def main():
                   disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
                   fulljones_h5_facetbeam=not args['single_dual_speedup'])
+        
+        if args['remove_outside_center']:
+            remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), 
+                               args['pixelscale'],
+                               args['imsize'], args['channelsout'], 
+                               single_dual_speedup=args['single_dual_speedup'],
+                               dysco=args['dysco'],
+                               userbox=args['remove_outside_center_box'], idg=args['idg'],
+                               h5list=wsclean_h5list, facetregionfile=facetregionfile,
+                               disable_primary_beam=args['disable_primary_beam'], 
+                               modelstoragemanager=args['modelstoragemanager'], 
+                               parallelgridding=args['parallelgridding'], 
+                               metadata_compression=args['metadata_compression'])
 
-        remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), args['pixelscale'],
-                           args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
-                           dysco=args['dysco'],
-                           userbox=args['remove_outside_center_box'], idg=args['idg'],
-                           h5list=wsclean_h5list, facetregionfile=facetregionfile,
-                           disable_primary_beam=args['disable_primary_beam'], modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'], metadata_compression=args['metadata_compression'])
+        # create RESIDUAL_DATA column if requested
+        if args['createresidualdatacolumn']:
+            create_residual_data_column(mslist, args['imagename'] + str(i + 1).zfill(3), 
+                                        args['pixelscale'], args['imsize'], 
+                                        args['channelsout'], 
+                                        single_dual_speedup=args['single_dual_speedup'],
+                                        dysco=args['dysco'], idg=args['idg'],
+                                        h5list=wsclean_h5list, facetregionfile=facetregionfile,
+                                        disable_primary_beam=args['disable_primary_beam'], 
+                                        modelstoragemanager=args['modelstoragemanager'], 
+                                        parallelgridding=args['parallelgridding'], 
+                                        metadata_compression=args['metadata_compression'])
+
         # compress model images with gzip to save space
         gzip_model_images(args['imagename'] + str(i + 1).zfill(3))
 
