@@ -480,6 +480,13 @@ def option_parser():
                                 help='Use this strategy for AOflagger on CORRECTED_DATA (options are: "default_StokesV.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',type=str)
     flaggingparser.add_argument("--useaoflagger-correcteddata-selfcalcycle-list",
                                 type=arg_as_list, default=[1], help="Select list of  selfcalcycle where --useaoflagger-correcteddata is used. Only values larger than 1 are allowed in the list. The default is [1].")
+    flaggingparser.add_argument('--useaoflagger-residualdata',
+                                help='Run AOflagger on the RESIDUAL_DATA column.',
+                                action='store_true')
+    flaggingparser.add_argument('--aoflagger-strategy-residualdata',
+                                help='Use this strategy for AOflagger on RESIDUAL_DATA (options are: "default_StokesV.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',type=str)
+    flaggingparser.add_argument("--useaoflagger-residualdata-selfcalcycle-list",
+                                type=arg_as_list, default=[2], help="Select list of  selfcalcycle where --useaoflagger-residualdata is used. Only values larger than 1 are allowed in the list. The default is [2].")
     flaggingparser.add_argument('--useaoflagger-afterbandpassapply',
                                 help='Run AOflagger DATA column after preapply bandpass solution. Uses same strategy as provided by --aoflagger-strategy-correcteddata',
                                 action='store_true')
