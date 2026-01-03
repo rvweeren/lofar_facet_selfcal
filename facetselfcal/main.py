@@ -3,7 +3,7 @@
 # use phase slope fitting for bandpass step?
 # https://ui.adsabs.harvard.edu/abs/2022ApJ...932..110K/abstract
 # std exception detected: The TEC constraints do not yet support direction-dependent intervals
-# python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy.subtracted
+# python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy
 # run with less disk-space usage, remove all but merged h5
 # continue splitting functions in facetselfcal in separate modules
 # auto update channels out and fitspectralpol for high dynamic range
@@ -1314,7 +1314,7 @@ def set_channelsout(mslist, factor=1):
         channelsout = round_up_to_even(f_bw * 12 * factor)
     return channelsout
 
-def clean_up_images(imagename):
+def clean_up_images(imagename, model=False):
     """
     Remeoves psf, residual, beam, and dirty channel images after a WSClean run to save disk space
     
@@ -1327,6 +1327,8 @@ def clean_up_images(imagename):
     imagelist += sorted(glob.glob(imagename + '-????-*dirty*.fits')) 
     imagelist += sorted(glob.glob(imagename + '-????-*psf*.fits')) 
     imagelist += sorted(glob.glob(imagename + '-????-*beam*.fits')) 
+    if model:
+        imagelist += sorted(glob.glob(imagename + '-????-*model*.fits'))
     for image in imagelist:
         os.system('rm -f ' + image)
     return
@@ -5410,28 +5412,69 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
     return
 
 
-def tmpmakeantresidual():
-
-    msname = '44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg'
-    cmdwsclean = 'wsclean -no-update-model-required -minuv-l 10.0 -size 5736 5736 -reorder -weight briggs 0.0 -parallel-reordering 4 -mgain 0.75 -data-column RESIDUAL_DATA  -join-channels -channels-out 8 -parallel-gridding 6 -fit-spectral-pol 5 -pol i -gridder wgridder -wgridder-accuracy 0.0001 -no-min-grid-resolution -facet-regions facets.reg -apply-facet-solutions merged_selfcalcycle008_44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg.h5 amplitude000,phase000 -diagonal-visibilities -name imageDD_009 -scale 0.75arcsec -nmiter 1 -niter 1'
+def tmpmakeantresidual(mslist, selfcalcycle, multiscale, fitsmask_list, restoringbeam, \
+                       automaskthreshold_selfcalcycle, wsclean_h5list, facetregionfile):
+    #msname = '44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg'
+    #cmdwsclean = 'wsclean -no-update-model-required -minuv-l 10.0 -size 5736 5736 -reorder -weight briggs 0.0 -parallel-reordering 4 -mgain 0.75 -data-column RESIDUAL_DATA  -join-channels -channels-out 8 -parallel-gridding 6 -fit-spectral-pol 5 -pol i -gridder wgridder -wgridder-accuracy 0.0001 -no-min-grid-resolution -facet-regions facets.reg -apply-facet-solutions merged_selfcalcycle008_44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg.h5 amplitude000,phase000 -diagonal-visibilities -name imageDD_009 -scale 0.75arcsec -nmiter 1 -niter 1'
 
     # full residual
-    os.system(cmdwsclean + ' -name imageDD_009_residualfull ' + msname)
-
-
-
-    ant_table = table(msname+'/ANTENNA', ack=False)
-    antenna_names = ant_table.getcol('NAME')
-    ant_table.close()
+    #os.system(cmdwsclean + ' -name imageDD_009_residualfull ' + msname)
+    makeimage(mslist, args['imagename'] + str(selfcalcycle).zfill(3) + '_residual_full',
+                      args['pixelscale'], args['imsize'],
+                      args['channelsout'], args['niter'], args['robust'],
+                      multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[0],
+                      uvminim=args['uvminim'], predict=not args['stopafterskysolve'],
+                      fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'],
+                      restoringbeam=restoringbeam, automask=automaskthreshold_selfcalcycle[selfcalcycle],
+                      removenegativecc=args['removenegativefrommodel'],
+                      paralleldeconvolution=args['paralleldeconvolution'],
+                      parallelgridding=args['parallelgridding'],
+                      h5list=wsclean_h5list, forced_imcol='RESIDUAL_DATA',
+                      facetregionfile=facetregionfile, DDEimaging=args['DDE'],
+                      stack=args['stack'],
+                      disable_primarybeam_image=args['disable_primary_beam'],
+                      disable_primarybeam_predict=args['disable_primary_beam'],
+                      fulljones_h5_facetbeam=not args['single_dual_speedup'])
+ 
+    # collect all antenna names in all MS, append to antenna_names
+    antenna_names = []
+    for ms in mslist:
+        ant_table = table(ms+'/ANTENNA', ack=False)
+        antenna_names.extend(ant_table.getcol('NAME'))
+        ant_table.close()
+    
     print(antenna_names)
     for ant in antenna_names:
-        if os.path.isdir(msname + '_' + ant):
-            os.system('rm -rf ' + msname + '_' + ant) 
-        os.system('cp -r ' + msname + ' ' + msname + '_' + ant) 
-        # flag atenna
-        flag_antenna_taql(msname + '_'  + ant, [ant])
-        os.system(cmdwsclean + ' -name imageDD_009_residual_' + ant + ' ' + msname + '_' + ant)
-        os.system('rm -rf ' +  msname + '_' + ant)
+        for ms in mslist:
+            if os.path.isdir(ms + '_' + ant):
+                os.system('rm -rf ' + ms + '_' + ant) 
+            os.system('cp -r ' + ms + ' ' + ms + '_' + ant) 
+            # flag atenna
+            flag_antenna_taql(ms + '_'  + ant, [ant])
+        
+        
+        #os.system(cmdwsclean + ' -name imageDD_009_residual_' + ant + ' ' + msname + '_' + ant)
+        makeimage(mslist, args['imagename'] + str(selfcalcycle).zfill(3) + '_residual_' + ant,
+                      args['pixelscale'], args['imsize'],
+                      args['channelsout'], args['niter'], args['robust'],
+                      multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[0],
+                      uvminim=args['uvminim'], predict=not args['stopafterskysolve'],
+                      fitspectralpol=args['fitspectralpol'], uvmaxim=args['uvmaxim'],
+                      restoringbeam=restoringbeam, automask=automaskthreshold_selfcalcycle[selfcalcycle],
+                      removenegativecc=args['removenegativefrommodel'],
+                      paralleldeconvolution=args['paralleldeconvolution'],
+                      parallelgridding=args['parallelgridding'],
+                      h5list=wsclean_h5list, forced_imcol='RESIDUAL_DATA',
+                      facetregionfile=facetregionfile, DDEimaging=args['DDE'],
+                      stack=args['stack'],
+                      disable_primarybeam_image=args['disable_primary_beam'],
+                      disable_primarybeam_predict=args['disable_primary_beam'],
+                      fulljones_h5_facetbeam=not args['single_dual_speedup'])
+        for ms in mslist:
+            os.system('rm -rf ' +  ms + '_' + ant)
+        # remove psf, residual images, model images, dirty, and beam images
+        clean_up_images(args['imagename'] + str(i).zfill(3) + stackstr + '_residual_' + ant, model=True)
+
 
 
 
@@ -5842,7 +5885,7 @@ def checklongbaseline(ms):
 
 def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartchan=0.,
             phaseshiftbox=None, msinntimes=None, msinstarttimeslot=None, makecopy=False,
-            makesubtract=False, delaycal=False, freqresolution='195.3125kHz',
+            make_extract=False, delaycal=False, freqresolution='195.3125kHz',
             dysco=True, cmakephasediffstat=False, dataincolumn='DATA',
             removeinternational=False, removemostlyflaggedstations=False, 
             useaoflagger=False, useaoflaggerbeforeavg=True, aoflagger_strategy=None,
@@ -5860,7 +5903,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
         msinntimes (int, optional): Number of input time slots to use from each MS. Default is None (use all).
         msinstarttimeslot (int, optional): Starting time slot index for input MS. Default is None.
         makecopy (bool, optional): If True, output MS will have '.copy' suffix. Default is False.
-        makesubtract (bool, optional): If True, output MS will have '.subtracted' suffix. Default is False.
+        make_extract (bool, optional): If True, output MS will have '.extracted' suffix. Default is False.
         delaycal (bool, optional): If True, perform delay calibration. Default is False.
         freqresolution (str, optional): Frequency resolution for averaging (e.g., '195.3125kHz'). Default is '195.3125kHz'.
         dysco (bool, optional): If True, use Dysco storage manager for output MS. Default is True.
@@ -5901,8 +5944,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             msout = ms + '.avg'
             if makecopy:
                 msout = ms + '.copy'
-            if makesubtract:
-                msout = ms + '.subtracted'
+            if make_extract:
+                msout = ms + '.extracted'
             if cmakephasediffstat:
                 msout = ms + '.avgphasediffstat'
 
@@ -6490,6 +6533,10 @@ def inputchecker(args, mslist):
         print('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0')
         raise Exception('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0') 
 
+    if 0 in args['useaoflagger_residualdata_selfcalcycle_list']:
+        print('--useaoflagger-residualdata-selfcalcycle-list cannot contain 0')
+        raise Exception('--useaoflagger-residualdata-selfcalcycle-list cannot contain 0') 
+
     if type(args['channelsout']) is str:
         if args['channelsout'] != 'auto':
             raise Exception("channelsout needs to be an integer or 'auto'")
@@ -6514,6 +6561,12 @@ def inputchecker(args, mslist):
                 print('Flagging strategy file not found:', args['aoflagger_strategy_correcteddata'])
                 raise Exception('Flagging strategy file not found:', args['aoflagger_strategy_correcteddata'])  
 
+    if args['aoflagger_strategy_residualdata'] is not None:
+        if not os.path.isfile(args['aoflagger_strategy_residualdata']): # try full location first
+            if not os.path.isfile(f'{datapath}/flagging_strategies/' + args['aoflagger_strategy_residualdata']):
+                print('Flagging strategy file not found:', args['aoflagger_strategy_residualdata'])
+                raise Exception('Flagging strategy file not found:', args['aoflagger_strategy_residualdata'])  
+    
     if args['aoflagger_strategy_afterbandpassapply'] is not None:
         if not os.path.isfile(args['aoflagger_strategy_afterbandpassapply']): # try full location first
             if not os.path.isfile(f'{datapath}/flagging_strategies/' + args['aoflagger_strategy_afterbandpassapply']):
@@ -12292,7 +12345,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     single_dual_speedup : bool, optional
         If True, enables speedup for single/dual polarization (default: True).
     outcol : str, optional
-        Name of the output data column to store subtracted data (default: 'SUBTRACTED_DATA').
+        Name of the output data column to store subtracted/extracted data (default: 'SUBTRACTED_DATA').
     dysco : bool, optional
         If True, uses DYSCO storage manager for output (default: True).
     userbox : float, str, or None, optional
@@ -12443,28 +12496,28 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                 t.putcol(outcol, data - model, startrow=row, nrow=stepsize, rowincr=1)
             t.close()
         average(mslist, freqstep=[1] * len(mslist), timestep=1,
-                phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True,
+                phaseshiftbox=phaseshiftbox, dysco=dysco, make_extract=True,
                 dataincolumn=outcol, metadata_compression=metadata_compression)
         remove_column_ms(mslist, outcol) # remove SUBTRACTED_DATA to free up space
     else:  # so have have "keepall", no subtract, just a copy
         average(mslist, freqstep=[1] * len(mslist), timestep=1,
-                phaseshiftbox=phaseshiftbox, dysco=dysco, makesubtract=True,
+                phaseshiftbox=phaseshiftbox, dysco=dysco, make_extract=True,
                 dataincolumn=datacolumn, metadata_compression=metadata_compression)
     
     # applycal of closest direction (in multidir h5)
     if len(h5list) != 0 and ddcor and userbox != 'keepall':
         for ms_id, ms in enumerate(mslist):
             ms = os.path.basename(ms)
-            if os.path.isdir(ms + '.subtracted_ddcor'):
-                os.system('rm -rf ' + ms + '.subtracted_ddcor')
+            if os.path.isdir(ms + '.extracted_ddcor'):
+                os.system('rm -rf ' + ms + '.extracted_ddcor')
                 time.sleep(2)  # wait for the directory to be removed
-            applycal(ms + '.subtracted',h5list[ms_id], find_closestdir=True, 
-                     msout=ms + '.subtracted_ddcor', dysco=dysco, metadata_compression=metadata_compression)
-            with table(ms + '.subtracted') as t:
+            applycal(ms + '.extracted',h5list[ms_id], find_closestdir=True, 
+                     msout=ms + '.extracted_ddcor', dysco=dysco, metadata_compression=metadata_compression)
+            with table(ms + '.extracted') as t:
                 if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if WEIGHT_SPECTRUM_SOLVE is present otherwise this is not needed
                     print('Going to copy over WEIGHT_SPECTRUM_SOLVE')
                     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-                    with table(ms + '.subtracted_ddcor', readonly=False) as t2:
+                    with table(ms + '.extracted_ddcor', readonly=False) as t2:
                         print('Adding WEIGHT_SPECTRUM_SOLVE')
                         #desc = t2.getcoldesc('WEIGHT_SPECTRUM')
                         #desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
@@ -12473,8 +12526,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                         imweights = t.getcol('WEIGHT_SPECTRUM_SOLVE')
                         t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
             # remove uncorrected file to save disk space
-            os.system('rm -rf ' + ms + '.subtracted')
-
+            os.system('rm -rf ' + ms + '.extracted')
      
     # print the imsize for the user
     if userbox is not None and userbox != 'keepall':
@@ -12502,7 +12554,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               idg=False, uvminim=80, fitspectralpol=3,
               restoringbeam=15, automask=2.5,
               removenegativecc=True, usewgridder=True, paralleldeconvolution=0,
-              parallelgridding=1,
+              parallelgridding=1, forced_imcol=None,
               fullpol=False, selfcalcycle=None,
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None,
               DDE_predict='WSCLEAN', DDEimaging=False,
@@ -12777,6 +12829,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if 'CORRECTED_DATA' not in colnames:  # for first imaging run
             imcol = 'DATA'
         t.close()
+    
+    # if set explicitly by user override
+    if forced_imcol is not None:
+        imcol = forced_imcol
 
     baselineav = str(1.5e3 * 60000. * 2. * np.pi * 1.5 / (24. * 60. * 60 * float(imsize)))
 
@@ -15820,7 +15876,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.12.0'
+    facetselfcal_version = '17.13.0'
     print_title(facetselfcal_version)
 
 
@@ -16399,6 +16455,21 @@ def main():
         # RUN AOFLAGGER ON THE CORRECTED DATA COLUMN IF REQUESTED
         if i in args['useaoflagger_correcteddata_selfcalcycle_list'] and args['useaoflagger_correcteddata']:
             aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_correcteddata'], column='CORRECTED_DATA')
+
+        # RUN AOFLAGGER ON THE RESIDUAL DATA COLUMN IF REQUESTED
+        if i in args['useaoflagger_residualdata_selfcalcycle_list'] and args['useaoflagger_residualdata']:
+            create_residual_data_column(mslist, args['imagename'] + str(i).zfill(3), 
+                                        args['pixelscale'], args['imsize'], 
+                                        args['channelsout'], 
+                                        single_dual_speedup=args['single_dual_speedup'],
+                                        dysco=args['dysco'], idg=args['idg'],
+                                        h5list=wsclean_h5list, facetregionfile=facetregionfile,
+                                        disable_primary_beam=args['disable_primary_beam'], 
+                                        modelstoragemanager=args['modelstoragemanager'], 
+                                        parallelgridding=args['parallelgridding'], 
+                                        metadata_compression=args['metadata_compression'])
+            
+            aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_residualdata'], column='RESIDUAL_DATA')
 
         # CHECK FOR HIGH DYNAMIC RANGE DATA AND ADJUST SETTINGS (DI-SOLVES ONLY)
         soltypecycles_list, solint_list, smoothnessconstraint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle = autodetect_highDR(i, mslist, telescope, soltypecycles_list, solint_list, smoothnessconstraint_list)
