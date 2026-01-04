@@ -43,13 +43,13 @@ LBA Dutch baselines
  - widefield
  - decameter band
 
-# Extraction
-Information on how to use the [extract option](https://github.com/rvweeren/lofar_facet_selfcal/wiki/FACETSELFCAL-OVERVIEW).
+# General information and extraction
+Some general information and explanation on how to use the extract option can be found [here](https://github.com/rvweeren/lofar_facet_selfcal/wiki/FACETSELFCAL-OVERVIEW).
 
 # MeerKAT
 - Support for UHF, L-band, and S-band
 - direction-independent and direction-dependent self-calibration
-Specific MeerKAT information can be found [here](https://github.com/rvweeren/lofar_facet_selfcal/wiki/FACETSELFCAL-OVERVIEW#meerkat-data-reduction).
+Specific MeerKAT information can be found [here](https://github.com/rvweeren/lofar_facet_selfcal/wiki/MeerKAT-processing).
 
 # uGMRT
-- Some notes on [uGMRT processing](https://github.com/rvweeren/lofar_facet_selfcal/wiki/uGMRT-processing)
+Some notes on [uGMRT processing](https://github.com/rvweeren/lofar_facet_selfcal/wiki/uGMRT-processing)
