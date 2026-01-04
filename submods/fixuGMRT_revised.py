@@ -84,7 +84,7 @@ class MS(object):
         '''
         logging.info("- Removal of unnecessary data columns -")
 
-        for columnName in ["SIGMA_SPECTRUM", "MODEL_DATA", "WEIGHT", "SIGMA","CORRECTED_DATA"]: # This list could possibly be expanded.
+        for columnName in ["SIGMA_SPECTRUM", "MODEL_DATA", "WEIGHT", "SIGMA", "CORRECTED_DATA"]: # This list could possibly be expanded.
             if (self.columnExists(columnName)):
                 self.t.removecols(columnName)
 
