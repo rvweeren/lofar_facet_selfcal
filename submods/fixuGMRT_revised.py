@@ -151,7 +151,7 @@ class MS(object):
 
     def updateCrosshand(self):
         '''
-        Set the XY/RL and YX/LR correlations to XX/RR and YY/LL values to avoid zeros in crosshand pols
+        Set the XY/RL and YX/LR correlations to XX/RR and YY/LL values to avoid zeros in crosshand polarizations.
         '''
     
         logging.info("- Adaptation of cross-hand polarisation visibility data -")
