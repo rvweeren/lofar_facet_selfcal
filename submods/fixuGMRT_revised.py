@@ -141,6 +141,16 @@ class MS(object):
         # Set 'FIELD_ID' to 0 in the main table.
         tables.taql("update $pathMS set FIELD_ID=0")
 
+    def add_keyword_fake_rllr(self, twopol):
+        '''
+        Add a the FAKE_RLLR keyword to indicate RL/LR polarizations.
+        '''
+        logging.info("- Adding FAKE_RLLR keyword -")
+        if twopol:
+            self.t.putcolkeyword('DATA', 'FAKE_RLLR', True)
+        else:
+            self.t.putcolkeyword('DATA', 'FAKE_RLLR', False)
+
     def fix_crosshand(self):
         '''
         set the XY/RL and YX/LR correlations to XX/RR and YY/LL values to avoid zeros in crosshand pols
@@ -403,6 +413,7 @@ if (__name__ == "__main__"):
         MS.updateColumns(updateFreq)
         if twopol:
             MS.fix_crosshand()
+        MS.add_keyword_fake_rllr(twopol)
         MS.close()
 
     logging.debug('Running time %.0f s' % (time.time() - start_time))
