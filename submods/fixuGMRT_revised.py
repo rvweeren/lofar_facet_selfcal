@@ -63,7 +63,7 @@ class MS(object):
         return (columnName in columnNames)
 
 
-    def two_pol_ms(self):
+    def twoPolms(self):
         '''
         Check whether the MS has two polarizations (XX and YY or RR and LL) only.
         '''
@@ -84,16 +84,17 @@ class MS(object):
         '''
         logging.info("- Removal of unnecessary data columns -")
 
-        for columnName in ["SIGMA_SPECTRUM", "MODEL_DATA"]: # This list could possibly be expanded.
+        for columnName in ["SIGMA_SPECTRUM", "MODEL_DATA", "WEIGHT", "SIGMA","CORRECTED_DATA"]: # This list could possibly be expanded.
             if (self.columnExists(columnName)):
                 self.t.removecols(columnName)
 
 
-    def updatePolarisation(self):
+    def updatePolarisation(self, twopol):
         '''
         Make sure that the MS contains 4 polarisations.
         "CORR_TYPE"    column description comment: 'The polarization type for each correlation product, as a Stokes enum.'
         "CORR_PRODUCT" column description comment: 'Indices describing receptors of feed going into correlation'
+        Add the FAKE_RLLR keyword to indicate that fake RL/LR polarizations will be added.
         '''
         logging.info("- Adaptation of polarisation metadata -")
 
@@ -104,6 +105,13 @@ class MS(object):
         self.tpol.putcol("CORR_TYPE",    correlationTypesNew)
         self.tpol.putcol("CORR_PRODUCT", correlationProductsNew)
         self.tpol.putcol("NUM_CORR",     numberOfCorrelationsNew)
+
+        #Add the FAKE_RLLR keyword to indicate RL/LR polarizations.   
+        logging.info("- Adding FAKE_RLLR keyword -")
+        if twopol:
+            self.t.putcolkeyword('DATA', 'FAKE_RLLR', True)
+        else:
+            self.t.putcolkeyword('DATA', 'FAKE_RLLR', False)
 
 
     def updateFreqMetadata(self):
@@ -141,19 +149,9 @@ class MS(object):
         # Set 'FIELD_ID' to 0 in the main table.
         tables.taql("update $pathMS set FIELD_ID=0")
 
-    def add_keyword_fake_rllr(self, twopol):
+    def updateCrosshand(self):
         '''
-        Add a the FAKE_RLLR keyword to indicate RL/LR polarizations.
-        '''
-        logging.info("- Adding FAKE_RLLR keyword -")
-        if twopol:
-            self.t.putcolkeyword('DATA', 'FAKE_RLLR', True)
-        else:
-            self.t.putcolkeyword('DATA', 'FAKE_RLLR', False)
-
-    def fix_crosshand(self):
-        '''
-        set the XY/RL and YX/LR correlations to XX/RR and YY/LL values to avoid zeros in crosshand pols
+        Set the XY/RL and YX/LR correlations to XX/RR and YY/LL values to avoid zeros in crosshand pols
         '''
     
         logging.info("- Adaptation of cross-hand polarisation visibility data -")
@@ -404,16 +402,15 @@ if (__name__ == "__main__"):
         MSs.append(MS(ms_file, chunk_size=chunk_size))
 
     for MS in MSs:
-        twopol = MS.two_pol_ms()
+        twopol = MS.twoPolms()
         MS.removeColumns()
-        MS.updatePolarisation()
+        MS.updatePolarisation(twopol)
         updateFreq = MS.updateFreqMetadata()
         MS.updateFieldMetadata()
         MS.updateIntervals()
         MS.updateColumns(updateFreq)
         if twopol:
-            MS.fix_crosshand()
-        MS.add_keyword_fake_rllr(twopol)
+            MS.updateCrosshand()
         MS.close()
 
     logging.debug('Running time %.0f s' % (time.time() - start_time))
