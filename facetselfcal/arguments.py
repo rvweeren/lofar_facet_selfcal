@@ -654,6 +654,9 @@ def option_parser():
     parser.add_argument('--createresidualdatacolumn',
                         help='Create a RESIDUAL_DATA column in the MS at the last selfcal cycle.',
                         action='store_true')
+    parser.add_argument('--compute-weightspectrum',
+                        help='Set the WEIGHT_SPECTRUM column in the MS based on the measured variances in RESIDUAL_DATA. Mainly useful for uGMRT observations. This is done at the end of each of the selfcal cycle. Note: it is important the the visibility units are in Jy for this to work properly.',
+                        action='store_true')                        
     parser.add_argument('--phasediff_only',
                         help='For finding only the phase difference, we want to stop after calibrating and before imaging',
                         action='store_true')
