@@ -14681,6 +14681,10 @@ def niter_from_imsize(imsize, paralleldeconvolution=-1):
 
 
 def basicsetup(mslist):
+    
+    if args['compute_weightspectrum']:
+        args['createresidualdatacolumn'] = True  # force creation of residual data column if weight spectrum is computed
+
     longbaseline = checklongbaseline(mslist[0])
     if args['removeinternational']:
         print('Forcing longbaseline to False as --removeinternational has been specified')
@@ -14999,7 +15003,7 @@ def basicsetup(mslist):
         if args['fitspectralpol'] == 'auto':
             args['fitspectralpol'] = set_fitspectralpol(args['channelsout'])
         else:
-            raise Exception("channelsout needs to be an integer or 'auto'")
+            raise Exception("fitspectralpol needs to be an integer or 'auto'")
 
     if args['parallelgridding'] == 0: # means the user asks to set it out automatically
         if args['imsize'] > 20000:
@@ -16237,6 +16241,10 @@ def main():
                               updateweights=args['preapplybandpassH5_updateweights'])
             if args['useaoflagger_afterbandpassapply']:
                 aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_afterbandpassapply'], column='DATA')
+            # write keyword to MS to indicate bandpass has been applied
+            for ms in mslist:
+                with table(ms, readonly=False) as t:
+                    t.putcolkeyword('DATA', 'BANDPASS_APPLIED', True)
 
         # PRE-APPLY SOLUTIONS (from a nearby direction for example)
         if (args['preapplyH5_list'][0]) is not None and i == 0:
@@ -16373,6 +16381,10 @@ def main():
                                            modelstoragemanager=args['modelstoragemanager'], 
                                            parallelgridding=args['parallelgridding'], 
                                            metadata_compression=args['metadata_compression'])
+                    if args['compute_weightspectrum']:
+                        for ms in mslist:
+                            cmdw = f'python {submodpath}/uGMRTSetWeights.py -f 12 ' + ms
+                            os.system(cmdw)                     
                 if not args['keepmodelcolumns']: remove_model_columns(mslist)
                 return
             
@@ -16614,6 +16626,10 @@ def main():
                                         modelstoragemanager=args['modelstoragemanager'], 
                                         parallelgridding=args['parallelgridding'], 
                                         metadata_compression=args['metadata_compression'])
+            if args['compute_weightspectrum']:
+                for ms in mslist:
+                    cmdw = f'python {submodpath}/uGMRTSetWeights.py -f 12 ' + ms
+                    os.system(cmdw)                            
 
         # compress model images with gzip to save space
         gzip_model_images(args['imagename'] + str(i + 1).zfill(3))
