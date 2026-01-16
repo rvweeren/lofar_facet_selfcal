@@ -14818,9 +14818,9 @@ def basicsetup(mslist):
     if args['auto'] and telescope == 'MeerKAT':
         if isinstance(args['channelsout'], str) and args['channelsout'] == 'auto':
             args['channelsout'] = set_channelsout(mslist)
-        # check if args['fitspectralpol'] is an integer, if so set it accordingly
-        if not isinstance(args['fitspectralpol'], int):
+        if isinstance(args['fitspectralpol'], str) and args['fitspectralpol'] == 'auto':
             args['fitspectralpol'] = set_fitspectralpol(args['channelsout'])
+        
         args['update_uvmin'] = False
         args['usemodeldataforsolints'] = False
         args['forwidefield'] = True
