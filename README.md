@@ -49,7 +49,8 @@ Some general information and explanation on how to use the extract option can be
 # MeerKAT
 - Support for UHF, L-band, and S-band
 - direction-independent and direction-dependent self-calibration
-Specific MeerKAT information can be found [here](https://github.com/rvweeren/lofar_facet_selfcal/wiki/MeerKAT-processing).
+
+Some specific MeerKAT related information can be found [here](https://github.com/rvweeren/lofar_facet_selfcal/wiki/MeerKAT-processing).
 
 # uGMRT
 Some notes on [uGMRT processing](https://github.com/rvweeren/lofar_facet_selfcal/wiki/uGMRT-processing)
