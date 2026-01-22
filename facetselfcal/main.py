@@ -2281,8 +2281,10 @@ def check_antenna_factors(antenna_averaging_factors_list, antenna_smoothness_fac
     
     if facetdirections is not None:
         dirs, solintslist, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)    
-        solint_reformat = np.array(solintslist)
-    
+        if solintslist is None:
+            return
+
+        solint_reformat = np.array(solintslist)  
         for ms_id, ms in enumerate(mslist):
             print('=== Checking antenna averaging factors for MS:', ms, '===')
             with table(ms, readonly=True, ack=False) as t:
@@ -6795,22 +6797,22 @@ def inputchecker(args, mslist):
         if antennaconstraint not in ['superterp', 'coreandfirstremotes', 'core', 'remote',
                                      'all', 'international', 'alldutch', 'core-remote',
                                      'coreandallbutmostdistantremotes', 'alldutchbutnoST001',
-                                     'distantremote', 'alldutchandclosegerman'] \
+                                     'distantremote', 'alldutchandclosegerman', 'corebutsuperterp'] \
                 and antennaconstraint is not None:
             print(
-                'Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, alldutchandclosegerman, or all')
+                'Invalid input, antennaconstraint can only be core, superterp, corebutsuperterp, coreandfirstremotes, remote, alldutch, international, alldutchandclosegerman, or all')
             raise Exception(
-                'Invalid input, antennaconstraint can only be core, superterp, coreandfirstremotes, remote, alldutch, international, alldutchandclosegerman, or all')
+                'Invalid input, antennaconstraint can only be core, superterp, corebutsuperterp, coreandfirstremotes, remote, alldutch, international, alldutchandclosegerman, or all')
 
     for resetsols in args['resetsols_list']:
-        if resetsols not in ['superterp', 'coreandfirstremotes', 'core', 'remote',
+        if resetsols not in ['superterp', 'coreandfirstremotes', 'core', 'remote', 'corebutsuperterp',
                              'all', 'international', 'alldutch', 'core-remote', 'coreandallbutmostdistantremotes',
                              'alldutchbutnoST001', 'distantremote', 'alldutchandclosegerman'] \
                 and resetsols is not None:
             print(
-                'Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, distantremote, alldutchandclosegerman, or all')
+                'Invalid input, resetsols can only be core, superterp, corebutsuperterp, coreandfirstremotes, remote, alldutch, international, distantremote, alldutchandclosegerman, or all')
             raise Exception(
-                'Invalid input, resetsols can only be core, superterp, coreandfirstremotes, remote, alldutch, international, distantremote, alldutchandclosegerman, or all')
+                'Invalid input, resetsols can only be core, superterp, corebutsuperterp, coreandfirstremotes, remote, alldutch, international, distantremote, alldutchandclosegerman, or all')
 
     # if args['DDE']:
     #   for soltype in args['soltype_list']:
@@ -6916,7 +6918,7 @@ def inputchecker(args, mslist):
                     if args['antennaconstraint_list'][soltype_id] not in ['superterp', 'coreandfirstremotes', 'core',
                                                                           'remote', 'distantremote',
                                                                           'all', 'international', 'alldutch',
-                                                                          'core-remote',
+                                                                          'core-remote', 'corebutsuperterp',
                                                                           'coreandallbutmostdistantremotes',
                                                                           'alldutchbutnoST001',
                                                                           'alldutchandclosegerman'] and args[
@@ -16123,7 +16125,7 @@ def main():
 
     check_antenna_factors(antenna_averaging_factors_list, antenna_smoothness_factors_list, \
                           mslist, args['facetdirections'])
- 
+
     # Get restoring beam for DDFACET in case it is needed
     restoringbeam = calculate_restoringbeam(mslist, LBA)
 
