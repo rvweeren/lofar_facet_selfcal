@@ -8,7 +8,8 @@ Original code by Anna Ho
 Edited by Roland Timmerman
 """
 
-# Imports
+
+#Imports
 import os
 import sys
 import errno
@@ -21,15 +22,13 @@ from astropy.coordinates import SkyCoord
 from astropy.wcs.utils import skycoord_to_pixel
 from astropy.wcs import WCS
 from astropy.nddata import Cutout2D
-import casacore.tables as pt
-
 try:
     from urllib.request import urlopen
 except ImportError:
     from urllib2 import urlopen
 
-# Settings to potentially tweak
-summary_file_location = '/'.join(os.path.dirname(os.path.abspath(__file__)).split('/')[0:-1]) + '/facetselfcal/data/VLASS_dyn_summary.php'
+#Settings to potentially tweak
+summary_file_location = "VLASS_dyn_summary.php"
 crop = True
 crop_scale = 256
 consider_QA_rejected = True
@@ -41,12 +40,11 @@ def sign(x):
     Input: x (int/float)
     Returns: +1 or -1
     """
-
-    if x < 0:
+    
+    if x<0:
         return -1
     else:
         return 1
-
 
 def get_tiles():
     """
@@ -54,16 +52,45 @@ def get_tiles():
     Input: None
     Returns: tile names (numpy str), dec_min (numpy float), dec_max (numpy float), ra_min (numpy float), ra_max (numpy float), observing epoch (numpy str), observation date (numpy str)
     """
+    
+    name_array = []
+    dec_min_array = []
+    dec_max_array = []
+    ra_min_array = []
+    ra_max_array = []
+    epoch_array = []
+    obsdate_array = []
+    
+    with open(summary_file_location, 'r') as f:
+        lines = f.readlines()[3:]
+        for line in lines:
+            name = line[0:6]
+            dec_min = float(line[9:16])
+            dec_max = float(line[18:25])
+            ra_min = float(line[28:34])
+            ra_max = float(line[37:43])
+            epoch = line[47:55]
+            obsdate = line[61:71]
+            status = line[86:97]
+            
+            if status == f"100% imaged":
+                name_array.append(name)
+                dec_min_array.append(dec_min)
+                dec_max_array.append(dec_max)
+                ra_min_array.append(ra_min)
+                ra_max_array.append(ra_max)
+                epoch_array.append(epoch)
+                obsdate_array.append(obsdate)
 
-    names, dec_min, dec_max, ra_min, ra_max, epoch, obsdate = np.loadtxt(summary_file_location, skiprows=3, unpack=True,
-                                                                         dtype='str', usecols=(0, 1, 2, 3, 4, 5, 6))
+    name_array = np.array(name_array)
+    ra_min_array = np.array(ra_min_array)
+    ra_max_array = np.array(ra_max_array)
+    dec_min_array = np.array(dec_min_array)
+    dec_max_array = np.array(dec_max_array)
+    epoch_array = np.array(epoch_array)
+    obsdate_array = np.array(obsdate_array)
 
-    dec_min = dec_min.astype(float)
-    dec_max = dec_max.astype(float)
-    ra_min = ra_min.astype(float)
-    ra_max = ra_max.astype(float)
-
-    return (names, dec_min, dec_max, ra_min, ra_max, epoch, obsdate)
+    return (name_array, dec_min_array, dec_max_array, ra_min_array, ra_max_array, epoch_array, obsdate_array)
 
 
 def search_tiles(tiles, c):
@@ -80,13 +107,13 @@ def search_tiles(tiles, c):
     in_tile = np.logical_and(has_ra, has_dec)
     name = names[in_tile]
     epoch = epochs[in_tile]
-    date = obsdate[in_tile]
+    date = obsdate[in_tile]    
     if len(name) == 0:
         raise IndexError("Zero VLASS tiles available for the given coordinate")
-    c_grid = SkyCoord(7.5 * (ra_min[in_tile] + ra_max[in_tile]), 0.5 * (dec_min[in_tile] + dec_max[in_tile]),
-                      unit='deg', frame='icrs')
+    c_grid = SkyCoord(7.5*(ra_min[in_tile]+ra_max[in_tile]), 0.5*(dec_min[in_tile]+dec_max[in_tile]), unit='deg', frame='icrs')
     dist = c_grid.separation(c)
-    best_idx = np.argmin(dist)
+    nearest_tiles = np.where(dist == np.min(dist))[0]
+    best_idx = nearest_tiles[epoch==max(epoch[nearest_tiles])][0]
     return name[best_idx], epoch[best_idx], date[best_idx]
 
 
@@ -96,23 +123,29 @@ def get_subtiles(tilename, epoch, consider_QA_rejected):
     Parse those filenames and return a list of subtile RA and Dec.
     RA and Dec returned as a SkyCoord object
     """
-
-    # Obtain the HTML for the given tile
-    urlpath = urlopen("https://archive-new.nrao.edu/vlass/quicklook/{}v2/{}".format(epoch, tilename))
+    
+    #Obtain the HTML for the given tile
+    if epoch[5] == "1":
+        urlpath = urlopen("https://vlass-dl.nrao.edu/vlass/quicklook/{}v2/{}".format(epoch, tilename))
+    else:
+        urlpath = urlopen("https://vlass-dl.nrao.edu/vlass/quicklook/{}/{}".format(epoch, tilename))
     string = urlpath.read().decode('utf-8').split("\n")
 
     if consider_QA_rejected:
-        # Obtain the HTML for the QA Rejected
-        urlpath_rejected = urlopen("https://archive-new.nrao.edu/vlass/quicklook/{}v2/QA_REJECTED".format(epoch))
+        #Obtain the HTML for the QA Rejected
+        if epoch[5] == "1":
+            urlpath_rejected = urlopen("https://vlass-dl.nrao.edu/vlass/quicklook/{}v2/QA_REJECTED".format(epoch))
+        else:
+            urlpath_rejected = urlopen("https://vlass-dl.nrao.edu/vlass/quicklook/{}/QA_REJECTED".format(epoch))
         string += urlpath_rejected.read().decode('utf-8').split("\n")
 
-    # Select only the subtile parts
+    #Select only the subtile parts
     vals = np.array([val.strip() for val in string if ("href" in val.strip()) and (tilename in val.strip())])
-
-    # Select the coordinate part. You want the 'VLASS1.1.ql.T25t12.J150000+603000.10.2048.v1/' bit
+    
+    #Select the coordinate part. You want the 'VLASS1.1.ql.T25t12.J150000+603000.10.2048.v1/' bit
     fname = np.array([val.split("\"")[7] for val in vals])
 
-    # Split out the actual coordinate string
+    #Split out the actual coordinate string
     pos_raw = np.array([val.split(".")[4] for val in fname])
     if '-' in pos_raw[0]:
         # dec < 0
@@ -124,7 +157,7 @@ def get_subtiles(tilename, epoch, consider_QA_rejected):
         dec_raw = np.array([val.split("+")[1] for val in pos_raw])
     ra = []
     dec = []
-    for ii, val in enumerate(ra_raw):
+    for ii,val in enumerate(ra_raw):
         if val[1:3] == '24':
             rah = '00'
         else:
@@ -133,34 +166,33 @@ def get_subtiles(tilename, epoch, consider_QA_rejected):
         dec.append("{}d{}m{}s".format(dec_raw[ii][:2], dec_raw[ii][2:4], dec_raw[ii][4:]))
     ra = np.array(ra)
     dec = np.array(dec)
-    c = SkyCoord(ra, dec, frame='icrs')  # .directional_offset_by(45*u.deg, 0.75*u.deg)
+    c = SkyCoord(ra, dec, frame='icrs')#.directional_offset_by(45*u.deg, 0.75*u.deg)
     return fname, c
 
 
 def get_cutout(imname, c, crop_scale):
-    # Define output name
+    #Define output name
     output_fits = "vlass_poststamp.fits"
-
-    # Get header info
+    
+    #Get header info
     hdu_list = fits.open(imname)
     header = hdu_list[0].header
-    data = hdu_list[0].data[0, 0, :, :]
-
-    # Obtain header and drop useless axes
+    data = hdu_list[0].data[0,0,:,:]
+    
+    #Obtain header and drop useless axes
     wcs = WCS(header)
     wcs = wcs.dropaxis(2).dropaxis(2)
-
+    
     pixel_coords = skycoord_to_pixel(SkyCoord(c.ra.deg, c.dec.deg, unit='deg', frame='icrs'), wcs)
-
-    if pixel_coords[0] < 0 or pixel_coords[1] < 0 or pixel_coords[0] > data.shape[0] or pixel_coords[1] > data.shape[1]:
+    
+    if pixel_coords[0] < 0  or pixel_coords[1] < 0 or pixel_coords[0] > data.shape[0]  or pixel_coords[1] > data.shape[1]:
         subprocess.call("rm -f {}".format(imname), shell=True)
-        raise Exception(
-            "Requested coordinate not within the available subtiles. Consider running with consider_QA_rejected=True to also search additional subtiles which failed initial QA checks")
-
-    # Produce a cutout
+        raise Exception("Requested coordinate not within the available subtiles. Consider running with consider_QA_rejected=True to also search additional subtiles which failed initial QA checks")
+        
+    #Produce a cutout
     cutout = Cutout2D(data, c, (crop_scale, crop_scale), wcs=wcs)
-
-    # Update the HDU
+        
+    #Update the HDU
     hdu_list[0].data = cutout.data
     new_header = cutout.wcs.to_header()
     hdu_list[0].header.update(new_header)
@@ -170,11 +202,11 @@ def get_cutout(imname, c, crop_scale):
     hdu_list[0].header.remove('WCSAXES', ignore_missing=True)
     hdu_list[0].header.remove('MJDREF', ignore_missing=True)
     hdu_list[0].header.remove('MJD-OBS', ignore_missing=True)
-
-    # Write the new fits
+    
+    #Write the new fits
     hdu_list.writeto(output_fits, overwrite=True)
-
-    # Cleanup
+    
+    #Cleanup
     subprocess.call("rm -f {}".format(imname), shell=True)
 
     return output_fits
@@ -198,50 +230,56 @@ def search_vlass(c, crop=False, crop_scale=256, consider_QA_rejected=False):
 
     imname = "{}.I.iter1.image.pbcor.tt0.subim.fits".format(subtile[:-1])
     if len(glob.glob(imname)) == 0:
-        url_get = "https://archive-new.nrao.edu/vlass/quicklook/{}v2/{}/{}".format(epoch, tilename, subtile)
+        if epoch[5] == "1":
+            url_get = "https://vlass-dl.nrao.edu/vlass/quicklook/{}v2/{}/{}".format(epoch, tilename, subtile)
+        else:
+            url_get = "https://vlass-dl.nrao.edu/vlass/quicklook/{}/{}/{}".format(epoch, tilename, subtile)
         fname = "{}{}".format(url_get, imname)
         subprocess.call("wget {}".format(fname), shell=True)
         if not os.path.exists(subtile) and consider_QA_rejected:
-            url_get = "https://archive-new.nrao.edu/vlass/quicklook/{}v2/QA_REJECTED/{}".format(epoch, subtile)
+            if epoch[5] == "1":
+                url_get = "https://vlass-dl.nrao.edu/vlass/quicklook/{}v2/QA_REJECTED/{}".format(epoch, subtile)
+            else:
+                url_get = "https://vlass-dl.nrao.edu/vlass/quicklook/{}/QA_REJECTED/{}".format(epoch, subtile)
             fname = "{}{}".format(url_get, imname)
             subprocess.call("wget {}".format(fname), shell=True)
-    if crop:
+    if crop:    
         out = get_cutout(imname, c, crop_scale=crop_scale)
         return out
     else:
         return imname
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description= \
-                                         '''
-                                         Searches VLASS for a source.
-                                         User needs to supply RA (in decimal degrees), Dec (in decimal degrees)
-                                         
-                                         Usage: vlass_search.py <RA [deg]> <Dec [deg]> or vlass_search.py <MS>
-                                         ''', formatter_class=argparse.RawTextHelpFormatter)
-
-    # Test coords: 232.517541667 60.4054444
+if __name__=="__main__":
+    parser = argparse.ArgumentParser(description=\
+        '''
+        Searches VLASS for a source.
+        User needs to supply RA (in decimal degrees), Dec (in decimal degrees)
+        
+        Usage: vlass_search.py <RA [deg]> <Dec [deg]> or vlass_search.py <MS>
+        ''', formatter_class=argparse.RawTextHelpFormatter)
+    
+    #Test coords: 232.517541667 60.4054444
     try:
-        ra = 15 * (float(sys.argv[1]) + float(sys.argv[2]) / 60 + float(sys.argv[3]) / 3600)
-        dec = float(sys.argv[4]) + sign(float(sys.argv[4])) * float(sys.argv[5]) / 60 + sign(
-            float(sys.argv[4])) * float(sys.argv[6]) / 3600
+        ra = 15*(float(sys.argv[1]) + float(sys.argv[2])/60 + float(sys.argv[3])/3600)
+        dec = float(sys.argv[4]) + sign(float(sys.argv[4]))*float(sys.argv[5])/60 + sign(float(sys.argv[4]))*float(sys.argv[6])/3600
     except IndexError:
         ra = float(sys.argv[1])
         dec = float(sys.argv[2])
     except ValueError:
         pi = 3.14159265358979
-        table = pt.table(sys.argv[1] + "::FIELD")
+        import casacore.tables as pt
+        table = pt.table(sys.argv[1]+"::FIELD")
         direction = table.getcol('PHASE_DIR').squeeze()
-        ra = (direction[0] % (2 * pi)) / pi * 180
-        dec = direction[1] / pi * 180
+        ra=(direction[0]%(2*pi))/pi*180
+        dec=direction[1]/pi*180
         table.close()
     except Exception:
         raise TypeError("Incorrect inputs given. Usage: vlass_search.py <RA [deg]> <Dec [deg]> or vlass_search.py <MS>")
-
+        
     c = SkyCoord(ra, dec, unit='deg')
 
     if not glob.glob(summary_file_location):
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), summary_file_location)
-
-    search_vlass(c, crop=crop, crop_scale=crop_scale, consider_QA_rejected=consider_QA_rejected)
+    
+    search_vlass(c, crop=crop, crop_scale=crop_scale, consider_QA_rejected=consider_QA_rejected) 
