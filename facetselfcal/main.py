@@ -6608,9 +6608,9 @@ def inputchecker(args, mslist):
             print('--BLsmooth-list length does not match the length of --soltype-list')
             raise Exception('--BLsmooth-list length does not match the length of --soltype-list')
 
-    if args['modelstoragemanager'] not in ['stokes_i', 'sisco', 'auto'] and args['modelstoragemanager'] is not None:
+    if args['modelstoragemanager'] not in ['stokes_i', 'sisco', 'auto','None', 'none']:
          print(args['modelstoragemanager'])
-         print('Wrong input for --modelstoragemanager, needs to be "stokes_i", "sisco" , "auto", or None')
+         print('Wrong input for --modelstoragemanager, needs to be "stokes_i", "sisco" , "auto", or "None"')
          raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i, sisco, auto, or None')
 
     if args['bandpass']:
@@ -9067,8 +9067,13 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
             cmd += 'msout.scalarflags=False '
         run(cmd)
 
+    imagename_pb = imagename.replace('.fits', '-pb.fits')
+    
     msliststring = ' '.join(map(str, glob.glob('*.calibrated')))
     cmd = 'tar -zcf ' + outtarname + ' ' + msliststring + ' selfcal.log ' + imagename + ' '
+
+    if os.path.isfile(imagename_pb):
+        cmd += imagename_pb + ' '
 
     if fitsmask is not None:  # add fitsmask to tar if it exists
         if os.path.isfile(fitsmask):
@@ -14870,6 +14875,11 @@ def basicsetup(mslist):
                 startfreq = 595e6
                 endfreq = 1049e6
                 args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
+            if freq> 2.3e9 and freq < 2.6e9: # S1-band
+                startfreq = 2046e6
+                endfreq = 2773e6
+                args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
+            
             # for S0 to S5 bands to do       
         else: # so this is a DDE run
             args['soltype_list'] = ['scalarphase','scalarcomplexgain']
@@ -15599,6 +15609,9 @@ def set_modelstoragemanager(telescope):
         - Disables model storage manager if no compression method is available
     """
 
+    if args['modelstoragemanager'] == 'None' or args['modelstoragemanager'] == 'none':
+        args['modelstoragemanager'] = None
+
     modelstoragemanager = None
     if args['modelstoragemanager'] == 'auto':
         if '-model-storage-manager' in subprocess.check_output(['wsclean'], text=True):
@@ -15628,6 +15641,7 @@ def set_modelstoragemanager(telescope):
         else:
             print('No model compression possible, disabling model storage manager')
             modelstoragemanager = None  # we are here because wsclean does not support sisco compression
+    
     print('Storage manager:', modelstoragemanager)
     logger.info('Storage manager: ' + str(modelstoragemanager))
     return modelstoragemanager
@@ -15884,7 +15898,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.13.0'
+    facetselfcal_version = '17.14.0'
     print_title(facetselfcal_version)
 
 
