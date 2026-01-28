@@ -3130,7 +3130,7 @@ def check_equidistant_times(mslist, stop=True, return_result=False, tolerance=0.
                   'Time axis is not equidistant, this might cause DP3 errors and segmentation faults (check how your data was averaged')
             # raise Exception(ms +': Time axis is not equidistant')
             print(
-                'Avoid averaging your data with CASA or CARACal, instead average with DP3, this usually solves the issue')
+                'Avoid averaging your data with CASA or CARACal, instead average with DP3.')
 
             # comment line out below if you are willing to take the risk
             if stop:
@@ -3180,7 +3180,8 @@ def check_equidistant_freqs(mslist):
 
 
 def run(command, log=False):
-    """ Execute a shell command through subprocess
+    """ 
+    Execute a shell command through subprocess
 
     Args:
         command (str): the command to execute.
@@ -3203,9 +3204,38 @@ def run(command, log=False):
         raise Exception(command)
     return retval
 
+def fix_zero_weight_spectrum(mslist):
+    """ 
+    Some old MeerKAT Measurement Sets have a WEIGHT_SPECTRUM column which only contains 0.0 values which
+    affect imaging and subsequent self-calibration, resulting in all data being flagged. This function sets these
+    values to 1.0.
+    Args:
+        mslist (list): a list of Measurement Sets to iterate over and fix outlier values of.
+    Returns:
+        None
+    """
+
+    # check if mslist is a string (single ms) and convert to list if needed
+    if isinstance(mslist, str):
+        mslist = [mslist]
+
+    for ms in mslist:
+        fix_ws = False
+        with table(ms, readonly=True, ack=False) as t:
+            ws = t.getcol('WEIGHT_SPECTRUM')
+            if np.nanmax(ws) == 0.0:
+                fix_ws = True
+        if fix_ws:
+            # print in orange color
+            print('\033[93m' + 'Warning: WEIGHT_SPECTRUM has only 0.0 values in ' + ms + '\033[0m')
+            print('Fixing WEIGHT_SPECTRUM manually', ms)
+            cmdtaql = 'taql "update %s set WEIGHT_SPECTRUM=1.0"' % ms
+            #print('Running command:', cmdtaql)
+            run(cmdtaql, log=True) 
 
 def fix_bad_weightspectrum(mslist, clipvalue):
-    """ Sets bad values in WEIGHT_SPECTRUM that affect imaging and subsequent self-calibration to 0.0.
+    """ 
+    Sets bad values in WEIGHT_SPECTRUM that affect imaging and subsequent self-calibration to 0.0.
 
     Args:
         mslist (list): a list of Measurement Sets to iterate over and fix outlier values of.
@@ -15983,6 +16013,10 @@ def main():
             args['skymodel'] = set_MeerKAT_bandpass_skymodel(mslist[0]) # try to set skymodel automatically    
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, 
                                                            dysco=args['dysco'], metadata_compression=args['metadata_compression'])
+        
+        # some old MeerKAT data has zero WEIGHT_SPECTRUM values which need to be fixed first
+        # only do it for the banpass calibrator for now as the issue has only been found for calibrator data so far
+        fix_zero_weight_spectrum(mslist)
 
     if args['timesplitbefore']:
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, 
