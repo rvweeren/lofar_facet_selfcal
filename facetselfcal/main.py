@@ -5579,10 +5579,12 @@ def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
         else:
              run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=' + modelstoragemanager + ' steps=[]')
-        run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
-        run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
-        run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
-        run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
+        #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
+        #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
+        #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
+        #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
+        # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
+        run("taql 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i),MODEL_DATA_PDIFF[,1]=(0.0+0i),MODEL_DATA_PDIFF[,2]=(0+0i),MODEL_DATA_PDIFF[,3]=(0.5+0i)'")
 
 
 def fulljonesparmdb(h5):
@@ -11063,12 +11065,12 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     else:
                         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + args['modelstoragemanager'] + ' steps=[]', log=True)                        
                     # do the predict with taql
-                    run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'",
-                        log=True)
-                    run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'",
-                        log=True)
-                    run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'", log=True)
-                    run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
+                    #run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'", log=True)
+                    #run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'", log=True)
+                    #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'", log=True)
+                    #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
+                    # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
+                    run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
 
                 if skymodelpointsource is not None and type(skymodelpointsource) is list:
                     # create MODEL_DATA (no dysco!)
@@ -11077,12 +11079,12 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     else:
                         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + args['modelstoragemanager'] + ' steps=[]', log=True)
                     # do the predict with taql
-                    run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource[ms_id]) + "+0i)'",
-                        log=True)
-                    run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource[ms_id]) + "+0i)'",
-                        log=True)
-                    run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'", log=True)
-                    run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
+                    #run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource[ms_id]) + "+0i)'", log=True)
+                    #run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource[ms_id]) + "+0i)'", log=True)
+                    #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'", log=True)
+                    #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
+                    # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
+                    run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource[ms_id]) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource[ms_id]) + "+0i)'")
 
         # do the stack and normalization
         # mslist_stacked = stacked MS (one per common time axis / timestack); mss_timestacks = list of MSs that were used to create each stack
@@ -11100,10 +11102,12 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 t.close()
             print(f'Predict point source for  {ms}')
             # do the predict with taql
-            run(f"taql 'update {ms} set MODEL_DATA[,0]=(1.0+ +0i)'", log=True)
-            run(f"taql 'update {ms} set MODEL_DATA[,3]=(1.0+ +0i)'", log=True)
-            run(f"taql 'update {ms} set MODEL_DATA[,1]=(0+0i)'", log=True)
-            run(f"taql 'update {ms} set MODEL_DATA[,2]=(0+0i)'", log=True)
+            #run(f"taql 'update {ms} set MODEL_DATA[,0]=(1.0+0i)'", log=True)
+            #run(f"taql 'update {ms} set MODEL_DATA[,3]=(1.0+0i)'", log=True)
+            #run(f"taql 'update {ms} set MODEL_DATA[,1]=(0+0i)'", log=True)
+            #run(f"taql 'update {ms} set MODEL_DATA[,2]=(0+0i)'", log=True)
+            # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
+            run(f"taql 'update {ms} set MODEL_DATA[,0]=(1.0+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(1.0+0i)'", log=True)
 
         # set all these to None to avoid skymodel predicts in runDPPPbase()
         skymodelpointsource = None
@@ -11448,10 +11452,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         else:
             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + modelstoragemanager + ' steps=[]')
         # do the predict with taql
-        run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'")
-        run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
-        run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
-        run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
+        #run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'")
+        #run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
+        #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
+        #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
+        # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
+        run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
         # PM means point source model adjusted weights
