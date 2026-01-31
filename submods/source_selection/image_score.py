@@ -34,7 +34,7 @@ def get_nn_model(model: str = 'surf/dino_big_lora_tune_posclsreg_may_O2_aug_099'
     os.environ['TORCH_HOME'] = os.path.realpath(cache)
 
     init_downloader(
-        url="https://researchdrive.surfsara.nl/public.php/webdav/",
+        url="https://researchdrive.surf.nl/public.php/webdav/",
         login="WsSxVZHPqHlKcvY",
         password="PublicAccess1!",
         cache=os.path.realpath(cache)
