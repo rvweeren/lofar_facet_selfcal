@@ -4234,7 +4234,7 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
     new_catalog = catalog.copy()
     for source_id, source in enumerate(catalog[:-1]):
         c1 = SkyCoord(source['RA']*units.degree, source['DEC']*units.degree, frame='icrs')
-        print('Trying to find sources too close to SOURCE ID', source_id)
+        print('Trying to find sources that are too close to SOURCE ID', source_id)
         for faintersource_id, faintersource in enumerate(catalog[source_id+1:]): # take only sources with a higher index, skip last one
             c2 = SkyCoord(faintersource['RA']*units.degree, faintersource['DEC']*units.degree, frame='icrs')
             if c1.separation(c2).to(units.arcmin).value < distance:
@@ -5584,7 +5584,8 @@ def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
         #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
         #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
         # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-        run("taql 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i),MODEL_DATA_PDIFF[,1]=(0.0+0i),MODEL_DATA_PDIFF[,2]=(0+0i),MODEL_DATA_PDIFF[,3]=(0.5+0i)'")
+        nchan = len(get_frequencies_from_ms(ms))
+        run("taql 'update " + ms + " set MODEL_DATA_PDIFF=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True)
 
 
 def fulljonesparmdb(h5):
@@ -6578,6 +6579,11 @@ def inputchecker(args, mslist):
         if args['channelsout'] < 1:
             print('channelsout', args['channelsout'])
             raise Exception("channelsout needs to be a positive integer")
+
+    if type(args['channelsout']) is not str and type(args['fitspectralpol']) is not str:
+        if args['fitspectralpol'] >= args['channelsout']:
+            print('--fitspectralpol must be less than --channelsout')
+            raise Exception('--fitspectralpol must be less than --channelsout')
 
     if args['useaoflagger_correcteddata'] and args['DDE']:
         print('--useaoflagger-correcteddata cannot be used together with --DDE')
@@ -8390,6 +8396,26 @@ def check_soltabs(h5parm):
             hasrotationmeasure = True
 
     return hasphase, hasamps, hasrotation, hastec, hasrotationmeasure
+
+def reset_phase000(h5parm):
+    """ Reset phase000 solutions to zero
+    Args:
+      h5parm: h5parm file
+    """
+    # check if phase000 exists
+    with tables.open_file(h5parm) as Hcheck:
+        soltabs = list(Hcheck.root.sol000._v_children.keys())
+    if 'phase000' not in soltabs:
+        print('No phase000 found in ', h5parm)    
+        return
+
+    H = tables.open_file(h5parm, mode='r+')
+    phase = H.root.sol000.phase000.val[:]
+    phase[:] = 0.0
+    H.root.sol000.phase000.val[:] = np.copy(phase)
+    H.flush()
+    H.close()
+    return
 
 
 def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
@@ -11070,8 +11096,11 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'", log=True)
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
                     # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-                    run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
+                    #run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
+                    nchan = len(get_frequencies_from_ms(ms))
+                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], shape=[" + str(nchan) + ",4])'", log=True)
 
+            
                 if skymodelpointsource is not None and type(skymodelpointsource) is list:
                     # create MODEL_DATA (no dysco!)
                     if args['modelstoragemanager'] is None:
@@ -11084,7 +11113,8 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'", log=True)
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
                     # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-                    run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource[ms_id]) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource[ms_id]) + "+0i)'")
+                    nchan = len(get_frequencies_from_ms(ms))
+                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource[ms_id]) + "+0i,0+0i,0+0i," + str(skymodelpointsource[ms_id]) + "+0i], shape=[" + str(nchan) + ",4])'", log=True)
 
         # do the stack and normalization
         # mslist_stacked = stacked MS (one per common time axis / timestack); mss_timestacks = list of MSs that were used to create each stack
@@ -11107,7 +11137,9 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             #run(f"taql 'update {ms} set MODEL_DATA[,1]=(0+0i)'", log=True)
             #run(f"taql 'update {ms} set MODEL_DATA[,2]=(0+0i)'", log=True)
             # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-            run(f"taql 'update {ms} set MODEL_DATA[,0]=(1.0+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(1.0+0i)'", log=True)
+            nchan = len(get_frequencies_from_ms(ms))
+            run(f"taql 'update {ms} set MODEL_DATA=array([1.0+0i,0+0i,0+0i,1.0+0i], shape=[{nchan},4])'", log=True)
+
 
         # set all these to None to avoid skymodel predicts in runDPPPbase()
         skymodelpointsource = None
@@ -11457,7 +11489,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
         # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-        run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
+        nchan = len(get_frequencies_from_ms(ms))       
+        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], shape=[" + str(nchan) + ",4])'", log=True) 
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
         # PM means point source model adjusted weights
@@ -14875,6 +14908,7 @@ def basicsetup(mslist):
         args['uvminim'] = 10.
         if not args['bandpass']: args['mask_extended'] = True
         if not args['DDE'] and not args['bandpass']:
+            args['flag_ampresetvalfactor'] = True       
             args['useaoflagger'] = True
             args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua' #'default_StokesQUV.lua'
             if args['preapplybandpassH5_list'][0] is None:
@@ -14915,8 +14949,13 @@ def basicsetup(mslist):
                 startfreq = 2046e6
                 endfreq = 2773e6
                 args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
-            
-            # for S0 to S5 bands to do       
+            # for S0 to S5 bands to do
+
+            # tmp
+            #args['nchan_list'] = [1, 1, 1, 4]
+            #args['solint_list'] = ['1min', '10min', '2min', '4min']
+            #args['smoothnessconstraint_list'] = [100., 5.0, 75., 0.] 
+
         else: # so this is a DDE run
             args['soltype_list'] = ['scalarphase','scalarcomplexgain']
             if args['start'] == 0 and args['stop'] is None:
