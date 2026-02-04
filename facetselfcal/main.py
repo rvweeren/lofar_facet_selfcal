@@ -12232,7 +12232,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if soltype in ['tec']:
         losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname,
-                                                   refant=findrefant_core(parmdb, telescope=telescope), onetime=ntimesH5(parmdb)==1,
+                                                   refant=findrefant_core(parmdb, telescope=telescope),
                                                    markersize=compute_markersize(parmdb))
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_tec
         print(cmdlosoto)
@@ -14954,7 +14954,15 @@ def basicsetup(mslist):
             # tmp
             #args['nchan_list'] = [1, 1, 1, 4]
             #args['solint_list'] = ['1min', '10min', '2min', '4min']
-            #args['smoothnessconstraint_list'] = [100., 5.0, 75., 0.] 
+            #args['smoothnessconstraint_list'] = [100., 5.0, 75., 0.]
+            #args['clipsolutions'] = True
+            #args['clipsolhigh'] = 1.2
+            #args['clipsollow'] = 1/1.2
+            #args['flagslowamprms'] = 10.0
+            #args['doflagging'] = True
+            #args['forwidefield'] = False
+            #args['doflagslowphases'] = False
+            #args['resetsols_list'] = [None, None, None, None] 
 
         else: # so this is a DDE run
             args['soltype_list'] = ['scalarphase','scalarcomplexgain']
