@@ -977,7 +977,7 @@ def applycal_restart_di(mslist, selfcalcycle):
     return
 
 
-def MeerKAT_pbcor_Lband(fitsimage, outfile, freq=None, ms=None): 
+def MeerKAT_pbcor_Lband(fitsimage, outfile, freq=None, ms=None, pblimit=0.0): 
     """
     Apply a MeerKAT primary beam correction to a L-band FITS image.
 
@@ -997,6 +997,10 @@ def MeerKAT_pbcor_Lband(fitsimage, outfile, freq=None, ms=None):
         Path to the Measurement Set (MS). If provided, the pointing center will be
         read from the 'REFERENCE_DIR' column of the MS. If not provided, the center 
         of the image will be assumed to be the pointing center.
+
+    pblimit : float, optional
+        Primary beam limit (in fraction of the peak) to apply the correction. Pixels with
+        primary beam response below this limit will not be corrected. Default is 0.0 (no limit).    
 
     Returns
     -------
@@ -1073,6 +1077,15 @@ def MeerKAT_pbcor_Lband(fitsimage, outfile, freq=None, ms=None):
     pb = 1. + G1*(X**2) + G2*(X**4) + G3*(X**6)  + G4*(X**8)  + G5*(X**10)
 
     hdu[0].data[0,0,:,:] = img/pb
+
+
+    # Apply primary beam limit if specified
+    # first find the radius where the primary beam response equals the pblimit
+    if pblimit > 0.0:
+        # Find where pb is less than the pblimit
+        mask = pb < pblimit
+        # Set those pixels to NaN or some other value to indicate they are not corrected
+        hdu[0].data[0,0,:,:][mask] = np.nan
 
     astropy.io.fits.writeto(outfile, hdu[0].data, hdu[0].header, overwrite=True)
     return outfile
@@ -10167,7 +10180,6 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         if onechannel:
             f.write('axesToFlag = [time]\n')
         if onetime:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesToFlag = [freq]\n')
         if not onetime and not onechannel:
             f.write('axesToFlag = [time,freq]\n')
@@ -10246,6 +10258,60 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
 
     f.close()
     return parset
+
+def create_losoto_flag_ap_only(ms, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
+                               onechannel=False, flagphases=True, onetime=False):
+    parset = 'losoto_flag_ap_only.parset'
+    os.system('rm -f ' + parset)
+    f = open(parset, 'w')
+
+    f.write('soltab = [sol000/*]\n')
+    f.write('Ncpu = 0\n\n\n')
+    
+    f.write('[flagamp]\n')
+    f.write('soltab = [sol000/amplitude000]\n')
+    f.write('operation = FLAG\n')
+    if onechannel:
+        f.write('axesToFlag = [time]\n')
+    if onetime:
+        f.write('axesToFlag = [freq]\n')
+    if not onetime and not onechannel:
+        f.write('axesToFlag = [time,freq]\n')
+    f.write('mode = smooth\n')
+    f.write('maxCycles = 3\n')
+    f.write('windowNoise = 7\n')
+    f.write('maxRms = %s\n' % str(maxrms))
+    if onechannel:
+        f.write('order  = [5]\n\n\n')
+    if onetime:
+        f.write('order  = [5]\n\n\n')
+    if not onetime and not onechannel:
+        f.write('order  = [5,5]\n\n\n')
+
+    if includesphase and flagphases:
+        f.write('[flagphase]\n')
+        f.write('soltab = [sol000/phase000]\n')
+        f.write('operation = FLAG\n')
+        if onechannel:
+            f.write('axesToFlag = [time]\n')
+        if onetime:
+            f.write('axesToFlag = [freq]\n')    
+        if not onetime and not onechannel:
+            f.write('axesToFlag = [time,freq]\n')
+        f.write('mode = smooth\n')
+        f.write('maxCycles = 3\n')
+        f.write('windowNoise = 7\n')
+        f.write('maxRms = %s\n' % str(maxrmsphase))
+        if onechannel:
+            f.write('order  = [5]\n\n\n')
+        if onetime:
+            f.write('order  = [5]\n\n\n')
+        if not onetime and not onechannel:
+            f.write('order  = [5,5]\n\n\n')
+
+    f.close()
+    return parset
+
 
 
 def create_losoto_bandpassparset(intype, ms, h5):
@@ -11489,8 +11555,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
         # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-        nchan = len(get_frequencies_from_ms(ms))       
-        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], shape=[" + str(nchan) + ",4])'", log=True) 
+        nchan_taql = len(get_frequencies_from_ms(ms))       
+        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], shape=[" + str(nchan_taql) + ",4])'", log=True) 
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
         # PM means point source model adjusted weights
@@ -12165,6 +12231,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                     print('Auto-flagging bad MeerKAT antennas based on solution stats: ' + str(ant) + ' in ' + ms)
                     # use taql function to flag antennas
                     flag_antenna_taql(ms, ant)
+            # take take care of outliers in the solutions here as well
+            # in particular for data near zero  declination which might be affected by geostationary RFI which causes high amplitude outliers in the solutions
+            if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude']:
+                flaglowamps(parmdb, lowampval=1/1.5, flagging=False, setweightsphases=True)
+                flaghighamps(parmdb, highampval=1.5, flagging=False, setweightsphases=True)        
 
     if resetsols == 'all':
         if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
@@ -12175,6 +12246,26 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             force_close(parmdb)
         else:
             refant = None
+       
+        # if requested do flagging of solutions here before resetting all solutions (because then no bad solution will be found anymore)
+        # in this way the flags will make it to the merged solution file so that bad visibilities will be flagged for DI solves
+        # only do this for DI solve types
+        if not args['DDE'] and flagging and not onechannel and ntimesH5(parmdb) > 1 and \
+            soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', \
+            'scalaramplitude','rotation+diagonal', 'rotation+diagonalamplitude', \
+            'rotation+scalar', 'rotation+scalaramplitude', 'faradayrotation+diagonal', \
+            'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', \
+            'faradayrotation+scalaramplitude'] and args['flagsolutionsbeforeresetsolsall']:
+        
+            losotoparset = create_losoto_flag_ap_only(ms, maxrms=flagslowamprms,
+                                                      maxrmsphase=flagslowphaserms,
+                                                      includesphase=includesphase, onechannel=onechannel,
+                                                      flagphases=flagslowphases, onetime=ntimesH5(parmdb)==1)
+  
+            os.system('cp -f ' + parmdb + ' ' + parmdb + '.allresetsolbackup_gridflagging')
+            print('losoto ' + parmdb + ' ' + losotoparset)
+            run('losoto ' + parmdb + ' ' + losotoparset, log=True)
+
         # make a backup of the parmdb before resetting all solutions
         os.system('cp -f ' + parmdb + ' ' + parmdb + '.allresetsolbackup')
         resetsolsforstations(parmdb, antennaconstraintstr(resetsols, antennasms, HBAorLBA, useforresetsols=True,
@@ -14952,6 +15043,7 @@ def basicsetup(mslist):
             # for S0 to S5 bands to do
 
             # tmp
+            #args['flagsolutionsbeforeresetsolsall'] = True
             #args['nchan_list'] = [1, 1, 1, 4]
             #args['solint_list'] = ['1min', '10min', '2min', '4min']
             #args['smoothnessconstraint_list'] = [100., 5.0, 75., 0.]
@@ -14962,8 +15054,7 @@ def basicsetup(mslist):
             #args['doflagging'] = True
             #args['forwidefield'] = False
             #args['doflagslowphases'] = False
-            #args['resetsols_list'] = [None, None, None, None] 
-
+            
         else: # so this is a DDE run
             args['soltype_list'] = ['scalarphase','scalarcomplexgain']
             if args['start'] == 0 and args['stop'] is None:
@@ -15981,7 +16072,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.14.0'
+    facetselfcal_version = '17.15.0'
     print_title(facetselfcal_version)
 
 
@@ -16532,12 +16623,27 @@ def main():
             plotimage(i, stackstr, mask=fitsmask_list[msim_id], regionfile='facets.reg' if (args['DDE'] and facetregionfile is not None) else None)
         #  --- END IMAGING PART ---
 
+        # RUN AOFLAGGER ON THE RESIDUAL DATA COLUMN IF REQUESTED
+        if i in args['useaoflagger_residualdata_selfcalcycle_list'] and args['useaoflagger_residualdata']:
+            create_residual_data_column(mslist, args['imagename'] + str(i).zfill(3), 
+                                        args['pixelscale'], args['imsize'], 
+                                        args['channelsout'], 
+                                        single_dual_speedup=args['single_dual_speedup'],
+                                        dysco=args['dysco'], idg=args['idg'],
+                                        h5list=wsclean_h5list, facetregionfile=facetregionfile,
+                                        disable_primary_beam=args['disable_primary_beam'], 
+                                        modelstoragemanager=args['modelstoragemanager'], 
+                                        parallelgridding=args['parallelgridding'], 
+                                        metadata_compression=args['metadata_compression'])
+            
+            aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_residualdata'], column='RESIDUAL_DATA')
+
         modeldatacolumns = []
         if args['DDE']:
             if args['auto_directions']: args['facetdirections'] = auto_direction(i, freq=freq, telescope=telescope)
-            modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
-                prepare_DDE(args['imagename'], i, mslist,
-                            DDE_predict=args['DDE_predict'], telescope=telescope))
+            modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, \
+            soltypelist_includedir = prepare_DDE(args['imagename'], i, mslist, \
+            DDE_predict=args['DDE_predict'], telescope=telescope)
 
             if candidate_solints is not None:
                 candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
@@ -16572,21 +16678,6 @@ def main():
         # RUN AOFLAGGER ON THE CORRECTED DATA COLUMN IF REQUESTED
         if i in args['useaoflagger_correcteddata_selfcalcycle_list'] and args['useaoflagger_correcteddata']:
             aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_correcteddata'], column='CORRECTED_DATA')
-
-        # RUN AOFLAGGER ON THE RESIDUAL DATA COLUMN IF REQUESTED
-        if i in args['useaoflagger_residualdata_selfcalcycle_list'] and args['useaoflagger_residualdata']:
-            create_residual_data_column(mslist, args['imagename'] + str(i).zfill(3), 
-                                        args['pixelscale'], args['imsize'], 
-                                        args['channelsout'], 
-                                        single_dual_speedup=args['single_dual_speedup'],
-                                        dysco=args['dysco'], idg=args['idg'],
-                                        h5list=wsclean_h5list, facetregionfile=facetregionfile,
-                                        disable_primary_beam=args['disable_primary_beam'], 
-                                        modelstoragemanager=args['modelstoragemanager'], 
-                                        parallelgridding=args['parallelgridding'], 
-                                        metadata_compression=args['metadata_compression'])
-            
-            aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_residualdata'], column='RESIDUAL_DATA')
 
         # CHECK FOR HIGH DYNAMIC RANGE DATA AND ADJUST SETTINGS (DI-SOLVES ONLY)
         soltypecycles_list, solint_list, smoothnessconstraint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle = autodetect_highDR(i, mslist, telescope, soltypecycles_list, solint_list, smoothnessconstraint_list)
