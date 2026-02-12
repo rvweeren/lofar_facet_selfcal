@@ -310,10 +310,14 @@ class MergeH5:
                     else:
                         self.polarizations = polarizations.copy()
 
-                if 'tec000' in h5.root.sol000._v_children.keys():
-                    self.tecnum += 1
-                if 'error000' in h5.root.sol000._v_children.keys():
-                    self.errornum += 1
+                    if 'tec000' in h5.root.sol000._v_children.keys():
+                        self.tecnum += 1
+                    if 'error000' in h5.root.sol000._v_children.keys():
+                        self.errornum += 1
+
+        if time_concat:
+            self.tecnum=1
+            self.errornum=1
 
         # check if fulljones
         if len(self.polarizations) == 4:
