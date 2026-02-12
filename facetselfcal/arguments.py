@@ -32,9 +32,10 @@ def option_parser():
                                help="WSClean automask thresholds for each selfcal cycle. This is by default [2.5, 2.5, 2.5, 2.5, 2.5, ...]. If maskthreshold is lower than this value for a selfcal cycle, the maskthreshold value is used instead. A value of <0.5 turns off automasking.",
                                default=[2.5, 2.5, 2.5, 2.5, 2.5],
                                type=arg_as_list)
-    imagingparser.add_argument('--mask-extended',
-                               help='Add an extra masking step for very extended emission. For LOFAR-NL and MeerKAT only. Image size needs to be at least 1600x1600 pixels',
-                               action='store_true')
+    #imagingparser.add_argument('--mask-extended',
+    #                           help='Add an extra masking step for very extended emission. For LOFAR-NL and MeerKAT only. Image size needs to be at least 1600x1600 pixels',
+    #                           action='store_true')
+    add_bool_arg(imagingparser, 'mask-extended', help='Add an extra masking step for very extended emission. For LOFAR-NL and MeerKAT only. Image size needs to be at least 1600x1600 pixels', default=None)                           
     imagingparser.add_argument('--mask-extended-start',
                                help='Start --mask-extended emission at this selfcal cycle. Default 2.',
                                default=2,
@@ -101,9 +102,10 @@ def option_parser():
                                help='Deconvolution --nmiter setting for WSCLean, see WSClean documentation. The default value is 12',
                                default=12,
                                type=int)    
-    imagingparser.add_argument('--multiscale',
-                               help='Use multiscale deconvolution (see WSClean documentation).',
-                               action='store_true')
+    #imagingparser.add_argument('--multiscale',
+    #                           help='Use multiscale deconvolution (see WSClean documentation).',
+    #                           action='store_true')
+    add_bool_arg(imagingparser, 'multiscale', help='Use multiscale deconvolution (see WSClean documentation; default=None).', default=None)                           
     imagingparser.add_argument('--multiscalescalebias',
                                help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.75.',
                                default=0.75,
@@ -192,9 +194,10 @@ def option_parser():
     calibrationparser.add_argument('--autofrequencyaverage-calspeedup',
                                    help="Update April 24: Avoid usage because of corrupt vs correct. Try extra averaging during some selfcalcycles to speed up calibration.",
                                    action='store_true')
-    calibrationparser.add_argument('--autofrequencyaverage',
-                                   help='Try frequency averaging if it does not result in bandwidth smearing',
-                                   action='store_true')
+    #calibrationparser.add_argument('--autofrequencyaverage',
+    #                               help='Try frequency averaging if it does not result in bandwidth smearing',
+    #                               action='store_true')
+    add_bool_arg(calibrationparser, 'autofrequencyaverage', help='Try frequency averaging if it does not result in bandwidth smearing', default=None)
 
     calibrationparser.add_argument('--phaseupstations',
                                    help="Phase up to a superstation. Possible input: 'core' or 'superterp'. The default is None.",
@@ -460,51 +463,82 @@ def option_parser():
                                 help='If solution flagging is done also flag outliers phases in the slow phase solutions. The default is True.',
                                 type=ast.literal_eval,
                                 default=True)
+    flaggingparser.add_argument('--flagsolutionsbeforeresetsolsall',
+                                help='In case all solutions are reset via --resetsols-list carry out rms outlier solution flagging \
+                                      before resetting the solutions. This can be useful for DI solves to find bad data but without \
+                                      ever applying the solutions. In this way, the visibility data corresponding to the bad \
+                                      solutions will be flagged, but the solution themselves will be reset afterwards.',
+                                action='store_true')                                
     flaggingparser.add_argument('--flag-antenna-list',
                                 help='List of antenna names to flag',
                                 type=ast.literal_eval)
-    flaggingparser.add_argument('--useaoflagger',
-                                help='Run AOflagger on input data.',
-                                action='store_true')
-    flaggingparser.add_argument('--aoflagger-strategy', 
-                                help='Use this strategy for AOflagger (options are: "default_StokesV.lua", "default_StokesI.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',
-                                default=None, type=str)
-    flaggingparser.add_argument('--useaoflaggerbeforeavg',
-                                help='Flag with AOflagger before (True) or after averaging (False). The default is True.',
-                                type=ast.literal_eval,
+
+
+    # AOflagger settings
+    add_bool_arg(flaggingparser, 'aoflagger', help='Run AOflagger on input data.', default=None)
+    add_bool_arg(flaggingparser, 'aoflaggerbeforeavg',
+                                help='Flag with AOflagger before averaging. The default is True.',
                                 default=True)
-    flaggingparser.add_argument('--useaoflagger-correcteddata',
-                                help='Run AOflagger on the CORRECTED_DATA column after calibration.',
-                                action='store_true')
+    add_bool_arg(flaggingparser, 'aoflagger-correcteddata', default=None,
+                                help='Run AOflagger on the CORRECTED_DATA column after calibration.')
+    add_bool_arg(flaggingparser, 'aoflagger-residualdata', default=None,
+                                help='Run AOflagger on the RESIDUAL_DATA column.')
+    add_bool_arg(flaggingparser, 'aoflagger-afterbandpassapply', default=None,
+                                help='Run AOflagger on DATA column after preapply bandpass solution.')
+
+    #flaggingparser.add_argument('--useaoflagger',
+    #                            help='Run AOflagger on input data.',
+    #                            action='store_true')
+
+    flaggingparser.add_argument('--aoflagger-strategy', 
+                                help='Use this strategy for AOflagger on DATA, default=None (means flag without a custom strategy). For custom-made strategies see: https://github.com/rvweeren/lofar_facet_selfcal/tree/main/facetselfcal/flagging_strategies',
+                                default=None, type=str)
+    #flaggingparser.add_argument('--useaoflaggerbeforeavg',
+    #                            help='Flag with AOflagger before (True) or after averaging (False). The default is True.',
+    #                            type=ast.literal_eval,
+    #                            default=True)
+    #flaggingparser.add_argument('--useaoflagger-correcteddata',
+    #                            help='Run AOflagger on the CORRECTED_DATA column after calibration.',
+    #                            action='store_true')
     flaggingparser.add_argument('--aoflagger-strategy-correcteddata',
-                                help='Use this strategy for AOflagger on CORRECTED_DATA (options are: "default_StokesV.lua", "default_StokesI.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',type=str)
-    flaggingparser.add_argument("--useaoflagger-correcteddata-selfcalcycle-list",
-                                type=arg_as_list, default=[1], help="Select list of  selfcalcycle where --useaoflagger-correcteddata is used. Only values larger than 1 are allowed in the list. The default is [1].")
-    flaggingparser.add_argument('--useaoflagger-residualdata',
-                                help='Run AOflagger on the RESIDUAL_DATA column.',
-                                action='store_true')
+                                help='Use this strategy for AOflagger on CORRECTED_DATA, default=None (means flag without a custom strategy). For custom-made strategies see: https://github.com/rvweeren/lofar_facet_selfcal/tree/main/facetselfcal/flagging_strategies',type=str)
+    flaggingparser.add_argument("--aoflagger-correcteddata-selfcalcycle-list",
+                                type=arg_as_list, default=[1], help="Select list of  selfcalcycle where --aoflagger-correcteddata is used. Only values larger than 1 are allowed in the list. The default is [1].")
+    #flaggingparser.add_argument('--useaoflagger-residualdata',
+    #                            help='Run AOflagger on the RESIDUAL_DATA column.',
+    #                            action='store_true')
     flaggingparser.add_argument('--aoflagger-strategy-residualdata',
-                                help='Use this strategy for AOflagger on RESIDUAL_DATA (options are: "default_StokesV.lua", "default_StokesI.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',type=str)
-    flaggingparser.add_argument("--useaoflagger-residualdata-selfcalcycle-list",
-                                type=arg_as_list, default=[2], help="Select list of  selfcalcycle where --useaoflagger-residualdata is used. Only values larger than 1 are allowed in the list. The default is [2].")
-    flaggingparser.add_argument('--useaoflagger-afterbandpassapply',
-                                help='Run AOflagger DATA column after preapply bandpass solution. Uses same strategy as provided by --aoflagger-strategy-correcteddata',
-                                action='store_true')
+                                help='Use this strategy for AOflagger on RESIDUAL_DATA, default=None (means flag without a custom strategy). For custom-made strategies see: https://github.com/rvweeren/lofar_facet_selfcal/tree/main/facetselfcal/flagging_strategies',type=str)
+    flaggingparser.add_argument("--aoflagger-residualdata-selfcalcycle-list",
+                                type=arg_as_list, default=[2], help="Select list of  selfcalcycle where --aoflagger-residualdata is used. Only values larger than 1 are allowed in the list. The default is [2].")
+    #flaggingparser.add_argument('--useaoflagger-afterbandpassapply',
+    #                            help='Run AOflagger DATA column after preapply bandpass solution.',
+    #                            action='store_true')
     flaggingparser.add_argument('--aoflagger-strategy-afterbandpassapply',
-                                help='Use this strategy for AOflagger on applyinng the bandpass solutions (options are: "default_StokesV.lua", "default_StokesI.lua", "LBAdefaultwideband.lua", "default_StokesQUV.lua")',type=str)
-    flaggingparser.add_argument("--auto-flag-antennas", 
-                                help='Automatically flag antennas that show deviating amplitude solutions (for MeerKAT only).',
-                                action='store_true')                        
-    
-    flaggingparser.add_argument('--flagtimesmeared',
-                                help='Flag data that is severely time smeared. Warning: expert only',
-                                action='store_true')
-    flaggingparser.add_argument('--removeinternational',
-                                help='Remove the international stations if present',
-                                action='store_true')
-    flaggingparser.add_argument('--removemostlyflaggedstations',
-                                help='Remove the staions that have a flaging percentage above --removemostlyflaggedstations-percentage',
-                                action='store_true')
+                                help='Use this strategy for AOflagger after applying the bandpass solutions, default=None (means flag without a custom strategy). For custom-made strategies see: https://github.com/rvweeren/lofar_facet_selfcal/tree/main/facetselfcal/flagging_strategies',type=str)
+    #flaggingparser.add_argument("--auto-flag-antennas", 
+    #                            help='Automatically flag antennas that show deviating amplitude solutions (for MeerKAT only).',
+    #                            action='store_true')                        
+
+    add_bool_arg(flaggingparser, 'auto-flag-antennas', default=None,
+                                help='Automatically flag antennas that show deviating amplitude solutions (for MeerKAT only; default=None).') 
+    add_bool_arg(flaggingparser, 'flagtimesmeared', default=False,
+                                help='Flag data that is severely time smeared (default=False). Warning: expert only.')
+    add_bool_arg(flaggingparser, 'removeinternational', default=False,
+                                help='Remove the international stations if present (default=False).')
+    add_bool_arg(flaggingparser, 'removemostlyflaggedstations', default=None,
+                                help='Remove the staions that have a flaging percentage above --removemostlyflaggedstations-percentage (default=None).')
+
+    #flaggingparser.add_argument('--flagtimesmeared',
+    #                             help='Flag data that is severely time smeared. Warning: expert only',
+    #                            action='store_true')
+
+    #flaggingparser.add_argument('--removeinternational',
+    #                            help='Remove the international stations if present',
+    #                            action='store_true')
+    #flaggingparser.add_argument('--removemostlyflaggedstations',
+    #                            help='Remove the staions that have a flaging percentage above --removemostlyflaggedstations-percentage',
+    #                            action='store_true')
     flaggingparser.add_argument('--removemostlyflaggedstations-percentage',
                                 help='If --removemostlyflaggedstations is set this determines the percentage above which stations are removed, default=85', type=float, default=85)
 
@@ -660,14 +694,13 @@ def option_parser():
     parser.add_argument('--phasediff_only',
                         help='For finding only the phase difference, we want to stop after calibrating and before imaging',
                         action='store_true')
-    parser.add_argument('--helperscriptspath',
-                        help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.',
-                        default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/',
-                        type=str)
-    parser.add_argument('--helperscriptspathh5merge',
-                        help='Path to file location pulled from https://github.com/jurjen93/lofar_helpers.',
-                        default=None,
-                        type=str)
+    #parser.add_argument('--helperscriptspath',
+    #                    help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.',
+    #                   default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
+    #parser.add_argument('--helperscriptspathh5merge',
+    #                    help='Path to file location pulled from https://github.com/jurjen93/lofar_helpers.',
+    #                    default=None,
+    #                    type=str)
     parser.add_argument('--configpath',
                         help='Path to user config file which will overwrite command line arguments',
                         default='facetselfcal_config.txt',
@@ -695,6 +728,12 @@ def option_parser():
 
     return parser.parse_args()
 
+
+def add_bool_arg(parser, name, help, default=None):
+    group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument('--' + name, dest=name.replace('-', '_'), action='store_true', help=help)
+    group.add_argument('--no-' + name, dest=name.replace('-', '_'), action='store_false', help='Disable/set to False ' + name)
+    parser.set_defaults(**{name.replace('-', '_'):default})
 
 def arg_as_list(s):
     v = ast.literal_eval(s)
