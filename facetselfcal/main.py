@@ -10042,15 +10042,15 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     f.write('operation = PLOT\n')
     f.write('soltab = [sol000/phase000]\n')
     if onechannel:
-        f.write('markerSize=%s\n' % int(markersize))
         f.write('axesInPlot = [time]\n')
         if not onepol:
             f.write('axisInCol = pol\n')
     if onetime:
-        f.write('markerSize=%s\n' % int(markersize))
         f.write('axesInPlot = [freq]\n')
         if not onepol:
             f.write('axisInCol = pol\n')
+    if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize)) 
     if not onechannel and not onetime:
         f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
@@ -10064,11 +10064,11 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/phase000]\n')
         if onechannel:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
         if onetime:
-            f.write('markerSize=%s\n' % int(markersize))
-            f.write('axesInPlot = [freq]\n')    
+            f.write('axesInPlot = [freq]\n')
+        if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize))   
         if not onechannel and not onetime:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
@@ -10097,15 +10097,15 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     f.write('operation = PLOT\n')
     f.write('soltab = [sol000/amplitude000]\n')
     if onechannel:
-        f.write('markerSize=%s\n' % int(markersize))
         f.write('axesInPlot = [time]\n')
         if not onepol:
             f.write('axisInCol = pol\n')
     if onetime:
         f.write('axesInPlot = [freq]\n')
-        f.write('markerSize=%s\n' % int(markersize))
         if not onepol:
             f.write('axisInCol = pol\n')
+    if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize)) 
     if not onechannel and not onetime:
         f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
@@ -10122,11 +10122,11 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('soltab = [sol000/amplitude000]\n')
         f.write('pol = [XY, YX]\n')
         if onechannel:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
         if onetime:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [freq]\n')   
+        if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize)) 
         if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
@@ -10138,15 +10138,15 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/phase000]\n')
         if onechannel:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
         if onetime:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [freq]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
+        if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize)) 
         if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
@@ -10159,11 +10159,11 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('operation = PLOT\n')
             f.write('soltab = [sol000/phase000]\n')
             if onechannel:
-                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [time]\n')
             if onetime:
-                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [freq]\n')  
+            if onechannel or onetime: 
+                f.write('markerSize=%s\n' % int(markersize)) 
             if not onetime and not onechannel:
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
@@ -10219,15 +10219,15 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/amplitude000]\n')
         if onechannel:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
         if onetime:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [freq]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
+        if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize)) 
         if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
@@ -10240,15 +10240,15 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('operation = PLOT\n')
             f.write('soltab = [sol000/phase000]\n')
             if onechannel:
-                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [time]\n')
                 if not onepol:
                     f.write('axisInCol = pol\n')
             if onetime:
-                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [freq]\n')
                 if not onepol:
                     f.write('axisInCol = pol\n')
+            if onechannel or onetime: 
+                f.write('markerSize=%s\n' % int(markersize)) 
             if not onetime and not onechannel:
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
