@@ -5936,7 +5936,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             make_extract=False, delaycal=False, freqresolution='195.3125kHz',
             dysco=True, cmakephasediffstat=False, dataincolumn='DATA',
             removeinternational=False, removemostlyflaggedstations=False, 
-            useaoflagger=False, useaoflaggerbeforeavg=True, aoflagger_strategy=None,
+            aoflagger=False, aoflaggerbeforeavg=True, aoflagger_strategy=None,
             metadata_compression=True, flag_antennas=None):
     """
     Averages Measurement Sets (MS) in frequency and/or time using DP3, with options for filtering, flagging, and phase shifting.
@@ -5959,8 +5959,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
         dataincolumn (str, optional): Name of the data column to use in input MS. Default is 'DATA'.
         removeinternational (bool, optional): If True, remove international stations from MS. Default is False.
         removemostlyflaggedstations (bool, optional): If True, remove stations with high flagging percentage. Default is False.
-        useaoflagger (bool, optional): If True, apply AOFlagger for RFI flagging. Default is False.
-        useaoflaggerbeforeavg (bool, optional): If True, run AOFlagger before averaging. Default is True.
+        aoflagger (bool, optional): If True, apply AOFlagger for RFI flagging. Default is False.
+        aoflaggerbeforeavg (bool, optional): If True, run AOFlagger before averaging. Default is True.
         aoflagger_strategy (str or None, optional): AOFlagger strategy file or name. Default is None.
         metadata_compression (bool, optional): If True, enable metadata compression in output MS. Default is True.
         flag_antennas (list or None, optional): List of antennas to flag/remove. Default is None.
@@ -6075,7 +6075,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 cmd += 'msin.ntimes=' + str(msinntimes) + ' '
             if msinstarttimeslot is not None:
                 cmd += 'msin.starttimeslot=' + str(msinstarttimeslot) + ' '
-            if useaoflagger:
+            if aoflagger:
                 cmd += 'ao.type=aoflag '
                 cmd += 'ao.keepstatistics=False '
                 cmd += 'ao.memoryperc=50 '
@@ -6085,7 +6085,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                         cmd += 'ao.strategy=' +  aoflagger_strategy + ' '
                     else: # try strategy in flagging_strategies
                         cmd += 'ao.strategy=' + f'{datapath}/flagging_strategies/' + aoflagger_strategy + ' '
-                if useaoflaggerbeforeavg:
+                if aoflaggerbeforeavg:
                    cmd = cmd.replace("steps=[", "steps=[ao,") # insert s first step
                 else:
                    cmd = cmd.replace("av] ", "av,ao] ") # insert as last step (av was previous last step)
@@ -6577,13 +6577,13 @@ def inputchecker(args, mslist):
                 print('--start cannot be equal to --stop when --remove-outside-center/createresidualdatacolumn is not set')
                 raise Exception('--start cannot be equal to --stop when --remove-outside-center/createresidualdatacolumn is not set')
 
-    if 0 in args['useaoflagger_correcteddata_selfcalcycle_list']:
-        print('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0')
-        raise Exception('--useaoflagger-correcteddata-selfcalcycle-list cannot contain 0') 
+    if 0 in args['aoflagger_correcteddata_selfcalcycle_list']:
+        print('--aoflagger-correcteddata-selfcalcycle-list cannot contain 0')
+        raise Exception('--aoflagger-correcteddata-selfcalcycle-list cannot contain 0') 
 
-    if 0 in args['useaoflagger_residualdata_selfcalcycle_list']:
-        print('--useaoflagger-residualdata-selfcalcycle-list cannot contain 0')
-        raise Exception('--useaoflagger-residualdata-selfcalcycle-list cannot contain 0') 
+    if 0 in args['aoflagger_residualdata_selfcalcycle_list']:
+        print('--aoflagger-residualdata-selfcalcycle-list cannot contain 0')
+        raise Exception('--aoflagger-residualdata-selfcalcycle-list cannot contain 0') 
 
     if type(args['channelsout']) is str:
         if args['channelsout'] != 'auto':
@@ -6598,9 +6598,9 @@ def inputchecker(args, mslist):
             print('--fitspectralpol must be less than --channelsout')
             raise Exception('--fitspectralpol must be less than --channelsout')
 
-    if args['useaoflagger_correcteddata'] and args['DDE']:
-        print('--useaoflagger-correcteddata cannot be used together with --DDE')
-        raise Exception('--useaoflagger-correcteddata cannot be used together with --DDE')
+    if args['aoflagger_correcteddata'] and args['DDE']:
+        print('--aoflagger-correcteddata cannot be used together with --DDE')
+        raise Exception('--aoflagger-correcteddata cannot be used together with --DDE')
 
     if args['aoflagger_strategy'] is not None:
         if not os.path.isfile(args['aoflagger_strategy']): # try full location first
@@ -10042,15 +10042,15 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     f.write('operation = PLOT\n')
     f.write('soltab = [sol000/phase000]\n')
     if onechannel:
-        f.write('markerSize=%s\n' % int(markersize))
         f.write('axesInPlot = [time]\n')
         if not onepol:
             f.write('axisInCol = pol\n')
     if onetime:
-        f.write('markerSize=%s\n' % int(markersize))
         f.write('axesInPlot = [freq]\n')
         if not onepol:
             f.write('axisInCol = pol\n')
+    if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize)) 
     if not onechannel and not onetime:
         f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
@@ -10064,11 +10064,11 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/phase000]\n')
         if onechannel:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
         if onetime:
-            f.write('markerSize=%s\n' % int(markersize))
-            f.write('axesInPlot = [freq]\n')    
+            f.write('axesInPlot = [freq]\n')
+        if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize))   
         if not onechannel and not onetime:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
@@ -10097,15 +10097,15 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     f.write('operation = PLOT\n')
     f.write('soltab = [sol000/amplitude000]\n')
     if onechannel:
-        f.write('markerSize=%s\n' % int(markersize))
         f.write('axesInPlot = [time]\n')
         if not onepol:
             f.write('axisInCol = pol\n')
     if onetime:
         f.write('axesInPlot = [freq]\n')
-        f.write('markerSize=%s\n' % int(markersize))
         if not onepol:
             f.write('axisInCol = pol\n')
+    if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize)) 
     if not onechannel and not onetime:
         f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
@@ -10122,11 +10122,11 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('soltab = [sol000/amplitude000]\n')
         f.write('pol = [XY, YX]\n')
         if onechannel:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
         if onetime:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [freq]\n')   
+        if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize)) 
         if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
@@ -10138,15 +10138,15 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/phase000]\n')
         if onechannel:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
         if onetime:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [freq]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
+        if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize)) 
         if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
@@ -10159,11 +10159,11 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('operation = PLOT\n')
             f.write('soltab = [sol000/phase000]\n')
             if onechannel:
-                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [time]\n')
             if onetime:
-                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [freq]\n')  
+            if onechannel or onetime: 
+                f.write('markerSize=%s\n' % int(markersize)) 
             if not onetime and not onechannel:
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
@@ -10219,15 +10219,15 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/amplitude000]\n')
         if onechannel:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [time]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
         if onetime:
-            f.write('markerSize=%s\n' % int(markersize))
             f.write('axesInPlot = [freq]\n')
             if not onepol:
                 f.write('axisInCol = pol\n')
+        if onechannel or onetime: 
+            f.write('markerSize=%s\n' % int(markersize)) 
         if not onetime and not onechannel:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
@@ -10240,15 +10240,15 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('operation = PLOT\n')
             f.write('soltab = [sol000/phase000]\n')
             if onechannel:
-                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [time]\n')
                 if not onepol:
                     f.write('axisInCol = pol\n')
             if onetime:
-                f.write('markerSize=%s\n' % int(markersize))
                 f.write('axesInPlot = [freq]\n')
                 if not onepol:
                     f.write('axisInCol = pol\n')
+            if onechannel or onetime: 
+                f.write('markerSize=%s\n' % int(markersize)) 
             if not onetime and not onechannel:
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
@@ -12234,8 +12234,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             # take take care of outliers in the solutions here as well
             # in particular for data near zero  declination which might be affected by geostationary RFI which causes high amplitude outliers in the solutions
             if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude']:
-                flaglowamps(parmdb, lowampval=1/1.5, flagging=False, setweightsphases=True)
-                flaghighamps(parmdb, highampval=1.5, flagging=False, setweightsphases=True)        
+                medamp = get_median_amp(parmdb)
+                flaglowamps(parmdb, lowampval=medamp / 1.5, flagging=False, setweightsphases=True)
+                flaghighamps(parmdb, highampval=medamp * 1.5, flagging=False, setweightsphases=True)        
 
     if resetsols == 'all':
         if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
@@ -14967,16 +14968,19 @@ def basicsetup(mslist):
         args['niter'] = niter_from_imsize(args['imsize'], args['paralleldeconvolution'])
 
     if args['auto'] and telescope == 'LOFAR' and not longbaseline:
-        args['update_uvmin'] = True
+        if args['update_uvmin'] is None: # so not set by user, so we can set it to True in auto
+            args['update_uvmin'] = True
         args['usemodeldataforsolints'] = True
         args['forwidefield'] = True
-        args['autofrequencyaverage'] = True
+        if args['autofrequencyaverage'] is None: # so not set by user, so we can set it to True in auto
+            args['autofrequencyaverage'] = True
         if args['start'] == 0 and args['stop'] is None:
             args['stop'] = 10
         if LBA:
             args['BLsmooth_list'] = [True] * len(args['soltype_list'])
         else:
-            args['update_multiscale'] = True  # HBA only
+            if args['update_multiscale'] is None: # so not set by user, so we can set it to True in auto
+                args['update_multiscale'] = True  # HBA only
             if args['autofrequencyaverage_calspeedup']:
                 args['soltypecycles_list'] = [0, 999, 2]
                 if args['start'] == 0 and args['stop'] is None:
@@ -14991,17 +14995,27 @@ def basicsetup(mslist):
         args['update_uvmin'] = False
         args['usemodeldataforsolints'] = False
         args['forwidefield'] = True
-        args['auto_flag_antennas'] = True # will be invoked for soltype scalarcomplexgain, complexgain, scalaramplitude, amplitudeonly
-        if not args['bandpass']: args['autofrequencyaverage'] = True
-        if not args['bandpass']: args['multiscale'] = True
+        if args['auto_flag_antennas'] is None: # so not set by user, so we can set it to True in auto
+            args['auto_flag_antennas'] = True # will be invoked for soltype scalarcomplexgain, complexgain, scalaramplitude, amplitudeonly
+        if not args['bandpass']: 
+            if args['autofrequencyaverage'] is None: # so not set by user, so we can set it to True in auto
+                args['autofrequencyaverage'] = True
+        if not args['bandpass']: 
+            if args['multiscale'] is None: # so not set by user, so we can set it to True in auto
+                args['multiscale'] = True
         args['multiscale_start'] = 0
         args['noarchive'] = True
-        args['uvminim'] = 10.
-        if not args['bandpass']: args['mask_extended'] = True
+        if args['uvminim'] is None: # so not set by user, so we can set it to 10 in auto
+            args['uvminim'] = 10.
+        if not args['bandpass']: 
+            if args['mask_extended'] is None: # so not set by user, so we can set it to True in auto
+                args['mask_extended'] = True
         if not args['DDE'] and not args['bandpass']:
             args['flag_ampresetvalfactor'] = True       
-            args['useaoflagger'] = True
-            args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua' #'default_StokesQUV.lua'
+            if args['aoflagger'] is None: # so no set by user, so we can set it to True in auto
+                args['aoflagger'] = True
+            if args['aoflagger_strategy'] is None: # so not set by user, so we can set it to default strategy in auto
+                args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua' #'default_StokesQUV.lua'
             if args['preapplybandpassH5_list'][0] is None:
                 args['soltype_list'] = ['scalarphase', 'scalarcomplexgain', 'scalarcomplexgain', 'scalarcomplexgain']
             else: 
@@ -15074,8 +15088,10 @@ def basicsetup(mslist):
             args['soltypecycles_list'] = [0,0]
             args['imsize'] = 1024
             args['niter'] = 10000
-            args['useaoflagger'] = True
-            args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua'
+            if args['aoflagger'] is None: # so no set by user, so we can set it to True in auto
+                args['aoflagger'] = True
+            if args['aoflagger_strategy'] is None: # so not set by user, so we can set it to default strategy in auto
+                args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua'
             args['nchan_list'] = [1,1]
             # try to automatically set arg['msinstartchan'] and arg['msinnchan'] for L-band
             if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
@@ -15091,8 +15107,10 @@ def basicsetup(mslist):
         args['update_uvmin'] = False
         args['usemodeldataforsolints'] = True
         args['forwidefield'] = True
-        args['autofrequencyaverage'] = True
-        args['update_multiscale'] = True
+        if args['autofrequencyaverage'] is None: # so not set by user, so we can set it to True in auto
+            args['autofrequencyaverage'] = True
+        if args['update_multiscale'] is None: # so not set by user, so we can set it to True in auto
+            args['update_multiscale'] = True
         if args['start'] == 0 and args['stop'] is None:
             args['stop'] = 10
         args['soltypecycles_list'] = [0, 3]
@@ -15121,7 +15139,8 @@ def basicsetup(mslist):
         # args['usemodeldataforsolints'] = True # NEEDS SPECIAL SETTINGS to be implemented
         args['solint_list'] = ['5min','32sec','1hr']
         args['forwidefield'] = True
-        args['autofrequencyaverage'] = True
+        if args['autofrequencyaverage'] is None: # so not set by user, so we can set it to True here
+            args['autofrequencyaverage'] = True
         args['update_multiscale'] = True
 
         args['soltypecycles_list'] = [0, 0, 3]
@@ -15203,6 +15222,35 @@ def basicsetup(mslist):
         if args['imsize'] < 6000:
             args['parallelgridding'] = 6
 
+    # set flagging paramters explicitly here to False if not set by user (to avoid they are left at None which can cause issues in some functions if not checked properly)
+    if args['aoflagger'] is None:
+        args['aoflagger'] = False
+    if args['aoflagger_correcteddata'] is None:
+        args['aoflagger_correcteddata'] = False
+    if args['aoflagger_residualdata'] is None:
+        args['aoflagger_residualdata'] = False
+    if args['aoflagger_afterbandpassapply'] is None:
+        args['aoflagger_afterbandpassapply'] = False
+    if args['auto_flag_antennas'] is None:
+        args['auto_flag_antennas'] = False
+    if args['removemostlyflaggedstations'] is None:
+        args['removemostlyflaggedstations'] = False
+    if args['flagtimesmeared'] is None:
+        args['flagtimesmeared'] = False
+    if args['removeinternational'] is None:
+        args['removeinternational'] = False    
+
+    # set boolean/None type parameters explicitly to False if they are None to avoid issues in some functions if not checked properly
+    if args['autofrequencyaverage'] is None:
+        args['autofrequencyaverage'] = False
+    if args['mask_extended'] is None:
+        args['mask_extended'] = False
+    if args['multiscale'] is None:
+        args['multiscale'] = False   
+    if args['update_uvmin'] is None:
+        args['update_uvmin'] = False
+    if args['update_multiscale'] is None:
+        args['update_multiscale'] = False
 
     return longbaseline, LBA, HBAorLBA, freq, fitsmask, \
         maskthreshold_selfcalcycle, automaskthreshold_selfcalcycle, outtarname, telescope
@@ -16025,8 +16073,8 @@ def main():
     options = option_parser()
 
     # Temporary warning
-    if options.helperscriptspathh5merge is not None or options.helperscriptspath is not None:
-        print("WARNING: --helperscriptspath and --helperscriptspathh5merge are not being used anymore")
+    #if options.helperscriptspathh5merge is not None or options.helperscriptspath is not None:
+    #    print("WARNING: --helperscriptspath and --helperscriptspathh5merge are not being used anymore")
 
     # If a config file exists, then read the information. Priotise specified config over default.
     if os.path.isfile(options.configpath):
@@ -16055,7 +16103,7 @@ def main():
                 setattr(options, k, ast.literal_eval(v))
     global args
     args = vars(options)
-
+    
     with open("full_config.txt", "w") as file:
         for key, value in args.items():
             file.write(f"{key} = {value}\n")
@@ -16072,7 +16120,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.15.0'
+    facetselfcal_version = '17.16.0'
     print_title(facetselfcal_version)
 
 
@@ -16171,12 +16219,13 @@ def main():
         mslist = sorted(remove_flagged_data_startend(mslist))
 
     if args['auto'] and get_telescope_from_ms(mslist) == 'MeerKAT' and not args['DDE']:
-        args['removemostlyflaggedstations'] = True  # for MeerKAT auto remove mostly flagged stations
+        if args['removemostlyflaggedstations'] is None:  # not set by user, so we can decide based on auto settings
+            args['removemostlyflaggedstations'] = True  # for MeerKAT auto remove mostly flagged stations
 
     if not args['skipbackup']:  # work on copy of input data as a backup
         print('Creating a copy of the data and work on that....')
         mslist = average(mslist, freqstep=[1] * len(mslist), timestep=1, start=args['start'], makecopy=True,
-                         dysco=args['dysco'], useaoflagger=(args['useaoflagger'] and args['useaoflaggerbeforeavg']), 
+                         dysco=args['dysco'], aoflagger=(args['aoflagger'] and args['aoflaggerbeforeavg']), 
                          aoflagger_strategy=args['aoflagger_strategy'], metadata_compression=args['metadata_compression'],
                          msinnchan=args['msinnchan'], msinstartchan=args['msinstartchan'], msinntimes=args['msinntimes'], 
                          msinstarttimeslot=args['msinstarttimeslot'],
@@ -16190,8 +16239,8 @@ def main():
         args['removemostlyflaggedstations'] = False  # since we use it above set removemostlyflaggedstations to False now
         args['phaseshiftbox'] = None  # since we use it above set phaseshiftbox to None now
         args['flag_antenna_list'] = None  # since we use it above set flag_antenna_list to None now
-        if args['useaoflagger'] and args['useaoflaggerbeforeavg']:
-            args['useaoflagger'] = False # turn off now because we used it above    
+        if args['aoflagger'] and args['aoflaggerbeforeavg']:
+            args['aoflagger'] = False # turn off now because we used it above    
 
     # flag known bad frequencies for uGMRT data
     if args['start'] == 0: flag_uGMRT_badfreqs(mslist)
@@ -16202,7 +16251,7 @@ def main():
         fix_bad_weightspectrum(mslist, clipvalue=args['weightspectrum_clipvalue'])
 
     # extra flagging if requested
-    #if args['start'] == 0 and args['useaoflagger'] and args['useaoflaggerbeforeavg']:
+    #if args['start'] == 0 and args['aoflagger'] and args['aoflaggerbeforeavg']:
     #    runaoflagger(mslist, strategy=args['aoflagger_strategy'])
 
     # create Ateam plots
@@ -16249,7 +16298,7 @@ def main():
             if args['avgfreqstep'] is not None: 
                 avgfreqstep.append(args['avgfreqstep'])  # take over handpicked average value
             else:
-                if args['useaoflagger']: # so we also trigger if flagging is requested
+                if args['aoflagger']: # so we also trigger if flagging is requested
                     avgfreqstep.append(1) 
                 else:
                     avgfreqstep.append(0)  # put to zero, zero means no average
@@ -16264,7 +16313,7 @@ def main():
             logger.info("--compute-phasediffstat requested but no long-baselines in dataset.")
 
     # set once here, preserve original mslist in case --removeinternational was set
-    if args['removeinternational'] is not None:
+    if args['removeinternational']:
         # used for h5_merge add_ms_stations option
         mslist_beforeremoveinternational = mslist[:]  # copy by slicing otherwise list refers to original
     else:
@@ -16277,7 +16326,7 @@ def main():
                      start=args['start'], msinnchan=args['msinnchan'], msinstartchan=args['msinstartchan'],
                      phaseshiftbox=args['phaseshiftbox'], msinntimes=args['msinntimes'], msinstarttimeslot=args['msinstarttimeslot'],
                      dysco=args['dysco'], removeinternational=args['removeinternational'],
-                     removemostlyflaggedstations=args['removemostlyflaggedstations'], useaoflagger=args['useaoflagger'], aoflagger_strategy=args['aoflagger_strategy'], useaoflaggerbeforeavg=args['useaoflaggerbeforeavg'],
+                     removemostlyflaggedstations=args['removemostlyflaggedstations'], aoflagger=args['aoflagger'], aoflagger_strategy=args['aoflagger_strategy'], aoflaggerbeforeavg=args['aoflaggerbeforeavg'],
                      metadata_compression=args['metadata_compression'], flag_antennas=args['flag_antenna_list'])
 
     for ms in mslist:
@@ -16288,7 +16337,7 @@ def main():
         check_for_highmem_longsolint(mslist, args['facetdirections'])
 
     # extra flagging if requested
-    #if args['start'] == 0 and args['useaoflagger'] and not args['useaoflaggerbeforeavg']:
+    #if args['start'] == 0 and args['aoflagger'] and not args['aoflaggerbeforeavg']:
     #    runaoflagger(mslist, strategy=args['aoflagger_strategy'])
 
     # compute bandwidth smearing
@@ -16435,7 +16484,7 @@ def main():
         if (args['preapplybandpassH5_list'][0]) is not None and i == 0:
             preapply_bandpass(args['preapplybandpassH5_list'], mslist, dysco=args['dysco'], 
                               updateweights=args['preapplybandpassH5_updateweights'])
-            if args['useaoflagger_afterbandpassapply']:
+            if args['aoflagger_afterbandpassapply']:
                 aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_afterbandpassapply'], column='DATA')
             # write keyword to MS to indicate bandpass has been applied
             for ms in mslist:
@@ -16624,7 +16673,7 @@ def main():
         #  --- END IMAGING PART ---
 
         # RUN AOFLAGGER ON THE RESIDUAL DATA COLUMN IF REQUESTED
-        if i in args['useaoflagger_residualdata_selfcalcycle_list'] and args['useaoflagger_residualdata']:
+        if i in args['aoflagger_residualdata_selfcalcycle_list'] and args['aoflagger_residualdata']:
             create_residual_data_column(mslist, args['imagename'] + str(i).zfill(3), 
                                         args['pixelscale'], args['imsize'], 
                                         args['channelsout'], 
@@ -16676,7 +16725,7 @@ def main():
             return
 
         # RUN AOFLAGGER ON THE CORRECTED DATA COLUMN IF REQUESTED
-        if i in args['useaoflagger_correcteddata_selfcalcycle_list'] and args['useaoflagger_correcteddata']:
+        if i in args['aoflagger_correcteddata_selfcalcycle_list'] and args['aoflagger_correcteddata']:
             aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_correcteddata'], column='CORRECTED_DATA')
 
         # CHECK FOR HIGH DYNAMIC RANGE DATA AND ADJUST SETTINGS (DI-SOLVES ONLY)
