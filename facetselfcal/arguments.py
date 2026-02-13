@@ -223,12 +223,14 @@ def option_parser():
                                    help='Inner uv-cut for scalarphasediff calibration in lambda. The default is equal to input for --uvmin.',
                                    type=float,
                                    default=None)
-    calibrationparser.add_argument("--update-uvmin",
-                                   help='Update uvmin automatically for the Dutch array.',
-                                   action='store_true')
-    calibrationparser.add_argument("--update-multiscale",
-                                   help='Switch to multiscale automatically if large islands of emission are present.',
-                                   action='store_true')
+    add_bool_arg(calibrationparser, 'update-uvmin', help='Update uvmin automatically for the Dutch array.', default=None)
+    #calibrationparser.add_argument("--update-uvmin",
+    #                               help='Update uvmin automatically for the Dutch array.',
+    #                               action='store_true')
+    add_bool_arg(calibrationparser, 'update-multiscale', help='Switch to multiscale automatically if large islands of emission are present.', default=None)
+    #calibrationparser.add_argument("--update-multiscale",
+    #                               help='Switch to multiscale automatically if large islands of emission are present.',
+    #                               action='store_true')
     calibrationparser.add_argument("--soltype-list",
                                    type=arg_as_list,
                                    default=['tecandphase', 'tecandphase', 'scalarcomplexgain'],
@@ -475,15 +477,15 @@ def option_parser():
 
 
     # AOflagger settings
-    add_bool_arg(flaggingparser, 'aoflagger', help='Run AOflagger on input data.', default=None)
+    add_bool_arg(flaggingparser, 'aoflagger', help='Run AOflagger on input data.', default=None, second_name='useaoflagger')
     add_bool_arg(flaggingparser, 'aoflaggerbeforeavg',
                                 help='Flag with AOflagger before averaging. The default is True.',
                                 default=True)
-    add_bool_arg(flaggingparser, 'aoflagger-correcteddata', default=None,
+    add_bool_arg(flaggingparser, 'aoflagger-correcteddata', default=None, second_name='useaoflagger-correcteddata',
                                 help='Run AOflagger on the CORRECTED_DATA column after calibration.')
-    add_bool_arg(flaggingparser, 'aoflagger-residualdata', default=None,
+    add_bool_arg(flaggingparser, 'aoflagger-residualdata', default=None, second_name='useaoflagger-residualdata',
                                 help='Run AOflagger on the RESIDUAL_DATA column.')
-    add_bool_arg(flaggingparser, 'aoflagger-afterbandpassapply', default=None,
+    add_bool_arg(flaggingparser, 'aoflagger-afterbandpassapply', default=None, second_name='useaoflagger-afterbandpassapply',
                                 help='Run AOflagger on DATA column after preapply bandpass solution.')
 
     #flaggingparser.add_argument('--useaoflagger',
@@ -729,9 +731,12 @@ def option_parser():
     return parser.parse_args()
 
 
-def add_bool_arg(parser, name, help, default=None):
+def add_bool_arg(parser, name, help, default=None, second_name=None):
     group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument('--' + name, dest=name.replace('-', '_'), action='store_true', help=help)
+    if second_name is not None:
+        group.add_argument('--' + name, '--' + second_name, dest=name.replace('-', '_'), action='store_true', help=help)
+    else:
+        group.add_argument('--' + name, dest=name.replace('-', '_'), action='store_true', help=help)
     group.add_argument('--no-' + name, dest=name.replace('-', '_'), action='store_false', help='Disable/set to False ' + name)
     parser.set_defaults(**{name.replace('-', '_'):default})
 
