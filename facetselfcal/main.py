@@ -14968,16 +14968,19 @@ def basicsetup(mslist):
         args['niter'] = niter_from_imsize(args['imsize'], args['paralleldeconvolution'])
 
     if args['auto'] and telescope == 'LOFAR' and not longbaseline:
-        args['update_uvmin'] = True
+        if args['update_uvmin'] is None: # so not set by user, so we can set it to True in auto
+            args['update_uvmin'] = True
         args['usemodeldataforsolints'] = True
         args['forwidefield'] = True
-        args['autofrequencyaverage'] = True
+        if args['autofrequencyaverage'] is None: # so not set by user, so we can set it to True in auto
+            args['autofrequencyaverage'] = True
         if args['start'] == 0 and args['stop'] is None:
             args['stop'] = 10
         if LBA:
             args['BLsmooth_list'] = [True] * len(args['soltype_list'])
         else:
-            args['update_multiscale'] = True  # HBA only
+            if args['update_multiscale'] is None: # so not set by user, so we can set it to True in auto
+                args['update_multiscale'] = True  # HBA only
             if args['autofrequencyaverage_calspeedup']:
                 args['soltypecycles_list'] = [0, 999, 2]
                 if args['start'] == 0 and args['stop'] is None:
@@ -15106,7 +15109,8 @@ def basicsetup(mslist):
         args['forwidefield'] = True
         if args['autofrequencyaverage'] is None: # so not set by user, so we can set it to True in auto
             args['autofrequencyaverage'] = True
-        args['update_multiscale'] = True
+        if args['update_multiscale'] is None: # so not set by user, so we can set it to True in auto
+            args['update_multiscale'] = True
         if args['start'] == 0 and args['stop'] is None:
             args['stop'] = 10
         args['soltypecycles_list'] = [0, 3]
@@ -15242,7 +15246,11 @@ def basicsetup(mslist):
     if args['mask_extended'] is None:
         args['mask_extended'] = False
     if args['multiscale'] is None:
-        args['multiscale'] = False    
+        args['multiscale'] = False   
+    if args['update_uvmin'] is None:
+        args['update_uvmin'] = False
+    if args['update_multiscale'] is None:
+        args['update_multiscale'] = False
 
     return longbaseline, LBA, HBAorLBA, freq, fitsmask, \
         maskthreshold_selfcalcycle, automaskthreshold_selfcalcycle, outtarname, telescope
