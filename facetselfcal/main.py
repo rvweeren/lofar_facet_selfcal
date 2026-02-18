@@ -125,8 +125,8 @@ def fix_GMRT_weights(mslist):
     
     for ms in mslist:
         print('Fixing RL and LR weights in MS', ms)
-        run("taql" + " 'update " + ms + " set WEIGHT_SPECTRUM[,1]=WEIGHT_SPECTRUM[,0]'") # set RL weights to RR weights
-        run("taql" + " 'update " + ms + " set WEIGHT_SPECTRUM[,2]=WEIGHT_SPECTRUM[,3]'") # set LR weights to LL weights
+        run("taql" + " 'update " + ms + " set WEIGHT_SPECTRUM[,1]=WEIGHT_SPECTRUM[,0]'", taql=True) # set RL weights to RR weights
+        run("taql" + " 'update " + ms + " set WEIGHT_SPECTRUM[,2]=WEIGHT_SPECTRUM[,3]'", taql=True) # set LR weights to LL weights
     return
 
 def fix_time_axis_gmrt(mslist):
@@ -515,7 +515,7 @@ def split_columns(ms, outms, column='CORRECTED_DATA'):
            SCAN_NUMBER,STATE_ID,TIME,TIME_CENTROID,UVW,ANTENNA1,ANTENNA2,FLAG,\
            WEIGHT_SPECTRUM,{} from {} giving {} as plain'".format(column, ms, outms)   
     print(cmd)
-    run(cmd)
+    run(cmd, taql=True)
     return
 
 def split_multidir_ms(ms, field_names=None):
@@ -558,7 +558,7 @@ def split_multidir_ms(ms, field_names=None):
             os.system('rm -rf {}'.format(outname))
         cmd = "taql 'select from {} where FIELD_ID=={} giving {} as plain'".format(ms, field_id, outname)       
         print(cmd)
-        run(cmd)
+        run(cmd, taql=True)
 
         taql("delete from {} where rownr() not in (select distinct FIELD_ID from {})".format(outname+'/FIELD', outname))
 
@@ -1393,7 +1393,7 @@ def flag_antenna_taql(ms, antennaname):
         cmd += "::ANTENNA WHERE NAME=\"" + ant + "\") OR ANTENNA2 IN "
         cmd += "(SELECT ROWID() FROM " + ms + "::ANTENNA WHERE NAME=\"" + ant + "\")' "
         print(cmd)
-    run(cmd)
+    run(cmd, taql=True)
     return
 
 
@@ -1437,7 +1437,7 @@ def fix_uvw(mslist):
     for ms in mslist:
         cmd = "taql 'update " + ms + " set UVW=(-1.)*(mscal.UVWJ2000())'"
         print(cmd)
-        run(cmd)
+        run(cmd, taql=True)
     return
 
 def get_image_dynamicrange(image):
@@ -2225,7 +2225,7 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
             H5s_files_clean.append(f'wsclean_concat_{g}.h5')
         if concatms:
             print(f'taql select from {group} giving wsclean_concat_{g}.ms as plain')
-            run(f'taql select from {group} giving wsclean_concat_{g}.ms as plain')
+            run(f'taql select from {group} giving wsclean_concat_{g}.ms as plain', taql=True)
         MSs_files_clean.append(f'wsclean_concat_{g}.ms')
 
     # MSs_files_clean = ' '.join(MSs_files_clean)
@@ -3192,7 +3192,7 @@ def check_equidistant_freqs(mslist):
     return
 
 
-def run(command, log=False):
+def run(command, log=False, taql=False):
     """ 
     Execute a shell command through subprocess
 
@@ -3204,11 +3204,22 @@ def run(command, log=False):
     if log:
         print(command)
         logger.info(command)
-    process = subprocess.run(command, shell=True,
-                            stderr=subprocess.STDOUT, encoding="utf-8")
+    if taql:
+         process = subprocess.run(command, shell=True, capture_output=True,
+                                  encoding="utf-8")
+    else:
+        process = subprocess.run(command, shell=True,
+                                 stderr=subprocess.STDOUT, encoding="utf-8")
     retval = process.returncode
     #stdout = process.stdout
     stderr = process.stderr
+
+    if taql: # to catch the error in taql which does not give a non-zero return value but instead writes "Error" in the output
+        if "Error" in stderr:
+            print("FAILED to run", command)
+            print("stderr is", stderr)
+            raise Exception(command)
+
     if retval!= 0:
         print("FAILED to run", command)
         print("return value is", retval)
@@ -3244,7 +3255,7 @@ def fix_zero_weight_spectrum(mslist):
             print('Fixing WEIGHT_SPECTRUM manually', ms)
             cmdtaql = 'taql "update %s set WEIGHT_SPECTRUM=1.0"' % ms
             #print('Running command:', cmdtaql)
-            run(cmdtaql, log=True) 
+            run(cmdtaql, log=True, taql=True) 
 
 def fix_bad_weightspectrum(mslist, clipvalue):
     """ 
@@ -3438,7 +3449,7 @@ def remove_flagged_data_startend(mslist):
             cmd += " limit " + str((goodendid - goodstartid)) + ") giving "
             cmd += msout + " as plain'"
             print(cmd)
-            run(cmd)
+            run(cmd, taql=True)
             mslistout.append(msout)
         else:
             mslistout.append(ms)
@@ -3506,7 +3517,7 @@ def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
         parmdb = time_match_mstoH5(H5filelist, ms)
         applycal(ms, parmdb, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=dysco)
         if updateDATA:
-            run("taql 'update " + ms + " set DATA=CORRECTED_DATA'")
+            run("taql 'update " + ms + " set DATA=CORRECTED_DATA'", taql=True)
     return
 
 
@@ -5415,14 +5426,14 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
         # cmd += outcol + "[,1]=0+0i,"
         # cmd += outcol + "[,2]=0+0i'"
         print(cmd)
-        run(cmd)
+        run(cmd, taql=True)
         cmd = "taql 'update " + ms + " set "
         # cmd += outcol + "[,0]=0.5*EXP(1.0i*(PHASE(" + incol + "[,0])-PHASE(" + incol + "[,3]))),"
         cmd += outcol + "[,3]=" + outcol + "[,0]'"
         # cmd += outcol + "[,1]=0+0i,"
         # cmd += outcol + "[,2]=0+0i'"
         print(cmd)
-        run(cmd)
+        run(cmd, taql=True)
     return
 
 
@@ -5598,7 +5609,7 @@ def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
         #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
         # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
         nchan = len(get_frequencies_from_ms(ms))
-        run("taql 'update " + ms + " set MODEL_DATA_PDIFF=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True)
+        run("taql 'update " + ms + " set MODEL_DATA_PDIFF=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
 
 
 def fulljonesparmdb(h5):
@@ -6528,7 +6539,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
         # copy back from temporary column to original column with taql
         taql_cmd = f"taql 'UPDATE {ms} SET {msoutcol_orig} = {msoutcol}'"
         print('Copying back from temporary column to original column with taql:', taql_cmd)
-        run(taql_cmd, log=True)
+        run(taql_cmd, log=True, taql=True)
         # remove temporary column
         remove_column_ms(ms, msoutcol)
     return
@@ -8976,7 +8987,7 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
         cmd += msout + " as plain'"
 
         print(cmd)
-        run(cmd)
+        run(cmd, taql=True)
 
         os.system('rm -rf ' + ms)
         time.sleep(2)  # give some time to remove the MS
@@ -11164,7 +11175,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
                     #run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
                     nchan = len(get_frequencies_from_ms(ms))
-                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], shape=[" + str(nchan) + ",4])'", log=True)
+                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
 
             
                 if skymodelpointsource is not None and type(skymodelpointsource) is list:
@@ -11180,7 +11191,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
                     # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
                     nchan = len(get_frequencies_from_ms(ms))
-                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource[ms_id]) + "+0i,0+0i,0+0i," + str(skymodelpointsource[ms_id]) + "+0i], shape=[" + str(nchan) + ",4])'", log=True)
+                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource[ms_id]) + "+0i,0+0i,0+0i," + str(skymodelpointsource[ms_id]) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
 
         # do the stack and normalization
         # mslist_stacked = stacked MS (one per common time axis / timestack); mss_timestacks = list of MSs that were used to create each stack
@@ -11204,7 +11215,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             #run(f"taql 'update {ms} set MODEL_DATA[,2]=(0+0i)'", log=True)
             # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
             nchan = len(get_frequencies_from_ms(ms))
-            run(f"taql 'update {ms} set MODEL_DATA=array([1.0+0i,0+0i,0+0i,1.0+0i], shape=[{nchan},4])'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA=array([1.0+0i,0+0i,0+0i,1.0+0i], [{nchan},4])'", log=True, taql=True)
 
 
         # set all these to None to avoid skymodel predicts in runDPPPbase()
@@ -11556,7 +11567,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
         # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
         nchan_taql = len(get_frequencies_from_ms(ms))       
-        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], shape=[" + str(nchan_taql) + ",4])'", log=True) 
+        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan_taql) + ",4])'", log=True, taql=True) 
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
         # PM means point source model adjusted weights
@@ -11608,7 +11619,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if restoreflags:
         cmdtaql = "'update " + ms + " set FLAG=FLAG_BACKUP'"
         print("Restore flagging column: " + "taql " + cmdtaql)
-        run("taql " + cmdtaql)
+        run("taql " + cmdtaql, taql=True)
 
     t = table(ms + '/SPECTRAL_WINDOW', ack=False)
     freq = np.median(t.getcol('CHAN_FREQ')[0])
@@ -12400,8 +12411,8 @@ def create_splitted_ms(ms, columns_to_create, solve_msinnchan, solve_msinstartch
                         dysco=dysco, metadata_compression=metadata_compression)[0]
     
     # set DATA XY and YX to zero to avoid error from the Stokes-I storageManager
-    run("taql" + " 'update " + ms_tmp + " set DATA[,1]=(0+0i)'")
-    run("taql" + " 'update " + ms_tmp + " set DATA[,2]=(0+0i)'")
+    run("taql" + " 'update " + ms_tmp + " set DATA[,1]=(0+0i)'", taql=True)
+    run("taql" + " 'update " + ms_tmp + " set DATA[,2]=(0+0i)'", taql=True)
     
     for col in columns_to_create:                  
         cmdcol = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), ncpu_max])) + \
@@ -13437,7 +13448,7 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
             taqlcmd = "taql" + " 'update " + ms + " set " + modelcol.replace("+", "\\+") + "=" + colstr + "'"
             print(taqlcmd)
             if not dryrun:
-                run(taqlcmd)
+                run(taqlcmd, taql=True)
 
     # create new column name MODEL_DATA_DDX+Y+Z with DP3
     # fill this column with taql
@@ -16278,7 +16289,7 @@ def main():
     if args['resetweights']:
         for ms in mslist:
             cmd = "'update " + ms + " set WEIGHT_SPECTRUM=WEIGHT_SPECTRUM_SOLVE'"
-            run("taql " + cmd)
+            run("taql " + cmd, taql=True)
 
     # SETUP VARIOUS PARAMETERS
     longbaseline, LBA, HBAorLBA, freq, fitsmask, maskthreshold_selfcalcycle, \
