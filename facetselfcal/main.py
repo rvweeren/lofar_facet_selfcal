@@ -516,6 +516,7 @@ def split_columns(ms, outms, column='CORRECTED_DATA'):
            WEIGHT_SPECTRUM,{} from {} giving {} as plain'".format(column, ms, outms)   
     print(cmd)
     run(cmd, taql=True)
+    fix_uvws([outms])
     return
 
 def split_multidir_ms(ms, field_names=None):
@@ -2051,6 +2052,7 @@ def bda_mslist(mslist, pixsize, imsize, dryrun=False, metadata_compression=True)
                 os.system('rm -rf ' + ms + '.bda')
             run(cmd)
         bda_mslist.append(ms + '.bda')
+    fix_uvw(bda_mslist)
     return bda_mslist
 
 def getAntennas(ms):
@@ -2232,7 +2234,7 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
 
     # print('Use the following ms files as input in wsclean:')
     # print(MSs_files_clean)
-
+    fix_uvw(MSs_files_clean)
     return MSs_files_clean, H5s_files_clean
 
 def max_in_str(s):
@@ -3045,6 +3047,7 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True, met
             if os.path.isdir(msoutconcat):
                 os.system('rm -rf ' + msoutconcat)
         run(cmd, log=False)
+        fix_uvw([msoutconcat])
     return
 
 
@@ -3453,6 +3456,7 @@ def remove_flagged_data_startend(mslist):
             mslistout.append(msout)
         else:
             mslistout.append(ms)
+    fix_uvws(mslistout)
     return mslistout
 
 
@@ -6534,6 +6538,8 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
 
     print('DP3 applycal:', cmd)
     run(cmd, log=True)
+    if msout != '.':
+        fix_uvw([msout])
     
     if msincol == msoutcol_orig and msout == '.' and modelstoragemanager == 'sisco':
         # copy back from temporary column to original column with taql
@@ -8988,7 +8994,7 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
 
         print(cmd)
         run(cmd, taql=True)
-
+        fix_uvw([msout])
         os.system('rm -rf ' + ms)
         time.sleep(2)  # give some time to remove the MS
         os.system('mv ' + msout + ' ' + ms)
@@ -9054,6 +9060,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True, metadata_comp
         cmd += 'msin.endtime=' + endtime + ' '
     print(cmd)
     run(cmd)
+    fix_uvw([ms + '.cut'])
 
     cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cuttmp '
     if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
@@ -9067,6 +9074,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True, metadata_comp
         cmd += 'msin.endtime=' + endtime + ' '
     print(cmd)
     run(cmd)
+    fix_uvw([ms + '.cuttmp'])
 
     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
     print('Adding WEIGHT_SPECTRUM_SOLVE')
@@ -9148,6 +9156,9 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
             cmd += 'msout.antennacompression=False '
             cmd += 'msout.scalarflags=False '
         run(cmd)
+        # fix MeerKAT UVW coordinates (needs to be done each time we create a new MS)
+        fix_uvw([msout]) 
+   
 
     imagename_pb = imagename.replace('.fits', '-pb.fits')
     
@@ -13876,6 +13887,8 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
             cmd += 'msout.storagemanager.weightbitrate=16 '
         print('DP3 applycal/polconv:', cmd)
         run(cmd, log=True)
+        if msout != '.':
+            fix_uvw([msout])
         if msout == '.':
             # run(taql + " 'update " + ms + " set DATA=CORRECTED_DATA'")
             cmdcopycolumn = "DP3 msin=" + ms + " msout=. msin.datacolumn=CORRECTED_DATA msout.datacolumn=DATA steps=[]"
