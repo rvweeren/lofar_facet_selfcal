@@ -6038,8 +6038,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
         if (int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep is not None) or (
                 msinnchan is not None) or \
                 (phaseshiftbox is not None) or (msinntimes is not None) or (msinstarttimeslot is not None) \
-                or removeinternational or removemostlyflaggedstations:  # if this is True then average
-
+                or removeinternational or removemostlyflaggedstations or aoflagger:  # if this is True then average
+            
             # set this first, change name if needed below
             msout = ms + '.avg'
             if makecopy:
@@ -6246,7 +6246,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 
     # fix MeerKAT UVW coordinates (needs to be done each time we average with DP3)
     fix_uvw(outmslist) 
-   
+
     return outmslist
 
 
@@ -16368,6 +16368,7 @@ def main():
     # SETUP VARIOUS PARAMETERS
     longbaseline, LBA, HBAorLBA, freq, fitsmask, maskthreshold_selfcalcycle, \
         automaskthreshold_selfcalcycle, outtarname, telescope = basicsetup(mslist)
+
 
     # SET MODEL STORAGE MANAGER
     args['modelstoragemanager'] = set_modelstoragemanager(telescope)
