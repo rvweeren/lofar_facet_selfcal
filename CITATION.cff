@@ -5,13 +5,13 @@ authors:
     given-names: Reinout J.
     orcid: https://orcid.org/0000-0002-0587-1660
 title: "facetselfcal"
-version: 17.16.0
+version: 18.0.0
 identifiers:
   - type: doi
     value: 10.1051/0004-6361/202039826
 doi: 10.1051/0004-6361/202039826
 license:
 - cc-by-4.0
-date-released: 2025-02-23
+date-released: 2025-03-02
 type: software
 repository-code: https://github.com/rvweeren/lofar_facet_selfcal

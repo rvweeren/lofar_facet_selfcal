@@ -1649,7 +1649,7 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
                 matchging_h5 = hsol
         parmdb_merge_list.append(matchging_h5)
         print('separation direction entry and h5 entry is:', distance, matchging_h5)
-        assert abs(distance) < 0.00001  # there should always be a close to perfect match
+        assert abs(distance) < 0.1/3600  # there should always be a close to perfect match (0.1arcsec)
 
     merge_h5(h5_out=parmdb_out, h5_tables=parmdb_merge_list, propagate_weights=True, convert_tec=False)
 
@@ -2039,6 +2039,9 @@ def bda_mslist(mslist, pixsize, imsize, dryrun=False, metadata_compression=True)
     """
     bda_mslist = []
     for ms in mslist:
+        if not dryrun:
+            # fix uwv definition if needed (for MeerKAT data) in case of standalone usage of this function
+            fix_uvw([ms])
         cmd = 'DP3 msin=' + ms + ' steps=[bda] bda.type=bdaaverage msout=' + ms + '.bda '
         cmd += 'bda.maxinterval=300 '
         cmd += 'bda.timebase=' + str(timebase(imsize*pixsize/3600.,ms)) + ' '
@@ -4326,17 +4329,20 @@ def write_facet_directions(catalogfile, freq, facetdirections = 'directions.txt'
     selfcalcycle = 0 # hard coded at zero is ok
     
     if telescope == 'LOFAR':
-        solints_bright = ["'32sec'", "'2min'", "'10min'","'192sec'"]
-        solints = ["'32sec'", "'2min'", "'20min'","'192sec'"]
-        smoothing_bright = [10,25,5,25]
-        smoothing = [10,25,15,25]
-        N_bright = 4 # first N_bright get less smoothness and solint
-        N_normal = 45 # beyond this we have pertubative directions
-        N_amps   = 35 # directions for scalarcomplexgain solve
+        # HBA Dutch settings
+        solints_vbright = ["'16sec'", "'5min'","'192sec'","'60min'"]
+        solints_bright = ["'32sec'", "'10min'","'192sec'","'60min'"]
+        solints = ["'32sec'", "'20min'","'192sec'","'60min'"]
+        smoothing_vbright = [10, 2, 35, 10]
+        smoothing_bright = [25, 5, 35, 15]
+        smoothing = [50, 15, 35, 50]
+        #N_bright = 4 # first N_bright get less smoothness and solint
+        #N_normal = 45 # beyond this we have pertubative directions
+        #N_amps   = 35 # directions for scalarcomplexgain solve
         
         inclusion_flags = [True,True,True,True]
-        inclusion_flags_no_amps = [True,True,False,True]
-        inclusion_flags_pert = [False,False,False,True]
+        inclusion_flags_no_amps = [True,False,True,False]
+        inclusion_flags_pert = [False,False,True,False]
     elif telescope == 'MeerKAT':
         solints_vbright = ["'32sec'", "'5min'"]
         solints_bright = ["'32sec'", "'10min'"]
@@ -4366,18 +4372,39 @@ def write_facet_directions(catalogfile, freq, facetdirections = 'directions.txt'
         f.write('#RA DEC start solints smoothness soltypelist_includedir\n')
         for source_counter,source in enumerate(catalog):
             if telescope == 'LOFAR':
-                if source_counter < N_bright: 
-                    smoothnessvals = smoothing_bright
+                # use AFLUX to determine very bright sources
+                if source['AFLUX'] > 5.0*((freq/144e6)**(-0.7)): # very bright source
+                    smoothnessvals = smoothing_vbright
+                    solintvals    = solints_vbright
+                    inclusion_flagsvals = inclusion_flags 
+                elif source['AFLUX'] > 0.6*((freq/144e6)**(-0.7)): # bright source
+                    smoothnessvals = smoothing_bright  
                     solintvals    = solints_bright
-                else:
-                    smoothnessvals = smoothing
-                    solintvals = solints
-                if source_counter < N_amps:
-                    inclusion_flagsvals = inclusion_flags # include all solve types
-                elif source_counter >= N_amps and source_counter < N_normal: 
-                    inclusion_flagsvals = inclusion_flags_no_amps # skip amp solving, but include first phases
-                else:
-                    inclusion_flagsvals = inclusion_flags_pert # pertubative phases only
+                    inclusion_flagsvals = inclusion_flags
+                elif source['AFLUX'] > 0.25*((freq/144e6)**(-0.7)): # normal source
+                    smoothnessvals = smoothing  
+                    solintvals    = solints
+                    inclusion_flagsvals = inclusion_flags
+                elif source['AFLUX'] > 0.12*((freq/144e6)**(-0.7)): # somewhat faint source (do not solve for scalarcomplex gains, but do solve for phases)
+                    smoothnessvals = smoothing  
+                    solintvals    = solints
+                    inclusion_flagsvals = inclusion_flags_no_amps
+                else: # faint source
+                    smoothnessvals = smoothing # does not matter because we only do pertubative phases, but keep it the same as normal sources for consistency  
+                    solintvals    = solints # does not matter because we only do pertubative phases, but keep it the same as normal sources for consistency
+                    inclusion_flagsvals = inclusion_flags_pert
+                #if source_counter < N_bright: 
+                #    smoothnessvals = smoothing_bright
+                #    solintvals    = solints_bright
+                #else:
+                #    smoothnessvals = smoothing
+                #    solintvals = solints
+                #if source_counter < N_amps:
+                #    inclusion_flagsvals = inclusion_flags # include all solve types
+                #elif source_counter >= N_amps and source_counter < N_normal: 
+                #    inclusion_flagsvals = inclusion_flags_no_amps # skip amp solving, but include first phases
+                #else:
+                #    inclusion_flagsvals = inclusion_flags_pert # pertubative phases only
             elif telescope == 'MeerKAT':
                 # use AFLUX to determine very bright sources
                 if source['AFLUX'] > 0.25*((freq/1.28e9)**(-0.7)): # very bright source
@@ -4474,7 +4501,7 @@ def add_peak_total_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.
     new_catalog.write(catalogfile, format='fits', overwrite=True)
     return
 
-def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, idg=None, channelsout=None):
+def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, telescope=None, imagename=None, idg=None, channelsout=None):
     """
     Automatically determines and processes calibration directions for self-calibration cycles.
     Parameters:
@@ -4484,6 +4511,10 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
         artifact catalog creation and filtering.
     freq : float, optional
         The frequency in Hz (default is 150e6 Hz). Used for solution setting purposes.
+    pixelscale : float, optional
+        The pixel scale in arcsec (default is None). If provided, it overrides the global `args` dictionary for standalone usage. Default is None.
+    imsize : int, optional
+        The image size in pixels (default is None). If provided, it overrides the global `args` dictionary for standalone usage. Default is None.
     telescope : str, optional
         The name of the telescope (not used in current implementation). Default is None.   
     imagename : str, optional
@@ -4532,54 +4563,60 @@ def auto_direction(selfcalcycle=0, freq=150e6, telescope=None, imagename=None, i
         args |= {'idg': idg}
     if channelsout is not None:
         args |= {'channelsout': channelsout}
+    if pixelscale is not None:
+        args |= {'pixelscale': pixelscale}    
+    if imsize is not None:
+        args |= {'imsize': imsize}
+
+    imaged_area = ((args['pixelscale']/3600.)*float(args['imsize']))**2 # in sqaure degrees
 
     if telescope == 'LOFAR':
         thresh_pix = 7.5
         thresh_isl = 7.5
         if selfcalcycle == 0:
-            keep_N_brightest = 15
+            keep_N_brightest = 15 
             distance = 20
-            N_dir_max = 15
+            N_dir_max = int(np.round((15.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
         if selfcalcycle == 1:
             keep_N_brightest = 20 
             distance = 20
-            N_dir_max = 25
+            N_dir_max = int(np.round((25.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
         if selfcalcycle == 2:
             keep_N_brightest = 30
             distance = 15
-            N_dir_max = 35
+            N_dir_max = int(np.round((35.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
         if selfcalcycle == 3:
             keep_N_brightest = 40   
             distance = 15
-            N_dir_max = 45
+            N_dir_max = int(np.round((45.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
         if selfcalcycle == 4:
             keep_N_brightest = 40   
             distance = 15
-            N_dir_max = 45
+            N_dir_max = int(np.round((45.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
         if selfcalcycle == 5:
             keep_N_brightest = 50   
             distance = 10
-            N_dir_max = 60
+            N_dir_max = int(np.round((60.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
         if selfcalcycle == 6:
             keep_N_brightest = 60   
             distance = 10
-            N_dir_max = 70
+            N_dir_max = int(np.round((70.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
         if selfcalcycle == 7:
             keep_N_brightest = 70   
             distance = 10
-            N_dir_max = 80
+            N_dir_max = int(np.round((80.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
         if selfcalcycle == 8:
             keep_N_brightest = 80   
             distance = 10
-            N_dir_max = 90
+            N_dir_max = int(np.round((90.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
         if selfcalcycle == 9:
             keep_N_brightest = 90   
             distance = 10
-            N_dir_max = 100
+            N_dir_max = int(np.round((100.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
         if selfcalcycle >= 10:
             keep_N_brightest = 100   
             distance = 10
-            N_dir_max = 100
+            N_dir_max = int(np.round((100.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
     elif telescope == 'MeerKAT':
         thresh_pix = 4.5 # MeerKAT smaller artifacts, so use lower thresholds
         thresh_isl = 4.5      
@@ -5815,7 +5852,7 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
     return msoutlist
 
 
-def findfreqavg(ms, imsize, bwsmearlimit=1.0):
+def findfreqavg(ms, imsize, bwsmearlimit=1.0, msinnchan=None):
     """ Find the frequency averaging factor for a Measurement Set given a bandwidth smearing constraint.
 
     Args:
@@ -5828,8 +5865,11 @@ def findfreqavg(ms, imsize, bwsmearlimit=1.0):
     with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
         bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), float(imsize), verbose=False)
         nfreq = len(t.getcol('CHAN_FREQ')[0])
+    
+    if msinnchan is not None:
+        nfreq = msinnchan
+    
     avgfactor = 0
-
     for count in range(2, 21):  # try average values between 2 to 20
         if bwsmear < (bwsmearlimit / float(count)):  # factor X avg
             if nfreq % count == 0:
@@ -6001,8 +6041,8 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
         if (int(''.join([i for i in str(freqstep[ms_id]) if i.isdigit()])) > 0) or (timestep is not None) or (
                 msinnchan is not None) or \
                 (phaseshiftbox is not None) or (msinntimes is not None) or (msinstarttimeslot is not None) \
-                or removeinternational or removemostlyflaggedstations:  # if this is True then average
-
+                or removeinternational or removemostlyflaggedstations or aoflagger:  # if this is True then average
+            
             # set this first, change name if needed below
             msout = ms + '.avg'
             if makecopy:
@@ -6209,7 +6249,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 
     # fix MeerKAT UVW coordinates (needs to be done each time we average with DP3)
     fix_uvw(outmslist) 
-   
+
     return outmslist
 
 
@@ -9145,9 +9185,10 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
         if os.path.isdir(msout):
             os.system('rm -rf ' + msout)
             time.sleep(2)  # give it some time to remove
-        cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msout=' + msout + ' '
+        cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msout=' + msout + ' steps=[] '
         if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
-        cmd += 'msin.datacolumn=CORRECTED_DATA steps=[] '
+        if not args['DDE']: # this works for DDE solves because then the default is DATA
+            cmd += 'msin.datacolumn=CORRECTED_DATA '
         if dysco:
             cmd += 'msout.storagemanager=dysco '
             cmd += 'msout.storagemanager.weightbitrate=16 '
@@ -11462,14 +11503,14 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
 
         # plot merged solution file
-        print('single_pol_merge',single_pol_merge)
+        # print('single_pol_merge',single_pol_merge)
         losotoparset = create_losoto_flag_apgridparset(ms, flagging=False,
                                                        medamp=get_median_amp(parmdbmergename),
                                                        outplotname=
                                                        parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0],
                                                        refant=findrefant_core(parmdbmergename, telescope=telescope),
                                                        fulljones=fulljonesparmdb(parmdbmergename),
-                                                       onepol=single_pol_merge)
+                                                       onepol=is_scalar_array_for_wsclean([parmdbmergename]))
         run('losoto ' + parmdbmergename + ' ' + losotoparset)
         force_close(parmdbmergename)
 
@@ -14925,7 +14966,10 @@ def basicsetup(mslist):
     if type(args['uvminim']) is not list:
         if args['uvminim'] is None:
             if telescope == 'LOFAR':
-                args['uvminim'] = 80.
+                if args['DDE']:
+                    args['uvminim'] = 10.  # for DDE we want to go to smaller scales
+                else:
+                    args['uvminim'] = 80.  # the default since a long time so keep it for now, but could be reduced for HBA in the future 
             else:
                 args['uvminim'] = 10.  # MeerKAT for example
 
@@ -14986,7 +15030,7 @@ def basicsetup(mslist):
         elif args['imsize'] > 1600 and telescope == 'GMRT':
             args['paralleldeconvolution'] = 1200
         elif args['imsize'] > 1600: 
-            args['paralleldeconvolution'] =  np.min([2400, int(args['imsize'] / 2)])
+            args['paralleldeconvolution'] =  np.min([1800, int(args['imsize'] / 2)])
 
     if args['niter'] is None:
         args['niter'] = niter_from_imsize(args['imsize'], args['paralleldeconvolution'])
@@ -15009,6 +15053,27 @@ def basicsetup(mslist):
                 args['soltypecycles_list'] = [0, 999, 2]
                 if args['start'] == 0 and args['stop'] is None:
                     args['stop'] = 8
+        if args['DDE']:
+            args['usemodeldataforsolints'] = False
+            args['auto_directions'] = True
+            args['mask_extended'] = True   
+            if args['mask_extended'] is None: # so not set by user, so we can set it to True in auto
+                args['mask_extended'] = True 
+            if args['update_multiscale'] is None: # so not set by user, so we can set it to True in auto
+                args['update_multiscale'] = False  # always use multiscale for DDE if not set by user
+            if args['multiscale'] is None: # so not set by user, so we can set it to True in auto
+                args['multiscale'] = True
+            args['multiscale_start'] = 0
+            args['soltypecycles_list'] = [0, 2, 4, 999]
+            args['soltype_list'] = ['scalarphase', 'scalarcomplexgain', 'scalarphase', 'scalarcomplexgain'] 
+            args['solint_list']  = ["'32sec'","'20min'","'192sec'","'60min'"]
+            args['smoothnessconstraint_list'] = [25,15,25,15]
+         
+            args['antenna_averaging_factors_list'] = ['superterp:8,corebutsuperterp:4,closeremote:2,mediumremote:1,distantremote:1',None,None,None]
+            args['antenna_smoothness_factors_list'] = ['core:1,remote:0.5',None,None,None]
+            args['antennaconstraint_list'] = [None,None,'core',None]
+            args['forwidefield'] = True
+
 
     if args['auto'] and telescope == 'MeerKAT':
         if isinstance(args['channelsout'], str) and args['channelsout'] == 'auto':
@@ -16144,9 +16209,8 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '17.16.0'
+    facetselfcal_version = '18.0.0'
     print_title(facetselfcal_version)
-
 
     # copy h5s locally
     for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
@@ -16308,6 +16372,7 @@ def main():
     longbaseline, LBA, HBAorLBA, freq, fitsmask, maskthreshold_selfcalcycle, \
         automaskthreshold_selfcalcycle, outtarname, telescope = basicsetup(mslist)
 
+
     # SET MODEL STORAGE MANAGER
     args['modelstoragemanager'] = set_modelstoragemanager(telescope)
     #args['modelstoragemanager'] = 'sisco' # TEMPORARY OVERRIDE FOR TESTING
@@ -16317,7 +16382,7 @@ def main():
     for ms in mslist:
         if args['avgfreqstep'] is None and args['autofrequencyaverage'] and not LBA \
                 and not args['autofrequencyaverage_calspeedup']:  # autoaverage
-            avgfreqstep.append(findfreqavg(ms, float(args['imsize'])))
+            avgfreqstep.append(findfreqavg(ms, float(args['imsize']), bwsmearlimit=1., msinnchan=args['msinnchan']))  # find optimal frequency average value based on bandwidth smearing limit
         else:
             if args['avgfreqstep'] is not None: 
                 avgfreqstep.append(args['avgfreqstep'])  # take over handpicked average value
@@ -16905,7 +16970,10 @@ def main():
 
     # REMOVE MODEL_DATA type columns after selfcal
     if not args['keepmodelcolumns']: remove_model_columns(mslist)
-    
+
+    # CLEAN UP SOME FILES TO AVOID CLUTTER
+    os.system('rm -f polconv.py')
+
     # ARCHIVE DATA AFTER SELFCAL if requested
     if not longbaseline and not args['noarchive']:
         if not LBA:
