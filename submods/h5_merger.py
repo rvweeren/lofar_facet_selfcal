@@ -310,10 +310,10 @@ class MergeH5:
                     else:
                         self.polarizations = polarizations.copy()
 
-                    if 'tec000' in h5.root.sol000._v_children.keys():
-                        self.tecnum += 1
-                    if 'error000' in h5.root.sol000._v_children.keys():
-                        self.errornum += 1
+                if 'tec000' in h5.root.sol000._v_children.keys():
+                    self.tecnum += 1
+                if 'error000' in h5.root.sol000._v_children.keys():
+                    self.errornum += 1
 
         if time_concat:
             self.tecnum=1
@@ -1057,20 +1057,20 @@ class MergeH5:
                     # add values
                     if len(self.polarizations) > 0:
                         # average tec
-                        self.tec[:, idx, ...] += values[:, ...] / self.tecnum
+                        self.tec[:, idx, ...] += values[:, ...] / max(self.tecnum, 1)
                     else:
                         # average tec
-                        self.tec[idx, ...] += values[...] / self.tecnum
+                        self.tec[idx, ...] += values[...] / max(self.tecnum, 1)
 
                 elif st.getType() == 'error':
 
                     # add values
                     if len(self.polarizations) > 0:
                         # average error
-                        self.error[:, idx, ...] += values[:, ...] / self.errornum
+                        self.error[:, idx, ...] += values[:, ...] / max(self.errornum, 1)
                     else:
                         # average error
-                        self.error[idx, ...] += values[...] / self.errornum
+                        self.error[idx, ...] += values[...] / max(self.errornum, 1)
 
 
                 elif st.getType() == 'amplitude':
