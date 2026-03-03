@@ -4734,9 +4734,12 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
             print('\033[93m' + 'Only two artifact sources found, adding an extra source at the location of a bright source in the outputfluxcatalog' + '\033[0m')
             add_source_to_catalog(outputcatalog, outputfluxcatalog, distance=distance)
         # in principle we can repeat adding sources, for now stick to one/two extra sources         
-
+   
     # add very bright sources to catalog to ensure they are included
-    add_bright_source_to_catalog(outputcatalog, outputfluxcatalog, freq)
+    if selfcalcycle > 0 and empty_catalog: # do nothing since no no artifact sources are found (maybe the image is close to perfect)
+       print('No artifact sources found, it seems the image quality is very good') # do nothing because outputcatalog does not exist, so we cannot add bright sources to it, but this is also not needed since the image quality is already very good
+    else:
+       add_bright_source_to_catalog(outputcatalog, outputfluxcatalog, freq)
 
     # update the artifact catalog (keep only N-brightest, remove closely seperated sources, merge with previous catalog)
     if not empty_catalog: 
