@@ -5852,7 +5852,7 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
     return msoutlist
 
 
-def findfreqavg(ms, imsize, bwsmearlimit=1.0):
+def findfreqavg(ms, imsize, bwsmearlimit=1.0, msinnchan=None):
     """ Find the frequency averaging factor for a Measurement Set given a bandwidth smearing constraint.
 
     Args:
@@ -5865,8 +5865,11 @@ def findfreqavg(ms, imsize, bwsmearlimit=1.0):
     with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
         bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), float(imsize), verbose=False)
         nfreq = len(t.getcol('CHAN_FREQ')[0])
+    
+    if msinnchan is not None:
+        nfreq = msinnchan
+    
     avgfactor = 0
-
     for count in range(2, 21):  # try average values between 2 to 20
         if bwsmear < (bwsmearlimit / float(count)):  # factor X avg
             if nfreq % count == 0:
@@ -16379,7 +16382,7 @@ def main():
     for ms in mslist:
         if args['avgfreqstep'] is None and args['autofrequencyaverage'] and not LBA \
                 and not args['autofrequencyaverage_calspeedup']:  # autoaverage
-            avgfreqstep.append(findfreqavg(ms, float(args['imsize'])))
+            avgfreqstep.append(findfreqavg(ms, float(args['imsize']), bwsmearlimit=1., msinnchan=args['msinnchan']))  # find optimal frequency average value based on bandwidth smearing limit
         else:
             if args['avgfreqstep'] is not None: 
                 avgfreqstep.append(args['avgfreqstep'])  # take over handpicked average value
