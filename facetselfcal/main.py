@@ -4576,47 +4576,47 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
         if selfcalcycle == 0:
             keep_N_brightest = 15 
             distance = 20
-            N_dir_max = int(np.round((15.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((15.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
         if selfcalcycle == 1:
             keep_N_brightest = 20 
             distance = 20
-            N_dir_max = int(np.round((25.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((25.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
         if selfcalcycle == 2:
             keep_N_brightest = 30
             distance = 15
-            N_dir_max = int(np.round((35.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((35.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
         if selfcalcycle == 3:
             keep_N_brightest = 40   
             distance = 15
-            N_dir_max = int(np.round((45.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((45.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
         if selfcalcycle == 4:
             keep_N_brightest = 40   
             distance = 15
-            N_dir_max = int(np.round((45.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((45.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
         if selfcalcycle == 5:
             keep_N_brightest = 50   
             distance = 10
-            N_dir_max = int(np.round((60.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((60.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
         if selfcalcycle == 6:
             keep_N_brightest = 60   
             distance = 10
-            N_dir_max = int(np.round((70.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((70.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
         if selfcalcycle == 7:
             keep_N_brightest = 70   
             distance = 10
-            N_dir_max = int(np.round((80.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((80.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
         if selfcalcycle == 8:
             keep_N_brightest = 80   
             distance = 10
-            N_dir_max = int(np.round((90.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((90.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
         if selfcalcycle == 9:
             keep_N_brightest = 90   
             distance = 10
-            N_dir_max = int(np.round((100.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((100.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
         if selfcalcycle >= 10:
             keep_N_brightest = 100   
             distance = 10
-            N_dir_max = int(np.round((100.*imaged_area/44.) + 0.5)) # set N_dir_max proportional to imaged area
+            N_dir_max = np.max([3, int(np.round((100.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
     elif telescope == 'MeerKAT':
         thresh_pix = 4.5 # MeerKAT smaller artifacts, so use lower thresholds
         thresh_isl = 4.5      
