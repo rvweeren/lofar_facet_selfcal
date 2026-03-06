@@ -15058,7 +15058,8 @@ def basicsetup(mslist):
                     args['stop'] = 8
         if args['DDE']:
             args['usemodeldataforsolints'] = False
-            args['auto_directions'] = True
+            if args['facetdirections'] is None: # allow auto mode with user-provided facet directions
+                args['auto_directions'] = True
             args['mask_extended'] = True   
             if args['mask_extended'] is None: # so not set by user, so we can set it to True in auto
                 args['mask_extended'] = True 
@@ -16202,6 +16203,7 @@ def main():
 
     if args['stack']:
         args['dysco'] = False  # no dysco compression allowed as multiple various steps violate the assumptions that need to be valid for proper dysco compression
+        args['metadata_compression'] = False  # no metadata compression allowed
         args['noarchive'] = True
     if args['skymodelsetjy']:
         args['dysco'] = False  # no dysco compression allowed as CASA does not work with dysco compression
