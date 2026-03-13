@@ -398,7 +398,7 @@ def option_parser():
                                    default=2.0)
     calibrationparser.add_argument('--facetdirections',
                                    help='Experts only. ASCII csv file containing facet directions. File needs at least two columns with decimal degree RA and Dec. Default is None.',
-                                   type=str,
+                                   type=arg_as_str_or_list,
                                    default=None)
     calibrationparser.add_argument('--DDE-predict',
                                    help='Type of DDE predict to use. Options: DP3 or WSCLEAN, default=WSCLEAN (note: option WSCLEAN will use a lot of disk space as there is one MODEL column per direction written to the MS)',
@@ -632,10 +632,22 @@ def option_parser():
                         primary beam for MeerKAT',
                         type=float,
                         default=None)
+    parser.add_argument('--remove-outside-center-avgtimestep',
+                        help='Timestep for averaging the MS after an extraction step (default=1, which means no time averaging).',
+                        type=int,
+                        default=1)                        
+    parser.add_argument('--remove-outside-center-avgfreqstep',
+                        help='Frequency step for averaging the MS after an extraction step (default=1, which means no frequency averaging).',
+                        type=int,
+                        default=1) 
     parser.add_argument('--single-dual-speedup',
                         help='Speed up calibration and imaging if possible using datause=single/dual in DP3 and -scalar/diagonal-visibilities in WSClean. Requires a recent (mid July 2024) DP3 and WSClean versions. Default is True. Set to --single-dual-speedup=False to disable to speed-up',
                         type=ast.literal_eval,
                         default=True)
+    parser.add_argument('--split-fieldname',
+                        help='The FIELD name to split on. Default is so not split at all, but if you have multiple fields in your MS and want to split on those, you can set this to the name of the FIELD column entry that you want to split on. This is useful for example for MeerKAT L-band calibrator observations where there are often multiple fields (e.g. target, primary calibrator, and phase calibrator).',
+                        type=str,
+                        default=None)
     parser.add_argument('--dysco',
                         help='Use Dysco data compression. The default is True.',
                         type=ast.literal_eval,
