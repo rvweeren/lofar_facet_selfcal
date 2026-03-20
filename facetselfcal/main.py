@@ -193,21 +193,29 @@ def create_homogenized_facetdirections(facetdirections, separateradius=5.0):
         facetdirectionnew = os.path.basename( (facetdirection).rstrip('.txt') + '_homogenized.txt')
         print('Writing homogenized facetdirection file', facetdirectionnew, 'with', len(dirs), 'directions')
         # open file for writing
+
+        # convert dirs back to RA and DEC in degrees for writing to file
+        dirs_ra_dec = []
+        for dir in dirs:
+            dirsky = SkyCoord(dir[0]*units.radian, dir[1]*units.radian, frame='icrs')
+            dirs_ra_dec.append((dirsky.ra.degree, dirsky.dec.degree))
+
+
         with open(facetdirectionnew, 'w') as f:
             # write header of the form "RA DEC solints smoothness soltypelist_includedir"
             f.write("#RA DEC start solints smoothness soltypelist_includedir\n")
 
-            for source_counter, source in enumerate(dirs):
+            for source_counter, source in enumerate(dirs_ra_dec):
                 print("start", selfcalcycle_start_list[source_counter])
                 print('solints', solintslistnew[source_counter])
                 print('smoothness', smoothnessnew[source_counter])
                 print('soltypelist_includedir', soltypelist_includedirnew[source_counter])
-                #line = f"{source['RA']} {source['DEC']} {selfcalcycle_start_list[source_counter]} " \
-                #f"[{','.join(str(s) for s in solintslistnew[source_counter])}] " \
-                #f"[{','.join(str(s) for s in smoothnessnew[source_counter])}] " \
-                #f"[{','.join(str(i) for i in soltypelist_includedirnew[source_counter])}] " \
-                #f"  # direction Dir{source_counter:02d}\n"
-                #f.write(line)
+                line = f"{source[0]:.6f} {source[1]:.6f} {selfcalcycle_start_list[source_counter]} " \
+                f"[{','.join(str(s) for s in solintslistnew[source_counter])}] " \
+                f"[{','.join(str(s) for s in smoothnessnew[source_counter])}] " \
+                f"[{','.join(str(i) for i in soltypelist_includedirnew[source_counter])}] " \
+                f"  # direction Dir{source_counter:02d}\n"
+                f.write(line)
 
 
 def fix_GMRT_weights(mslist):
@@ -4694,6 +4702,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     if telescope == 'LOFAR':
         thresh_pix = 7.5
         thresh_isl = 7.5
+        min_peakflux = 0.02
         if selfcalcycle == 0:
             keep_N_brightest = 15 
             distance = 20
@@ -4739,28 +4748,38 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
             distance = 10
             N_dir_max = np.max([3, int(np.round((100.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
     elif telescope == 'MeerKAT':
+        
         thresh_pix = 4.5 # MeerKAT smaller artifacts, so use lower thresholds
-        thresh_isl = 4.5      
+        thresh_isl = 4.5
+        if freq > 1.7e9: # S band
+            freq_scaling = 2.
+            min_peakflux = 0.002
+        elif freq > 1.0e9: # L band
+            freq_scaling = 1.5
+            min_peakflux = 0.02
+        else: # UHF band
+            freq_scaling = 1.0   
+            min_peakflux = 0.02 
         if selfcalcycle == 0:
             keep_N_brightest = 3
-            distance = 20 # this assumes a reasonable field of view
+            distance = (20./freq_scaling) # this assumes a reasonable field of view
             N_dir_max = 3
         if selfcalcycle == 1:
             thresh_pix = 4. # lower thresholds for higher cycles
             thresh_isl = 4.  
             keep_N_brightest = 5 
-            distance = 20
+            distance = (20./freq_scaling)
             N_dir_max = 5
         if selfcalcycle >= 2:
             thresh_pix = 3.5 # lower thresholds for higher cycles
             thresh_isl = 3.5   
         if selfcalcycle == 2:
             keep_N_brightest = 8
-            distance = 15
+            distance = (15./freq_scaling)
             N_dir_max = 10
         if selfcalcycle >= 3:
             keep_N_brightest = 15   
-            distance = 10
+            distance = (10./freq_scaling)
             N_dir_max = 15
     else:
         raise Exception('Telescope not supported for auto_directions:', telescope)    
@@ -4879,7 +4898,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     add_peak_total_flux_to_catalog(outputcatalog_filtered, outputfluxcatalog, match_radius=match_radius)
 
     # filter out sources too low peak flux
-    filter_catalog_on_flux(outputcatalog_filtered, freq, telescope, min_peakflux=0.02)
+    filter_catalog_on_flux(outputcatalog_filtered, freq, telescope, min_peakflux=min_peakflux)
 
     # write facet direction file (for facetselfcal), also output directions.reg for visualization
     write_facet_directions(outputcatalog_filtered, freq, facetdirections=facetdirections, 
@@ -11108,8 +11127,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     - Uses astropy.io.ascii for reading the table data.
     - Coordinates are converted from degrees to radians in the output array.
     """
-    #global args
-    #args = {'soltype_list': ['bla','bla','bla','bla']}
+
     # Preprocess the file to strip inline comments
     clean_lines = []
     with open(facetdirections, 'r') as f:
@@ -13489,6 +13507,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 if not disable_primarybeam_image:
                     cmd += '-apply-primary-beam -use-differential-lofar-beam '
                     cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
+            if telescope == 'MeerKAT' and not idg and not disable_primarybeam_image:
+                cmd += '-apply-primary-beam '
+
 
         cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec '
         if args['groupms_h5facetspeedup'] and len(mslist) > 1 and facetregionfile is not None:
@@ -15297,6 +15318,21 @@ def basicsetup(mslist):
         print('pixelscale not set and cannot be determined for telescope', telescope)
         raise Exception('pixelscale not set and cannot be determined for telescope')    
 
+    if args['robust'] is None:
+        if telescope == 'LOFAR':
+            args['robust'] = -0.5
+        elif telescope == 'MeerKAT':
+            if freq > 1.7e9:  # S-band
+                args['robust'] = 0.0
+            else:
+                args['robust'] = -0.5
+        elif telescope == 'ASKAP':
+            args['robust'] = -0.5
+        elif telescope == 'GMRT':
+            args['robust'] = -0.5
+        else:
+            args['robust'] = -0.5        
+
     if (args['delaycal'] or args['auto']) and longbaseline and not LBA:
         if args['imsize'] is None:
             args['imsize'] = 2048
@@ -17008,7 +17044,9 @@ def main():
                                        h5list=wsclean_h5list, facetregionfile=facetregionfile,
                                        disable_primary_beam=args['disable_primary_beam'], 
                                        modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'],
-                                       metadata_compression=args['metadata_compression'])
+                                       metadata_compression=args['metadata_compression'], 
+                                       avgtimestep=args['remove_outside_center_avgtimestep'],
+                                       avgfreqstep=args['remove_outside_center_avgfreqstep'])
                 if createresidualdatacolumn_only:
                     create_residual_data_column(mslist, args['imagename'] + str(i).zfill(3), 
                                            args['pixelscale'], args['imsize'], 
