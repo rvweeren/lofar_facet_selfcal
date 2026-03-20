@@ -11980,7 +11980,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr_complement)) + ']:'
                                                       + str(1.0/np.max(smoothness_factors_float)))  # add the complement antennas with factor 1.0/maximum smooth
             
-        if np.max(smoothness_factors_float) > 1.0: # handle the case where the smoothness factors are larger than 1.0
+        if args["DDE"] and (np.max(smoothness_factors_float) > 1.0): # handle the case where the smoothness factors are larger than 1.0
             if type(SMconstraint) == list:
                 SMconstraint = [sf*np.max(smoothness_factors_float) for sf in SMconstraint]  # increase SMconstraint with the maximum smoothness factor
             else:
