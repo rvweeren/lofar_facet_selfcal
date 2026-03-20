@@ -2290,10 +2290,10 @@ def check_antenna_factors(antenna_averaging_factors_list, antenna_smoothness_fac
     for ms_id, ms in enumerate(mslist):
         for asf_id in range(len_pert):
             antenna_smoothness_factors = antenna_smoothness_factors_list[asf_id][ms_id]
-            if antenna_smoothness_factors is not None:
+            if (antenna_smoothness_factors is not None) and (not args["DDE"]):
                 max_smoothness_factor = max(float(x.split(':')[1]) for x in antenna_smoothness_factors.split(','))
                 if max_smoothness_factor > 1.0 or max_smoothness_factor <=0.0:
-                    print('WARNING: The maximum antenna smoothness factor', max_smoothness_factor, 'should be > 0 and <= 1.0')
+                    print('WARNING: The maximum antenna smoothness factor', max_smoothness_factor, 'should be > 0 and <= 1.0 for a DDE solve')
                     print('This is not allowed')
                     sys.exit(1)
     
