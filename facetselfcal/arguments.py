@@ -66,7 +66,7 @@ def option_parser():
                                type=str)                           
     imagingparser.add_argument('--robust',
                                help='Briggs robust parameter for imagaging. The default is -0.5. Also allowed are the strings uniform or naturual which will override Briggs weighting.',
-                               default=-0.5,
+                               default=None,
                                type=str_or_float)
     imagingparser.add_argument('--multiscale-start',
                                help='Start multiscale deconvolution at this selfcal cycle. This is by default 1.',
