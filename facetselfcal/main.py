@@ -11230,7 +11230,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
                     #run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
                     nchan = len(get_frequencies_from_ms(ms))
-                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan) + ",4])'", log=True)
+                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
 
             
                 if skymodelpointsource is not None and type(skymodelpointsource) is list:
@@ -11246,7 +11246,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
                     # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
                     nchan = len(get_frequencies_from_ms(ms))
-                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource[ms_id]) + "+0i,0+0i,0+0i," + str(skymodelpointsource[ms_id]) + "+0i], [" + str(nchan) + ",4])'", log=True)
+                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource[ms_id]) + "+0i,0+0i,0+0i," + str(skymodelpointsource[ms_id]) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
 
         # do the stack and normalization
         # mslist_stacked = stacked MS (one per common time axis / timestack); mss_timestacks = list of MSs that were used to create each stack
@@ -11270,7 +11270,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             #run(f"taql 'update {ms} set MODEL_DATA[,2]=(0+0i)'", log=True)
             # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
             nchan = len(get_frequencies_from_ms(ms))
-            run(f"taql 'update {ms} set MODEL_DATA=array([1.0+0i,0+0i,0+0i,1.0+0i], [{nchan},4])'", log=True)
+            run(f"taql 'update {ms} set MODEL_DATA=array([1.0+0i,0+0i,0+0i,1.0+0i], [{nchan},4])'", log=True, taql=True)
 
 
         # set all these to None to avoid skymodel predicts in runDPPPbase()
@@ -11622,7 +11622,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
         # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
         nchan_taql = len(get_frequencies_from_ms(ms))       
-        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan_taql) + ",4])'", log=True) 
+        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan_taql) + ",4])'", log=True, taql=True) 
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
         # PM means point source model adjusted weights
