@@ -115,6 +115,109 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
+def create_homogenized_facetdirections(facetdirections, separateradius=5.0):
+    # check that facetdirections is a list of strings, otherwise this function cannot be used
+    if isinstance(facetdirections, list) and all(isinstance(facetdirections, str) for facetdirections in facetdirections):
+       print('Creating homogenized facetdirections file with all unique directions from the provided facetdirections files')
+    else:
+        print('The facetdirections argument is not a list of strings, so cannot create homogenized facetdirections file')    
+  
+    # we are going to that this selfcalcycle_start_list as a reference and use it later for all other facetdirection files that are made  
+    selfcalcycle_start_list =  parse_facetdirections(facetdirections[0], 0, return_only_selfcalcycle_sel=True)
+
+    # we want to create a new direction file that contains all unique directions from all facetdirection files
+    # here unique means that the directions are not exactly the same, but they are within a certain radius of each other (e.g. 1 arcmin)
+    # start with the first file as a reference, and then add directions from the other files that are not within the radius of the reference directions
+    dirs, solintslist, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections[0], 1000)
+
+    # we require that solintslist, smoothness, soltypelist_includedir are not None
+    if solintslist is None or smoothness is None or soltypelist_includedir is None:
+        print('We require a direction file that has at least these columns: RA DEC solints smoothness soltypelist_includedir')
+        raise ValueError("One or more of the returned values from parse_facetdirections is None")
+
+    # we do not yet care about the solintslist, smoothness, soltypelist_includedir, we worry about direction selection for the DDE solve first, and then we will worry about how to assign solints, smoothness, and soltypelist_includedir to the directions in the homogenized file
+    for facetdirection in facetdirections[1:]:
+        dirsnew, solintslistnew, smoothnessnew, soltypelist_includedirnew = parse_facetdirections(facetdirection, 1000)
+        # dirsnew is an array of shape (Ndirs, 2) with RA and DEC in radians, we want to check for each direction in dirsnew if it is within a certain radius of any direction in dirs, if not we add it to dirs
+       
+        dirssky = SkyCoord(dirs[:, 0]*units.radian, dirs[:, 1]*units.radian, frame='icrs')
+        dirsnewsky = SkyCoord(dirsnew[:, 0]*units.radian, dirsnew[:, 1]*units.radian, frame='icrs')
+        idxc, idxcatalog, d2d, d3d = dirssky.search_around_sky(dirsnewsky, separateradius*units.arcmin)
+        # only keep new sources that are not within the separateradius of any source in the current dirs variable
+        dirsnewunique = dirsnew[~np.isin(np.arange(len(dirsnew)), idxcatalog)]
+   
+        #print('Found', len(dirsnewunique), 'new unique directions in facetdirection file', facetdirection)
+        if len(dirsnewunique) > 0:
+            dirs = np.vstack((dirs, dirsnewunique))
+            # add entry to return_only_selfcalcycle_sel so is keeps the same length as dirs
+            # return_only_selfcalcycle_sel is an simply 1D numpy array with length as dirs
+            # fill the new entrie with the return_only_selfcalcycle_sel[0] value
+            selfcalcycle_start_list = np.hstack((selfcalcycle_start_list, np.ones(len(dirsnewunique)) * selfcalcycle_start_list[0]))
+            # convert return_only_selfcalcycle_sel to integers array
+            selfcalcycle_start_list = selfcalcycle_start_list.astype(int)
+
+    # total "unique" directions found
+    print('Total unique directions found:', len(dirs))
+
+    # Now write len(facetdirections) new direction files with the same directions, but with the solintslist, smoothness, soltypelist_includedir from the original files that were used to create the homogenized direction file. We use the selfcalcycle_start_list that we parsed from the first facetdirection file as a reference for all files.
+    # If a direction has no corresponding direction in the original file (i.e. it was added from another file), we put all the soltype_includir entries at False, and put some standar defaults for smoothnes and solintslist    
+
+    for facetdirection in facetdirections:
+        dirsorig, solintslistorig, smoothnessorig, soltypelist_includedirorig = parse_facetdirections(facetdirection, 1000)
+        solintslistnew = []
+        smoothnessnew = []
+        soltypelist_includedirnew = []
+        for dir in dirs:
+            # check if this dir is in the original dirsorig variable, if so we take the corresponding solintslist, smoothness, soltypelist_includedir from the original file, otherwise we put some default values
+            # do this check via the angular separation between the dir and the dirsorig variable, if it is within the separateradius we say it is the same direction
+            dirsky = SkyCoord(dir[0]*units.radian, dir[1]*units.radian, frame='icrs')
+            dirorigssky = SkyCoord(dirsorig[:, 0]*units.radian, dirsorig[:, 1]*units.radian, frame='icrs')
+            seperation = dirsky.separation(dirorigssky)
+            # find the index of the original direction that is within the separateradius, if there are multiple we take the closest one, if there are none we put some default values
+            idxcatalog = np.where(seperation < separateradius*units.arcmin)[0]
+            if len(idxcatalog) > 0:
+                if len(idxcatalog) > 1:
+                    print('WARNING: Found multiple directions in the original facetdirection file that are within the separateradius of the direction in the homogenized file, this should not happen, check the original facetdirection file for duplicate directions')
+                    raise Exception('Found multiple directions in the original facetdirection file that are within the separateradius of the direction in the homogenized file, this should not happen, check the original facetdirection file for duplicate directions')
+                solintslistnew.append(solintslistorig[idxcatalog[0]])
+                smoothnessnew.append(smoothnessorig[idxcatalog[0]])
+                soltypelist_includedirnew.append(soltypelist_includedirorig[idxcatalog[0]])
+            else:
+                solintslistnew.append(solintslistorig[0])  # Append default value
+                smoothnessnew.append(smoothnessorig[0])  # Append default value
+                soltypelist_includedirnew.append([False]*len(soltypelist_includedirorig[0]))  # Append default value
+
+
+        # now write the new direction file with the same name as the original file, but with _homogenized appended to the name, and with the new dirs, solintslistnew, smoothnessnew, soltypelist_includedirnew variables
+        # write file in current working directory
+        facetdirectionnew = os.path.basename( (facetdirection).rstrip('.txt') + '_homogenized.txt')
+        print('Writing homogenized facetdirection file', facetdirectionnew, 'with', len(dirs), 'directions')
+        # open file for writing
+
+        # convert dirs back to RA and DEC in degrees for writing to file
+        dirs_ra_dec = []
+        for dir in dirs:
+            dirsky = SkyCoord(dir[0]*units.radian, dir[1]*units.radian, frame='icrs')
+            dirs_ra_dec.append((dirsky.ra.degree, dirsky.dec.degree))
+
+
+        with open(facetdirectionnew, 'w') as f:
+            # write header of the form "RA DEC solints smoothness soltypelist_includedir"
+            f.write("#RA DEC start solints smoothness soltypelist_includedir\n")
+
+            for source_counter, source in enumerate(dirs_ra_dec):
+                print("start", selfcalcycle_start_list[source_counter])
+                print('solints', solintslistnew[source_counter])
+                print('smoothness', smoothnessnew[source_counter])
+                print('soltypelist_includedir', soltypelist_includedirnew[source_counter])
+                line = f"{source[0]:.6f} {source[1]:.6f} {selfcalcycle_start_list[source_counter]} " \
+                f"[{','.join(str(s) for s in solintslistnew[source_counter])}] " \
+                f"[{','.join(str(s) for s in smoothnessnew[source_counter])}] " \
+                f"[{','.join(str(i) for i in soltypelist_includedirnew[source_counter])}] " \
+                f"  # direction Dir{source_counter:02d}\n"
+                f.write(line)
+
+
 def fix_GMRT_weights(mslist):
 
     t = table(mslist[0] + '/OBSERVATION', ack=False)
@@ -519,12 +622,13 @@ def split_columns(ms, outms, column='CORRECTED_DATA'):
     fix_uvws([outms])
     return
 
-def split_multidir_ms(ms, field_names=None):
+def split_multidir_ms(ms, field_names=None, dryrun=False):
     """
     Splits a multisource Measurement Set (MS) into separate single-source MS files.
     Parameters:
-        ms (str): Path to the multisource Measurement Set to be split.
+        ms (str, or list of str): Path to the multisource Measurement Set to be split.
         field_names (list of str, optional): List of source names corresponding to source names for each FIELD_ID.
+        dryrun (bool, optional): If True, the function will not exceute the TaQl commands. Default is False.
     Returns:
         list of str: List of paths to the newly created single-source Measurement Sets. 
                      If the input MS contains only a single source, returns a list containing the original MS path.
@@ -533,44 +637,68 @@ def split_multidir_ms(ms, field_names=None):
         - Each output MS will contain data for only one source, with FIELD_ID and SOURCE_ID reset to 0.
         - Existing output MS directories will be removed before new ones are created.
     """
-    with table(ms, readonly=True) as t:
-        if len(np.unique(t.getcol('FIELD_ID'))) == 1:
-            print(f"Measurement Set {ms} is already a single source MS, no splitting needed.")
-            return [ms]  # No splitting needed, return original MS
+    # in case ms is a list, we loop over the list and call this function for each ms in the list, and then we return a list of lists of ms, we flatten this list of lists to a single list of ms
+    
+    # check that field_names is of type list, if not raise an error
+    if field_names is not None and not isinstance(field_names, list):
+        raise ValueError("field_names should be a list of strings, but got type {}".format(type(field_names)))
+    
+    if isinstance(ms, str):
+        ms = [ms]
+    mslistout = []
+
+    # check that all ms in the list exist, if not raise an error (MS are directories)
+    for msin in ms:
+        if not os.path.isdir(msin):
+            raise ValueError("Measurement Set {} does not exist".format(msin))
+
+    for msin in ms:
+        with table(msin, readonly=True) as t:
+            if len(np.unique(t.getcol('FIELD_ID'))) == 1:
+                print(f"Measurement Set {msin} is already a single source MS, no splitting needed.")
+                mslistout.append(msin)
+            else:
+                print(f"Splitting multisource Measurement Set {msin} into single source MS...")
+        # get the source names
+        with table(msin + '/FIELD', readonly=True) as t:
+            source_names = t.getcol('NAME')
+            field_ids = t.getcol('SOURCE_ID')
+
+        # check that the field_names provided are in the source_names, if not raise an error
+        if field_names is not None:
+            for field_name in field_names:
+                if field_name not in source_names:
+                    raise ValueError(f"Field name '{field_name}' provided in field_names is not found in the source names of the MS. Available source names: {source_names}")
+                    
+        
+        # if field_names is not None, only split those sources
+        if field_names is not None:
+            field_ids = [i for i, name in enumerate(source_names) if name in field_names]
+            print('Splitting the following sources from the MS:', field_names)
         else:
-            print(f"Splitting multisource Measurement Set {ms} into single source MS...")
-    # get the source names
-    with table(ms + '/FIELD', readonly=True) as t:
-        source_names = t.getcol('NAME')
-        field_ids = t.getcol('SOURCE_ID')
+            print('Splitting all sources from the MS:', source_names) 
 
-    mslist = []
-    # if field_names is not None, only split those sources
-    if field_names is not None:
-        field_ids = [i for i, name in enumerate(source_names) if name in field_names]
-        print('Splitting the following sources from the MS:', field_names)
-    else:
-        print('Splitting all sources from the MS:', source_names) 
+        for field_id in field_ids:
+            outname = os.path.basename(msin) + '.' + source_names[field_id]
+            # Remove  MS if it exists
+            if os.path.isdir(outname) and not dryrun:
+                os.system('rm -rf {}'.format(outname))
 
-    for field_id in field_ids:
-        outname = os.path.basename(ms) + '.' + source_names[field_id]
-        # Remove  MS if it exists
-        if os.path.isdir(outname):
-            os.system('rm -rf {}'.format(outname))
-        cmd = "taql 'select from {} where FIELD_ID=={} giving {} as plain'".format(ms, field_id, outname)       
-        print(cmd)
-        run(cmd, taql=True)
+            if not dryrun:
+                cmd = "taql 'select from {} where FIELD_ID=={} giving {} as plain'".format(msin, field_id, outname)
+                print(cmd)
+                run(cmd, taql=True)
 
-        taql("delete from {} where rownr() not in (select distinct FIELD_ID from {})".format(outname+'/FIELD', outname))
+                taql("delete from {} where rownr() not in (select distinct FIELD_ID from {})".format(outname+'/FIELD', outname))
 
-        # Set 'SOURCE_ID' to 0 in the FIELD subtable.
-        taql("update {} set SOURCE_ID=0".format(outname+'/FIELD'))
+                # Set 'SOURCE_ID' to 0 in the FIELD subtable.
+                taql("update {} set SOURCE_ID=0".format(outname+'/FIELD'))
 
-        # Set 'FIELD_ID' to 0 in the main table.
-        taql("update {} set FIELD_ID=0".format(outname))
-        mslist.append(outname)
-    print(f"Splitting completed. Created {len(mslist)} single source MS.")
-    return mslist
+                # Set 'FIELD_ID' to 0 in the main table.
+                taql("update {} set FIELD_ID=0".format(outname))
+            mslistout.append(outname)
+    print(f"Splitting completed. Created {len(mslistout)} single source MS.")
+    return mslistout
  
 def check_pointing_centers(mslist):
     """
@@ -2285,49 +2413,50 @@ def check_antenna_factors(antenna_averaging_factors_list, antenna_smoothness_fac
     Raises:
         SystemExit: If any antenna smoothness factor is not in the allowed range, or if any antenna averaging factor exceeds the allowed value and cannot be upscaled within limits.
     """
-    
-    len_pert = np.array(antenna_smoothness_factors_list).shape[0]
-    for ms_id, ms in enumerate(mslist):
-        for asf_id in range(len_pert):
-            antenna_smoothness_factors = antenna_smoothness_factors_list[asf_id][ms_id]
-            if (antenna_smoothness_factors is not None) and args["DDE"]:
-                max_smoothness_factor = max(float(x.split(':')[1]) for x in antenna_smoothness_factors.split(','))
-                if max_smoothness_factor > 1.0 or max_smoothness_factor <=0.0:
-                    print('WARNING: The maximum antenna smoothness factor', max_smoothness_factor, 'should be > 0 and <= 1.0 for a DDE solve')
-                    print('This is not allowed')
-                    sys.exit(1)
-    
-    if facetdirections is not None:
-        dirs, solintslist, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)    
-        if solintslist is None:
-            return
-
-        solint_reformat = np.array(solintslist)  
+    facetdirections_list = facetdirections if isinstance(facetdirections, list) else [facetdirections]
+    for fd in facetdirections_list:
+        len_pert = np.array(antenna_smoothness_factors_list).shape[0]
         for ms_id, ms in enumerate(mslist):
-            print('=== Checking antenna averaging factors for MS:', ms, '===')
-            with table(ms, readonly=True, ack=False) as t:
-                ms_ntimes = len(np.unique(t.getcol('TIME')))
-            for solintcycle_id, tmpval in enumerate(solint_reformat[0]): 
-                antenna_averaging_factors = antenna_averaging_factors_list[solintcycle_id][ms_id]
-                solints_cycle = solint_reformat[:, solintcycle_id]
-                solints = [int(format_solint(x, ms)) for x in solints_cycle]        
-                solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
-                lcm = math.lcm(*solints)
-                divisors = [int(lcm / i) for i in solints]
-                print('pertubation cycle =', solintcycle_id)
-                print('divisors and lcm:', divisors, lcm)
-                if antenna_averaging_factors is not None:
-                    max_avg_factor = max_in_str(antenna_averaging_factors)
-                    if max_avg_factor > max(divisors):
-                        upscale_factor = int(np.ceil(max_avg_factor / max(divisors)))
-                        if lcm * upscale_factor < 4096: # avoid too large solints
-                            lcm = lcm * upscale_factor
-                            divisors = [int(lcm / i) for i in solints]
-                            print('Updated divisors and lcm:', divisors, lcm)
-                        else:     
-                            print('WARNING: The maximum antenna averaging factor', max_avg_factor, 'is larger than the maximum allowed value of', max(divisors))
-                            print('This is not allowed by DP3')
-                            sys.exit(1) 
+            for asf_id in range(len_pert):
+                antenna_smoothness_factors = antenna_smoothness_factors_list[asf_id][ms_id]
+                if antenna_smoothness_factors is not None and args["DDE"]:
+                    max_smoothness_factor = max(float(x.split(':')[1]) for x in antenna_smoothness_factors.split(','))
+                    if max_smoothness_factor > 1.0 or max_smoothness_factor <=0.0:
+                        print('WARNING: The maximum antenna smoothness factor', max_smoothness_factor, 'should be > 0 and <= 1.0 for a DDE solve')
+                        print('This is not allowed')
+                        sys.exit(1)
+        
+        if fd is not None:
+            dirs, solintslist, smoothness, soltypelist_includedir = parse_facetdirections(fd, 1000)    
+            if solintslist is None:
+                return
+
+            solint_reformat = np.array(solintslist)  
+            for ms_id, ms in enumerate(mslist):
+                print('=== Checking antenna averaging factors for MS:', ms, '===')
+                with table(ms, readonly=True, ack=False) as t:
+                    ms_ntimes = len(np.unique(t.getcol('TIME')))
+                for solintcycle_id, tmpval in enumerate(solint_reformat[0]): 
+                    antenna_averaging_factors = antenna_averaging_factors_list[solintcycle_id][ms_id]
+                    solints_cycle = solint_reformat[:, solintcycle_id]
+                    solints = [int(format_solint(x, ms)) for x in solints_cycle]        
+                    solints = tweak_solints(solints, ms_ntimes=ms_ntimes)
+                    lcm = math.lcm(*solints)
+                    divisors = [int(lcm / i) for i in solints]
+                    print('pertubation cycle =', solintcycle_id)
+                    print('divisors and lcm:', divisors, lcm)
+                    if antenna_averaging_factors is not None:
+                        max_avg_factor = max_in_str(antenna_averaging_factors)
+                        if max_avg_factor > max(divisors):
+                            upscale_factor = int(np.ceil(max_avg_factor / max(divisors)))
+                            if lcm * upscale_factor < 4096: # avoid too large solints
+                                lcm = lcm * upscale_factor
+                                divisors = [int(lcm / i) for i in solints]
+                                print('Updated divisors and lcm:', divisors, lcm)
+                            else:     
+                                print('WARNING: The maximum antenna averaging factor', max_avg_factor, 'is larger than the maximum allowed value of', max(divisors))
+                                print('This is not allowed by DP3')
+                                sys.exit(1) 
     return               
 
 # temporary function to check rounding issues with antenna averaging factors, remove later
@@ -4573,6 +4702,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     if telescope == 'LOFAR':
         thresh_pix = 7.5
         thresh_isl = 7.5
+        min_peakflux = 0.02
         if selfcalcycle == 0:
             keep_N_brightest = 15 
             distance = 20
@@ -4618,28 +4748,38 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
             distance = 10
             N_dir_max = np.max([3, int(np.round((100.*imaged_area/44.) + 0.5))]) # set N_dir_max proportional to imaged area
     elif telescope == 'MeerKAT':
+        
         thresh_pix = 4.5 # MeerKAT smaller artifacts, so use lower thresholds
-        thresh_isl = 4.5      
+        thresh_isl = 4.5
+        if freq > 1.7e9: # S band
+            freq_scaling = 2.
+            min_peakflux = 0.002
+        elif freq > 1.0e9: # L band
+            freq_scaling = 1.5
+            min_peakflux = 0.02
+        else: # UHF band
+            freq_scaling = 1.0   
+            min_peakflux = 0.02 
         if selfcalcycle == 0:
             keep_N_brightest = 3
-            distance = 20 # this assumes a reasonable field of view
+            distance = (20./freq_scaling) # this assumes a reasonable field of view
             N_dir_max = 3
         if selfcalcycle == 1:
             thresh_pix = 4. # lower thresholds for higher cycles
             thresh_isl = 4.  
             keep_N_brightest = 5 
-            distance = 20
+            distance = (20./freq_scaling)
             N_dir_max = 5
         if selfcalcycle >= 2:
             thresh_pix = 3.5 # lower thresholds for higher cycles
             thresh_isl = 3.5   
         if selfcalcycle == 2:
             keep_N_brightest = 8
-            distance = 15
+            distance = (15./freq_scaling)
             N_dir_max = 10
         if selfcalcycle >= 3:
             keep_N_brightest = 15   
-            distance = 10
+            distance = (10./freq_scaling)
             N_dir_max = 15
     else:
         raise Exception('Telescope not supported for auto_directions:', telescope)    
@@ -4758,7 +4898,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     add_peak_total_flux_to_catalog(outputcatalog_filtered, outputfluxcatalog, match_radius=match_radius)
 
     # filter out sources too low peak flux
-    filter_catalog_on_flux(outputcatalog_filtered, freq, telescope, min_peakflux=0.02)
+    filter_catalog_on_flux(outputcatalog_filtered, freq, telescope, min_peakflux=min_peakflux)
 
     # write facet direction file (for facetselfcal), also output directions.reg for visualization
     write_facet_directions(outputcatalog_filtered, freq, facetdirections=facetdirections, 
@@ -6609,6 +6749,15 @@ def inputchecker(args, mslist):
     with table(mslist[0] + '/OBSERVATION', ack=False) as t:
         telescope = t.getcol('TELESCOPE_NAME')[0]
 
+    # check that the MS has only one FIELD_ID if split_fieldname is not set, otherwise the splitting will be done on the fieldname column
+    if args['split_fieldname'] is None:
+        for ms in mslist:
+            with table(ms, readonly=True) as t:
+                if len(np.unique(t.getcol('FIELD_ID'))) != 1:
+                    print(f"Measurement Set {ms} is already not a single source MS, it contains multiple FIELD_IDs. Please split the MS into single source MSs before running facetselfcal.")
+                    raise Exception(f"Measurement Set {ms} is already not a single source MS, it contains multiple FIELD_IDs. Please split the MS into single source MSs before running facetselfcal.")
+ 
+        # check that there 
     if telescope == 'GMRT':
         # do not allow any time averaging for GMRT data
         # this is because of issues with the UVW coordinates for time gaps that are filled with DP3
@@ -6617,6 +6766,9 @@ def inputchecker(args, mslist):
             if args['avgtimestep'] > 1:
                 print('Time averaging cannot be used for GMRT data due to UVW issues')
                 raise Exception('Time averaging cannot be used for GMRT data due to UVW issues')
+        if args['remove_outside_center_avgtimestep'] > 1:
+            print('Time averaging cannot be used for GMRT data due to UVW issues')
+            raise Exception('Time averaging cannot be used for GMRT data due to UVW issues')        
 
     assert args['start'] >= 0, '--start must be >= 0'
     if args['stop'] is not None:
@@ -6962,10 +7114,87 @@ def inputchecker(args, mslist):
             print('only one scalarphasediff/scalarphasediffFR solve allowed')
             raise Exception('only one scalarphasediff/scalarphasediffFR solve allowed')
 
+    # check if args['facetdirections'] is a string and if the file exists
     if args['facetdirections'] is not None:
-        if not os.path.isfile(args['facetdirections']):
-            print('--facetdirections file does not exist')
-            raise Exception('--facetdirections file does not exist')
+        if type(args['facetdirections']) is str:
+            if not os.path.isfile(args['facetdirections']):
+                print('--facetdirections file does not exist')
+                raise Exception('--facetdirections file does not exist')
+        # check if args['facetdirections'] is a list and if each item is a file that exists
+        elif type(args['facetdirections']) is list:
+            # do not allow list of length 1, because then the user should just provide a string input instead of a list
+            if len(args['facetdirections']) == 1:
+                print('If only one facetdirections file is provided, it should be provided as a string, not as a list of strings')
+                raise Exception('If only one facetdirections file is provided, it should be provided as a string, not as a list of strings')
+            for facetdirections in args['facetdirections']:
+                if not os.path.isfile(facetdirections):
+                    print('--facetdirections file does not exist:', facetdirections)
+                    raise Exception('--facetdirections file does not exist:' + facetdirections)
+            # check that the facetdirections files have the same number of directions and that the soltypelist_includedir_ref have the same dimensions for each file, otherwise we cannot use the same reference list for all files in the DDE solve
+            dirs_ref, solints_ref, smoothness_ref, soltypelist_includedir_ref = parse_facetdirections(args['facetdirections'][0], 1000)
+            
+            if solints_ref is not None:
+                    solints_ref = np.swapaxes(np.array([solints_ref] * len(mslist)), 1, 0).T.tolist()
+            if smoothness_ref is not None:
+                    smoothness_ref = np.swapaxes(np.array([smoothness_ref] * len(mslist)), 1, 0).T.tolist()
+            if soltypelist_includedir_ref is not None:
+                soltypelist_includedir_ref = np.swapaxes(np.array([soltypelist_includedir_ref] * len(mslist)), 1, 0).T.tolist()
+            for facetdirections in args['facetdirections'][1:]:
+                dirs, solints, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)
+                if solints is not None:
+                    solints = np.swapaxes(np.array([solints] * len(mslist)), 1, 0).T.tolist()
+                if smoothness is not None:
+                    smoothness = np.swapaxes(np.array([smoothness] * len(mslist)), 1, 0).T.tolist()
+                if soltypelist_includedir is not None:
+                    soltypelist_includedir = np.swapaxes(np.array([soltypelist_includedir] * len(mslist)), 1, 0).T.tolist()
+
+                if len(dirs) != len(dirs_ref):
+                    print('All facetdirections files need to have the same number of directions')
+                    raise Exception('All facetdirections files need to have the same number of directions')
+                if solints_ref is not None:
+                    # check that the shapes match for all files
+                    if solints is None:
+                        print('All facetdirections files need to have solints if one of them has solints')
+                        raise Exception('All facetdirections files need to have solints if one of them has solints')
+                    if np.array(solints).shape != np.array(solints_ref).shape:
+                        print('All facetdirections files need to have the same solints shape')
+                        raise Exception('All facetdirections files need to have the same solints shape')
+                if smoothness_ref is not None:
+                    # check that the shapes match for all files
+                    if smoothness is None:
+                        print('All facetdirections files need to have smoothness if one of them has smoothness')
+                        raise Exception('All facetdirections files need to have smoothness if one of them has smoothness')
+                    if np.array(smoothness).shape != np.array(smoothness_ref).shape:
+                        print('All facetdirections files need to have the same smoothness shape')
+                        raise Exception('All facetdirections files need to have the same smoothness shape')
+                if soltypelist_includedir_ref is not None:
+                    # check that the shapes match for all files
+                    if soltypelist_includedir is None:
+                        print('All facetdirections files need to have soltypelist_includedir if one of them has soltypelist_includedir')
+                        raise Exception('All facetdirections files need to have soltypelist_includedir if one of them has soltypelist_includedir')
+                # check that shapes of dirs match for all files
+                if np.array(dirs).shape != np.array(dirs_ref).shape:
+                    print('All facetdirections files need to have the same dirs shape')
+                    raise Exception('All facetdirections files need to have the same dirs shape')
+                # check that the dirs themselves match for all files
+                if not np.array_equal(dirs, dirs_ref):
+                    print('All facetdirections files need to have the same directions')
+                    raise Exception('All facetdirections files need to have the same directions')             
+            # check that the length of this list equals the length of mslist
+            assert len(args['facetdirections']) == len(mslist), 'If --facetdirections is a list, its length needs to match the length of the mslist'
+            
+            # check that the start values for the selfcalcycle_sel are the same for all files, otherwise we cannot use the same reference list for all files in the DDE solve
+            startvals_ref = parse_facetdirections(args['facetdirections'][0], 0, return_only_selfcalcycle_sel=True)
+            for facetdirections in args['facetdirections'][1:]:
+                startvals = parse_facetdirections(facetdirections, 0, return_only_selfcalcycle_sel=True)
+                # check that arrays are the same
+                if not np.array_equal(startvals, startvals_ref):
+                    print('All facetdirections files need to have the same selfcalcycle_sel start values if they are provided')
+                    raise Exception('All facetdirections files need to have the same selfcalcycle_sel start values if they are provided')
+
+        else: # raise errror if args['facetdirections'] is not a string or a list
+            print('--facetdirections needs to be a string or a list of strings')
+            raise Exception('--facetdirections needs to be a string or a list of strings')            
 
     if args['DDE']:
         if 'fulljones' in args['soltype_list']:
@@ -10727,17 +10956,53 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     smoothness = None  # initialize, if not filled then this is not used here and the settings are taken from facetselfcal argsparse
     soltypelist_includedir = None  # initialize
     if facetdirections is not None:
-        try:
-            PatchPositions_array, solints, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, selfcalcycle)
-        except:
+        if isinstance(facetdirections, str): # case 1 if facetselfcal is a string
             try:
-                f = open(facetdirections, 'rb')
-                PatchPositions_array = pickle.load(f)
-                f.close()
+                PatchPositions_array, solints, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, selfcalcycle)
             except:
-                raise Exception('Trouble read file format:' + facetdirections)
-        print(PatchPositions_array)
+                try:
+                    f = open(facetdirections, 'rb')
+                    PatchPositions_array = pickle.load(f)
+                    f.close()
+                except:
+                    raise Exception('Trouble read file format:' + facetdirections)
+        elif isinstance(facetdirections, list): # case 2 if facetselfcal is a list of strings (e.g. from glob)
+            solints_out = [] # list of solints for each facetdirections file
+            smoothness_out = [] # list of smoothness for each facetdirections file
+            soltypelist_includedir_out = [] # list of soltypelist_includedir for each facetdirections file
+            for facetdirections_id, facetdirections_file in enumerate(facetdirections): # this means we have N facetdirections files, with N the number of MS provided (=mslist)
+                PatchPositions_array, solints_in, smoothness_in, soltypelist_includedir_in = parse_facetdirections(facetdirections_file, selfcalcycle) 
+                # append solints, smoothness, and soltypelist_includedir to lists (one entry per facetdirections file)
+                # so the dimensions becomes N (=length of list soltypes), M (=number of facetdirections files) x L (number of dirctions in each facetdirections file)
+                # note that parse_facetdirections return solints with dimensions L x N, smoothness with dimensions L X N, and soltypelist_includedir with dimensions L X N
+                if solints_in is not None: # append in this for loop after we get into the second itteration of the for loop
+                    print(type(solints_out), type(solints_in))
+                    solints_out.append(solints_in)
+                if smoothness_in is not None:
+                    smoothness_out.append(smoothness_in)
+                if soltypelist_includedir_in is not None:
+                    soltypelist_includedir_out.append(soltypelist_includedir_in)   
 
+            # first convert from nested list to array
+            # this gives dimensions M (number of facetdirections) X L (number of directions in each facetdirections file) x N (number of soltypes)
+            solints_out = np.array(solints_out)
+            smoothness_out = np.array(smoothness_out)
+            soltypelist_includedir_out = np.array(soltypelist_includedir_out)
+            # now swap the axis axis0==>axis1, axis1==>axis2, and axis2==>axis0
+            # first swap axis0 and axis2
+            solints_out = np.swapaxes(solints_out, 0, 2) # (M, L, N) ==> (N, L, M)
+            smoothness_out = np.swapaxes(smoothness_out, 0, 2) # (M, L, N) ==> (N, L, M)
+            soltypelist_includedir_out = np.swapaxes(soltypelist_includedir_out, 0, 2) # (M, L, N) ==> (N, L, M)
+            # now swap axis1 and axis2
+            solints = np.swapaxes(solints_out, 1, 2) # (N, L, M) ==> (N, M, L)
+            smoothness = np.swapaxes(smoothness_out, 1, 2) # (N, L, M) ==> (N, M, L)
+            soltypelist_includedir = np.swapaxes(soltypelist_includedir_out, 1, 2) # (N, L, M) ==> (N, M, L)
+        else:
+            print('facetdirections should be a string or a list of strings, not {}'.format(type(facetdirections)))
+            raise Exception('facetdirections should be a string or a list of strings, not {}'.format(type(facetdirections)))
+
+
+        print(PatchPositions_array)
         # write new facetdirections.p file
         if os.path.isfile('facetdirections.p'):
             os.system('rm -f facetdirections.p')
@@ -10816,7 +11081,7 @@ def write_ds9_regions(ra_array, dec_array, filename="directions.reg", radius=120
         for i, (ra, dec) in enumerate(zip(ra_array, dec_array)):
             f.write(f"circle({ra},{dec},{radius:.3f}\") # color={color} text={{Dir{i:02d}}}\n")
 
-def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True):
+def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True, return_only_selfcalcycle_sel=False):
     """
     Parse a facet directions file and return selected positions and optional parameters.
     This function reads a file containing facet directions (RA/DEC positions) and optional
@@ -10833,6 +11098,8 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
         will be selected.
     writeregioncircles : bool, optional
         If True, write DS9 region file with facet center positions (default: True).
+    return_only_selfcalcycle_sel : bool, optional
+        If True, only return directions selected for the current selfcal cycle (default: False).
     Returns
     -------
     PatchPositions_array : np.ndarray
@@ -10844,10 +11111,8 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     smoothness : list of list or None
         List of smoothness parameters for each selected direction, parsed from string
         representation. None if 'smoothness' column not present in file.
-    soltypelist_includedir_sel : np.ndarray or None
-        2D boolean array of shape (N, M) indicating which solution types to include
-        for each direction, where M is len(args['soltype_list']). None if 
-        'soltypelist_includedir' column not present in file.
+    start : np.ndarray 
+        If return_only_selfcalcycle_sel is True, returns only the 'start' values for the selected directions as a numpy array. Otherwise, this is not returned.
     Raises
     ------
     ValueError
@@ -10862,7 +11127,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     - Uses astropy.io.ascii for reading the table data.
     - Coordinates are converted from degrees to radians in the output array.
     """
-    
+
     # Preprocess the file to strip inline comments
     clean_lines = []
     with open(facetdirections, 'r') as f:
@@ -10903,21 +11168,24 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     except KeyError:
         smoothness = None
 
+    if return_only_selfcalcycle_sel:
+        return np.array(start)
+
     if writeregioncircles:
         write_ds9_regions(ra, dec, filename="facet_centers.reg", radius=120.0, color="red")
     # Only select ra/dec which are if they are in the selfcalcycle range
     a = np.where((start <= selfcalcycle))[0]
     rasel = ra[a]
     decsel = dec[a]
-    
-    if soltypelist_includedir is not None and 'args' in globals():
+  
+    if soltypelist_includedir is not None:
         soltypelist_includedir_sel_tmp = soltypelist_includedir[a]
-
         # create 2D array booleans
-        soltypelist_includedir_sel = np.zeros((len(rasel), len(args['soltype_list'])), dtype=bool)
+        soltypelist_includedir_sel = np.zeros((len(rasel), soltypelist_includedir_sel_tmp[0].count(',') + 1), dtype=bool)
         for dir_id in range(len(rasel)):
             # print(dir_id, soltypelist_includedir_sel_tmp[dir_id])
             soltypelist_includedir_sel[dir_id, :] = ast.literal_eval(soltypelist_includedir_sel_tmp[dir_id])
+        soltypelist_includedir_sel = soltypelist_includedir_sel.tolist()
 
     PatchPositions_array = np.zeros((len(rasel), 2))
     PatchPositions_array[:, 0] = (rasel * units.deg).to(units.rad).value
@@ -10926,7 +11194,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     # check for consistency of solints having the same number of entries as args['soltype_list']
     if solints is not None:
         for solint in solints:
-            if len(ast.literal_eval(solint)) != len(args['soltype_list']):
+            if 'args' in globals() and len(ast.literal_eval(solint)) != len(args['soltype_list']):
                 print('Number of entries for solints in the direction file is', \
                       len(ast.literal_eval(solint)), 'but args["soltype_list"] has:', len(args['soltype_list']))
                 raise ValueError('The number of solints in the directions file does not match the number of soltypes in args["soltype_list"]. '
@@ -10934,7 +11202,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     # check for consistency of smoothness having the same number of entries as args['soltype_list']
     if smoothness is not None:
         for sm in smoothness:
-            if len(ast.literal_eval(sm)) != len(args['soltype_list']):
+            if  'args' in globals() and len(ast.literal_eval(sm)) != len(args['soltype_list']):
                 print('Number of entries for smoothness in the direction file is', \
                       len(ast.literal_eval(sm)), 'but args["soltype_list"] has:', len(args['soltype_list']))
                 raise ValueError('The number of smoothness in the directions file does not match the number of soltypes in args["soltype_list"]. '
@@ -10942,7 +11210,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     # check for consistency of soltypelist_includedir having the same number of entries as args['soltype_list']
     if soltypelist_includedir is not None:
         for soltypelist in soltypelist_includedir:
-            if len(ast.literal_eval(soltypelist)) != len(args['soltype_list']):
+            if 'args' in globals() and len(ast.literal_eval(soltypelist)) != len(args['soltype_list']):
                 print('Number of entries for soltypelist_includedir in the direction file is', \
                       len(ast.literal_eval(soltypelist)), 'but args["soltype_list"] has:', len(args['soltype_list']))
                 raise ValueError('The number of soltypelist_includedir in the directions file does not match the number of soltypes in args["soltype_list"]. '
@@ -10992,6 +11260,14 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                                               targetFlux=args['targetFlux'], ms=mslist[0], imsize=args['imsize'],
                                                               pixelscale=args['pixelscale'], numClusters=args['Nfacets'],
                                                               facetdirections=args['facetdirections'], restart=restart)
+    
+    # testing
+    #if solints is not None and isinstance(args['facetdirections'], str):
+    #    soltypelist_includedir = np.swapaxes(np.array([soltypelist_includedir] * len(mslist)), 1, 0).T.tolist()
+    #print(soltypelist_includedir.tolist())
+    #print(type(soltypelist_includedir))
+    #print((np.array(soltypelist_includedir)).shape)
+    #sys.exit()
     
     # --- start CREATE facets.fits -----
     # remove previous facets.fits if needed
@@ -11100,6 +11376,22 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
             else:
                 dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
+    # to create the correct dimensions in case args['facetdirections'] is a string and not a list (in that case the same solints, smoothness and soltypelist_includedir is used for all directions)
+    if isinstance(args['facetdirections'], str):
+        if solints is not None:
+            solints = np.swapaxes(np.array([solints] * len(mslist)), 1, 0).T.tolist()
+        if smoothness is not None:
+            smoothness = np.swapaxes(np.array([smoothness] * len(mslist)), 1, 0).T.tolist()
+        if soltypelist_includedir is not None:
+            soltypelist_includedir = np.swapaxes(np.array([soltypelist_includedir] * len(mslist)), 1, 0).T.tolist()
+    if isinstance(args['facetdirections'], list):
+        if solints is not None:
+            solints = solints.tolist()
+        if smoothness is not None:
+            smoothness = smoothness.tolist()
+        if soltypelist_includedir is not None:
+            soltypelist_includedir = soltypelist_includedir.tolist()
+
     return modeldatacolumns, dde_skymodel, solints, smoothness, soltypelist_includedir
 
 
@@ -11182,6 +11474,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          BLsmooth_list,
                          solve_msinnchan_list, solve_msinstartchan_list,
                          antenna_averaging_factors_list, antenna_smoothness_factors_list,
+                         soltypelist_includedir,
                          normamps=False, normamps_per_ms=False, skymodel=None,
                          predictskywithbeam=False,
                          longbaseline=False,
@@ -11190,7 +11483,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          mslist_beforephaseup=None,
                          modeldatacolumns=[], dde_skymodel=None,
                          DDE_predict='WSCLEAN', telescope='LOFAR',
-                         mslist_beforeremoveinternational=None, soltypelist_includedir=None):
+                         mslist_beforeremoveinternational=None):
     ## --- start STACK code ---
     if args['stack']:
         # create MODEL_DATA because in case it does not exist (needed in case user gives external model(s))
@@ -11356,7 +11649,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             clipsollow=args['clipsollow'], uvmax=args['uvmax'], modeldatacolumns=modeldatacolumns,
                             preapplyH5_dde=parmdbmergelist[msnumber], dde_skymodel=dde_skymodel,
                             DDE_predict=DDE_predict, ncpu_max=args['ncpu_max_DP3solve'], soltype_list=args['soltype_list'],
-                            DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir,
+                            DP3_dual_single=args['single_dual_speedup'], soltypelist_includedir=soltypelist_includedir[soltypenumber][msnumber],
                             normamps=normamps, modelstoragemanager=args['modelstoragemanager'], skymodelsetjy=skymodelsetjy,
                             solve_msinnchan=solve_msinnchan_list[soltypenumber][msnumber],
                             solve_msinstartchan=solve_msinstartchan_list[soltypenumber][msnumber],
@@ -11832,7 +12125,6 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
         if soltypelist_includedir is not None:
             modeldatacolumns_solve, sourcedir_removed, dir_id_kept = updatemodelcols_includedir(modeldatacolumns,
-                                                                                                soltypenumber,
                                                                                                 soltypelist_includedir,
                                                                                                 ms, modelstoragemanager=modelstoragemanager)
 
@@ -12560,7 +12852,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None,
                        idg=False, h5list=[], facetregionfile=None,
                        disable_primary_beam=False, ddcor=True, modelstoragemanager=None, parallelgridding=1,
-                       metadata_compression=True):
+                       metadata_compression=True, avgfreqstep=1, avgtimestep=1):
     """
     Removes emission outside a specified box region from measurement sets (MS) by predicting and subtracting the model
     within the defined region. Optionally applies direction-dependent calibration corrections and manages output columns.
@@ -12600,6 +12892,10 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         Number of parallel gridding threads (default: 1).
     metadata_compression : bool, optional
         If True, enables metadata compression for output (default: True).
+    avgfreqstep : int, optional
+        Step size for frequency averaging (default: 1).
+    avgtimestep : int, optional
+        Step size for time averaging (default: 1).
     Returns
     -------
     None
@@ -12729,12 +13025,12 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                 model = t.getcol('MODEL_DATA', startrow=row, nrow=stepsize, rowincr=1)
                 t.putcol(outcol, data - model, startrow=row, nrow=stepsize, rowincr=1)
             t.close()
-        average(mslist, freqstep=[1] * len(mslist), timestep=1,
+        average(mslist, freqstep=[avgfreqstep] * len(mslist), timestep=avgtimestep,
                 phaseshiftbox=phaseshiftbox, dysco=dysco, make_extract=True,
                 dataincolumn=outcol, metadata_compression=metadata_compression)
         remove_column_ms(mslist, outcol) # remove SUBTRACTED_DATA to free up space
     else:  # so have have "keepall", no subtract, just a copy
-        average(mslist, freqstep=[1] * len(mslist), timestep=1,
+        average(mslist, freqstep=[avgfreqstep] * len(mslist), timestep=avgtimestep,
                 phaseshiftbox=phaseshiftbox, dysco=dysco, make_extract=True,
                 dataincolumn=datacolumn, metadata_compression=metadata_compression)
     
@@ -12761,6 +13057,12 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                         t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
             # remove uncorrected file to save disk space
             os.system('rm -rf ' + ms + '.extracted')
+            # average if avgfreqstep or avgtimestep > 1
+            if avgfreqstep > 1 or avgtimestep > 1:
+                average([ms + '.extracted_ddcor'], freqstep=[avgfreqstep], timestep=avgtimestep, \
+                         dysco=dysco, metadata_compression=metadata_compression)
+                os.system('rm -rf ' + ms + '.extracted_ddcor')
+                os.rename(ms + '.extracted_ddcor.avg', ms + '.extracted_ddcor')
      
     # print the imsize for the user
     if userbox is not None and userbox != 'keepall':
@@ -13205,6 +13507,9 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 if not disable_primarybeam_image:
                     cmd += '-apply-primary-beam -use-differential-lofar-beam '
                     cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
+            if telescope == 'MeerKAT' and not idg and not disable_primarybeam_image:
+                cmd += '-apply-primary-beam '
+
 
         cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec '
         if args['groupms_h5facetspeedup'] and len(mslist) > 1 and facetregionfile is not None:
@@ -13411,7 +13716,7 @@ def checkforzerocleancomponents(imagenames):
         return False
 
 
-def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_includedir, ms, dryrun=False, modelstoragemanager=None):
+def updatemodelcols_includedir(modeldatacolumns, soltypelist_includedir, ms, dryrun=False, modelstoragemanager=None):
     modeldatacolumns_solve = []
     modeldatacolumns_notselected = []
     id_kept = []
@@ -13420,11 +13725,10 @@ def updatemodelcols_includedir(modeldatacolumns, soltypenumber, soltypelist_incl
     f = open('facetdirections.p', 'rb')
     sourcedir = pickle.load(f)  # units are radian
     f.close()
-    assert sourcedir.shape[0] == len(modeldatacolumns)
-    assert soltypenumber < soltypelist_includedir.shape[1]
-    assert len(modeldatacolumns) == soltypelist_includedir.shape[0]
+    soltypelist_includedir_sel = np.array(soltypelist_includedir)  # convert to numpy array for easier indexing
 
-    soltypelist_includedir_sel = soltypelist_includedir[:, soltypenumber]  # select the correct soltype pertubation
+    assert len(modeldatacolumns) == soltypelist_includedir_sel.shape[0]
+    assert sourcedir.shape[0] == len(modeldatacolumns)
     assert soltypelist_includedir_sel.sum() > 0  # some element must be True
 
     if soltypelist_includedir_sel.sum() == len(modeldatacolumns):  # all are True, trivial case
@@ -15014,6 +15318,21 @@ def basicsetup(mslist):
         print('pixelscale not set and cannot be determined for telescope', telescope)
         raise Exception('pixelscale not set and cannot be determined for telescope')    
 
+    if args['robust'] is None:
+        if telescope == 'LOFAR':
+            args['robust'] = -0.5
+        elif telescope == 'MeerKAT':
+            if freq > 1.7e9:  # S-band
+                args['robust'] = 0.0
+            else:
+                args['robust'] = -0.5
+        elif telescope == 'ASKAP':
+            args['robust'] = -0.5
+        elif telescope == 'GMRT':
+            args['robust'] = -0.5
+        else:
+            args['robust'] = -0.5        
+
     if (args['delaycal'] or args['auto']) and longbaseline and not LBA:
         if args['imsize'] is None:
             args['imsize'] = 2048
@@ -16214,7 +16533,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '18.0.0'
+    facetselfcal_version = '18.2.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -16265,20 +16584,33 @@ def main():
         # do some input checking
         inputchecker(args, mslist)
 
+    # SPLIT MS IF REQUESTED
+    if args['split_fieldname'] is not None: 
+        # if args['start'] > 0, we are in a restarting run, so we do not want to split the MS again
+        # is args['start'] == 0, we are in the first run, so we do want to split the MS so dryrun needs to be False
+        mslist = split_multidir_ms(mslist, field_names=[args['split_fieldname']], dryrun=args['start'] != 0)
+
     # TEST ONLY REMOVE
     if False:
-        modeldatacolumnsin = ['MODEL_DATA_DD0', 'MODEL_DATA_DD1', 'MODEL_DATA_DD2', 'MODEL_DATA_DD3', 'MODEL_DATA_DD4']
+        #modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, candidate_soltypelist_includedir = (
+        #        prepare_DDE(args['imagename'], 0, ['P192+27_Coma.dysco.sub.shift.avg.weights.ms.archive0.copy','P192+27_Coma.dysco.sub.shift.avg.weights.ms.archive1.copy','P195+27_Coma.dysco.sub.shift.avg.weights.ms.archive0.copy'],
+        #                    DDE_predict=args['DDE_predict'], telescope='LOFAR'))
+        #sys.exit()
+
+        modeldatacolumnsin = ['MODEL_DATA_DD' + str(i) for i in range(23)]
         soltypenumber = 0
         dirs, solints, smoothness, soltypelist_includedir = parse_facetdirections(args['facetdirections'], 0)
-        modeldatacolumns, sourcedir_removed, id_kept = updatemodelcols_includedir(modeldatacolumnsin, soltypenumber,
-                                                                                  soltypelist_includedir, mslist[0],
+        soltypelist_includedir = np.swapaxes(np.array([soltypelist_includedir] * len(mslist)), 1, 0).T.tolist()      
+        msnumber=0
+        soltypenumber=1
+        modeldatacolumns, sourcedir_removed, id_kept = updatemodelcols_includedir(modeldatacolumnsin,
+                                                                                  soltypelist_includedir[soltypenumber][msnumber], mslist[0],
                                                                                   dryrun=True)
         # print(len(sourcedir_removed))
         # for ddir in sourcedir_removed:
         sourcedir_removed = sourcedir_removed.tolist()
         print(sourcedir_removed[0])
         print(modeldatacolumns)
-
         copy_over_solutions_from_skipped_directions(modeldatacolumnsin, id_kept)
         merge_splitted_h5_ordered(modeldatacolumnsin, 'test.h5', clean_up=False)
         sys.exit()
@@ -16377,7 +16709,6 @@ def main():
     longbaseline, LBA, HBAorLBA, freq, fitsmask, maskthreshold_selfcalcycle, \
         automaskthreshold_selfcalcycle, outtarname, telescope = basicsetup(mslist)
 
-
     # SET MODEL STORAGE MANAGER
     args['modelstoragemanager'] = set_modelstoragemanager(telescope)
     #args['modelstoragemanager'] = 'sisco' # TEMPORARY OVERRIDE FOR TESTING
@@ -16428,7 +16759,10 @@ def main():
 
     # this needs to be done after averaging because of time averaging changing the intervals
     if args['facetdirections'] is not None:
-        check_for_highmem_longsolint(mslist, args['facetdirections'])
+        # Check facet directions for high memory/long solution intervals
+        facetdirections_list = args['facetdirections'] if isinstance(args['facetdirections'], list) else [args['facetdirections']]
+        for facetdirections in facetdirections_list:
+            check_for_highmem_longsolint(mslist, facetdirections)
 
     # extra flagging if requested
     #if args['start'] == 0 and args['aoflagger'] and not args['aoflaggerbeforeavg']:
@@ -16482,7 +16816,7 @@ def main():
   
     wsclean_h5list = []
     facetregionfile = None
-    soltypelist_includedir = None
+    soltypelist_includedir = (np.array([[None] * len(args['soltype_list'])] * len(mslist))).T.tolist() # so that this variable is at least defined for DI solves or in case is is not in the facetdirections input
     modeldatacolumns = []
     if args['stack']:
         fitsmask_list = [None] * len(mslist)
@@ -16496,8 +16830,9 @@ def main():
     # create facets.reg so we have it avaialble for image000
     # so that we can use WSClean facet mode, but without having h5 DDE solutions
     if args['facetdirections'] is not None and args['start'] == 0:
+        facetdirections_list = args['facetdirections'] if isinstance(args['facetdirections'], list) else [args['facetdirections']]
         create_facet_directions(None, 0, ms=mslist[0], imsize=args['imsize'],
-                                pixelscale=args['pixelscale'], facetdirections=args['facetdirections'])
+                                pixelscale=args['pixelscale'], facetdirections=facetdirections_list[0])
         facetregionfile = 'facets.reg'  # so when making image000 we can use it without having h5 DDE solutions
 
     if args['start'] > 0 and  args['stop'] == args['start'] and args['remove_outside_center']:
@@ -16604,17 +16939,18 @@ def main():
             # add patches for DDE predict
             # also do prepare_DDE
             if args['DDE']:
-                modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
+                modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, candidate_soltypelist_includedir = (
                     prepare_DDE(args['skymodel'], i, mslist,
                                 DDE_predict='DP3', restart=False, skyview=tgssfitsfile,
                                 wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel']))
 
                 if candidate_solints is not None:
-                    candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
                     solint_list = candidate_solints
                 if candidate_smoothness is not None:
-                    candidate_smoothness = np.swapaxes(np.array([candidate_smoothness] * len(mslist)), 1, 0).T.tolist()
                     smoothnessconstraint_list = candidate_smoothness
+                if candidate_soltypelist_includedir is not None:
+                    soltypelist_includedir = candidate_soltypelist_includedir
+            
             else:
                 dde_skymodel = None
             wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, 
@@ -16624,6 +16960,7 @@ def main():
                                                   antennaconstraint_list, resetsols_list, resetdir_list,
                                                   normamps_list, BLsmooth_list, solve_msinnchan_list, solve_msinstartchan_list,
                                                   antenna_averaging_factors_list, antenna_smoothness_factors_list,
+                                                  soltypelist_includedir,
                                                   normamps=args['normampsskymodel'],
                                                   skymodel=args['skymodel'],
                                                   predictskywithbeam=args['predictskywithbeam'],
@@ -16635,8 +16972,7 @@ def main():
                                                   telescope=telescope,
                                                   modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                                   DDE_predict=set_DDE_predict_skymodel_solve(args['wscleanskymodel']),
-                                                  mslist_beforeremoveinternational=mslist_beforeremoveinternational,
-                                                  soltypelist_includedir=soltypelist_includedir)
+                                                  mslist_beforeremoveinternational=mslist_beforeremoveinternational)
 
         # Generate phasediff stat CSV here if more than 2
         if args['compute_phasediffstat'] and len(args['soltype_list'])>=2:
@@ -16658,7 +16994,7 @@ def main():
         if args['DDE'] and args['start'] != 0 and i == args['start']:
             if args['auto_directions']: args['facetdirections'] = 'directions_' + str(i-1).zfill(3) + '.txt'
            
-            modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, soltypelist_includedir = (
+            modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, candidate_soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], restart=True, telescope=telescope))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
@@ -16708,7 +17044,9 @@ def main():
                                        h5list=wsclean_h5list, facetregionfile=facetregionfile,
                                        disable_primary_beam=args['disable_primary_beam'], 
                                        modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'],
-                                       metadata_compression=args['metadata_compression'])
+                                       metadata_compression=args['metadata_compression'], 
+                                       avgtimestep=args['remove_outside_center_avgtimestep'],
+                                       avgfreqstep=args['remove_outside_center_avgfreqstep'])
                 if createresidualdatacolumn_only:
                     create_residual_data_column(mslist, args['imagename'] + str(i).zfill(3), 
                                            args['pixelscale'], args['imsize'], 
@@ -16785,18 +17123,18 @@ def main():
         if args['DDE']:
             if args['auto_directions']: args['facetdirections'] = auto_direction(i, freq=freq, telescope=telescope)
             modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, \
-            soltypelist_includedir = prepare_DDE(args['imagename'], i, mslist, \
+            candidate_soltypelist_includedir = prepare_DDE(args['imagename'], i, mslist, \
             DDE_predict=args['DDE_predict'], telescope=telescope)
 
             if candidate_solints is not None:
-                candidate_solints = np.swapaxes(np.array([candidate_solints] * len(mslist)), 1, 0).T.tolist()
                 solint_list = candidate_solints
             if candidate_smoothness is not None:
-                candidate_smoothness = np.swapaxes(np.array([candidate_smoothness] * len(mslist)), 1, 0).T.tolist()
                 smoothnessconstraint_list = candidate_smoothness
+            if candidate_soltypelist_includedir is not None:
+                soltypelist_includedir = candidate_soltypelist_includedir
+
         else:
             dde_skymodel = None
-
         # compress model images with gzip to save space
         gzip_model_images(args['imagename'] + str(i).zfill(3))
 
@@ -16860,6 +17198,7 @@ def main():
                                               normamps_list, BLsmooth_list,
                                               solve_msinnchan_list, solve_msinstartchan_list,
                                               antenna_averaging_factors_list, antenna_smoothness_factors_list,
+                                              soltypelist_includedir,
                                               normamps=args['normampsskymodel'] if args['keepusingstartingskymodel'] else args['normamps'],
                                               skymodel=args['skymodel'] if args['keepusingstartingskymodel'] else None,
                                               skymodelpointsource=args['skymodelpointsource'] if args['keepusingstartingskymodel'] else None,
@@ -16870,8 +17209,7 @@ def main():
                                               mslist_beforephaseup=mslist_beforephaseup, telescope=telescope,
                                               modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                               DDE_predict=args['DDE_predict'],
-                                              mslist_beforeremoveinternational=mslist_beforeremoveinternational,
-                                              soltypelist_includedir=soltypelist_includedir)
+                                              mslist_beforeremoveinternational=mslist_beforeremoveinternational)
 
 
         if args['bandpass'] and i >=args['bandpass_stop']: 
