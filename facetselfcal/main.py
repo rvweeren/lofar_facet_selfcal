@@ -2419,10 +2419,10 @@ def check_antenna_factors(antenna_averaging_factors_list, antenna_smoothness_fac
         for ms_id, ms in enumerate(mslist):
             for asf_id in range(len_pert):
                 antenna_smoothness_factors = antenna_smoothness_factors_list[asf_id][ms_id]
-                if antenna_smoothness_factors is not None:
+                if antenna_smoothness_factors is not None and args["DDE"]:
                     max_smoothness_factor = max(float(x.split(':')[1]) for x in antenna_smoothness_factors.split(','))
                     if max_smoothness_factor > 1.0 or max_smoothness_factor <=0.0:
-                        print('WARNING: The maximum antenna smoothness factor', max_smoothness_factor, 'should be > 0 and <= 1.0')
+                        print('WARNING: The maximum antenna smoothness factor', max_smoothness_factor, 'should be > 0 and <= 1.0 for a DDE solve')
                         print('This is not allowed')
                         sys.exit(1)
         
@@ -12266,13 +12266,13 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             raise Exception('There are duplicate antennas in antenna_smoothness_factors, please check your input')
         groupstr_complement = list(set(groupstr_all) ^ set (antennasms))  # get the complement of the antenna group
         if len(groupstr_complement) > 0: 
-            if np.max(smoothness_factors_float) <= 1.0:
+            if (np.max(smoothness_factors_float) <= 1.0) or (not args["DDE"]):
                 antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr_complement)) + ']:1.0')  # add the complement antennas with factor 1.0
-            else:
+            elif (np.max(smoothness_factors_float) > 1.0) and args["DDE"]:
                 antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr_complement)) + ']:'
                                                       + str(1.0/np.max(smoothness_factors_float)))  # add the complement antennas with factor 1.0/maximum smooth
             
-        if np.max(smoothness_factors_float) > 1.0: # handle the case where the smoothness factors are larger than 1.0
+        if args["DDE"] and (np.max(smoothness_factors_float) > 1.0): # handle the case where the smoothness factors are larger than 1.0
             if type(SMconstraint) == list:
                 SMconstraint = [sf*np.max(smoothness_factors_float) for sf in SMconstraint]  # increase SMconstraint with the maximum smoothness factor
             else:
