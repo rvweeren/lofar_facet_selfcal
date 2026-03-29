@@ -836,7 +836,7 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
             max_freq = t.getcol("CHAN_FREQ").max()
         safe_diameter = 60.*1.4*68.*(1.28e9/max_freq) # in arcsec
         if ((imsize*pixsize) + (distance_pointing_center*3600.) ) > safe_diameter:
-            args['disable_primary_beam'] = True # will be set to False if one in mslist violates this criterium
+            args['disable_primary_beam'] = True # set to True if one in mslist violates this criterion
             print("\033[33m" + "=== " + ms + " ===" + "\033[0m")
             print("\033[33m" + "Your image FoV is too large to use -apply-facet-beam/-apply-primary-beam in WSClean!" + "\033[0m")
             print("\033[33m" + "Code will run with the option --disable-primary-beam enforced" + "\033[0m")
