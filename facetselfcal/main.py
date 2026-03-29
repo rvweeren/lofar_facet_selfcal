@@ -809,7 +809,7 @@ def write_primarybeam_info(cmd, imagebasename, telescope=None):
 
 def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
     """
-    Checks whether the image field of view (FoV) for MeerKAT data is too large to safely use the -apply-facet-beam/apply-primary-beam option in WSClean, and enforces the --disable-primary-beam option if necessary.
+    Checks whether the image field of view (FoV) for MeerKAT data is too large to safely use the -apply-facet-beam/-apply-primary-beam option in WSClean, and enforces the --disable-primary-beam option if necessary.
     Parameters:
         mslist (list of str): List of measurement set (MS) file paths to check.
         imsize (float): Image size in pixels.
@@ -826,7 +826,9 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
         - The function assumes the existence of a global 'args' dictionary and a 'logger' object.
         - The function also assumes the presence of 'compute_distance_to_pointingcenter' and 'table' utilities.
     """
-
+    if telescope != 'MeerKAT':
+        return
+    
     for ms in mslist:
         distance_pointing_center = compute_distance_to_pointingcenter(ms, HBAorLBA='other', warn=False, returnval=True, dologging=False)
         
@@ -836,13 +838,13 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
         if ((imsize*pixsize) + (distance_pointing_center*3600.) ) > safe_diameter:
             args['disable_primary_beam'] = True # will be set to False if one in mslist violates this criterium
             print("\033[33m" + "=== " + ms + " ===" + "\033[0m")
-            print("\033[33m" + "Your image FoV is too large to use -apply-facet-beam/apply-primary-beam in WSClean!" + "\033[0m")
-            print("\033[33m" + "Code will run with the option --disable-primary-beam/apply-primary-beam enforced" + "\033[0m")
+            print("\033[33m" + "Your image FoV is too large to use -apply-facet-beam/-apply-primary-beam in WSClean!" + "\033[0m")
+            print("\033[33m" + "Code will run with the option --disable-primary-beam enforced" + "\033[0m")
             print("\033[33m" + "Imaged Fov [deg]: " + str(imsize*pixsize/3600) + "\033[0m") 
             print("\033[33m" + "Image center to telescope pointing center [deg]: " + str(distance_pointing_center) + "\033[0m")       
             print("\033[33m" + "Save Fov [deg]: " + str(safe_diameter/3600) + "\033[0m")
-            logger.warning('Your image FoV is too large to use -apply-facet-beam/apply-primary-beam in WSClean. The option --disable-primary-beam is automatically invoked: ' + ms)
-        return    
+            logger.warning('Your image FoV is too large to use -apply-facet-beam/-apply-primary-beam in WSClean. The option --disable-primary-beam is automatically invoked: ' + ms)
+    return    
 
 def is_two_pol_ms(ms):
     """
