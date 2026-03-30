@@ -807,15 +807,14 @@ def write_primarybeam_info(cmd, imagebasename, telescope=None):
             if '-apply-primary-beam' in cmd:
                 hdul[0].header['COMMENT'] = "Full primary beam correction applied. Image is science ready."
 
-def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope, DDE):
+def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
     """
-    Checks whether the image field of view (FoV) for MeerKAT data is too large to safely use the -apply-facet-beam option in WSClean, and enforces the --disable-primary-beam option if necessary.
+    Checks whether the image field of view (FoV) for MeerKAT data is too large to safely use the -apply-facet-beam/-apply-primary-beam option in WSClean, and enforces the --disable-primary-beam option if necessary.
     Parameters:
         mslist (list of str): List of measurement set (MS) file paths to check.
         imsize (float): Image size in pixels.
         pixsize (float): Pixel size in arcseconds.
         telescope (str): Name of the telescope. Function only applies checks if this is 'MeerKAT'.
-        DDE (bool): If True, direction-dependent effects (DDE) calibration is enabled.
     Returns:
         None
     Side Effects:
@@ -827,7 +826,7 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope, DDE):
         - The function assumes the existence of a global 'args' dictionary and a 'logger' object.
         - The function also assumes the presence of 'compute_distance_to_pointingcenter' and 'table' utilities.
     """
-    if telescope != 'MeerKAT' or not DDE: 
+    if telescope != 'MeerKAT':
         return
     
     for ms in mslist:
@@ -837,15 +836,15 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope, DDE):
             max_freq = t.getcol("CHAN_FREQ").max()
         safe_diameter = 60.*1.4*68.*(1.28e9/max_freq) # in arcsec
         if ((imsize*pixsize) + (distance_pointing_center*3600.) ) > safe_diameter:
-            args['disable_primary_beam'] = True # will be set to False if one in mslist violates this criterium
+            args['disable_primary_beam'] = True # set to True if one in mslist violates this criterion
             print("\033[33m" + "=== " + ms + " ===" + "\033[0m")
-            print("\033[33m" + "Your image FoV is too large to use -apply-facet-beam in WSClean!" + "\033[0m")
+            print("\033[33m" + "Your image FoV is too large to use -apply-facet-beam/-apply-primary-beam in WSClean!" + "\033[0m")
             print("\033[33m" + "Code will run with the option --disable-primary-beam enforced" + "\033[0m")
             print("\033[33m" + "Imaged Fov [deg]: " + str(imsize*pixsize/3600) + "\033[0m") 
             print("\033[33m" + "Image center to telescope pointing center [deg]: " + str(distance_pointing_center) + "\033[0m")       
             print("\033[33m" + "Save Fov [deg]: " + str(safe_diameter/3600) + "\033[0m")
-            logger.warning('Your image FoV is too large to use -apply-facet-beam in WSClean. The option --disable-primary-beam is automatically invoked: ' + ms)
-        return    
+            logger.warning('Your image FoV is too large to use -apply-facet-beam/-apply-primary-beam in WSClean. The option --disable-primary-beam is automatically invoked: ' + ms)
+    return    
 
 def is_two_pol_ms(ms):
     """
@@ -16848,7 +16847,7 @@ def main():
         createresidualdatacolumn_only = False
 
     # check if we can use -apply-facet-beam or disable_primary_beam needs to be set
-    check_applyfacetbeam_MeerKAT(mslist, args['imsize'], args['pixelscale'], telescope, args['DDE'])
+    check_applyfacetbeam_MeerKAT(mslist, args['imsize'], args['pixelscale'], telescope)
 
     # Insert MS history from facetselfcal
     for ms in mslist:
