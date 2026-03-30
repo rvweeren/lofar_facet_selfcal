@@ -15961,9 +15961,9 @@ def create_Ateam_seperation_plots(mslist, start=0):
     for ms in mslist:
         outputname = 'Ateam_' + ms + '.png'
         try:
-            run(f'check_Ateam_separation.py --outputimage=' + outputname + ' ' + ms)
+            run(f'python {submodpath}/check_Ateam_separation_mod.py --outputimage={outputname} {ms}')
         except Exception:
-            print(f"check_Ateam_separation.py does not exist")
+            print(f"check_Ateam_separation_mod.py does not exist")
     return
 
 def nested_mslistforimaging(mslist, stack=False):
