@@ -234,7 +234,7 @@ def option_parser():
     calibrationparser.add_argument("--soltype-list",
                                    type=arg_as_list,
                                    default=['tecandphase', 'tecandphase', 'scalarcomplexgain'],
-                                   help="List with solution types. Possible input: 'complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase' , 'tec', 'tecandphase', 'scalarphase', 'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', 'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope'. The default is [tecandphase,tecandphase,scalarcomplexgain].")
+                                   help="List with solution types. Possible input: 'complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase' , 'tec', 'tecandphase', 'scalarphase', 'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', 'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope', 'leakage', 'leakageamplitude'. The default is [tecandphase,tecandphase,scalarcomplexgain].")
     calibrationparser.add_argument("--solint-list",
                                    type=check_strlist_or_intlist,
                                    default=[1, 1, 120],
@@ -315,11 +315,11 @@ def option_parser():
                                    help='This determines whether WEIGHT_SPECTRUM will be updated based on the amplitude values when --preapplybandpassH5-list is set. By default this is True.',type=ast.literal_eval,
                                    default=True)
     calibrationparser.add_argument('--normamps',
-                                   help='Normalize global amplitudes to 1.0. The default is True (False if fulljones is used). Note that if set to False --normamps-list is ignored.',
+                                   help='Normalize global amplitudes to 1.0. The default is True (False if fulljones/leakage/leakageamplitude is used). Note that if set to False --normamps-list is ignored.',
                                    type=ast.literal_eval,
                                    default=True)
     calibrationparser.add_argument('--normampsskymodel',
-                                   help='Normalize global amplitudes to 1.0 when solving against an external skymodel. The default is False (turned off if fulljones is used). Note that this parameter is False (the default) --normamps-list is ignored for the solve against the skymodel.',
+                                   help='Normalize global amplitudes to 1.0 when solving against an external skymodel. The default is False (turned off if fulljones/leakage/leakageamplitude is used). Note that this parameter is False (the default) --normamps-list is ignored for the solve against the skymodel.',
                                    type=ast.literal_eval,
                                    default=False)
     calibrationparser.add_argument('--normamps-per-ms',
@@ -328,7 +328,7 @@ def option_parser():
     calibrationparser.add_argument("--normamps-list",
                                    type=arg_as_list,
                                    default=['normamps', 'normamps', 'normamps'],
-                                   help="List with amplitude normalization options. Possible input: 'normamps', 'normslope', 'normamps_per_ant, 'normslope+normamps', 'normslope+normamps_per_ant', or None. The default is [normamps,normamps,normamps,etc]. Only has an effect if the corresponding soltype outputs and amplitude000 table (and is not fulljones).")
+                                   help="List with amplitude normalization options. Possible input: 'normamps', 'normslope', 'normamps_per_ant, 'normslope+normamps', 'normslope+normamps_per_ant', or None. The default is [normamps,normamps,normamps,etc]. Only has an effect if the corresponding soltype outputs and amplitude000 table (and is not fulljones/leakage/leakageamplitude).")
     calibrationparser.add_argument('--startfrominitialsolutions',
                                    help='Use the solutions from the previous selfcalcycle in DP3 as initial solutions for the solve (if possible). This could speed up convergence in the solve.',
                                    action='store_true') 
