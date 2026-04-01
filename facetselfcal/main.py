@@ -2,7 +2,6 @@
 # rotationmeasure updates
 # use phase slope fitting for bandpass step?
 # https://ui.adsabs.harvard.edu/abs/2022ApJ...932..110K/abstract
-# std exception detected: The TEC constraints do not yet support direction-dependent intervals
 # python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy
 # run with less disk-space usage, remove all but merged h5
 # continue splitting functions in facetselfcal in separate modules
@@ -1587,7 +1586,14 @@ def is_stokesi_modeltype_allowed(args, telescope):
             if not args['disable_primary_beam']:
                 return False # so in this case we want the keep the primary beam polarization information    
     
-    notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'phaseonly_phmin', 'rotation_phmin', 'phaseonly_slope', 'scalarphasediff', 'scalarphasediffFR', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']
+    notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', \
+                       'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', \
+                       'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', \
+                       'phaseonly_phmin', 'rotation_phmin', 'phaseonly_slope', 'scalarphasediff', \
+                       'scalarphasediffFR', 'faradayrotation', 'faradayrotation+diagonal', \
+                       'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
+                       'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
+                       'faradayrotation+scalarphase', 'leakage', 'leakageamplitude']
     for soltype in args['soltype_list']:
         if soltype in notallowed_list: return False
     return True
@@ -4778,12 +4784,13 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     outputcatalog_filtered =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.srl.filtered.fits'
     facetdirections = 'directions_' + str(selfcalcycle).zfill(3) + '.txt'
     directions_reg =  'directions_' + str(selfcalcycle).zfill(3) + '.reg'
-    outplotname1 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap1.png'
-    outplotname2 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap2.png'
-    outplotname3 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap3.png'
+    plots_dir = os.path.join(os.path.dirname(args['imagename']) or '.', 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
+    outplotname1 =  os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap1.png')
+    outplotname2 =  os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap2.png')
+    outplotname3 =  os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap3.png')
     outputfluxcatalog = args['imagename'] + str(selfcalcycle).zfill(3) + '-compactsource-flux.fits'
     
-
     with fits.open(fitsimage) as hdul:
         pixsize = 3600. * (hdul[0].header['CDELT2']) # in arcsec
         match_radius = pixsize*31.*3./60.
@@ -6985,7 +6992,7 @@ def inputchecker(args, mslist):
             raise Exception('--uvmaxim needs to be larger than --uvmin')
             # print(args['uvmax'], args['uvmin'], args['uvminim'],args['uvmaxim'])
 
-    if 'fulljones' in args['soltype_list'] and args['doflagging'] and not args['forwidefield']:
+    if ('fulljones' in args['soltype_list'] or 'leakage' in args['soltype_list'] or 'leakageamplitude' in args['soltype_list']) and args['doflagging'] and not args['forwidefield']:
         print('--doflagging is True, cannot be combined with fulljones solve, set it to False or use --forwidefield')
         raise Exception('--doflagging is True, cannot be combined with fulljones solve')
 
@@ -7049,12 +7056,6 @@ def inputchecker(args, mslist):
             raise Exception(
                 'Invalid input, resetsols can only be core, superterp, corebutsuperterp, coreandfirstremotes, remote, alldutch, international, distantremote, alldutchandclosegerman, or all')
 
-    # if args['DDE']:
-    #   for soltype in args['soltype_list']:
-    #    if soltype in ['scalarphasediff', 'scalarphasediffFR']:
-    #        print('Invalid soltype input in combination with DDE type solve')
-    #        raise Exception('Invalid soltype input in combination with DDE type solve')
-
     for soltype in args['soltype_list']:
         if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude',
                            'amplitudeonly', 'phaseonly', 'fulljones', 'rotation',
@@ -7068,7 +7069,7 @@ def inputchecker(args, mslist):
                            'phaseonly_slope', 'faradayrotation', 'faradayrotation+diagonal',
                            'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',
                            'faradayrotation+scalar', 'faradayrotation+scalaramplitude',
-                           'faradayrotation+scalarphase']:
+                           'faradayrotation+scalarphase', 'leakage', 'leakageamplitude']:
             print('Invalid soltype input')
             raise Exception('Invalid soltype input')
 
@@ -7214,6 +7215,12 @@ def inputchecker(args, mslist):
         if 'faradayrotation+scalaramplitude' in args['soltype_list']:
             print('Invalid soltype input in combination with --DDE')
             raise Exception('Invalid soltype input in combination with --DDE')
+        if 'leakage' in args['soltype_list']:
+            print('Invalid soltype input in combination with --DDE')
+            raise Exception('Invalid soltype input in combination with --DDE')
+        if 'leakageamplitude' in args['soltype_list']:
+            print('Invalid soltype input in combination with --DDE')
+            raise Exception('Invalid soltype input in combination with --DDE')    
 
 
         if args['wscleanskymodel'] is not None and args['facetdirections'] is None:
@@ -11923,9 +11930,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                           updateweights=True, originalmodel='MODEL_DATA',
                                           newmodel='MODEL_DATA_PHASE_SLOPE', backup=True)
 
-    if soltype in ['phaseonly', 'complexgain', 'fulljones', 'rotation+diagonal', 'amplitudeonly',
-                   'rotation+diagonalamplitude',
-                   'rotation+diagonalphase', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude']:  # for 1D plotting
+    if soltype in ['phaseonly', 'complexgain', 'fulljones', 'rotation+diagonal', 'amplitudeonly', \
+                   'rotation+diagonalamplitude', 'rotation+diagonalphase', \
+                   'faradayrotation+diagonal', 'faradayrotation+diagonalphase', \
+                   'faradayrotation+diagonalamplitude', 'leakage', 'leakageamplitude']:  # for 1D plotting
         onepol = False
     if soltype in ['scalarphase', 'tecandphase', 'tec', 'scalaramplitude',
                    'scalarcomplexgain', 'rotation', 'rotation+scalar',
@@ -12038,6 +12046,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if DP3_dual_single:
             if soltype in ['complexgain', 'amplitudeonly', 'phaseonly'] \
                     and 'fulljones' not in soltype_list[0:soltypenumber] \
+                    and 'leakage' not in soltype_list[0:soltypenumber] \
+                    and 'leakageamplitude' not in soltype_list[0:soltypenumber] \
                     and 'rotation' not in soltype_list[0:soltypenumber] \
                     and 'rotation+diagonalphase' not in soltype_list[0:soltypenumber] \
                     and 'rotation+diagonalamplitude' not in soltype_list[0:soltypenumber] \
@@ -12056,6 +12066,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             if soltype in ['scalarcomplexgain', 'scalaramplitude', \
                            'tec', 'tecandphase', 'scalarphase'] \
                     and 'fulljones' not in soltype_list[0:soltypenumber] \
+                    and 'leakage' not in soltype_list[0:soltypenumber] \
+                    and 'leakageamplitude' not in soltype_list[0:soltypenumber] \
                     and 'rotation' not in soltype_list[0:soltypenumber] \
                     and 'rotation+diagonalphase' not in soltype_list[0:soltypenumber] \
                     and 'rotation+diagonalamplitude' not in soltype_list[0:soltypenumber] \
@@ -12271,9 +12283,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             cmd += 'ddecal.stepsize=0.2 '
             cmd += 'ddecal.maxapproxiter=45 '
             cmd += 'ddecal.approxtolerance=6e-3 '
-    if soltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly',
-                   'rotation+diagonal', 'fulljones', 'rotation+scalar',
-                   'rotation+diagonalamplitude', 'rotation+scalaramplitude', 'faradayrotation+diagonal', 'faradayrotation+scalar', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalaramplitude']:
+    if soltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', \
+                   'rotation+diagonal', 'fulljones', 'rotation+scalar', \
+                   'rotation+diagonalamplitude', 'rotation+scalaramplitude', \
+                   'faradayrotation+diagonal', 'faradayrotation+scalar', \
+                   'faradayrotation+diagonalamplitude', 'faradayrotation+scalaramplitude', \
+                   'leakage', 'leakageamplitude']:
         cmd += 'ddecal.tolerance=' + str(tolerance) + ' '  # for now the same as phase soltypes
     # cmd += 'ddecal.detectstalling=False '
 
@@ -12318,7 +12333,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if initialsolutions_exist and initialsolutions_directions_equal: 
             # if we get here it means we can can use ddecal.initialsolutions
             cmd += 'ddecal.initialsolutions.h5parm=' + previous_parmdb + ' '
-            if soltypein == 'fulljones': 
+            if soltypein == 'fulljones' or soltypein == 'leakage' or soltypein == 'leakageamplitude': 
                 # just for extra safety 
                 # cmd += 'ddecal.initialsolutions.gaintype=fulljones ' 
                 # for all soletypes DP3 should be able to figure it out in principle by itself 
@@ -12476,10 +12491,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if resetsols is not None and resetsols != 'all':
         # if resetsols == 'all' we postpone the reset to after the  autoauto_flag_antennas step further below
-        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
-                       'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
-                       'rotation+diagonalamplitude', 'rotation+diagonalphase',
-                       'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
+        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones', \
+                       'complexgain', 'scalarcomplexgain', 'rotation+diagonal', \
+                       'rotation+diagonalamplitude', 'rotation+diagonalphase', \
+                       'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude', \
+                       'faradayrotation', 'faradayrotation+diagonal', \
+                       'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
+                       'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
+                       'faradayrotation+scalarphase', 'leakage', 'leakageamplitude']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -12488,10 +12507,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                                           telescope=args['telescope']), refant=refant, telescope=args['telescope'])
 
     if resetdir is not None:
-        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
-                       'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
-                       'rotation+diagonalamplitude', 'rotation+diagonalphase',
-                       'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
+        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones', \
+                       'complexgain', 'scalarcomplexgain', 'rotation+diagonal', \
+                       'rotation+diagonalamplitude', 'rotation+diagonalphase', \
+                       'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude', \
+                       'faradayrotation', 'faradayrotation+diagonal', \
+                       'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',\
+                       'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
+                       'faradayrotation+scalarphase', 'leakage', 'leakageamplitude']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -12505,15 +12528,17 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         onechannel = True
 
     # Check for bad values (amplitudes/fulljones)
-    if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude',
-                   'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude',
-                   'rotation+scalar', 'rotation+scalaramplitude', 'faradayrotation+diagonal', 'faradayrotation+scalaramplitude','faradayrotation+diagonalamplitude','faradayrotation+scalar']:
+    if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude', \
+                   'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude', \
+                   'rotation+scalar', 'rotation+scalaramplitude', 'faradayrotation+diagonal', \
+                   'faradayrotation+scalaramplitude', 'faradayrotation+diagonalamplitude', \
+                   'faradayrotation+scalar', 'leakage', 'leakageamplitude']:
         if resetdir is not None or resetsols is not None:
             flag_bad_amps(parmdb, setweightsphases=includesphase, flagamp1=False,
                           flagampxyzero=False)  # otherwise it flags the solutions which where reset
         else:
             flag_bad_amps(parmdb, setweightsphases=includesphase)
-        if soltype == 'fulljones':
+        if soltype == 'fulljones' or soltype =='leakage' or soltype == 'leakageamplitude':
             removenans_fulljones(parmdb)
         else:
             remove_nans(parmdb, 'amplitude000')
@@ -12526,7 +12551,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 and soltype != 'faradayrotation+diagonalamplitude' :
             remove_nans(parmdb, 'phase000')
 
-        if soltype == 'fulljones':
+        if soltype == 'fulljones' or soltype == 'leakage' or soltype == 'leakageamplitude':
             # if normamps: #and all(rsl is None for rsl in resetsols_list) and all(rdl is None for rdl in resetdir_list):
             # otherwise you get too much setting to 1 due to large amp deviations, in particular fullones on raw data which has very high correlator amps (with different ILT vals), also resets in that case cause issues (resets are ok if the amplitudes are close to 1). Hence using the normamps test seems the most logical choice
             flaglowamps_fulljones(parmdb, lowampval=medamp / ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor),
@@ -12540,9 +12565,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             flaghighamps(parmdb, highampval=medamp * ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor),
                          setweightsphases=includesphase)
 
-        if soltype == 'fulljones' and clipsolutions:
-            print('Fulljones and solution clipping not supported')
-            raise Exception('Fulljones and clipsolutions not implemtened')
+        if (soltype == 'fulljones' or soltype == 'leakage' or soltype == 'leakageamplitude') and clipsolutions:
+            print('Fulljones/leakage/leakageamplitude and solution clipping not supported')
+            raise Exception('Fulljones/leakage/leakageamplitude and clipsolutions not implemtened')
         if clipsolutions:
             flaglowamps(parmdb, lowampval=clipsollow, flagging=True, setweightsphases=True)
             flaghighamps(parmdb, highampval=clipsolhigh, flagging=True, setweightsphases=True)
@@ -12565,10 +12590,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 flaghighamps(parmdb, highampval=medamp * 1.5, flagging=False, setweightsphases=True)        
 
     if resetsols == 'all':
-        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones',
-                       'complexgain', 'scalarcomplexgain', 'rotation+diagonal',
-                       'rotation+diagonalamplitude', 'rotation+diagonalphase',
-                       'rotation+scalar', 'rotation+scalarphase', 'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
+        if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones', \
+                       'leakage', 'leakageamplitude', 'complexgain', 'scalarcomplexgain', \
+                       'rotation+diagonal', 'rotation+diagonalamplitude', \
+                       'rotation+diagonalphase', 'rotation+scalar', 'rotation+scalarphase',\
+                       'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', \
+                       'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
+                       'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
+                       'faradayrotation+scalarphase']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -12658,14 +12687,16 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         run(cmdlosoto)
         force_close(parmdb)
 
-    if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude',
-                   'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude',
-                   'rotation+scalar', 'rotation+scalaramplitude', 'faradayrotation+diagonal', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude']:
+    if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude', \
+                   'fulljones', 'rotation+diagonal', 'rotation+diagonalamplitude', \
+                   'rotation+scalar', 'rotation+scalaramplitude', 'faradayrotation+diagonal', \
+                   'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', \
+                   'faradayrotation+scalaramplitude', 'leakage', 'leakageamplitude']:
         print('Do flagging?:', flagging)
         if flagging and not onechannel and ntimesH5(parmdb) > 1 :
-            if soltype == 'fulljones':
-                print('Fulljones and flagging not implemtened')
-                raise Exception('Fulljones and flagging not implemtened')
+            if soltype == 'fulljones' or soltype == 'leakage' or soltype == 'leakageamplitude':
+                print('Fulljones/leakage/leakageamplitude and flagging not implemtened')
+                raise Exception('Fulljones/leakage/leakageamplitude and flagging not implemtened')
             else:
                 losotoparset = create_losoto_flag_apgridparset(ms, flagging=True, maxrms=flagslowamprms,
                                                                maxrmsphase=flagslowphaserms,
@@ -13907,17 +13938,19 @@ def plotimage(selfcalcycle, stackstr='', mask=None, regionfile=None):
     mask (str): fits clean mask image (will be overplot with red contours)
     regionfile (str): DS9 facet region file for --DDE mode, facet layout will be shown in yellow
     """
+    plots_dir = os.path.join(os.path.dirname(args['imagename']) or '.', 'plots')
+    os.makedirs(plots_dir, exist_ok=True)
     if args['imager'] == 'WSCLEAN':
         if args['idg']:
-            plotpngimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.png'
+            plotpngimage = os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + stackstr + '.png')
             plotfitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '-MFS-image.fits'
             plotfitsimage000 = args['imagename'] + str(0).zfill(3) + stackstr + '-MFS-image.fits'
         else:
-            plotpngimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.png'
+            plotpngimage = os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + stackstr + '.png')
             plotfitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '-MFS-image.fits'
             plotfitsimage000 = args['imagename'] + str(0).zfill(3) + stackstr + '-MFS-image.fits'
         if args['imager'] == 'DDFACET':
-            plotpngimage = args['imagename'] + str(selfcalcycle) + '.png'
+            plotpngimage = os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle) + '.png')
             plotfitsimage = args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '.app.restored.fits'
             plotfitsimage000 = args['imagename'] + str(0).zfill(3) + stackstr + '.app.restored.fits'
 
@@ -15373,6 +15406,35 @@ def basicsetup(mslist):
         if not args['bandpass']: 
             if args['mask_extended'] is None: # so not set by user, so we can set it to True in auto
                 args['mask_extended'] = True
+        
+        # set the start and end frequencies for the self-calibration based on the central frequency of the observation, so we can determine the channels to use for self-calibration if not set by user
+        # channels outside these ranges will be removed from the MS
+        if not args['DDE']:
+            if (freq >= 1.0e9) and (freq < 1.6e9):  # L-band
+                startfreq = 906e6
+                endfreq = 1655e6
+            elif freq < 1.0e9:  # UHF-band 
+                startfreq = 595e6
+                endfreq = 1049e6
+            # for S0 to S4 bands
+            elif freq < 2.3e9:  # S0 
+                startfreq = 1.90e9 # might need some tuning
+                endfreq   = 2.50e9 # might need some tuning
+            elif freq < 2.52e9:  # S1
+                startfreq = 2.046e9 # tuning done
+                endfreq   = 2.773e9 # tuning done
+            elif freq < 2.73e9:  # S2
+                startfreq = 2.25e9 # might need some tuning
+                endfreq   = 2.95e9 # might need some tuning
+            elif freq < 2.95e9:  # S3
+                startfreq = 2.45e9 # might need some tuning
+                endfreq   = 3.15e9 # might need some tuning
+            else:  # S4
+                startfreq = 2.65e9 # might need some tuning
+                endfreq   = 3.35e9 # might need some tuning
+            args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
+        
+        
         if not args['DDE'] and not args['bandpass']:
             args['flag_ampresetvalfactor'] = True       
             if args['aoflagger'] is None: # so no set by user, so we can set it to True in auto
@@ -15404,21 +15466,7 @@ def basicsetup(mslist):
             if (freq >= 1.7e9) and (freq < 4.0e9):  # S-band
                 args['smoothnessconstraint_list'] = [150., 7.5, 100., 100.] 
             
-            # try to automatically set arg['msinstartchan'] and arg['msinnchan'] for L-band
-            if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
-                startfreq = 906e6
-                endfreq = 1655e6
-                args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
-            if freq < 1.0e9:  # UHF-band 
-                startfreq = 595e6
-                endfreq = 1049e6
-                args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
-            if freq> 2.3e9 and freq < 2.6e9: # S1-band
-                startfreq = 2046e6
-                endfreq = 2773e6
-                args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
-            # for S0 to S5 bands to do
-
+ 
             # tmp
             #args['flagsolutionsbeforeresetsolsall'] = True
             #args['nchan_list'] = [1, 1, 1, 4]
@@ -15456,15 +15504,6 @@ def basicsetup(mslist):
             if args['aoflagger_strategy'] is None: # so not set by user, so we can set it to default strategy in auto
                 args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua'
             args['nchan_list'] = [1,1]
-            # try to automatically set arg['msinstartchan'] and arg['msinnchan'] for L-band
-            if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
-                startfreq = 906e6
-                endfreq = 1655e6
-                args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
-            if freq < 1.0e9:  # UHF-band 
-                startfreq = 595e6
-                endfreq = 1049e6
-                args['msinstartchan'], args['msinnchan'] = get_startchan_nchan(freqs, startfreq, endfreq)
 
     if args['auto'] and longbaseline and not args['delaycal']:
         args['update_uvmin'] = False
@@ -15906,8 +15945,9 @@ def create_Ateam_seperation_plots(mslist, start=0):
     """
     if start != 0:
         return
+    os.makedirs('plots', exist_ok=True)
     for ms in mslist:
-        outputname = 'Ateam_' + ms + '.png'
+        outputname = os.path.join('plots', 'Ateam_' + ms + '.png')
         try:
             run(f'python {submodpath}/check_Ateam_separation_mod.py --outputimage={outputname} {ms}')
         except Exception:
@@ -16478,7 +16518,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '18.2.1'
+    facetselfcal_version = '18.3.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
