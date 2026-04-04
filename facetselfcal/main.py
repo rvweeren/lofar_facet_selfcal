@@ -12235,9 +12235,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
             groupstr = antennaconstraintstr(antgroup.split(':')[0], antennasms, HBAorLBA, telescope=args['telescope'], useforresetsols=True)
             groupstr_all = groupstr_all + groupstr
-            if np.max(smoothness_factors_float) <= 1.0:
+            if np.max(smoothness_factors_float) <= 1.0 or (not args["DDE"]):
                 antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr)) + ']:' + antgroup.split(':')[1])
-            else:
+            elif (np.max(smoothness_factors_float) > 1.0) and args["DDE"]:
                 antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr)) + ']:' + \
                                                       str(float(antgroup.split(':')[1])/np.max(smoothness_factors_float)))
                   
