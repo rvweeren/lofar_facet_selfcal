@@ -12240,17 +12240,23 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             elif (np.max(smoothness_factors_float) > 1.0) and args["DDE"]:
                 antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr)) + ']:' + \
                                                       str(float(antgroup.split(':')[1])/np.max(smoothness_factors_float)))
+            elif (np.max(smoothness_factors_float) > 1.0) and (not args["DDE"]):
+                antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr)) + ']:' + \
+                                                      str(float(antgroup.split(':')[1])/np.max(smoothness_factors_float)))
                   
         if len(groupstr_all) != len(set(groupstr_all)):
             print('There are duplicate antennas in antenna_smoothness_factors, please check your input')
             raise Exception('There are duplicate antennas in antenna_smoothness_factors, please check your input')
         groupstr_complement = list(set(groupstr_all) ^ set (antennasms))  # get the complement of the antenna group
         if len(groupstr_complement) > 0: 
-            if (np.max(smoothness_factors_float) <= 1.0) or (not args["DDE"]):
+            if (np.max(smoothness_factors_float) <= 1.0):
                 antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr_complement)) + ']:1.0')  # add the complement antennas with factor 1.0
             elif (np.max(smoothness_factors_float) > 1.0) and args["DDE"]:
                 antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr_complement)) + ']:'
                                                       + str(1.0/np.max(smoothness_factors_float)))  # add the complement antennas with factor 1.0/maximum smooth
+            elif (np.max(smoothness_factors_float) > 1.0) and (not args["DDE"]):
+                antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr_complement)) + ']:'
+                                                      + str(np.max(smoothness_factors_float)))  # add the complement antennas with factor 1.0/maximum smooth
             
         if args["DDE"] and (np.max(smoothness_factors_float) > 1.0): # handle the case where the smoothness factors are larger than 1.0
             if type(SMconstraint) == list:
