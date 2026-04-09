@@ -101,8 +101,9 @@ from submods.fair_log.config import add_config_to_h5, add_version_to_h5
 from utils.parsers import parse_history, parse_source_id
 
 # Set logger
+os.makedirs('logs', exist_ok=True) 
 logger = logging.getLogger(__name__)
-file_handler = logging.FileHandler('selfcal.log')
+file_handler = logging.FileHandler('logs/selfcal.log')
 formatter = logging.Formatter('%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
@@ -4478,7 +4479,7 @@ def write_facet_directions(catalogfile, freq, facetdirections = 'directions.txt'
 
     write_ds9_regions(catalog['RA'], catalog['DEC'], filename=ds9_region) 
   
-    with open(facetdirections,"w") as f:
+    with open(facetdirections, "w") as f:
         f.write('#RA DEC start solints smoothness soltypelist_includedir\n')
         for source_counter,source in enumerate(catalog):
             if telescope == 'LOFAR':
@@ -4782,10 +4783,9 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     outputcatalog3 =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap3.srl.fits'
     outputcatalog  =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.merged.srl.fits'
     outputcatalog_filtered =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.srl.filtered.fits'
-    facetdirections = 'directions_' + str(selfcalcycle).zfill(3) + '.txt'
-    directions_reg =  'directions_' + str(selfcalcycle).zfill(3) + '.reg'
+    facetdirections = 'directions/directions_' + str(selfcalcycle).zfill(3) + '.txt'
+    directions_reg =  'facet_regions/directions_' + str(selfcalcycle).zfill(3) + '.reg'
     plots_dir = os.path.join(os.path.dirname(args['imagename']) or '.', 'plots')
-    os.makedirs(plots_dir, exist_ok=True)
     outplotname1 =  os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap1.png')
     outplotname2 =  os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap2.png')
     outplotname3 =  os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap3.png')
@@ -5637,7 +5637,7 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
 def tmpmakeantresidual(mslist, selfcalcycle, multiscale, fitsmask_list, restoringbeam, \
                        automaskthreshold_selfcalcycle, wsclean_h5list, facetregionfile):
     #msname = '44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg'
-    #cmdwsclean = 'wsclean -no-update-model-required -minuv-l 10.0 -size 5736 5736 -reorder -weight briggs 0.0 -parallel-reordering 4 -mgain 0.75 -data-column RESIDUAL_DATA  -join-channels -channels-out 8 -parallel-gridding 6 -fit-spectral-pol 5 -pol i -gridder wgridder -wgridder-accuracy 0.0001 -no-min-grid-resolution -facet-regions facets.reg -apply-facet-solutions merged_selfcalcycle008_44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg.h5 amplitude000,phase000 -diagonal-visibilities -name imageDD_009 -scale 0.75arcsec -nmiter 1 -niter 1'
+    #cmdwsclean = 'wsclean -no-update-model-required -minuv-l 10.0 -size 5736 5736 -reorder -weight briggs 0.0 -parallel-reordering 4 -mgain 0.75 -data-column RESIDUAL_DATA  -join-channels -channels-out 8 -parallel-gridding 6 -fit-spectral-pol 5 -pol i -gridder wgridder -wgridder-accuracy 0.0001 -no-min-grid-resolution -facet-regions facet_regions/facets.reg -apply-facet-solutions merged_selfcalcycle008_44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg.h5 amplitude000,phase000 -diagonal-visibilities -name imageDD_009 -scale 0.75arcsec -nmiter 1 -niter 1'
 
     # full residual
     #os.system(cmdwsclean + ' -name imageDD_009_residualfull ' + msname)
@@ -6511,7 +6511,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
              find_closestdir=False, updateweights=False, modelstoragemanager=None, 
              missingantennabehavior='error', metadata_compression=True, timeslotsperparmupdate=200,
-             auto_update_timeslotsperparmupdate=False):
+             auto_update_timeslotsperparmupdate=False, fix_sisco_samecol_issue=True):
     """ Apply an H5parm to a Measurement Set.
 
     Args:
@@ -6557,7 +6557,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
 
     # sisco compression does not support reading and writing to the same column
     msoutcol_orig = msoutcol # save original name
-    if msincol == msoutcol and msout == '.' and modelstoragemanager == 'sisco':
+    if msincol == msoutcol and msout == '.' and modelstoragemanager == 'sisco' and fix_sisco_samecol_issue:
         msoutcol = msoutcol + '_SISCO_TEMP'
 
     cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), 8])) + ' msin=' + ms
@@ -6706,7 +6706,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
     if msout != '.':
         fix_uvw([msout])
     
-    if msincol == msoutcol_orig and msout == '.' and modelstoragemanager == 'sisco':
+    if msincol == msoutcol_orig and msout == '.' and modelstoragemanager == 'sisco' and fix_sisco_samecol_issue:
         # copy back from temporary column to original column with taql
         taql_cmd = f"taql 'UPDATE {ms} SET {msoutcol_orig} = {msoutcol}'"
         print('Copying back from temporary column to original column with taql:', taql_cmd)
@@ -7296,9 +7296,9 @@ def inputchecker(args, mslist):
         print('Cannot find WSclean, forgot to source lofarinit.[c]sh?')
         raise Exception('Cannot find WSClean, forgot to source lofarinit.[c]sh?')
 
-    if which('MakeMask.py') is None and which('breizorro') is None:
-        print('Cannot find MakeMask.py or breizorro, forgot to install it?')
-        raise Exception('Cannot find MakeMask.py or breizorro, forgot to install it?')
+    if which('breizorro') is None:
+        print('Cannot find breizorro, forgot to install it?')
+        raise Exception('Cannot find breizorro, forgot to install it?')
 
     if which('taql') is None:
         print('Cannot find taql, forgot to install it?')
@@ -9414,7 +9414,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
     imagename_pb = imagename.replace('.fits', '-pb.fits')
     
     msliststring = ' '.join(map(str, glob.glob('*.calibrated')))
-    cmd = 'tar -zcf ' + outtarname + ' ' + msliststring + ' selfcal.log ' + imagename + ' '
+    cmd = 'tar -zcf ' + outtarname + ' ' + msliststring + ' logs/selfcal.log ' + imagename + ' '
 
     if os.path.isfile(imagename_pb):
         cmd += imagename_pb + ' '
@@ -10201,7 +10201,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     """
     Create a losoto parset to fill the beam correction values'.
     """
-    parset = 'losotobeam.parset'
+    parset = 'losoto_parsets/losotobeam.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -10230,7 +10230,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
 
 
 def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttecandphase', markersize=2):
-    parset = 'losoto_plotfasttecandphase.parset'
+    parset = 'losoto_parsets/losoto_plotfasttecandphase.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -10254,7 +10254,7 @@ def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttec
 
 
 def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', markersize=2):
-    parset = 'losoto_plotfasttec.parset'
+    parset = 'losoto_parsets/losoto_plotfasttec.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -10277,7 +10277,7 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', marke
 
 
 def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outplotname='rotation', markersize=2):
-    parset = 'losoto_plotrotation.parset'
+    parset = 'losoto_parsets/losoto_plotrotation.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -10303,7 +10303,7 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
 
 
 def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onepol=False, outplotname='fastphase', onetime=False, markersize=2):
-    parset = 'losoto_plotfastphase.parset'
+    parset = 'losoto_parsets/losoto_plotfastphase.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -10358,7 +10358,7 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
 def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
                                     refant='CS003HBA0', onechannel=False, medamp=2.5, flagphases=True,
                                     onepol=False, outplotname='slowamp', fulljones=False, onetime=False, markersize=2):
-    parset = 'losoto_flag_apgrid.parset'
+    parset = 'losoto_parsets/losoto_flag_apgrid.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -10534,7 +10534,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
 
 def create_losoto_flag_ap_only(ms, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
                                onechannel=False, flagphases=True, onetime=False):
-    parset = 'losoto_flag_ap_only.parset'
+    parset = 'losoto_parsets/losoto_flag_ap_only.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -10595,7 +10595,7 @@ def create_losoto_bandpassparset(intype, ms, h5):
     intype (str): set "phase" or "amplitude" or amplitude and phase ("a&p") smoothing, input should be one of these strings
     """
     assert intype == 'phase' or intype == 'amplitude' or intype == 'a&p'
-    parset = 'losoto_bandpass.parset'
+    parset = 'losoto_parsets/losoto_bandpass.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -10648,7 +10648,7 @@ def create_losoto_bandpassparset(intype, ms, h5):
 
 def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=True, refant='CS003HBA0',
                                      onechannel=False, outplotname='runningmedian'):
-    parset = 'losoto_mediansmooth.parset'
+    parset = 'losoto_parsets/losoto_mediansmooth.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -10852,10 +10852,14 @@ def split_facetdirections(facetregionfile):
         >>> split_facetdirections('all_facets.reg')
         # Creates facet0.reg, facet1.reg, facet2.reg, etc.
     """
-
+    # split of directory and filename to get the directory for the output files
+    dirofinput = os.path.dirname(facetregionfile)
+    if dirofinput == '':
+        dirofinput = '.'  # if the input file is in the current directory, set dirofinput to '.'
+    # write output files to the same directory as the input file
     r = pyregion.open(facetregionfile)
     for facet_id, facet in enumerate(r):
-        r[facet_id:facet_id + 1].write('facet' + str(facet_id) + '.reg')
+        r[facet_id:facet_id + 1].write(dirofinput + '/facet' + str(facet_id) + '.reg')
     return
 
 
@@ -10895,7 +10899,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     imsizemargin : int, optional
         Margin to add to image size (not currently used in function body). Default is 100.
     restart : bool, optional
-        If True, preserves existing facets.reg file when facetdirections is provided.
+        If True, preserves existing ./facet_regions/facets.reg file when facetdirections is provided.
         Default is False.
     via_h5 : bool, optional
         If True, uses h5 file path for quick DS9 facet generation and returns early.
@@ -10917,7 +10921,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     Notes
     -----
     - Generates 'facetdirections.p' pickle file containing patch positions array.
-    - Generates 'facets.reg' DS9 region file when ms, imsize, and pixelscale are provided.
+    - Generates './facet_regions/facets.reg' DS9 region file when ms, imsize, and pixelscale are provided.
     - When selfcalcycle == 0 and no facetdirections file is provided, runs PyBDSF on
       the image and uses lsmtool for source grouping.
     - Patch positions are stored as [RA, Dec] in radians.
@@ -10925,7 +10929,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
 
     if via_h5: # this is quick call to ds9facetgenerator using an h5 file and a None return
         cmd = f'python {submodpath}/ds9facetgenerator.py '
-        cmd += '--ms=' + ms + ' --h5=' + h5 + ' '
+        cmd += '--ms=' + ms + ' --h5=' + h5 + ' --DS9regionout=facet_regions/facets.reg '
         cmd += '--imsize=' + str(imsize + int(imsize*0.15)) + ' --pixelscale=' + str(pixelscale)
         run(cmd)
         return
@@ -10989,11 +10993,11 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         f.close()
 
         # generate polygon composite regions file for WSClean imaging
-        # in case of a restart this is not done, and the old facets.reg is kept
-        # using the old facets.reg is important in case we change the number of facet directions, so the that first image after the restart is done with the old directions (and the h5file used was made using that)
+        # in case of a restart this is not done, and the old facet_regions/facets.reg is kept
+        # using the old facet_regions/facets.reg is important in case we change the number of facet directions, so the that first image after the restart is done with the old directions (and the h5file used was made using that)
         if ms is not None and imsize is not None and pixelscale is not None and not restart:
             cmd = f'python {submodpath}/ds9facetgenerator.py '
-            cmd += '--ms=' + ms + ' '
+            cmd += '--ms=' + ms + ' --DS9regionout=facet_regions/facets.reg '
             cmd += '--h5=facetdirections.p --imsize=' + str(imsize + int(imsize*0.15)) + ' --pixelscale=' + str(pixelscale)
             run(cmd)
         return solints, smoothness, soltypelist_includedir
@@ -11033,7 +11037,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         # generate polygon composite regions file for WSClean imaging
         if ms is not None and imsize is not None and pixelscale is not None:
             cmd = f'python {submodpath}/ds9facetgenerator.py '
-            cmd += '--ms=' + ms + ' '
+            cmd += '--ms=' + ms + ' --DS9regionout=facet_regions/facets.reg '
             cmd += '--h5=facetdirections.p --imsize=' + str(imsize + int(imsize*0.15)) + ' --pixelscale=' + str(pixelscale)
             run(cmd)
         return solints, smoothness, soltypelist_includedir
@@ -11247,67 +11251,69 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
     #print((np.array(soltypelist_includedir)).shape)
     #sys.exit()
     
-    # --- start CREATE facets.fits -----
-    # remove previous facets.fits if needed
-    if os.path.isfile('facets.fits'):
-        os.system('rm -f facets.fits')
+    # --- start CREATE fits_images/facets.fits -----
+    # remove previous fits_images/facets.fits if needed
+    if os.path.isfile('fits_images/facets.fits'):
+        os.system('rm -f fits_images/facets.fits')
     if skyview == None:
         if not restart and wscleanskymodel is None and skymodel is None:
-            os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) + '-MFS-image.fits' + ' facets.fits')
+            os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) + '-MFS-image.fits' + ' fits_images/facets.fits')
         if not restart and wscleanskymodel is not None:
-            # os.system('cp ' + glob.glob(wscleanskymodel + '-????-*model*.fits')[0] + ' facets.fits')
-            create_empty_fitsimage(mslist[0], int(args['imsize']), float(args['pixelscale']), 'facets.fits')
+            create_empty_fitsimage(mslist[0], int(args['imsize']), float(args['pixelscale']), 'fits_images/facets.fits')
         if not restart and skymodel is not None:
-            create_empty_fitsimage(mslist[0], int(args['imsize']), float(args['pixelscale']), 'facets.fits')
+            create_empty_fitsimage(mslist[0], int(args['imsize']), float(args['pixelscale']), 'fits_images/facets.fits')
     else:
-        os.system('cp ' + skyview + ' facets.fits')
+        os.system('cp ' + skyview + ' fits_images/facets.fits')
     
     if restart:  # in that case we also have a previous image avaialble
-        os.system('cp ' + imagebasename + str(selfcalcycle - 1).zfill(3) + '-MFS-image.fits' + ' facets.fits')
+        os.system('cp ' + imagebasename + str(selfcalcycle - 1).zfill(3) + '-MFS-image.fits' + ' fits_images/facets.fits')
 
-    # --- end CREATE facets.fits -----
+    # --- end CREATE fits_images/facets.fits -----
 
-    # FILL in facets.fits with values, every facets get a constant value, for lsmtool
-    hdu = fits.open('facets.fits')
+    # FILL in fits_images/facets.fits with values, every facets get a constant value, for lsmtool
+    hdu = fits.open('fits_images/facets.fits')
     hduflat = flatten(hdu)
-    region = pyregion.open('facets.reg')
+    region = pyregion.open('facet_regions/facets.reg')
+    dirofinput = os.path.dirname('facet_regions/facets.reg')
+    if dirofinput == '':
+        dirofinput = '.'
     
     for facet_id, facet in enumerate(region):
-        region[facet_id:facet_id + 1].write('facet' + str(facet_id) + '.reg')  # split facet from region file
-        r = pyregion.open('facet' + str(facet_id) + '.reg')
-        print('Filling facets.fits with:', 'facet' + str(facet_id) + '.reg')
+        region[facet_id:facet_id + 1].write(dirofinput + '/facet' + str(facet_id) + '.reg')  # split facet from region file
+        r = pyregion.open(dirofinput + '/facet' + str(facet_id) + '.reg')
+        print('Filling fits_images/facets.fits with:', dirofinput + '/facet' + str(facet_id) + '.reg')
         manualmask = r.get_mask(hdu=hduflat)
         if len(hdu[0].data.shape) == 4:
             hdu[0].data[0][0][np.where(manualmask == True)] = facet_id
         else:
             hdu[0].data[np.where(manualmask == True)] = facet_id
-    hdu.writeto('facets.fits', overwrite=True)
+    hdu.writeto('fits_images/facets.fits', overwrite=True)
 
     if restart:
         # restart with DDE_predict=DP3 because then only the variable modeldatacolumns is made
         # So the wsclean predict step is skipped in makeimage but variable modeldatacolumns is created
         modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3),
                                      args['pixelscale'], args['imsize'], args['channelsout'], predict=True,
-                                     onlypredict=True, facetregionfile='facets.reg',
+                                     onlypredict=True, facetregionfile='facet_regions/facets.reg',
                                      DDE_predict='DP3',
                                      disable_primarybeam_image=args['disable_primary_beam'],
                                      disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         # selfcalcycle-1 because makeimage has not yet produced an image at this point
         if args['fitspectralpol'] > 0 and DDE_predict == 'DP3':
-            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle - 1).zfill(3) + '-sources.txt', 'facets.fits')
+            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle - 1).zfill(3) + '-sources.txt', 'fits_images/facets.fits')
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
     elif skyview is not None:
         modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3),
                                      args['pixelscale'], args['imsize'], args['channelsout'], predict=True,
-                                     onlypredict=True, facetregionfile='facets.reg',
+                                     onlypredict=True, facetregionfile='facet_regions/facets.reg',
                                      DDE_predict=DDE_predict,
                                      disable_primarybeam_image=args['disable_primary_beam'],
                                      disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         if args['fitspectralpol'] > 0:
-            dde_skymodel = groupskymodel(imagebasename, 'facets.fits')  # imagebasename
+            dde_skymodel = groupskymodel(imagebasename, 'fits_images/facets.fits')  # imagebasename
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
@@ -11323,7 +11329,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
 
         modeldatacolumns = makeimage(mslist, wscleanskymodel,
                                      args['pixelscale'], args['imsize'], channelsout_forpredict, predict=True,
-                                     onlypredict=True, facetregionfile='facets.reg',
+                                     onlypredict=True, facetregionfile='facet_regions/facets.reg',
                                      DDE_predict='WSCLEAN', idg=idg,
                                      disable_primarybeam_image=args['disable_primary_beam'],
                                      disable_primarybeam_predict=args['disable_primary_beam'],
@@ -11335,13 +11341,13 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
     else:
         modeldatacolumns = makeimage(mslist, imagebasename + str(selfcalcycle).zfill(3),
                                      args['pixelscale'], args['imsize'], args['channelsout'], predict=True,
-                                     onlypredict=True, facetregionfile='facets.reg',
+                                     onlypredict=True, facetregionfile='facet_regions/facets.reg',
                                      DDE_predict=DDE_predict, idg=idg,
                                      disable_primarybeam_image=args['disable_primary_beam'],
                                      disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         if args['fitspectralpol'] > 0 and DDE_predict == 'DP3':
-            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'facets.fits')
+            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'fits_images/facets.fits')
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
     # check if -pb version of source list exists
@@ -11350,7 +11356,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
         if os.path.isfile(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt'):
             if args['fitspectralpol'] > 0:
                 dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt',
-                                             'facets.fits')
+                                             'fits_images/facets.fits')
             else:
                 dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
@@ -13078,6 +13084,11 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         if imsize_to_use % 2 != 0:
             imsize_to_use += 1
         print('Imsize to use after this extract step: {}'.format(imsize_to_use))   
+    
+    # remove templatebox.reg if it exists to clean things up
+    if os.path.exists('templatebox.reg'):
+        os.remove('templatebox.reg')
+    
     return
 
 
@@ -13106,10 +13117,11 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     else:
         predict_inmodelcol = False
 
-    if '-shared-facet-reads' in subprocess.check_output(['wsclean'], text=True):
+    if '-shared-facet-reads' in subprocess.check_output(['wsclean'], text=True) and \
+       '-shared-facet-writes' in subprocess.check_output(['wsclean'], text=True):
         sharedfacetreads = True
     sharedfacetreads = False # for now force it to False
-    # it seems to slow the imaging down, instead of speed it up
+    # it seems to slow the imaging down, instead of speed it up/bugs are present in older wsclean versions
     
     if args['modelstoragemanager'] == 'stokes_i':
         modelstoragemanagerwsclean = 'stokes-i' # because WSclean uses a different name than DP3
@@ -13234,7 +13246,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
         cmd += '-facet-regions ' + facetregionfile + ' '
         cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
-        if sharedfacetreads: cmd += '-shared-facet-reads '
+        if sharedfacetreads: cmd += '-shared-facet-reads -shared-facet-writes '
 
         if not fulljones_h5_facetbeam:
             if not is_scalar_array_for_wsclean(h5list):
@@ -13271,8 +13283,11 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         # step 1 open facetregionfile
         modeldatacolumns_list = []
         r = pyregion.open(facetregionfile)
+        dirofinput = os.path.dirname(facetregionfile)
+        if dirofinput == '':
+            dirofinput = '.'
         for facet_id, facet in enumerate(r):
-            r[facet_id:facet_id + 1].write('facet' + str(facet_id) + '.reg')  # split facet from region file
+            r[facet_id:facet_id + 1].write(dirofinput + '/facet' + str(facet_id) + '.reg')  # split facet from region file
 
             # step 2 mask outside of region file
             if not singlefacetpredictspeedup:  # not needed, because WSClean will do the facet cutting
@@ -13280,7 +13295,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     modelout = 'facet_' + model
                     if DDE_predict == 'WSCLEAN':
                         print(model, modelout)
-                        mask_region_inv(model, 'facet' + str(facet_id) + '.reg', modelout)
+                        mask_region_inv(model, dirofinput + '/facet' + str(facet_id) + '.reg', modelout)
 
             # step 3 predict with wsclean
             cmd = 'wsclean -predict '
@@ -13314,7 +13329,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
             # NEW CODE FOR SPEEDUP
             if singlefacetpredictspeedup:
-                cmd += '-facet-regions ' + 'facet' + str(facet_id) + '.reg' + ' '
+                cmd += '-facet-regions ' + dirofinput + '/facet' + str(facet_id) + '.reg' + ' '
                 if args['telescope'] == 'LOFAR' or args['telescope'] == 'MeerKAT':
                     if not disable_primarybeam_predict:
                         # check if -model-fpb.fits is there for image000 (in case image000 was made without facets)
@@ -13466,7 +13481,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
         if len(h5list) > 0:
             cmd += '-facet-regions ' + facetregionfile + ' '
-            if sharedfacetreads: cmd += '-shared-facet-reads '
+            if sharedfacetreads: cmd += '-shared-facet-reads -shared-facet-writes '
             if args['groupms_h5facetspeedup'] and len(mslist) > 1:
                 mslist_concat, h5list_concat = concat_ms_wsclean_facetimaging(mslist, h5list=h5list, concatms=False)
                 cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list_concat)) + ' '
@@ -13488,7 +13503,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             if args['groupms_h5facetspeedup'] and len(mslist) > 1:
                 mslist_concat, h5list_concat_tmp = concat_ms_wsclean_facetimaging(mslist, concatms=False)
             cmd += '-facet-regions ' + facetregionfile + ' '
-            if sharedfacetreads: cmd += '-shared-facet-reads '
+            if sharedfacetreads: cmd += '-shared-facet-reads -shared-facet-writes '
             if (args['telescope'] == 'LOFAR' or args['telescope'] == 'MeerKAT') and not disable_primarybeam_image:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                 if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
@@ -13939,7 +13954,6 @@ def plotimage(selfcalcycle, stackstr='', mask=None, regionfile=None):
     regionfile (str): DS9 facet region file for --DDE mode, facet layout will be shown in yellow
     """
     plots_dir = os.path.join(os.path.dirname(args['imagename']) or '.', 'plots')
-    os.makedirs(plots_dir, exist_ok=True)
     if args['imager'] == 'WSCLEAN':
         if args['idg']:
             plotpngimage = os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + stackstr + '.png')
@@ -14650,7 +14664,7 @@ def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
     """
     Create a losoto parset to fit Faraday Rotation on the phase difference'.
     """
-    parset = 'losotoFR_plotresult.parset'
+    parset = 'losoto_parsets/losotoFR_plotresult.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -14672,7 +14686,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     """
     Create a losoto parset to fit Faraday Rotation on the phase difference'.
     """
-    parset = 'losotoFR.parset'
+    parset = 'losoto_parsets/losotoFR.parset'
     os.system('rm -f ' + parset)
     f = open(parset, 'w')
 
@@ -14832,9 +14846,11 @@ def MeerKAT_autodetect_highDR(fitsimage):
     catalog = catalog[idx]
 
     # check that the brightest source is above 0.05 Jy
-    if catalog['Peak_flux'][0] < (0.05*(freq/1e9))**(-0.7):
+    if (catalog['Peak_flux'][0]) < 0.05*((freq/1e9)**(-0.7)):
+        print('=== Brightest source is below 0.05 Jy, no high DR settings needed ===')
+        logger.info('Brightest source is below 0.05 Jy, no high DR settings needed')
         return False, catalog['Peak_flux'][0]  # no high DR settings needed
-
+    print('HERE')
     # check that the brightest source is within the primary beam FWHM/4
     ra_center = fits.getheader(fitsimage)['CRVAL1']
     dec_center = fits.getheader(fitsimage)['CRVAL2']
@@ -14856,10 +14872,11 @@ def MeerKAT_autodetect_highDR(fitsimage):
                 c2 = SkyCoord(ra=ra_source*units.degree, dec=dec_source*units.degree, frame='icrs')
                 separation = c1.separation(c2).degree
                 if separation > (FWHM_PB / 4.): # we have found a bright source outside the FWHM/4      
-                    print('Found multiple bright sources, cannot use high DR settings')
+                    print('=== Found multiple bright sources, cannot use high DR settings ===')
                     print('Brightest source flux:', brightest_flux, 'Jy, 2nd source flux:', source_flux, 'Jy')
                     print('Brightest source position:', ra_source, dec_source)
                     print('Other source position:', ra_source, dec_source)
+                    logger.info('Found multiple bright sources, cannot use high DR settings')
                     return False, catalog['Peak_flux'][0] # we can stop here, no high DR settings can be used
     return True, catalog['Peak_flux'][0]  # if we end up here we can use high DR settings
 
@@ -15210,6 +15227,21 @@ def niter_from_imsize(imsize, paralleldeconvolution=-1):
 
 def basicsetup(mslist):
     
+    # create losoto_parsets directory in the working directory if it does not exist
+    os.makedirs('losoto_parsets', exist_ok=True)
+    # create plots directory in the working directory if it does not exist
+    os.makedirs('plots', exist_ok=True)
+    # create facet_regions directory in the working directory if it does not exist
+    os.makedirs('facet_regions', exist_ok=True)
+    # create directions directory in the working directory if it does not exist
+    os.makedirs('directions', exist_ok=True)
+    # create h5_solutions directory in the working directory if it does not exist
+    os.makedirs('h5_solutions', exist_ok=True)
+    # create fits_images directory in the working directory if it does not exist
+    os.makedirs('fits_images', exist_ok=True)   
+    # create clean_masks directory in the working directory if it does not exist
+    os.makedirs('clean_masks', exist_ok=True)   
+
     if args['compute_weightspectrum']:
         args['createresidualdatacolumn'] = True  # force creation of residual data column if weight spectrum is computed
 
@@ -15381,7 +15413,7 @@ def basicsetup(mslist):
             args['antennaconstraint_list'] = [None,None,'core',None]
             args['forwidefield'] = True
 
-
+    # MeerkAT auto settings
     if args['auto'] and args['telescope'] == 'MeerKAT':
         if isinstance(args['channelsout'], str) and args['channelsout'] == 'auto':
             args['channelsout'] = set_channelsout(mslist)
@@ -15804,7 +15836,7 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
     This function manages the creation and updating of FITS mask files used in radio interferometric imaging
     self-calibration cycles. It supports different imagers (WSCLEAN, DDFACET), optional stacking, and
     extended masking for specific telescopes (LOFAR, MeerKAT). The function can merge user-supplied DS9 region
-    files and uses external tools (breizorro, MakeMask.py) for mask generation. It returns the updated mask
+    files and use the external toool breizorro for mask generation. It returns the updated mask
     filename, a list of mask filenames for each imaging set, and the last used image filename.
     Args:
         fitsmask (str or None): Path to an existing FITS mask file, or None to generate a new mask.
@@ -15850,25 +15882,27 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
                    args['imsize'] >= 1600 and (telescope == 'LOFAR' or telescope == 'MeerKAT') \
                    and not longbaseline:
                     if telescope == 'LOFAR':
-                        makemask_extended(imagename,'mask_extended.fits',kernel_size=39,rebin=8, threshold=7.5)
+                        makemask_extended(imagename, 'clean_masks/mask_extended.fits',kernel_size=39,rebin=8, threshold=7.5)
                     if telescope == 'MeerKAT':
-                        makemask_extended(imagename,'mask_extended.fits',kernel_size=25,rebin=5, threshold=10.)   
-                    mask_mergelist.append('mask_extended.fits')
+                        makemask_extended(imagename,'clean_masks/mask_extended.fits',kernel_size=25,rebin=5, threshold=10.)   
+                    mask_mergelist.append('clean_masks/mask_extended.fits')
                 
-                if which('breizorro') is not None:
-                    cmdm = 'breizorro --make-binary --fill-holes --threshold=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
-                       ' --restored-image=' + imagename + ' --boxsize=30 --outfile=' + imagename + '.mask.fits'
-                    if len(mask_mergelist) > 0:
-                        cmdm += ' --merge=' + ','.join(map(str, mask_mergelist))
-                else:
-                    cmdm = 'MakeMask.py --Th=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
-                       ' --RestoredIm=' + imagename
+                cmdm = 'breizorro --make-binary --fill-holes --threshold=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
+                       ' --restored-image=' + imagename + ' --boxsize=30 --outfile=' + 'clean_masks/' + imagename + '.mask.fits'
+                if len(mask_mergelist) > 0:
+                    cmdm += ' --merge=' + ','.join(map(str, mask_mergelist))
+
                 if fitsmask is not None:
-                    if os.path.isfile(imagename + '.mask.fits'):
-                        os.system('rm -f ' + imagename + '.mask.fits')
+                    if os.path.isfile('clean_masks/' + imagename + '.mask.fits'):
+                        os.system('rm -f clean_masks/' + imagename + '.mask.fits')
+                    # same for the compressed version if it exists
+                    if os.path.isfile('clean_masks/' + imagename + '.mask.fits.gz'):
+                        os.system('rm -f clean_masks/' + imagename + '.mask.fits.gz')
                 print(cmdm)
                 run(cmdm)
-                fitsmask = imagename + '.mask.fits'
+                print('Now gzip mask ' + 'clean_masks/' + imagename + '.mask.fits')
+                os.system('gzip ' + 'clean_masks/' + imagename + '.mask.fits')
+                fitsmask = 'clean_masks/' + imagename + '.mask.fits.gz'
                 fitsmask_list.append(fitsmask)
             else:
                 fitsmask = None  # no masking requested as args['maskthreshold'] less/equal 0
@@ -15912,26 +15946,26 @@ def set_fitsmask_restart(i, mslist):
             stackstr = ''  # empty string
 
         if args['idg']:
-            if os.path.isfile(args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'):
-                fitsmask = args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'
+            if os.path.isfile('clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'):
+                fitsmask = 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
             else:
-                print('Cannot find: ' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits')
+                print('Cannot find: ' + 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz')
         else:
             if args['imager'] == 'WSCLEAN':
-                if os.path.isfile(args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'):
-                    fitsmask = args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'
+                if os.path.isfile('clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'):
+                    fitsmask = 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
                 else:
-                    print('Cannot find: ' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits')  
+                    print('Cannot find: ' + 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz')  
             if args['imager'] == 'DDFACET':
-                if os.path.isfile(args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits'):
-                    fitsmask = args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits'
+                if os.path.isfile('clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits'):
+                    fitsmask = 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz'
                 else:
-                    print('Cannot find: ' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits')  
+                    print('Cannot find: ' + 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz')  
         if args['channelsout'] == 1:
             if args['imager'] == 'WSCLEAN':
-                fitsmask = args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits'
+                fitsmask = 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
             if args['imager'] == 'DDFACET':
-                fitsmask = args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits'
+                fitsmask = 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz'
             fitsmask = fitsmask.replace('-MFS', '').replace('-I', '')
         print('Appending fitsmask: ', fitsmask) 
         fitsmask_list.append(fitsmask)
@@ -16400,7 +16434,7 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
                 elif freq <= 1e9:  # UHF band
                     solint_list[0][ms_id] = '8sec'
 
-                if peak_flux > (5.*(freq/1e9))**(-0.7):
+                if peak_flux > 5.*((freq/1e9)**(-0.7)):
                     print('Very high dynamic range MeerKAT data detected, updating self-calibration settings accordingly...')
                     logger.info('Very high dynamic range MeerKAT data detected, updating self-calibration settings accordingly...')
                     solint_list[2][ms_id] = '32sec' # for scalarcomplexgain2, very short time intervals to deal with scintillations
@@ -16518,7 +16552,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '18.3.0'
+    facetselfcal_version = '18.5.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -16812,13 +16846,13 @@ def main():
     if args['groupms_h5facetspeedup'] and args['start'] == 0 and len(mslist) > 1:
         concat_ms_wsclean_facetimaging(mslist)
 
-    # create facets.reg so we have it avaialble for image000
+    # create ./facet_regions/facets.reg so we have it avaialble for image000
     # so that we can use WSClean facet mode, but without having h5 DDE solutions
     if args['facetdirections'] is not None and args['start'] == 0:
         facetdirections_list = args['facetdirections'] if isinstance(args['facetdirections'], list) else [args['facetdirections']]
         create_facet_directions(None, 0, ms=mslist[0], imsize=args['imsize'],
                                 pixelscale=args['pixelscale'], facetdirections=facetdirections_list[0])
-        facetregionfile = 'facets.reg'  # so when making image000 we can use it without having h5 DDE solutions
+        facetregionfile = 'facet_regions/facets.reg'  # so when making image000 we can use it without having h5 DDE solutions
 
     if args['start'] > 0 and  args['stop'] == args['start'] and args['remove_outside_center']:
         print('Only doing an imaging and extract step')
@@ -16977,14 +17011,14 @@ def main():
 
         # RESTART FOR A DDE RUN, set modeldatacolumns and dde_skymodel
         if args['DDE'] and args['start'] != 0 and i == args['start']:
-            if args['auto_directions']: args['facetdirections'] = 'directions_' + str(i-1).zfill(3) + '.txt'
+            if args['auto_directions']: args['facetdirections'] = 'directions/directions_' + str(i-1).zfill(3) + '.txt'
            
             modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, candidate_soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], restart=True, telescope=args['telescope']))
             wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
-            # re-create facets.reg here
-            # in a restart the number of directions from the previous facets.reg might not match that in the h5
+            # re-create facet_regions/facets.reg here
+            # in a restart the number of directions from the previous facet_regions/facets.reg might not match that in the h5
             create_facet_directions(args['imagename'], i, ms=mslist[0], imsize=args['imsize'],
                             pixelscale= args['pixelscale'], via_h5=True, h5=wsclean_h5list[0])
 
@@ -16999,7 +17033,7 @@ def main():
             else:
                 stackstr = ''  # empty string
             if len(modeldatacolumns) > 1:
-                facetregionfile = 'facets.reg'
+                facetregionfile = 'facet_regions/facets.reg'
             # else:
             # if args['DDE'] and i == 0: # we are making image000 without having DDE solutions yet
             # if telescope == 'LOFAR' and not args['disable_IDG_DDE_predict']: # so image000 has model-pb
@@ -17086,7 +17120,7 @@ def main():
                           fulljones_h5_facetbeam=not args['single_dual_speedup'])
 
             # PLOT IMAGE
-            plotimage(i, stackstr, mask=fitsmask_list[msim_id], regionfile='facets.reg' if (args['DDE'] and facetregionfile is not None) else None)
+            plotimage(i, stackstr, mask=fitsmask_list[msim_id], regionfile='facet_regions/facets.reg' if (args['DDE'] and facetregionfile is not None) else None)
         #  --- END IMAGING PART ---
 
         # RUN AOFLAGGER ON THE RESIDUAL DATA COLUMN IF REQUESTED
