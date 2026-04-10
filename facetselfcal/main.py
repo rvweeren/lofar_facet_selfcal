@@ -1090,7 +1090,7 @@ def applycal_restart_di(mslist, selfcalcycle):
 
     """
     for ms in mslist:
-        parmdbmergename = 'merged_selfcalcycle' + str(selfcalcycle-1).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+        parmdbmergename = 'h5_solutions/merged_selfcalcycle' + str(selfcalcycle-1).zfill(3) + '_' + os.path.basename(ms) + '.h5'
         applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
     return
 
@@ -3615,9 +3615,9 @@ def create_mergeparmdbname(mslist, selfcalcycle, autofrequencyaverage_calspeedup
     parmdblist = mslist[:]
     for ms_id, ms in enumerate(mslist):
         if skymodelsolve:
-            parmdblist[ms_id] = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(3) + '_' + ms + tmpstr
+            parmdblist[ms_id] = 'h5_solutions/merged_skyselfcalcycle' + str(selfcalcycle).zfill(3) + '_' + ms + tmpstr
         else:    
-            parmdblist[ms_id] = 'merged_selfcalcycle' + str(selfcalcycle).zfill(3) + '_' + ms + tmpstr
+            parmdblist[ms_id] = 'h5_solutions/merged_selfcalcycle' + str(selfcalcycle).zfill(3) + '_' + ms + tmpstr
     print('Created parmdblist', parmdblist)
     return parmdblist
 
@@ -6408,11 +6408,10 @@ def tecandphaseplotter(h5, ms, outplotname='plot.png'):
     Returns:
         None
     """
-    if not os.path.isdir('plotlosoto%s' % os.path.basename(
-            ms)):  # needed because if this is the first plot this directory does not yet exist
+    if not os.path.isdir('plotlosoto%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
         os.system('mkdir plotlosoto%s' % os.path.basename(ms))
     cmd = f'python {submodpath}/plot_tecandphase.py  '
-    cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (os.path.basename(ms), outplotname)
+    cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (os.path.basename(ms), os.path.basename(outplotname))
     print(cmd)
     run(cmd)
     return
@@ -10269,7 +10268,7 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', marke
     f.write('minmax = [-0.2,0.2]\n')
     f.write('figSize=[120,20]\n')
     f.write('markerSize=%s\n' % int(markersize))
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
     f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -10296,7 +10295,7 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
     f.write('axisInTable = ant\n')
     f.write('minmax = [-1.57,1.57]\n')  # rotation needs to be plotted from -pi/2 to pi/2
     f.write('figSize=[120,20]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
     f.write('refAnt = %s\n' % refant)
     f.close()
     return parset
@@ -10329,7 +10328,7 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
     f.write('figSize=[120,20]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
     f.write('refAnt = %s\n' % refant)
 
     if not onepol:
@@ -10347,7 +10346,7 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
         f.write('figSize=[120,20]\n')
-        f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), outplotname))
+        f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
         f.write('refAnt = %s\n' % refant)
         f.write('axisDiff=pol\n')
 
@@ -10387,7 +10386,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     # else:
     f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
     # f.write('minmax = [0,2.5]\n')
-    f.write('prefix = plotlosoto%s/%samp\n\n\n' % (os.path.basename(ms), outplotname))
+    f.write('prefix = plotlosoto%s/%samp\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
 
     if fulljones:
         f.write('[plotampXYYX]\n')
@@ -10404,7 +10403,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [%s,%s]\n' % (str(0.0), str(0.5)))
-        f.write('prefix = plotlosoto%s/%sampXYYX\n\n\n' % (os.path.basename(ms), outplotname))
+        f.write('prefix = plotlosoto%s/%sampXYYX\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
 
     if includesphase:
         f.write('[plotphase]\n')
@@ -10424,7 +10423,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = plotlosoto%s/%sphase\n' % (os.path.basename(ms), outplotname))
+        f.write('prefix = plotlosoto%s/%sphase\n' % (os.path.basename(ms), os.path.basename(outplotname)))
         f.write('refAnt = %s\n\n\n' % refant)
 
         if not onepol and not fulljones:
@@ -10442,7 +10441,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
             f.write('figSize=[120,20]\n')
-            f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), outplotname))
+            f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
             f.write('refAnt = %s\n' % refant)
             f.write('axisDiff=pol\n\n\n')
 
@@ -10506,7 +10505,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('axisInTable = ant\n')
         # f.write('minmax = [0,2.5]\n')
         f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
-        f.write('prefix = plotlosoto%s/%sampfl\n\n\n' % (os.path.basename(ms), outplotname))
+        f.write('prefix = plotlosoto%s/%sampfl\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
 
         if includesphase and flagphases:
             f.write('[plotphase_after]\n')
@@ -10526,7 +10525,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
-            f.write('prefix = plotlosoto%s/%sphasefl\n' % (os.path.basename(ms), outplotname))
+            f.write('prefix = plotlosoto%s/%sphasefl\n' % (os.path.basename(ms), os.path.basename(outplotname)))
             f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -11596,10 +11595,10 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
 
                 if ((skymodel is not None) or (skymodelpointsource is not None) or (
                         wscleanskymodel is not None) or (args['skymodelsetjy'])):
-                    parmdb = soltype + str(soltypenumber) + '_skyselfcalcycle' + str(selfcalcycle).zfill(
+                    parmdb = 'h5_solutions/' + soltype + str(soltypenumber) + '_skyselfcalcycle' + str(selfcalcycle).zfill(
                         3) + '_' + os.path.basename(ms) + '.h5'
                 else:
-                    parmdb = soltype + str(soltypenumber) + '_selfcalcycle' + str(selfcalcycle).zfill(
+                    parmdb = 'h5_solutions/' + soltype + str(soltypenumber) + '_selfcalcycle' + str(selfcalcycle).zfill(
                         3) + '_' + os.path.basename(ms) + '.h5'
 
                 # set create_modeldata to False it was already prediceted before
@@ -11713,13 +11712,13 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
     for msnumber, ms in enumerate(mslist):
         if ((skymodel is not None) or (skymodelpointsource is not None) or (
                 wscleanskymodel is not None) or (args['skymodelsetjy'])):
-            parmdbmergename = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(
+            parmdbmergename = 'h5_solutions/merged_skyselfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(
                 ms) + '.h5'
-            parmdbmergename_pc = 'merged_skyselfcalcycle' + str(selfcalcycle).zfill(
+            parmdbmergename_pc = 'h5_solutions/merged_skyselfcalcycle' + str(selfcalcycle).zfill(
                 3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
         else:
-            parmdbmergename = 'merged_selfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
-            parmdbmergename_pc = 'merged_selfcalcycle' + str(selfcalcycle).zfill(
+            parmdbmergename = 'h5_solutions/merged_selfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+            parmdbmergename_pc = 'h5_solutions/merged_selfcalcycle' + str(selfcalcycle).zfill(
                 3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
         if os.path.isfile(parmdbmergename):
             os.system('rm -f ' + parmdbmergename)
@@ -12319,7 +12318,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             if os.path.isfile(previous_parmdb): initialsolutions_exist = True
                     
         else:
-            previous_parmdb = parmdbtmp.replace('selfcalcycle'+str(selfcalcycle).zfill(3),                                  'selfcalcycle'+str(selfcalcycle-1).zfill(3))
+            previous_parmdb = parmdbtmp.replace('selfcalcycle'+str(selfcalcycle).zfill(3), 'selfcalcycle'+str(selfcalcycle-1).zfill(3))
             if os.path.isfile(previous_parmdb): initialsolutions_exist = True
                 
         if initialsolutions_exist: # we autatically guarantee that the soltype is the same because we check for the parmdb name which contains the soltype in there 
@@ -12543,7 +12542,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             flag_bad_amps(parmdb, setweightsphases=includesphase, flagamp1=False,
                           flagampxyzero=False)  # otherwise it flags the solutions which where reset
         else:
-            flag_bad_amps(parmdb, setweightsphases=includesphase)
+            # if leakage or leakageamplitude we set flagamp1=False
+            flag_bad_amps(parmdb, setweightsphases=includesphase, flagamp1=(not (soltype == 'leakage' or soltype == 'leakageamplitude')))
         if soltype == 'fulljones' or soltype =='leakage' or soltype == 'leakageamplitude':
             removenans_fulljones(parmdb)
         else:
@@ -14675,7 +14675,7 @@ def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname + 'phases_fitFR'))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_fitFR'))
     f.write('refAnt = %s\n\n\n' % refant)
     f.close()
     return parset
@@ -14709,7 +14709,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname + 'phases_beforeFR'))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_beforeFR'))
     f.write('refAnt = %s\n\n\n' % refant)
 
     f.write('[faraday]\n')
@@ -14725,7 +14725,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('soltab = sol000/rotationmeasure000\n')
     f.write('axesInPlot = [time]\n')
     f.write('axisInTable = ant\n')
-    f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), outplotname + 'FR'))
+    f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FR'))
 
     if dejump:
         f.write('[frdejump]\n')
@@ -14739,7 +14739,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
         f.write('soltab = sol000/rotationmeasure001\n')
         f.write('axesInPlot = [time]\n')
         f.write('axisInTable = ant\n')
-        f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), outplotname + 'FRdejumped'))
+        f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FRdejumped'))
 
     f.write('[residuals]\n')
     f.write('operation = RESIDUALS\n')
@@ -14756,7 +14756,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('AxisInTable = ant\n')
     f.write('AxisDiff = pol\n')
     f.write('plotFlag = True\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname + 'residualphases_afterFR'))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'residualphases_afterFR'))
     f.write('refAnt = %s\n' % refant)
     f.write('minmax = [-3.14,3.14]\n\n\n')
 
@@ -16365,8 +16365,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal converged")
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-        logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}solutions.h5')
-        os.system(f'cp {mergedh5[cycle]} best_{iltj_id}solutions.h5')
+        logger.info(f'h5_solutions/{mergedh5[cycle]} --> h5_solutions/best_{iltj_id}solutions.h5')
+        os.system(f'cp h5_solutions/{mergedh5[cycle]} h5_solutions/best_{iltj_id}solutions.h5')
         os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
         return True
     elif (df['rms'][cycle-1] < df['rms'][cycle] and df['min/max'][cycle-1] < df['min/max'][cycle]
@@ -16379,8 +16379,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Early-stopping at cycle {cycle}, because selfcal starts to diverge...")
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-        logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}solutions.h5')
-        os.system(f'cp {mergedh5[cycle]} best_{iltj_id}solutions.h5')
+        logger.info(f'h5_solutions/{mergedh5[cycle]} --> h5_solutions/best_{iltj_id}solutions.h5')
+        os.system(f'cp h5_solutions/{mergedh5[cycle]} h5_solutions/best_{iltj_id}solutions.h5')
         os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
         return True
     else:
@@ -16388,8 +16388,8 @@ def early_stopping(station: str = 'international', cycle: int = None):
         logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
         logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
         if cycle == args['stop'] - 1:
-            logger.info(f'{mergedh5[cycle]} --> best_{iltj_id}solutions.h5')
-            os.system(f'cp {mergedh5[cycle]} best_{iltj_id}solutions.h5')
+            logger.info(f'h5_solutions/{mergedh5[cycle]} --> h5_solutions/best_{iltj_id}solutions.h5')
+            os.system(f'cp h5_solutions/{mergedh5[cycle]} h5_solutions/best_{iltj_id}solutions.h5')
             os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
 
     return False
@@ -17168,10 +17168,10 @@ def main():
             for parmdb_id, parmdb in enumerate(create_mergeparmdbname(mslist, i, skymodelsolve=True)):
                 run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb))
                 set_weights_h5_to_one(parmdb)
-                if os.path.isfile(parmdb.replace('merged_', 'bandpass_')):
+                if os.path.isfile(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_')):
                     # remove existing bandpass file
-                    os.system('rm -f ' + parmdb.replace('merged_', 'bandpass_'))
-                os.system('mv ' + parmdb + ' ' + parmdb.replace('merged_', 'bandpass_'))    
+                    os.system('rm -f ' + parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_'))
+                os.system('mv ' + parmdb + ' ' + parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_'))    
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
 
@@ -17236,10 +17236,10 @@ def main():
             for parmdb_id, parmdb in enumerate(create_mergeparmdbname(mslist, i, skymodelsolve=True)):
                 run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb))
                 set_weights_h5_to_one(parmdb)
-                if os.path.isfile(parmdb.replace('merged_', 'bandpass_')):
+                if os.path.isfile(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_')):
                     # remove existing bandpass file
-                    os.system('rm -f ' + parmdb.replace('merged_', 'bandpass_'))
-                os.system('mv ' + parmdb + ' ' + parmdb.replace('merged_', 'bandpass_'))
+                    os.system('rm -f ' + parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_'))
+                os.system('mv ' + parmdb + ' ' + parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_'))
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
 
@@ -17270,7 +17270,7 @@ def main():
             break    
 
     # Write config file to merged h5parms
-    h5s = glob.glob('best_*solutions.h5') if args['early_stopping'] else [f for ms in mslist for f in glob.glob('merged_*selfcalcycle???_' + os.path.basename(ms) + '.h5')]
+    h5s = glob.glob('h5_solutions/best_*solutions.h5') if args['early_stopping'] else [f for ms in mslist for f in glob.glob('h5_solutions/merged_*selfcalcycle???_' + os.path.basename(ms) + '.h5')]
     for h5 in h5s:
         # Write the user-specified configuration file to h5parm and otherwise all input parameters if config file not specified
         add_config_to_h5(h5, args['configpath']) if args['configpath'] is not None else add_config_to_h5(h5, 'full_config.txt')
@@ -17340,7 +17340,7 @@ def main():
     if not longbaseline and not args['noarchive']:
         if not LBA:
             if args['DDE']:
-                mergedh5_i = glob.glob('merged_selfcalcycle' + str(i).zfill(3) + '*.h5')
+                mergedh5_i = glob.glob('h5_solutions/merged_selfcalcycle' + str(i).zfill(3) + '*.h5')
                 archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, dysco=args['dysco'],
                         mergedh5_i=mergedh5_i, facetregionfile=facetregionfile, metadata_compression=args['metadata_compression'])
             else:
