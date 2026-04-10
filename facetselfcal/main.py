@@ -6408,11 +6408,10 @@ def tecandphaseplotter(h5, ms, outplotname='plot.png'):
     Returns:
         None
     """
-    if not os.path.isdir('plotlosoto%s' % os.path.basename(
-            ms)):  # needed because if this is the first plot this directory does not yet exist
+    if not os.path.isdir('plotlosoto%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
         os.system('mkdir plotlosoto%s' % os.path.basename(ms))
     cmd = f'python {submodpath}/plot_tecandphase.py  '
-    cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (os.path.basename(ms), outplotname)
+    cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (os.path.basename(ms), os.path.basename(outplotname))
     print(cmd)
     run(cmd)
     return
@@ -10269,7 +10268,7 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', marke
     f.write('minmax = [-0.2,0.2]\n')
     f.write('figSize=[120,20]\n')
     f.write('markerSize=%s\n' % int(markersize))
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
     f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -10296,7 +10295,7 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
     f.write('axisInTable = ant\n')
     f.write('minmax = [-1.57,1.57]\n')  # rotation needs to be plotted from -pi/2 to pi/2
     f.write('figSize=[120,20]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
     f.write('refAnt = %s\n' % refant)
     f.close()
     return parset
@@ -10329,7 +10328,7 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
     f.write('figSize=[120,20]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
     f.write('refAnt = %s\n' % refant)
 
     if not onepol:
@@ -10347,7 +10346,7 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
         f.write('figSize=[120,20]\n')
-        f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), outplotname))
+        f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
         f.write('refAnt = %s\n' % refant)
         f.write('axisDiff=pol\n')
 
@@ -10387,7 +10386,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     # else:
     f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
     # f.write('minmax = [0,2.5]\n')
-    f.write('prefix = plotlosoto%s/%samp\n\n\n' % (os.path.basename(ms), outplotname))
+    f.write('prefix = plotlosoto%s/%samp\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
 
     if fulljones:
         f.write('[plotampXYYX]\n')
@@ -10404,7 +10403,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [%s,%s]\n' % (str(0.0), str(0.5)))
-        f.write('prefix = plotlosoto%s/%sampXYYX\n\n\n' % (os.path.basename(ms), outplotname))
+        f.write('prefix = plotlosoto%s/%sampXYYX\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
 
     if includesphase:
         f.write('[plotphase]\n')
@@ -10424,7 +10423,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = plotlosoto%s/%sphase\n' % (os.path.basename(ms), outplotname))
+        f.write('prefix = plotlosoto%s/%sphase\n' % (os.path.basename(ms), os.path.basename(outplotname)))
         f.write('refAnt = %s\n\n\n' % refant)
 
         if not onepol and not fulljones:
@@ -10442,7 +10441,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
             f.write('figSize=[120,20]\n')
-            f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), outplotname))
+            f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
             f.write('refAnt = %s\n' % refant)
             f.write('axisDiff=pol\n\n\n')
 
@@ -10506,7 +10505,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('axisInTable = ant\n')
         # f.write('minmax = [0,2.5]\n')
         f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
-        f.write('prefix = plotlosoto%s/%sampfl\n\n\n' % (os.path.basename(ms), outplotname))
+        f.write('prefix = plotlosoto%s/%sampfl\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
 
         if includesphase and flagphases:
             f.write('[plotphase_after]\n')
@@ -10526,7 +10525,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
-            f.write('prefix = plotlosoto%s/%sphasefl\n' % (os.path.basename(ms), outplotname))
+            f.write('prefix = plotlosoto%s/%sphasefl\n' % (os.path.basename(ms), os.path.basename(outplotname)))
             f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -14676,7 +14675,7 @@ def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname + 'phases_fitFR'))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_fitFR'))
     f.write('refAnt = %s\n\n\n' % refant)
     f.close()
     return parset
@@ -14710,7 +14709,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname + 'phases_beforeFR'))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_beforeFR'))
     f.write('refAnt = %s\n\n\n' % refant)
 
     f.write('[faraday]\n')
@@ -14726,7 +14725,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('soltab = sol000/rotationmeasure000\n')
     f.write('axesInPlot = [time]\n')
     f.write('axisInTable = ant\n')
-    f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), outplotname + 'FR'))
+    f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FR'))
 
     if dejump:
         f.write('[frdejump]\n')
@@ -14740,7 +14739,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
         f.write('soltab = sol000/rotationmeasure001\n')
         f.write('axesInPlot = [time]\n')
         f.write('axisInTable = ant\n')
-        f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), outplotname + 'FRdejumped'))
+        f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FRdejumped'))
 
     f.write('[residuals]\n')
     f.write('operation = RESIDUALS\n')
@@ -14757,7 +14756,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('AxisInTable = ant\n')
     f.write('AxisDiff = pol\n')
     f.write('plotFlag = True\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), outplotname + 'residualphases_afterFR'))
+    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'residualphases_afterFR'))
     f.write('refAnt = %s\n' % refant)
     f.write('minmax = [-3.14,3.14]\n\n\n')
 
