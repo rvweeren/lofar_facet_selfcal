@@ -14639,7 +14639,14 @@ def findrefant_core(H5file, telescope='LOFAR'):
     if telescope == 'ASKAP':
         possible_refants = ['ak01','ak02','ak03','ak04','ak05','ak06','ak07','ak08','ak09','ak10','ak11','ak12','ak13','ak14']
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
-    
+
+    if telescope == 'MWA':
+        possible_refants = ["tile012", "tile013", "tile014", "tile015", "tile017", "tile024", "tile025", "tile026", "tile027", "tile032",
+                            "tile033", "tile034", "tile035", "tile036", "tile037", "tile038", "tile041", "tile042", "tile043", "tile044",
+                            "tile045", "tile046", "tile047", "tile048", "tile063", "tile064", "tile065", "tile066", "tile067", "tile068",
+                            "tile083", "tile084", "tile094", "tile095"]
+        cs_indices = np.where([ant in possible_refants for ant in ants])[0]
+
     if len(cs_indices) == 0:
         # print in red
         print('\033[91mWarning: no reference stations found, using all antennas to find refant\033[0m')
@@ -15153,8 +15160,8 @@ def check_valid_ms(mslist):
     for ms in mslist:
         t = table(ms, ack=False)
         times = np.unique(t.getcol('TIME'))
-
-        if len(times) <= 20:
+        telescope = get_telescope_from_ms(mslist[0])
+        if (len(times) <= 20) and not (telescope == 'MWA'): # MWA has many very short scans
             print('---------------------------------------------------------------------------')
             print('ERROR, ', ms, 'not enough timesteps in ms/too short observation')
             print('---------------------------------------------------------------------------')
