@@ -5854,7 +5854,7 @@ def amplitude_leakage_paramdb(h5):
     Returns:
         amplitudeleakage (bool): whether the sol000 contains amplitude leakage solutions.
     """
-    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5)
     if hasphase:
         return False # if we have phase solutions, we cannot we do not have amplitude only leakage solutions
 
