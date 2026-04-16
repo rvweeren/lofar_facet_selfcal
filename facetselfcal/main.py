@@ -1605,7 +1605,7 @@ def fix_uvw(mslist):
     mslist (str/list): Input Measurement Set(s) as a string or a list of strings.
     """
     mslist = [mslist] if isinstance(mslist, str) else mslist
-    if args['telescope'] != 'MeerKAT':
+    if get_telescope(mslist[0]) != 'MeerKAT':
         return    
 
     for ms in mslist:
@@ -11423,7 +11423,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         # selfcalcycle-1 because makeimage has not yet produced an image at this point
         if args['fitspectralpol'] > 0 and DDE_predict == 'DP3':
-            dde_skymodel = groupskymodel('fits_images/' + imagebasename + str(selfcalcycle - 1).zfill(3) + '-sources.txt', 'fits_images/facets.fits')
+            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle - 1).zfill(3) + '-sources.txt', 'fits_images/facets.fits')
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
     elif skyview is not None:
@@ -11435,7 +11435,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         if args['fitspectralpol'] > 0:
-            dde_skymodel = groupskymodel('fits_images/' + imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'fits_images/facets.fits')  # imagebasename
+            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'fits_images/facets.fits')  # imagebasename
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
@@ -11469,7 +11469,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         if args['fitspectralpol'] > 0 and DDE_predict == 'DP3':
-            dde_skymodel = groupskymodel('fits_images/' + imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'fits_images/facets.fits')
+            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'fits_images/facets.fits')
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
     # check if -pb version of source list exists
@@ -11477,7 +11477,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
     if telescope == 'LOFAR' and wscleanskymodel is None:  # not for MeerKAT because WSClean still has a bug if no primary beam is used, for now assume we do not use a primary beam for MeerKAT
         if os.path.isfile('fits_images/' + imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt'):
             if args['fitspectralpol'] > 0:
-                dde_skymodel = groupskymodel('fits_images/' + imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt',
+                dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt',
                                              'fits_images/facets.fits')
             else:
                 dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
