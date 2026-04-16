@@ -1605,7 +1605,7 @@ def fix_uvw(mslist):
     mslist (str/list): Input Measurement Set(s) as a string or a list of strings.
     """
     mslist = [mslist] if isinstance(mslist, str) else mslist
-    if get_telescope(mslist[0]) != 'MeerKAT':
+    if get_telescope_from_ms(mslist[0]) != 'MeerKAT':
         return    
 
     for ms in mslist:
