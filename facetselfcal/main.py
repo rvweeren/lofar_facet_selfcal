@@ -611,7 +611,7 @@ def split_columns(ms, outms, column='CORRECTED_DATA'):
            WEIGHT_SPECTRUM,{} from {} giving {} as plain'".format(column, ms, outms)   
     print(cmd)
     run(cmd, taql=True)
-    fix_uvws([outms])
+    fix_uvw([outms])
     return
 
 def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, compress_target_only=True):
@@ -737,7 +737,7 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
                         run(cmddp3)
                         # remove uncompressed MS
                         os.system('rm -rf ' + outname)
-                        fix_uvws([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
+                        fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
                         outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
                     elif compress_target_only and field_id == target_field_id: # only compress if this is the target source
                         print('Compressing the target source MS with DP3 and dysco...')
@@ -748,7 +748,7 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
                         run(cmddp3)        
                         # remove uncompressed MS
                         os.system('rm -rf ' + outname)
-                        fix_uvws([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
+                        fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
                         outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
 
             mslistout.append(outname)
@@ -3635,7 +3635,7 @@ def remove_flagged_data_startend(mslist):
             mslistout.append(msout)
         else:
             mslistout.append(ms)
-    fix_uvws(mslistout)
+    fix_uvw(mslistout)
     return mslistout
 
 
@@ -5846,6 +5846,30 @@ def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
         run("taql 'update " + ms + " set MODEL_DATA_PDIFF=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
 
 
+def amplitude_leakage_paramdb(h5):
+    """ Checks if a given h5parm has amplitude leakage solutions in sol000.
+
+    Args:
+        h5 (str): path to the h5parm.
+    Returns:
+        amplitudeleakage (bool): whether the sol000 contains amplitude leakage solutions.
+    """
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
+    if hasphase:
+        return False # if we have phase solutions, we cannot we do not have amplitude only leakage solutions
+
+    H = tables.open_file(h5)
+    try:
+        pol_a = H.root.sol000.amplitude000.pol[:]
+        if len(pol_a) == 4:
+            amplitudeleakage = True
+        else:
+            amplitudeleakage = False
+    except:
+        amplitudeleakage = False
+    H.close()
+    return amplitudeleakage
+
 def fulljonesparmdb(h5):
     """ Checks if a given h5parm has a fulljones solution table as sol000.
 
@@ -5879,6 +5903,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
     """
     fulljones = fulljonesparmdb(h5parm)  # True/False
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
+    amplitudeleakage = amplitude_leakage_paramdb(h5parm)
 
     with tables.open_file(h5parm) as H:
 
@@ -5935,7 +5960,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                         amp[:, :, :, antennaid, ...] = 1.0
                     if antennaxis == 4:
                         amp[:, :, :, :, antennaid, ...] = 1.0
-                    if fulljones:
+                    if fulljones or amplitudeleakage:
                         amp[..., 1] = 0.0  # XY, assume pol is last axis
                         amp[..., 2] = 0.0  # YX, assume pol is last axis
 
@@ -5995,10 +6020,6 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
             H.root.sol000.rotationmeasure000.val[:] = np.copy(faradayrotation)
 
     return
-
-
-# reset_gains_noncore('merged_selfcalcycle11_testquick260.ms.avg.h5')
-# sys.exit()
 
 
 def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=True, metadata_compression=True):
@@ -6655,12 +6676,16 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
         if find_closestdir:
             direction = make_utf8(find_closest_ddsol(parmdb, ms))
             print('Applying direction:', direction)
-        if fulljonesparmdb(parmdb):
+        if fulljonesparmdb(parmdb) or amplitude_leakage_paramdb(parmdb):
             cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
             cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
             cmd += 'ac' + str(count) + '.type=applycal '
             cmd += 'ac' + str(count) + '.correction=fulljones '
-            cmd += 'ac' + str(count) + '.soltab=[amplitude000,phase000] '
+            if amplitude_leakage_paramdb(parmdb):
+                cmd += 'ac' + str(count) + '.soltab=[amplitude000] '
+            else:
+                cmd += 'ac' + str(count) + '.soltab=[amplitude000,phase000] '
+            cmd += 'ac' + str(count) + '.soltab=[phase000] '
             cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
             if not invert:
                 cmd += 'ac' + str(count) + '.invert=False '
@@ -8490,6 +8515,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     """
     print(h5parm, stationlist)
     fulljones = fulljonesparmdb(h5parm)  # True/False
+    amplitudeleakage = amplitude_leakage_paramdb(h5parm)  # True/False
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
 
     H = tables.open_file(h5parm, 'r+')
@@ -8657,7 +8683,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
                     amp[:, :, :, antennaid, ...] = 1.0
                 if antennaxis == 4:
                     amp[:, :, :, :, antennaid, ...] = 1.0
-                if fulljones:
+                if fulljones or amplitudeleakage:
                     print('pol entry axis:', axisn.index('pol'))
                     if len(axisn) != axisn.index('pol') + 1:
                         print('Pol-axis not the last enrty, cannot handle this')
@@ -8798,6 +8824,7 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
     """
     print(h5parm, dirlist)
     fulljones = fulljonesparmdb(h5parm)
+    amplitudeleakage = amplitude_leakage_paramdb(h5parm)
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
 
     # in case refant is None but h5 still has phase
@@ -8964,7 +8991,7 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
                     amp[:, :, :, directionid, ...] = 1.0
                 if diraxis == 4:
                     amp[:, :, :, :, directionid, ...] = 1.0
-                if fulljones:
+                if fulljones or amplitudeleakage:
                     print('pol entry axis:', axisn.index('pol'))
                     if len(axisn) != axisn.index('pol') + 1:
                         print('Pol-axis not the last enrty, cannot handle this')
@@ -11396,7 +11423,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         # selfcalcycle-1 because makeimage has not yet produced an image at this point
         if args['fitspectralpol'] > 0 and DDE_predict == 'DP3':
-            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle - 1).zfill(3) + '-sources.txt', 'fits_images/facets.fits')
+            dde_skymodel = groupskymodel('fits_images/' + imagebasename + str(selfcalcycle - 1).zfill(3) + '-sources.txt', 'fits_images/facets.fits')
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
     elif skyview is not None:
@@ -11408,7 +11435,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         if args['fitspectralpol'] > 0:
-            dde_skymodel = groupskymodel(imagebasename, 'fits_images/facets.fits')  # imagebasename
+            dde_skymodel = groupskymodel('fits_images/' + imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'fits_images/facets.fits')  # imagebasename
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
@@ -11442,15 +11469,15 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         if args['fitspectralpol'] > 0 and DDE_predict == 'DP3':
-            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'fits_images/facets.fits')
+            dde_skymodel = groupskymodel('fits_images/' + imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'fits_images/facets.fits')
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
     # check if -pb version of source list exists
     # needed because image000 does not have a pb version as no facet imaging is used, however, if IDG is used it does exist and hence the following does also handfle that
     if telescope == 'LOFAR' and wscleanskymodel is None:  # not for MeerKAT because WSClean still has a bug if no primary beam is used, for now assume we do not use a primary beam for MeerKAT
-        if os.path.isfile(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt'):
+        if os.path.isfile('fits_images/' + imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt'):
             if args['fitspectralpol'] > 0:
-                dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt',
+                dde_skymodel = groupskymodel('fits_images/' + imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt',
                                              'fits_images/facets.fits')
             else:
                 dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
@@ -13932,7 +13959,6 @@ def updatemodelcols_includedir(modeldatacolumns, soltypelist_includedir, ms, dry
 
     return modeldatacolumns_solve_newnames, sourcedir[id_removed][:], id_kept
 
-
 def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
     import lsmtool
     print('Loading:', skymodelin)
@@ -13942,9 +13968,8 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
         LSM.write(skymodelout, clobber=True)
         return skymodelout
     else:
-        LSM.write('grouped_' + skymodelin, clobber=True)
-        return 'grouped_' + skymodelin
-
+        LSM.write('fits_images/grouped_' + os.path.basename(skymodelin), clobber=True)
+        return 'fits_images/grouped_' + os.path.basename(skymodelin)
 
 def findrms(mIn, maskSup=1e-7):
     """
@@ -15130,13 +15155,14 @@ def find_bad_deviating_antennas(h5, ms, threshold=0.075):
         list: List of bad antenna names.
     """
     fulljones = fulljonesparmdb(h5)  # True/False
+    amplitudeleakage = amplitude_leakage_paramdb(h5)  # True/False
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5)
     if not hasamps:
         print('No amplitude000 solutions found in', h5)
         raise Exception('No amplitude000 solutions found in ' + h5)
-    if fulljones:
-        print('Amplitude solutions are fulljones, cannot determine bad antennas based on amplitude deviations')
-        raise Exception('Amplitude solutions are fulljones, cannot determine bad antennas based on amplitude deviations')
+    if fulljones or amplitudeleakage:
+        print('Amplitude solutions are fulljones or have amplitude leakage, cannot determine bad antennas based on amplitude deviations')
+        raise Exception('Amplitude solutions are fulljones or have amplitude leakage, cannot determine bad antennas based on amplitude deviations')
 
     with table(ms + '/FIELD', readonly=True, ack=False) as t:
         ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze()
