@@ -13541,8 +13541,12 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     outfile = (imageout + '-MFS-image-pb.fits').replace('-MFS-image-pb.fits', '-MFS-image-manualpb.fits')
                     MeerKAT_pbcor_Lband(imageout + '-MFS-image-pb.fits', outfile, ms=mslist[0])
                 else: #so this must be a run without facets
-                    outfile = (imageout + '-MFS-image.fits').replace('-MFS-image.fits', '-MFS-image-manualpb.fits')
-                    MeerKAT_pbcor_Lband(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
+                    if fullpol:
+                        outfile = (imageout + '-MFS-I-image.fits').replace('-MFS-I-image.fits', '-MFS-I-image-manualpb.fits')
+                        MeerKAT_pbcor_Lband(imageout + '-MFS-I-image.fits', outfile, ms=mslist[0])
+                    else:
+                        outfile = (imageout + '-MFS-image.fits').replace('-MFS-image.fits', '-MFS-image-manualpb.fits')
+                        MeerKAT_pbcor_Lband(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
 
         # write info about how the primary beam correction was done to the FITS header and processing history
         write_processing_history(' '.join(map(str, sys.argv)), facetselfcal_version, imageout)
