@@ -720,36 +720,38 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
                 taql("update {} set FIELD_ID=0".format(outname))
 
                 # compress the output with DP3 if compressed is True
-                if compressed:
-                    cmddp3 = 'DP3 msin=' + outname + ' steps=[] msout.storagemanager=dysco '
-                    cmddp3 += 'msout=' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) + ' '
-                    if not metadata_compression:
-                        cmddp3 += 'msout.uvwcompression=False '
-                        cmddp3 += 'msout.antennacompression=False '
-                        #cmddp3 += 'msout.scalarflags=False '
+            if compressed:
+                cmddp3 = 'DP3 msin=' + outname + ' steps=[] msout.storagemanager=dysco '
+                cmddp3 += 'msout=' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) + ' '
+                if not metadata_compression:
+                    cmddp3 += 'msout.uvwcompression=False '
+                    cmddp3 += 'msout.antennacompression=False '
+                    #cmddp3 += 'msout.scalarflags=False '
 
-                    if not compress_target_only: # always compress if compress_target_only is False
-                        print('Compressing the output MS with DP3 and dysco...')
-                        # remove MS if it exists
-                        if os.path.isdir(outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])):
-                            os.system('rm -rf ' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]))
-                        print(cmddp3)
+                if not compress_target_only: # always compress if compress_target_only is False
+                    print('Compressing the output MS with DP3 and dysco...')
+                    # remove MS if it exists
+                    if os.path.isdir(outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])) and not dryrun:
+                        os.system('rm -rf ' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]))
+                    print(cmddp3)
+                    if not dryrun:
                         run(cmddp3)
                         # remove uncompressed MS
                         os.system('rm -rf ' + outname)
                         fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
-                        outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
-                    elif compress_target_only and field_id == target_field_id: # only compress if this is the target source
-                        print('Compressing the target source MS with DP3 and dysco...')
-                        # remove MS if it exists
-                        if os.path.isdir(outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])):
-                            os.system('rm -rf ' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]))
-                        print(cmddp3)
+                    outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
+                elif compress_target_only and field_id == target_field_id: # only compress if this is the target source
+                    print('Compressing the target source MS with DP3 and dysco...')
+                    # remove MS if it exists
+                    if os.path.isdir(outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])) and not dryrun:
+                        os.system('rm -rf ' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]))
+                    print(cmddp3)
+                    if not dryrun:
                         run(cmddp3)        
                         # remove uncompressed MS
                         os.system('rm -rf ' + outname)
                         fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
-                        outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
+                    outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
 
             mslistout.append(outname)
     print(f"Splitting completed. Created {len(mslistout)} single source MS.")
@@ -6685,7 +6687,6 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 cmd += 'ac' + str(count) + '.soltab=[amplitude000] '
             else:
                 cmd += 'ac' + str(count) + '.soltab=[amplitude000,phase000] '
-            cmd += 'ac' + str(count) + '.soltab=[phase000] '
             cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
             if not invert:
                 cmd += 'ac' + str(count) + '.invert=False '
