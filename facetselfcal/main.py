@@ -5768,6 +5768,20 @@ def tmpmakeantresidual(mslist, selfcalcycle, multiscale, fitsmask_list, restorin
         clean_up_images(args['imagename'] + str(i).zfill(3) + stackstr + '_residual_' + ant, model=True)
 
 
+def gunzip_model_images(imagebasename):
+    """ Gunzips all model images with the given base name.
+    Parameters
+    ----------
+    imagebasename : str
+        The base filename for model images (e.g., 'myimage_001' if files are named  like 'myimage_001-0001-model-pb.fits').
+    """
+    imagelist1 = glob.glob(imagebasename + '-????-model*.fits.gz') # channel maps
+    imagelist2 = glob.glob(imagebasename + '-???-model*.fits.gz') # MFS maps
+    imagelist = sorted(imagelist1) + sorted(imagelist2)
+    for image in imagelist:
+        print('Now gunzip ' + image)
+        os.system('gunzip ' + image)
+    return
 
 
 def gzip_model_images(imagebasename):
@@ -13040,6 +13054,9 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     hdul = fits.open(imagebasename + '-MFS-image.fits')
     header = hdul[0].header
 
+    # gunzip model images
+    gunzip_model_images(imagebasename)
+
     if len(h5list) != 0:
         datacolumn = 'DATA'  # for DDE
     else:
@@ -13212,7 +13229,10 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     # remove templatebox.reg if it exists to clean things up
     if os.path.exists('templatebox.reg'):
         os.remove('templatebox.reg')
-    
+
+    # gzip model images back
+    gzip_model_images(imagebasename)
+
     return
 
 
