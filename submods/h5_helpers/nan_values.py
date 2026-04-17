@@ -36,7 +36,6 @@ def remove_nans(parmdb, soltab):
     solset.setValues(vals)
     H5.close()
 
-
 def removenans_fulljones(parmdb):
     """ Remove nan values in full jones h5parm
 
@@ -116,5 +115,58 @@ def removenans_fulljones(parmdb):
     weights_p[..., 3] = weights_p_yy
     H.root.sol000.phase000.val[:] = phase
     H.root.sol000.phase000.weight[:] = weights_p
+    H.close()
+    return
+
+def removenans_amplitude_leakage(parmdb):
+    """ Remove nan values in amplitude only leakage h5parm
+
+    Args:
+      parmdb: h5parm file
+    """
+    H = tables.open_file(parmdb, mode='a')
+    amplitude = H.root.sol000.amplitude000.val[:]
+    weights = H.root.sol000.amplitude000.weight[:]
+    
+    # XX
+    amps_xx = amplitude[..., 0]
+    weights_xx = weights[..., 0]
+    idx = np.where((~np.isfinite(amps_xx)))
+    amps_xx[idx] = 1.0
+    weights_xx[idx] = 0.0
+    
+    # XY
+    amps_xy = amplitude[..., 1]
+    weights_xy = weights[..., 1]
+    idx = np.where((~np.isfinite(amps_xy)))
+    amps_xy[idx] = 0.0
+    weights_xy[idx] = 0.0
+    
+    # XY
+    amps_yx = amplitude[..., 2]
+    weights_yx = weights[..., 2]
+    idx = np.where((~np.isfinite(amps_yx)))
+    amps_yx[idx] = 0.0
+    weights_yx[idx] = 0.0
+   
+    # YY
+    amps_yy = amplitude[..., 3]
+    weights_yy = weights[..., 3]
+    idx = np.where((~np.isfinite(amps_yy)))
+    amps_yy[idx] = 1.0
+    weights_yy[idx] = 0.0
+   
+    amplitude[..., 0] = amps_xx
+    amplitude[..., 1] = amps_xy
+    amplitude[..., 2] = amps_yx
+    amplitude[..., 3] = amps_yy
+
+    weights[..., 0] = weights_yy
+    weights[..., 1] = weights_xy
+    weights[..., 2] = weights_yx
+    weights[..., 3] = weights_yy
+    H.root.sol000.amplitude000.val[:] = amplitude
+    H.root.sol000.amplitude000.weight[:] = weights
+
     H.close()
     return
