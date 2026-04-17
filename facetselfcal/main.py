@@ -92,7 +92,7 @@ from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
 from submods.h5_helpers.modify_amplitude import get_median_amp, normamplitudes, normslope_withmatrix, normamplitudes_withmatrix
 from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5,  fix_rotationreference, fix_weights_rotationmeasureh5, fix_rotationmeasurereference
 from submods.h5_helpers.modify_tec import fix_tecreference
-from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones
+from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones, removenans_amplitude_leakage
 from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
 from submods.h5_helpers.general_utils import make_utf8
 from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
@@ -6840,6 +6840,11 @@ def inputchecker(args, mslist):
     #        print('--BLsmooth cannot be used together with --BLsmooth-list')
     #        raise Exception('--BLsmooth cannot be used together with --BLsmooth-list')
 
+    # check that the file exists 
+    if isinstance(args['imsize'], str):
+        if not os.path.exists(args['imsize']):
+            print(f"File {args['imsize']} does not exist.")
+            raise Exception(f"File {args['imsize']} does not exist.")
 
     # check that the MS has only one FIELD_ID if split_fieldname is not set, otherwise the splitting will be done on the fieldname column
     if args['split_fieldname'] is None:
@@ -12112,7 +12117,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     # determine if phases needs to be included, important if slowgains do not contain phase solutions
     includesphase = True
-    if soltype == 'scalaramplitude' or soltype == 'amplitudeonly' \
+    if soltype == 'scalaramplitude' or soltype == 'amplitudeonly' or soltype == 'leakageamplitude' \
             or soltype == 'rotation+diagonalphase' or soltype == 'rotation+scalarphase' \
             or soltype == 'faradayrotation+diagonalphase' or soltype == 'faradayrotation+scalarphase':
         includesphase = False
@@ -12480,7 +12485,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 # just for extra safety 
                 # cmd += 'ddecal.initialsolutions.gaintype=fulljones ' 
                 # for all soletypes DP3 should be able to figure it out in principle by itself 
-                cmd += 'initialsolutions.soltab=[amplitude000,phase000] '
+                if soltypein == 'leakageamplitude':
+                    cmd += 'initialsolutions.soltab=[amplitude000] '
+                else:    
+                    cmd += 'initialsolutions.soltab=[amplitude000,phase000] '
             # set ddecal.initialsolutions.soltab
             else:
                 with tables.open_file(previous_parmdb) as Hprev:
@@ -12641,7 +12649,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
-                       'faradayrotation+scalarphase', 'leakage', 'leakageamplitude']:
+                       'faradayrotation+scalarphase', 'leakage']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -12657,7 +12665,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',\
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
-                       'faradayrotation+scalarphase', 'leakage', 'leakageamplitude']:
+                       'faradayrotation+scalarphase', 'leakage']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -12682,8 +12690,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         else:
             # if leakage or leakageamplitude we set flagamp1=False
             flag_bad_amps(parmdb, setweightsphases=includesphase, flagamp1=(not (soltype == 'leakage' or soltype == 'leakageamplitude')))
-        if soltype == 'fulljones' or soltype =='leakage' or soltype == 'leakageamplitude':
+        if soltype == 'fulljones' or soltype =='leakage': 
             removenans_fulljones(parmdb)
+        elif soltype == 'leakageamplitude':
+            removenans_amplitude_leakage(parmdb)
         else:
             remove_nans(parmdb, 'amplitude000')
         medamp = get_median_amp(parmdb)
@@ -12853,7 +12863,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                                            onechannel=onechannel, medamp=medamp, onepol=onepol,
                                                            outplotname=outplotname,
                                                            refant=findrefant_core(parmdb, telescope=args['telescope']),
-                                                           fulljones=fulljonesparmdb(parmdb),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))
+                                                           fulljones=(fulljonesparmdb(parmdb) or amplitude_leakage_paramdb(parmdb)),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))
             force_close(parmdb)
 
         # MAKE losoto command
@@ -13226,6 +13236,15 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
             imsize_to_use += 1
         print('Imsize to use after this extract step: {}'.format(imsize_to_use))   
     
+    # write imsize_to_use to a file so that it can be used in the next steps of the pipeline
+    with open('misc/imsize_after_extract.txt', 'w') as f:
+        if userbox == 'keepall':
+            f.write(str(imsize))
+        else:
+            f.write(str(imsize_to_use))
+  
+        
+        
     # remove templatebox.reg if it exists to clean things up
     if os.path.exists('templatebox.reg'):
         os.remove('templatebox.reg')
@@ -15522,6 +15541,11 @@ def basicsetup(mslist):
         else:
             args['robust'] = -0.5        
 
+    # if imsize is a filename (so a string) then read the imsize for there
+    if isinstance(args['imsize'], str):
+        with open(args['imsize'], 'r') as f:
+            args['imsize'] = int(f.read().strip())
+
     if (args['delaycal'] or args['auto']) and longbaseline and not LBA:
         if args['imsize'] is None:
             args['imsize'] = 2048
@@ -16745,11 +16769,6 @@ def main():
              args['preapplybandpassH5_list'] = glob.glob(args['preapplybandpassH5_list'][0])
              assert len(args['preapplybandpassH5_list']) >= 1 # assert that something is found
              print('Found these bandpass solutions', args['preapplybandpassH5_list'])
-    # copy bandpass h5s locally
-    for h5parm_id, h5parmdb in enumerate(args['preapplybandpassH5_list']):
-        if h5parmdb is not None:
-            os.system('cp ' + h5parmdb + ' .')  # make them local because source direction will be updated for merging
-            args['preapplybandpassH5_list'][h5parm_id] = h5parmdb.split('/')[-1]  # update input list to local location
 
     # reorder lists based on sorted(args['ms'])
     if type(args['skymodel']) is list:
