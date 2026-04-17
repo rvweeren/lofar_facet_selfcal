@@ -36,7 +36,6 @@ def remove_nans(parmdb, soltab):
     solset.setValues(vals)
     H5.close()
 
-
 def removenans_fulljones(parmdb):
     """ Remove nan values in full jones h5parm
 
@@ -119,7 +118,7 @@ def removenans_fulljones(parmdb):
     H.close()
     return
 
-    def removenans_amplitude_leakage(parmdb):
+def removenans_amplitude_leakage(parmdb):
     """ Remove nan values in amplitude only leakage h5parm
 
     Args:
@@ -168,7 +167,6 @@ def removenans_fulljones(parmdb):
     weights[..., 3] = weights_yy
     H.root.sol000.amplitude000.val[:] = amplitude
     H.root.sol000.amplitude000.weight[:] = weights
-    
+
     H.close()
     return
-
