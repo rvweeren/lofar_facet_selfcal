@@ -5780,7 +5780,7 @@ def gunzip_model_images(imagebasename):
     imagelist = sorted(imagelist1) + sorted(imagelist2)
     for image in imagelist:
         print('Now gunzip ' + image)
-        os.system('gunzip ' + image)
+        os.system('gunzip -f ' + image)
     return
 
 
@@ -5803,7 +5803,7 @@ def gzip_model_images(imagebasename):
             os.system('rm -f ' + image)
         else:
             print('Now gzip ' + image)
-            os.system('gzip ' + image)
+            os.system('gzip -f ' + image)
     return        
 
 def fix_fpb_images(modelimagebasename):
@@ -13055,7 +13055,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     header = hdul[0].header
 
     # gunzip model images
-    gunzip_model_images(imagebasename)
+    # gunzip_model_images(imagebasename)
 
     if len(h5list) != 0:
         datacolumn = 'DATA'  # for DDE
@@ -13348,7 +13348,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
             # remove box_ model files to save space
             if squarebox is not None:
-                for model in sorted(glob.glob('fits_images/box_' + imageout + '-????-*model*.fits')):
+                for model in sorted(glob.glob('fits_images/box_' + os.path.basename(imageout) + '-????-*model*.fits')):
                     os.system('rm -f ' + model)
         return
     #  --- end predict only ---
@@ -13416,7 +13416,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             run(cmd)
         # remove box_ model files to save space
         if squarebox != 'keepall':
-            for model in sorted(glob.glob('fits_images/box_' + imageout + '-????-*model*.fits')):
+            for model in sorted(glob.glob('fits_images/box_' + os.path.basename(imageout) + '-????-*model*.fits')):
                 os.system('rm -f ' + model)
         return
         #  --- NO-FACET-LOOP end DDE CORRUPT-predict only ---
