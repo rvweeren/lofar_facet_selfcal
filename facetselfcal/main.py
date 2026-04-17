@@ -13297,8 +13297,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if predict:
             if squarebox is not None:
                 for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
-                    print(model, 'box_' + model)
-                    mask_region(model, squarebox, 'box_' + model)
+                    print(model, 'fits_images/box_' + os.path.basename(model))
+                    mask_region(model, squarebox, 'fits_images/box_' + os.path.basename(model))
 
             cmd = 'wsclean -predict '
             # if not usewgridder and not idg:
@@ -13342,13 +13342,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             if squarebox is None:
                 cmd += '-name ' + imageout + ' ' + msliststring
             else:
-                cmd += '-name ' + 'box_' + imageout + ' ' + msliststring
+                cmd += '-name ' + 'fits_images/box_' + os.path.basename(imageout) + ' ' + msliststring
             print('PREDICT STEP: ', cmd)
             run(cmd)
 
             # remove box_ model files to save space
             if squarebox is not None:
-                for model in sorted(glob.glob('box_' + imageout + '-????-*model*.fits')):
+                for model in sorted(glob.glob('fits_images/box_' + imageout + '-????-*model*.fits')):
                     os.system('rm -f ' + model)
         return
     #  --- end predict only ---
@@ -13359,8 +13359,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         # do the masking
         for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
             if squarebox != 'keepall':
-                print(squarebox, model, 'box_' + model)
-                mask_region(model, squarebox, 'box_' + model)
+                print(squarebox, model, 'fits_images/box_' + os.path.basename(model))
+                mask_region(model, squarebox, 'fits_images/box_' + os.path.basename(model))
 
             # predict with wsclean
         cmd = 'wsclean -predict '
@@ -13407,7 +13407,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             cmd += '-model-storage-manager ' + modelstoragemanagerwsclean + ' '
 
         if squarebox != 'keepall':
-            cmd += '-name box_' + imageout + ' ' + msliststring
+            cmd += '-name fits_images/box_' + os.path.basename(imageout) + ' ' + msliststring
         else:
             cmd += '-name ' + imageout + ' ' + msliststring    
         
@@ -13416,7 +13416,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             run(cmd)
         # remove box_ model files to save space
         if squarebox != 'keepall':
-            for model in sorted(glob.glob('box_' + imageout + '-????-*model*.fits')):
+            for model in sorted(glob.glob('fits_images/box_' + imageout + '-????-*model*.fits')):
                 os.system('rm -f ' + model)
         return
         #  --- NO-FACET-LOOP end DDE CORRUPT-predict only ---
@@ -13436,7 +13436,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # step 2 mask outside of region file
             if not singlefacetpredictspeedup:  # not needed, because WSClean will do the facet cutting
                 for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
-                    modelout = 'facet_' + model
+                    modelout = 'fits_images/facet_' + os.path.basename(model)
                     if DDE_predict == 'WSCLEAN':
                         print(model, modelout)
                         mask_region_inv(model, dirofinput + '/facet' + str(facet_id) + '.reg', modelout)
