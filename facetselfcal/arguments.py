@@ -162,6 +162,10 @@ def option_parser():
     imagingparser.add_argument("--update-fitspectralpol",
                                help='Change --fitspectralpol automatically if there is high peak flux.',
                                action='store_true')
+    imagingparser.add_argument("--wgridderaccuracy",
+                               help='Accuracy for wgridder in WSClean (see WSClean documentation). The default is 0.0001 which is a good value for high resolution imaging.',
+                               type=float,
+                               default=None)
 
     calibrationparser = parser.add_argument_group(
         "-------------------------Calibration Settings-------------------------")
@@ -194,9 +198,6 @@ def option_parser():
     calibrationparser.add_argument('--autofrequencyaverage-calspeedup',
                                    help="Update April 24: Avoid usage because of corrupt vs correct. Try extra averaging during some selfcalcycles to speed up calibration.",
                                    action='store_true')
-    #calibrationparser.add_argument('--autofrequencyaverage',
-    #                               help='Try frequency averaging if it does not result in bandwidth smearing',
-    #                               action='store_true')
     add_bool_arg(calibrationparser, 'autofrequencyaverage', help='Try frequency averaging if it does not result in bandwidth smearing', default=None)
 
     calibrationparser.add_argument('--phaseupstations',
@@ -224,13 +225,7 @@ def option_parser():
                                    type=float,
                                    default=None)
     add_bool_arg(calibrationparser, 'update-uvmin', help='Update uvmin automatically for the Dutch array.', default=None)
-    #calibrationparser.add_argument("--update-uvmin",
-    #                               help='Update uvmin automatically for the Dutch array.',
-    #                               action='store_true')
     add_bool_arg(calibrationparser, 'update-multiscale', help='Switch to multiscale automatically if large islands of emission are present.', default=None)
-    #calibrationparser.add_argument("--update-multiscale",
-    #                               help='Switch to multiscale automatically if large islands of emission are present.',
-    #                               action='store_true')
     calibrationparser.add_argument("--soltype-list",
                                    type=arg_as_list,
                                    default=['tecandphase', 'tecandphase', 'scalarcomplexgain'],

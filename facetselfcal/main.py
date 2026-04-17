@@ -611,16 +611,18 @@ def split_columns(ms, outms, column='CORRECTED_DATA'):
            WEIGHT_SPECTRUM,{} from {} giving {} as plain'".format(column, ms, outms)   
     print(cmd)
     run(cmd, taql=True)
-    fix_uvws([outms])
+    fix_uvw([outms])
     return
 
-def split_multidir_ms(ms, field_names=None, dryrun=False):
+def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, compress_target_only=True):
     """
     Splits a multisource Measurement Set (MS) into separate single-source MS files.
     Parameters:
         ms (str, or list of str): Path to the multisource Measurement Set to be split.
         field_names (list of str, optional): List of source names corresponding to source names for each FIELD_ID.
         dryrun (bool, optional): If True, the function will not exceute the TaQl commands. Default is False.
+        compressed (bool, optional): If True, the output MS will be compressed. Default is False.
+        compress_target_only (bool, optional): If True, only the target MS will be compressed. The target source MS is assumed to be the one with the most time integration. Default is True.
     Returns:
         list of str: List of paths to the newly created single-source Measurement Sets. 
                      If the input MS contains only a single source, returns a list containing the original MS path.
@@ -644,15 +646,43 @@ def split_multidir_ms(ms, field_names=None, dryrun=False):
         if not os.path.isdir(msin):
             raise ValueError("Measurement Set {} does not exist".format(msin))
 
+
+    # find the source in the MS which has the most time integration, we assume this is the target source, and we will compress this source if compress_target_only is True
+
+        
     for msin in ms:
-        with table(msin, readonly=True) as t:
+        # load source names and field ids from the FIELD subtable, 
+        with table(msin + '/FIELD', readonly=True, ack=False) as t:
+            source_names = t.getcol('NAME')
+        with table(msin, readonly=True, ack=False) as t:
+            field_ids = t.getcol('FIELD_ID')
+            unique_field_ids = np.unique(field_ids)
+
+        # compute the total time integration for each source, and find the source with the most time integration
+        time_integrations = []
+        with table(msin, readonly=True, ack=False) as t:
+            for field_id in unique_field_ids:
+                time_integrations.append(np.sum(t.getcol('INTERVAL')[field_ids == field_id]))
+        target_field_id = unique_field_ids[np.argmax(time_integrations)]
+        if compress_target_only and compressed:
+            print('Integration samples for each source:', time_integrations)
+            # print the source name of the target source that will be compressed
+            print(source_names[target_field_id] + ' will be compressed because it has the most integration time.')
+
+        # set metadata_compression to True for LOFAR data, and False for other telescopes
+        if get_telescope_from_ms(msin) == 'LOFAR':
+            metadata_compression = True
+        else:
+            metadata_compression = False   
+
+        with table(msin, readonly=True, ack=False) as t:
             if len(np.unique(t.getcol('FIELD_ID'))) == 1:
                 print(f"Measurement Set {msin} is already a single source MS, no splitting needed.")
                 mslistout.append(msin)
             else:
                 print(f"Splitting multisource Measurement Set {msin} into single source MS...")
         # get the source names
-        with table(msin + '/FIELD', readonly=True) as t:
+        with table(msin + '/FIELD', readonly=True, ack=False) as t:
             source_names = t.getcol('NAME')
             field_ids = t.getcol('SOURCE_ID')
 
@@ -662,7 +692,6 @@ def split_multidir_ms(ms, field_names=None, dryrun=False):
                 if field_name not in source_names:
                     raise ValueError(f"Field name '{field_name}' provided in field_names is not found in the source names of the MS. Available source names: {source_names}")
                     
-        
         # if field_names is not None, only split those sources
         if field_names is not None:
             field_ids = [i for i, name in enumerate(source_names) if name in field_names]
@@ -670,12 +699,13 @@ def split_multidir_ms(ms, field_names=None, dryrun=False):
         else:
             print('Splitting all sources from the MS:', source_names) 
 
+
         for field_id in field_ids:
             outname = os.path.basename(msin) + '.' + source_names[field_id]
             # Remove  MS if it exists
             if os.path.isdir(outname) and not dryrun:
                 os.system('rm -rf {}'.format(outname))
-
+         
             if not dryrun:
                 cmd = "taql 'select from {} where FIELD_ID=={} giving {} as plain'".format(msin, field_id, outname)
                 print(cmd)
@@ -688,6 +718,41 @@ def split_multidir_ms(ms, field_names=None, dryrun=False):
 
                 # Set 'FIELD_ID' to 0 in the main table.
                 taql("update {} set FIELD_ID=0".format(outname))
+
+                # compress the output with DP3 if compressed is True
+            if compressed:
+                cmddp3 = 'DP3 msin=' + outname + ' steps=[] msout.storagemanager=dysco '
+                cmddp3 += 'msout=' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) + ' '
+                if not metadata_compression:
+                    cmddp3 += 'msout.uvwcompression=False '
+                    cmddp3 += 'msout.antennacompression=False '
+                    #cmddp3 += 'msout.scalarflags=False '
+
+                if not compress_target_only: # always compress if compress_target_only is False
+                    print('Compressing the output MS with DP3 and dysco...')
+                    # remove MS if it exists
+                    if os.path.isdir(outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])) and not dryrun:
+                        os.system('rm -rf ' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]))
+                    print(cmddp3)
+                    if not dryrun:
+                        run(cmddp3)
+                        # remove uncompressed MS
+                        os.system('rm -rf ' + outname)
+                        fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
+                    outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
+                elif compress_target_only and field_id == target_field_id: # only compress if this is the target source
+                    print('Compressing the target source MS with DP3 and dysco...')
+                    # remove MS if it exists
+                    if os.path.isdir(outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])) and not dryrun:
+                        os.system('rm -rf ' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]))
+                    print(cmddp3)
+                    if not dryrun:
+                        run(cmddp3)        
+                        # remove uncompressed MS
+                        os.system('rm -rf ' + outname)
+                        fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
+                    outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
+
             mslistout.append(outname)
     print(f"Splitting completed. Created {len(mslistout)} single source MS.")
     return mslistout
@@ -1542,7 +1607,7 @@ def fix_uvw(mslist):
     mslist (str/list): Input Measurement Set(s) as a string or a list of strings.
     """
     mslist = [mslist] if isinstance(mslist, str) else mslist
-    if args['telescope'] != 'MeerKAT':
+    if get_telescope_from_ms(mslist[0]) != 'MeerKAT':
         return    
 
     for ms in mslist:
@@ -1738,7 +1803,7 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
     if os.path.isfile(parmdb_out):
         os.system('rm -f ' + parmdb_out)
 
-    f = open('facetdirections.p', 'rb')
+    f = open('facet_regions/facetdirections.p', 'rb')
     sourcedir = pickle.load(f)  # units are radian
     f.close()
     parmdb_merge_list = []
@@ -3572,7 +3637,7 @@ def remove_flagged_data_startend(mslist):
             mslistout.append(msout)
         else:
             mslistout.append(ms)
-    fix_uvws(mslistout)
+    fix_uvw(mslistout)
     return mslistout
 
 
@@ -4303,6 +4368,11 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5, thresh_i
         img.show_fit()
         matplotlib.use('Agg')
     del img
+    # move all *pybdsf.log files to a logs directory
+    if not os.path.isdir('logs'):
+        os.mkdir('logs')
+    for f in glob.glob('*pybdsf.log'):
+        os.system('mv {} logs/'.format(f))
     return empty_catalog
 
 def get_number_of_sources_in_catalog(catalogfile):
@@ -4775,30 +4845,30 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
         fitsimage = fitsimage.replace('-MFS', '').replace('-I', '')    
    
     # set input/output names
-    outputerrormap1 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap1.fits'
-    outputerrormap2 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap2.fits'
-    outputerrormap3 =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap3.fits'
-    outputcatalog1 =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap1.srl.fits'
-    outputcatalog2 =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap2.srl.fits'
-    outputcatalog3 =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap3.srl.fits'
-    outputcatalog  =   args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.merged.srl.fits'
-    outputcatalog_filtered =  args['imagename'] + str(selfcalcycle).zfill(3) + '-errormap.srl.filtered.fits'
+    outputerrormap1 =  'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap1.fits'
+    outputerrormap2 =  'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap2.fits'
+    outputerrormap3 =  'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap3.fits'
+    outputcatalog1 =   'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap1.srl.fits'
+    outputcatalog2 =   'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap2.srl.fits'
+    outputcatalog3 =   'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap3.srl.fits'
+    outputcatalog  =   'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap.merged.srl.fits'
+    outputcatalog_filtered =  'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap.srl.filtered.fits'
     facetdirections = 'directions/directions_' + str(selfcalcycle).zfill(3) + '.txt'
     directions_reg =  'facet_regions/directions_' + str(selfcalcycle).zfill(3) + '.reg'
-    plots_dir = os.path.join(os.path.dirname(args['imagename']) or '.', 'plots')
+    plots_dir = 'plots'
     outplotname1 =  os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap1.png')
     outplotname2 =  os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap2.png')
     outplotname3 =  os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap3.png')
-    outputfluxcatalog = args['imagename'] + str(selfcalcycle).zfill(3) + '-compactsource-flux.fits'
+    outputfluxcatalog = 'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-compactsource-flux.fits'
     
     with fits.open(fitsimage) as hdul:
         pixsize = 3600. * (hdul[0].header['CDELT2']) # in arcsec
         match_radius = pixsize*31.*3./60.
 
     if selfcalcycle > 0:
-        previous_catalog =  args['imagename'] + str(selfcalcycle-1).zfill(3) + '-errormap.srl.filtered.fits'
-        if not os.path.isfile(previous_catalog) or not os.path.isfile(args['imagename'] + str(0).zfill(3) + '-errormap1.fits'):
-            print('One of both of these files are missing:',previous_catalog, args['imagename'] + str(0).zfill(3) + '-errormap1.fits')    
+        previous_catalog =  'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle-1).zfill(3) + '-errormap.srl.filtered.fits'
+        if not os.path.isfile(previous_catalog) or not os.path.isfile('errormaps_dd/' + os.path.basename(args['imagename']) + str(0).zfill(3) + '-errormap1.fits'):
+            print('One of both of these files are missing:',previous_catalog, 'errormaps_dd/' + os.path.basename(args['imagename']) + str(0).zfill(3) + '-errormap1.fits')    
             raise Exception('Missing files')
     else:
         previous_catalog = None  
@@ -4887,18 +4957,18 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
                            ds9_region=directions_reg, telescope=telescope)
 
     # plot, # hardcode minmax to always usage image000 so it is easier to compare
-    with fits.open(args['imagename'] + str(0).zfill(3) + '-errormap1.fits') as hdulist:
+    with fits.open('errormaps_dd/' + os.path.basename(args['imagename']) + str(0).zfill(3) + '-errormap1.fits') as hdulist:
         imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
         plotminmax = [-2.*imagenoise, 35.*imagenoise]
     plotimage_astropy(outputerrormap1, outplotname1, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
 
     # plot, # hardcode minmax to always usage image000 so it is easier to compare
-    with fits.open(args['imagename'] + str(0).zfill(3) + '-errormap2.fits') as hdulist:
+    with fits.open('errormaps_dd/' + os.path.basename(args['imagename']) + str(0).zfill(3) + '-errormap2.fits') as hdulist:
         imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
         plotminmax = [-2.*imagenoise, 35.*imagenoise]
     plotimage_astropy(outputerrormap2, outplotname2, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
         # plot, # hardcode minmax to always usage image000 so it is easier to compare
-    with fits.open(args['imagename'] + str(0).zfill(3) + '-errormap3.fits') as hdulist:
+    with fits.open('errormaps_dd/' + os.path.basename(args['imagename']) + str(0).zfill(3) + '-errormap3.fits') as hdulist:
         imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
         plotminmax = [-2.*imagenoise, 35.*imagenoise]
     plotimage_astropy(outputerrormap3, outplotname3, mask=None, regionfile=directions_reg, regioncolor='red', minmax=plotminmax, regionalpha=1.0)
@@ -5698,6 +5768,20 @@ def tmpmakeantresidual(mslist, selfcalcycle, multiscale, fitsmask_list, restorin
         clean_up_images(args['imagename'] + str(i).zfill(3) + stackstr + '_residual_' + ant, model=True)
 
 
+def gunzip_model_images(imagebasename):
+    """ Gunzips all model images with the given base name.
+    Parameters
+    ----------
+    imagebasename : str
+        The base filename for model images (e.g., 'myimage_001' if files are named  like 'myimage_001-0001-model-pb.fits').
+    """
+    imagelist1 = glob.glob(imagebasename + '-????-model*.fits.gz') # channel maps
+    imagelist2 = glob.glob(imagebasename + '-???-model*.fits.gz') # MFS maps
+    imagelist = sorted(imagelist1) + sorted(imagelist2)
+    for image in imagelist:
+        print('Now gunzip ' + image)
+        os.system('gunzip ' + image)
+    return
 
 
 def gzip_model_images(imagebasename):
@@ -5778,6 +5862,30 @@ def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
         run("taql 'update " + ms + " set MODEL_DATA_PDIFF=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
 
 
+def amplitude_leakage_paramdb(h5):
+    """ Checks if a given h5parm has amplitude leakage solutions in sol000.
+
+    Args:
+        h5 (str): path to the h5parm.
+    Returns:
+        amplitudeleakage (bool): whether the sol000 contains amplitude leakage solutions.
+    """
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5)
+    if hasphase:
+        return False # if we have phase solutions, we cannot we do not have amplitude only leakage solutions
+
+    H = tables.open_file(h5)
+    try:
+        pol_a = H.root.sol000.amplitude000.pol[:]
+        if len(pol_a) == 4:
+            amplitudeleakage = True
+        else:
+            amplitudeleakage = False
+    except:
+        amplitudeleakage = False
+    H.close()
+    return amplitudeleakage
+
 def fulljonesparmdb(h5):
     """ Checks if a given h5parm has a fulljones solution table as sol000.
 
@@ -5811,6 +5919,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
     """
     fulljones = fulljonesparmdb(h5parm)  # True/False
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
+    amplitudeleakage = amplitude_leakage_paramdb(h5parm)
 
     with tables.open_file(h5parm) as H:
 
@@ -5867,7 +5976,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                         amp[:, :, :, antennaid, ...] = 1.0
                     if antennaxis == 4:
                         amp[:, :, :, :, antennaid, ...] = 1.0
-                    if fulljones:
+                    if fulljones or amplitudeleakage:
                         amp[..., 1] = 0.0  # XY, assume pol is last axis
                         amp[..., 2] = 0.0  # YX, assume pol is last axis
 
@@ -5927,10 +6036,6 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
             H.root.sol000.rotationmeasure000.val[:] = np.copy(faradayrotation)
 
     return
-
-
-# reset_gains_noncore('merged_selfcalcycle11_testquick260.ms.avg.h5')
-# sys.exit()
 
 
 def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=True, metadata_compression=True):
@@ -6408,10 +6513,10 @@ def tecandphaseplotter(h5, ms, outplotname='plot.png'):
     Returns:
         None
     """
-    if not os.path.isdir('plotlosoto%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
-        os.system('mkdir plotlosoto%s' % os.path.basename(ms))
+    if not os.path.isdir('solution_plots_%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
+        os.system('mkdir solution_plots_%s' % os.path.basename(ms))
     cmd = f'python {submodpath}/plot_tecandphase.py  '
-    cmd += '--H5file=' + h5 + ' --outfile=plotlosoto%s/%s_nolosoto.png' % (os.path.basename(ms), os.path.basename(outplotname))
+    cmd += '--H5file=' + h5 + ' --outfile=solution_plots_%s/%s_nolosoto.png' % (os.path.basename(ms), os.path.basename(outplotname))
     print(cmd)
     run(cmd)
     return
@@ -6510,7 +6615,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
              find_closestdir=False, updateweights=False, modelstoragemanager=None, 
              missingantennabehavior='error', metadata_compression=True, timeslotsperparmupdate=200,
-             auto_update_timeslotsperparmupdate=False, fix_sisco_samecol_issue=True):
+             auto_update_timeslotsperparmupdate=False):
     """ Apply an H5parm to a Measurement Set.
 
     Args:
@@ -6529,6 +6634,12 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
     Returns:
         None
     """
+    
+    if 'sisco-diagonal' in subprocess.check_output(['wsclean'], text=True):
+        fix_sisco_samecol_issue = False  # if sisco-diagonal is present we have a recent DP3/casacore version where writing and reading from the same column is supported, so we can disable the fix for the sisco same column issue (writing to a temporary column and then copying back) which is time consuming
+    else:
+        fix_sisco_samecol_issue = True
+
     # get number of frequency channels in MS and update timeslotsperparmupdate if needed
     # for large MSs with many frequency channels it smees we need to reduce the timeslotsperparmupdate to avoid segmentation faults
     # For example GMRT data with nchan=2688 and 3535 results in a segmentation faults with the DP3 default timeslotsperparmupdate=200
@@ -6581,12 +6692,15 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
         if find_closestdir:
             direction = make_utf8(find_closest_ddsol(parmdb, ms))
             print('Applying direction:', direction)
-        if fulljonesparmdb(parmdb):
+        if fulljonesparmdb(parmdb) or amplitude_leakage_paramdb(parmdb):
             cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
             cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
             cmd += 'ac' + str(count) + '.type=applycal '
             cmd += 'ac' + str(count) + '.correction=fulljones '
-            cmd += 'ac' + str(count) + '.soltab=[amplitude000,phase000] '
+            if amplitude_leakage_paramdb(parmdb):
+                cmd += 'ac' + str(count) + '.soltab=[amplitude000] '
+            else:
+                cmd += 'ac' + str(count) + '.soltab=[amplitude000,phase000] '
             cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
             if not invert:
                 cmd += 'ac' + str(count) + '.invert=False '
@@ -7456,6 +7570,12 @@ def makeBBSmodelforFITS(filename, extrastrname=''):
     img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10))
     img.write_catalog(format='bbs', bbs_patches='source', \
                       outfile='source' + extrastrname + '.skymodel'  , clobber=True)
+    
+    # move all *pybdsf.log files to a logs directory
+    if not os.path.isdir('logs'):
+        os.mkdir('logs')
+    for f in glob.glob('*pybdsf.log'):
+        os.system('mv {} logs/'.format(f))
     return 'source' + extrastrname + '.skymodel'
 
 
@@ -7465,6 +7585,11 @@ def makeBBSmodelforVLASS(filename, extrastrname=''):
     img.write_catalog(format='bbs', bbs_patches='source', outfile='vlass' + extrastrname + '.skymodel', clobber=True)
     # bbsmodel = 'bla.skymodel'
     del img
+    # move all *pybdsf.log files to a logs directory
+    if not os.path.isdir('logs'):
+        os.mkdir('logs')
+    for f in glob.glob('*pybdsf.log'):
+        os.system('mv {} logs/'.format(f))
     return 'vlass' + extrastrname + '.skymodel'
 
 
@@ -7530,6 +7655,12 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     # bbsmodel = 'bla.skymodel'
     del img
     print(filename)
+    # move all *pybdsf.log files to a logs directory
+    if not os.path.isdir('logs'):
+        os.mkdir('logs')
+    for f in glob.glob('*pybdsf.log'):
+        os.system('mv {} logs/'.format(f))
+    
     return 'tgss' + extrastrname + '.skymodel', filename
 
 
@@ -8399,6 +8530,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     """
     print(h5parm, stationlist)
     fulljones = fulljonesparmdb(h5parm)  # True/False
+    amplitudeleakage = amplitude_leakage_paramdb(h5parm)  # True/False
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
 
     H = tables.open_file(h5parm, 'r+')
@@ -8566,7 +8698,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
                     amp[:, :, :, antennaid, ...] = 1.0
                 if antennaxis == 4:
                     amp[:, :, :, :, antennaid, ...] = 1.0
-                if fulljones:
+                if fulljones or amplitudeleakage:
                     print('pol entry axis:', axisn.index('pol'))
                     if len(axisn) != axisn.index('pol') + 1:
                         print('Pol-axis not the last enrty, cannot handle this')
@@ -8707,6 +8839,7 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
     """
     print(h5parm, dirlist)
     fulljones = fulljonesparmdb(h5parm)
+    amplitudeleakage = amplitude_leakage_paramdb(h5parm)
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
 
     # in case refant is None but h5 still has phase
@@ -8873,7 +9006,7 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
                     amp[:, :, :, directionid, ...] = 1.0
                 if diraxis == 4:
                     amp[:, :, :, :, directionid, ...] = 1.0
-                if fulljones:
+                if fulljones or amplitudeleakage:
                     print('pol entry axis:', axisn.index('pol'))
                     if len(axisn) != axisn.index('pol') + 1:
                         print('Pol-axis not the last enrty, cannot handle this')
@@ -10213,7 +10346,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-0.5,0.5]\n')
-    f.write('prefix = plotlosoto%s/phases_beam\n' % os.path.basename(ms))
+    f.write('prefix = solution_plots_%s/phases_beam\n' % os.path.basename(ms))
     f.write('refAnt = %s\n\n\n' % refant)
 
     f.write('[plotamp]\n')
@@ -10222,7 +10355,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [0.2,1]\n')
-    f.write('prefix = plotlosoto%s/amplitudes_beam\n' % os.path.basename(ms))
+    f.write('prefix = solution_plots_%s/amplitudes_beam\n' % os.path.basename(ms))
 
     f.close()
     return parset
@@ -10245,7 +10378,7 @@ def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttec
     f.write('soltabToAdd = tec000\n')
     f.write('figSize=[120,20]\n')
     f.write('markerSize=%s\n' % int(markersize))
-    f.write('prefix = plotlosoto%s/fasttecandphase\n' % os.path.basename(ms))
+    f.write('prefix = solution_plots_%s/fasttecandphase\n' % os.path.basename(ms))
     f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -10268,7 +10401,7 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', marke
     f.write('minmax = [-0.2,0.2]\n')
     f.write('figSize=[120,20]\n')
     f.write('markerSize=%s\n' % int(markersize))
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
     f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -10295,7 +10428,7 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
     f.write('axisInTable = ant\n')
     f.write('minmax = [-1.57,1.57]\n')  # rotation needs to be plotted from -pi/2 to pi/2
     f.write('figSize=[120,20]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
     f.write('refAnt = %s\n' % refant)
     f.close()
     return parset
@@ -10328,7 +10461,7 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
     f.write('figSize=[120,20]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
     f.write('refAnt = %s\n' % refant)
 
     if not onepol:
@@ -10346,7 +10479,7 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
         f.write('figSize=[120,20]\n')
-        f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+        f.write('prefix = solution_plots_%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
         f.write('refAnt = %s\n' % refant)
         f.write('axisDiff=pol\n')
 
@@ -10386,7 +10519,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     # else:
     f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
     # f.write('minmax = [0,2.5]\n')
-    f.write('prefix = plotlosoto%s/%samp\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+    f.write('prefix = solution_plots_%s/%samp\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
 
     if fulljones:
         f.write('[plotampXYYX]\n')
@@ -10403,7 +10536,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [%s,%s]\n' % (str(0.0), str(0.5)))
-        f.write('prefix = plotlosoto%s/%sampXYYX\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+        f.write('prefix = solution_plots_%s/%sampXYYX\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
 
     if includesphase:
         f.write('[plotphase]\n')
@@ -10423,7 +10556,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = plotlosoto%s/%sphase\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+        f.write('prefix = solution_plots_%s/%sphase\n' % (os.path.basename(ms), os.path.basename(outplotname)))
         f.write('refAnt = %s\n\n\n' % refant)
 
         if not onepol and not fulljones:
@@ -10441,7 +10574,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
             f.write('figSize=[120,20]\n')
-            f.write('prefix = plotlosoto%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+            f.write('prefix = solution_plots_%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
             f.write('refAnt = %s\n' % refant)
             f.write('axisDiff=pol\n\n\n')
 
@@ -10505,7 +10638,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
         f.write('axisInTable = ant\n')
         # f.write('minmax = [0,2.5]\n')
         f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
-        f.write('prefix = plotlosoto%s/%sampfl\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+        f.write('prefix = solution_plots_%s/%sampfl\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
 
         if includesphase and flagphases:
             f.write('[plotphase_after]\n')
@@ -10525,7 +10658,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
-            f.write('prefix = plotlosoto%s/%sphasefl\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+            f.write('prefix = solution_plots_%s/%sphasefl\n' % (os.path.basename(ms), os.path.basename(outplotname)))
             f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -10620,7 +10753,7 @@ def create_losoto_bandpassparset(intype, ms, h5):
         f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [0,%s]\n' % str(medamp*2.5))
-        f.write('prefix = plotlosoto%s/bandpass_amps\n\n\n' % os.path.basename(ms))
+        f.write('prefix = solution_plots_%s/bandpass_amps\n\n\n' % os.path.basename(ms))
 
     if intype == 'phase' or intype == 'a&p':
         f.write('[bandpassphase]\n')
@@ -10637,7 +10770,7 @@ def create_losoto_bandpassparset(intype, ms, h5):
         f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = plotlosoto%s/bandpass_phases\n\n\n' % os.path.basename(ms))
+        f.write('prefix = solution_plots_%s/bandpass_phases\n\n\n' % os.path.basename(ms))
 
     f.close()
     return parset    
@@ -10690,7 +10823,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
         f.write('minmax = [0,2.5]\n')
     else:
         f.write('minmax = [0,2.5]\n')
-    f.write('prefix = plotlosoto%s/amps_smoothed\n\n\n' % os.path.basename(ms))
+    f.write('prefix = solution_plots_%s/amps_smoothed\n\n\n' % os.path.basename(ms))
 
     if includesphase:
         f.write('[plotphase_after]\n')
@@ -10702,7 +10835,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = plotlosoto%s/phases_smoothed\n\n\n' % os.path.basename(ms))
+        f.write('prefix = solution_plots_%s/phases_smoothed\n\n\n' % os.path.basename(ms))
         f.write('refAnt = %s\n' % refant)
 
         f.write('[plotphase_after1rad]\n')
@@ -10714,7 +10847,7 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-1,1]\n')
-        f.write('prefix = plotlosoto%s/phases_smoothed1rad\n' % os.path.basename(ms))
+        f.write('prefix = solution_plots_%s/phases_smoothed1rad\n' % os.path.basename(ms))
         f.write('refAnt = %s\n' % refant)
 
     f.close()
@@ -10919,7 +11052,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
 
     Notes
     -----
-    - Generates 'facetdirections.p' pickle file containing patch positions array.
+    - Generates './facet_regions/facetdirections.p' pickle file containing patch positions array.
     - Generates './facet_regions/facets.reg' DS9 region file when ms, imsize, and pixelscale are provided.
     - When selfcalcycle == 0 and no facetdirections file is provided, runs PyBDSF on
       the image and uses lsmtool for source grouping.
@@ -10985,9 +11118,9 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
 
         print(PatchPositions_array)
         # write new facetdirections.p file
-        if os.path.isfile('facetdirections.p'):
-            os.system('rm -f facetdirections.p')
-        f = open('facetdirections.p', 'wb')
+        if os.path.isfile('facet_regions/facetdirections.p'):
+            os.system('rm -f facet_regions/facetdirections.p')
+        f = open('facet_regions/facetdirections.p', 'wb')
         pickle.dump(PatchPositions_array, f)
         f.close()
 
@@ -10997,21 +11130,26 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         if ms is not None and imsize is not None and pixelscale is not None and not restart:
             cmd = f'python {submodpath}/ds9facetgenerator.py '
             cmd += '--ms=' + ms + ' --DS9regionout=facet_regions/facets.reg '
-            cmd += '--h5=facetdirections.p --imsize=' + str(imsize + int(imsize*0.15)) + ' --pixelscale=' + str(pixelscale)
+            cmd += '--h5=facet_regions/facetdirections.p --imsize=' + str(imsize + int(imsize*0.15)) + ' --pixelscale=' + str(pixelscale)
             run(cmd)
         return solints, smoothness, soltypelist_includedir
     elif selfcalcycle == 0:
         # Only run this if selfcalcycle==0 [elif]
-        # Try to load previous facetdirections.skymodel
+        # Try to load previous facet_regions/facetdirections.skymodel
         import lsmtool
         if 'skymodel' not in imagename:
             img = bdsf.process_image(imagename + str(selfcalcycle).zfill(3) + '-MFS-image.fits', mean_map='zero',
                                      rms_map=True, rms_box=(160, 40))
-            img.write_catalog(format='bbs', bbs_patches=None, outfile='facetdirections.skymodel', clobber=True)
+            img.write_catalog(format='bbs', bbs_patches=None, outfile='facet_regions/facetdirections.skymodel', clobber=True)
             del img
+            # move all *pybdsf.log files to a logs directory
+            if not os.path.isdir('logs'):
+                os.mkdir('logs')
+            for f in glob.glob('*pybdsf.log'):
+                os.system('mv {} logs/'.format(f))
         else:
-            os.system('cp -r {} facetdirections.skymodel'.format(imagename))
-        LSM = lsmtool.load('facetdirections.skymodel')
+            os.system('cp -r {} facet_regions/facetdirections.skymodel'.format(imagename))
+        LSM = lsmtool.load('facet_regions/facetdirections.skymodel')
 
         if numClusters > 0:
             LSM.group(algorithm='cluster', numClusters=numClusters)
@@ -11027,9 +11165,9 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             PatchPositions_array[patch_id, 0] = PatchPositions[patch][0].to(units.rad).value  # RA
             PatchPositions_array[patch_id, 1] = PatchPositions[patch][1].to(units.rad).value  # Dec
         # Run code below for if and elif
-        if os.path.isfile('facetdirections.p'):
-            os.system('rm -f facetdirections.p')
-        f = open('facetdirections.p', 'wb')
+        if os.path.isfile('facet_regions/facetdirections.p'):
+            os.system('rm -f facet_regions/facetdirections.p')
+        f = open('facet_regions/facetdirections.p', 'wb')
         pickle.dump(PatchPositions_array, f)
         f.close()
 
@@ -11037,7 +11175,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         if ms is not None and imsize is not None and pixelscale is not None:
             cmd = f'python {submodpath}/ds9facetgenerator.py '
             cmd += '--ms=' + ms + ' --DS9regionout=facet_regions/facets.reg '
-            cmd += '--h5=facetdirections.p --imsize=' + str(imsize + int(imsize*0.15)) + ' --pixelscale=' + str(pixelscale)
+            cmd += '--h5=facet_regions/facetdirections.p --imsize=' + str(imsize + int(imsize*0.15)) + ' --pixelscale=' + str(pixelscale)
             run(cmd)
         return solints, smoothness, soltypelist_includedir
     else:
@@ -11153,7 +11291,7 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
         return np.array(start)
 
     if writeregioncircles:
-        write_ds9_regions(ra, dec, filename="facet_centers.reg", radius=120.0, color="red")
+        write_ds9_regions(ra, dec, filename="facet_regions/facet_centers.reg", radius=120.0, color="red")
     # Only select ra/dec which are if they are in the selfcalcycle range
     a = np.where((start <= selfcalcycle))[0]
     rasel = ra[a]
@@ -11312,7 +11450,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                      disable_primarybeam_predict=args['disable_primary_beam'],
                                      fulljones_h5_facetbeam=not args['single_dual_speedup'], parallelgridding=args['parallelgridding'], selfcalcycle=selfcalcycle)
         if args['fitspectralpol'] > 0:
-            dde_skymodel = groupskymodel(imagebasename, 'fits_images/facets.fits')  # imagebasename
+            dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources.txt', 'fits_images/facets.fits')  # imagebasename
         else:
             dde_skymodel = 'dummy.skymodel'  # no model exists if spectralpol is turned off
 
@@ -11352,7 +11490,7 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
     # check if -pb version of source list exists
     # needed because image000 does not have a pb version as no facet imaging is used, however, if IDG is used it does exist and hence the following does also handfle that
     if telescope == 'LOFAR' and wscleanskymodel is None:  # not for MeerKAT because WSClean still has a bug if no primary beam is used, for now assume we do not use a primary beam for MeerKAT
-        if os.path.isfile(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt'):
+        if os.path.isfile('fits_images/' + imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt'):
             if args['fitspectralpol'] > 0:
                 dde_skymodel = groupskymodel(imagebasename + str(selfcalcycle).zfill(3) + '-sources-pb.txt',
                                              'fits_images/facets.fits')
@@ -11804,12 +11942,12 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
         for ms in mslist:
             run('python3 NeReVar.py --filename=' + ms + \
                 ' --dt=' + str(args['QualityBasedWeights_dtime']) + ' --dnu=' + str(args['QualityBasedWeights_dfreq']) + \
-                ' --DiagDir=plotlosoto' + os.path.basename(ms) + '/NeReVar/ --basename=_selfcalcycle' + str(selfcalcycle).zfill(
+                ' --DiagDir=solution_plots_' + os.path.basename(ms) + '/NeReVar/ --basename=_selfcalcycle' + str(selfcalcycle).zfill(
                 3) + ' --modelcol=MODEL_DATA')
 
 
     if len(modeldatacolumns) > 0:
-        np.save('wsclean_h5list' + str(selfcalcycle).zfill(3) + '.npy', wsclean_h5list)
+        np.save('misc/wsclean_h5list' + str(selfcalcycle).zfill(3) + '.npy', wsclean_h5list)
         return wsclean_h5list
     else:
         return []
@@ -12394,7 +12532,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if (len(modeldatacolumns_solve) > 0) and (len(modeldatacolumns) != len(modeldatacolumns_solve)):
         # fix coordinates otherwise h5merge will merge all directions into one when add_directions is done (as all coordinates are the same up to this point)
-        update_sourcedir_h5_dde(parmdb, 'facetdirections.p', dir_id_kept=dir_id_kept)
+        update_sourcedir_h5_dde(parmdb, 'facet_regions/facetdirections.p', dir_id_kept=dir_id_kept)
 
         # we need to add back the extra direction into the h5 file
         outparmdb = 'adddirback' + parmdb
@@ -12415,7 +12553,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         os.system('rm -f ' + parmdb)
         os.system('rm -f ' + outparmdb)
 
-        # merge h5 files in order of the directions in facetdirections.p and recreate parmdb
+        # merge h5 files in order of the directions in facet_regions/facetdirections.p and recreate parmdb
         # clean up previously splitted directions inside this function
         print('Merge h5 files in correct order and recreate parmdb')
         merge_splitted_h5_ordered(modeldatacolumns, parmdb, clean_up=True)
@@ -12425,7 +12563,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         # sys.exit()
 
     if len(modeldatacolumns) > 1:  # and DDE_predict == 'WSCLEAN':
-        update_sourcedir_h5_dde(parmdb, 'facetdirections.p')
+        update_sourcedir_h5_dde(parmdb, 'facet_regions/facetdirections.p')
 
     if has0coordinates(parmdb):
         logger.warning('Direction coordinates are zero in: ' + parmdb)
@@ -12916,6 +13054,9 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     hdul = fits.open(imagebasename + '-MFS-image.fits')
     header = hdul[0].header
 
+    # gunzip model images
+    gunzip_model_images(imagebasename)
+
     if len(h5list) != 0:
         datacolumn = 'DATA'  # for DDE
     else:
@@ -13088,7 +13229,10 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     # remove templatebox.reg if it exists to clean things up
     if os.path.exists('templatebox.reg'):
         os.remove('templatebox.reg')
-    
+
+    # gzip model images back
+    gzip_model_images(imagebasename)
+
     return
 
 
@@ -13101,7 +13245,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               fullpol=False, selfcalcycle=None,
               uvmaxim=None, h5list=[], facetregionfile=None, squarebox=None,
               DDE_predict='WSCLEAN', DDEimaging=False,
-              wgridderaccuracy=1e-4, nosmallinversion=False,
+              nosmallinversion=False,
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False,
               facet_beam_update_time=120,
               singlefacetpredictspeedup=True, forceimagingwithfacets=True,
@@ -13153,8 +13297,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if predict:
             if squarebox is not None:
                 for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
-                    print(model, 'box_' + model)
-                    mask_region(model, squarebox, 'box_' + model)
+                    print(model, 'fits_images/box_' + os.path.basename(model))
+                    mask_region(model, squarebox, 'fits_images/box_' + os.path.basename(model))
 
             cmd = 'wsclean -predict '
             # if not usewgridder and not idg:
@@ -13186,7 +13330,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 if usewgridder:
                     cmd += '-gridder wgridder '
-                    cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+                    cmd += '-wgridder-accuracy ' + str(args['wgridderaccuracy']) + ' '
                     if nosmallinversion:
                         cmd += '-no-min-grid-resolution '  # '-no-small-inversion '
                 if parallelgridding > 1:
@@ -13198,13 +13342,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             if squarebox is None:
                 cmd += '-name ' + imageout + ' ' + msliststring
             else:
-                cmd += '-name ' + 'box_' + imageout + ' ' + msliststring
+                cmd += '-name ' + 'fits_images/box_' + os.path.basename(imageout) + ' ' + msliststring
             print('PREDICT STEP: ', cmd)
             run(cmd)
 
             # remove box_ model files to save space
             if squarebox is not None:
-                for model in sorted(glob.glob('box_' + imageout + '-????-*model*.fits')):
+                for model in sorted(glob.glob('fits_images/box_' + imageout + '-????-*model*.fits')):
                     os.system('rm -f ' + model)
         return
     #  --- end predict only ---
@@ -13215,8 +13359,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         # do the masking
         for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
             if squarebox != 'keepall':
-                print(squarebox, model, 'box_' + model)
-                mask_region(model, squarebox, 'box_' + model)
+                print(squarebox, model, 'fits_images/box_' + os.path.basename(model))
+                mask_region(model, squarebox, 'fits_images/box_' + os.path.basename(model))
 
             # predict with wsclean
         cmd = 'wsclean -predict '
@@ -13238,7 +13382,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         else:
             if usewgridder:
                 cmd += '-gridder wgridder '
-                cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+                cmd += '-wgridder-accuracy ' + str(args['wgridderaccuracy']) + ' '
                 if nosmallinversion:
                     cmd += '-no-min-grid-resolution '  # '-no-small-inversion '
             if parallelgridding > 1:
@@ -13263,7 +13407,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             cmd += '-model-storage-manager ' + modelstoragemanagerwsclean + ' '
 
         if squarebox != 'keepall':
-            cmd += '-name box_' + imageout + ' ' + msliststring
+            cmd += '-name fits_images/box_' + os.path.basename(imageout) + ' ' + msliststring
         else:
             cmd += '-name ' + imageout + ' ' + msliststring    
         
@@ -13272,7 +13416,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             run(cmd)
         # remove box_ model files to save space
         if squarebox != 'keepall':
-            for model in sorted(glob.glob('box_' + imageout + '-????-*model*.fits')):
+            for model in sorted(glob.glob('fits_images/box_' + imageout + '-????-*model*.fits')):
                 os.system('rm -f ' + model)
         return
         #  --- NO-FACET-LOOP end DDE CORRUPT-predict only ---
@@ -13292,7 +13436,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # step 2 mask outside of region file
             if not singlefacetpredictspeedup:  # not needed, because WSClean will do the facet cutting
                 for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
-                    modelout = 'facet_' + model
+                    modelout = 'fits_images/facet_' + os.path.basename(model)
                     if DDE_predict == 'WSCLEAN':
                         print(model, modelout)
                         mask_region_inv(model, dirofinput + '/facet' + str(facet_id) + '.reg', modelout)
@@ -13321,7 +13465,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 if usewgridder:
                     cmd += '-gridder wgridder '
-                    cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+                    cmd += '-wgridder-accuracy ' + str(args['wgridderaccuracy']) + ' '
                     if nosmallinversion:
                         cmd += '-no-min-grid-resolution '  # '-no-small-inversion '
                 if parallelgridding > 1:
@@ -13475,7 +13619,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     cmd += '-baseline-averaging ' + baselineav + ' '
             if usewgridder:
                 cmd += '-gridder wgridder '
-                cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+                cmd += '-wgridder-accuracy ' + str(args['wgridderaccuracy']) + ' '
                 if nosmallinversion:
                     cmd += '-no-min-grid-resolution '  # '-no-small-inversion '
 
@@ -13533,7 +13677,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
         clean_up_images(imageout)
 
-           # do manual  pbcor for MeerKAT images if -applybeam or -apply-facet-beam was not used
+        # do manual  pbcor for MeerKAT images if -applybeam or -apply-facet-beam was not used
         if args['telescope'] == 'MeerKAT':
             if '-apply-facet-beam' not in cmd and '-apply-primary-beam' not in cmd:
                 print('Doing manual primary beam correction for MeerKAT image')
@@ -13544,6 +13688,12 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     if fullpol:
                         outfile = (imageout + '-MFS-I-image.fits').replace('-MFS-I-image.fits', '-MFS-I-image-manualpb.fits')
                         MeerKAT_pbcor_Lband(imageout + '-MFS-I-image.fits', outfile, ms=mslist[0])
+                        outfile = (imageout + '-MFS-Q-image.fits').replace('-MFS-Q-image.fits', '-MFS-Q-image-manualpb.fits')
+                        MeerKAT_pbcor_Lband(imageout + '-MFS-Q-image.fits', outfile, ms=mslist[0])
+                        outfile = (imageout + '-MFS-U-image.fits').replace('-MFS-U-image.fits', '-MFS-U-image-manualpb.fits')
+                        MeerKAT_pbcor_Lband(imageout + '-MFS-U-image.fits', outfile, ms=mslist[0])
+                        outfile = (imageout + '-MFS-V-image.fits').replace('-MFS-V-image.fits', '-MFS-V-image-manualpb.fits')
+                        MeerKAT_pbcor_Lband(imageout + '-MFS-V-image.fits', outfile, ms=mslist[0])                                                                          
                     else:
                         outfile = (imageout + '-MFS-image.fits').replace('-MFS-image.fits', '-MFS-image-manualpb.fits')
                         MeerKAT_pbcor_Lband(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
@@ -13608,7 +13758,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 if usewgridder:
                     cmd += '-gridder wgridder '
-                    cmd += '-wgridder-accuracy ' + str(wgridderaccuracy) + ' '
+                    cmd += '-wgridder-accuracy ' + str(args['wgridderaccuracy']) + ' '
                     if nosmallinversion:
                         cmd += '-no-min-grid-resolution '  # '-no-small-inversion '
                 if parallelgridding > 1:
@@ -13734,7 +13884,7 @@ def updatemodelcols_includedir(modeldatacolumns, soltypelist_includedir, ms, dry
     id_kept = []
     id_removed = []
 
-    f = open('facetdirections.p', 'rb')
+    f = open('facet_regions/facetdirections.p', 'rb')
     sourcedir = pickle.load(f)  # units are radian
     f.close()
     soltypelist_includedir_sel = np.array(soltypelist_includedir)  # convert to numpy array for easier indexing
@@ -13830,7 +13980,6 @@ def updatemodelcols_includedir(modeldatacolumns, soltypelist_includedir, ms, dry
 
     return modeldatacolumns_solve_newnames, sourcedir[id_removed][:], id_kept
 
-
 def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
     import lsmtool
     print('Loading:', skymodelin)
@@ -13840,9 +13989,8 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
         LSM.write(skymodelout, clobber=True)
         return skymodelout
     else:
-        LSM.write('grouped_' + skymodelin, clobber=True)
-        return 'grouped_' + skymodelin
-
+        LSM.write('fits_images/grouped_' + os.path.basename(skymodelin), clobber=True)
+        return 'fits_images/grouped_' + os.path.basename(skymodelin)
 
 def findrms(mIn, maskSup=1e-7):
     """
@@ -13957,7 +14105,7 @@ def plotimage(selfcalcycle, stackstr='', mask=None, regionfile=None):
     mask (str): fits clean mask image (will be overplot with red contours)
     regionfile (str): DS9 facet region file for --DDE mode, facet layout will be shown in yellow
     """
-    plots_dir = os.path.join(os.path.dirname(args['imagename']) or '.', 'plots')
+    plots_dir = 'plots'
     if args['imager'] == 'WSCLEAN':
         if args['idg']:
             plotpngimage = os.path.join(plots_dir, os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + stackstr + '.png')
@@ -14523,6 +14671,11 @@ def write_compactsource_flux(fitsimage, outputcatalog, interactive=False):
         img.show_fit()
         matplotlib.use('Agg')
     del img
+    # move all *pybdsf.log files to a logs directory
+    if not os.path.isdir('logs'):
+        os.mkdir('logs')
+    for f in glob.glob('*pybdsf.log'):
+        os.system('mv {} logs/'.format(f))
     return
 
 
@@ -14546,7 +14699,11 @@ def determine_compactsource_flux(fitsimage):
 
     # trying to reset.....
     del img
-
+    # move all *pybdsf.log files to a logs directory
+    if not os.path.isdir('logs'):
+        os.mkdir('logs')
+    for f in glob.glob('*pybdsf.log'):
+        os.system('mv {} logs/'.format(f))
     return total_flux_gaus
 
 
@@ -14686,7 +14843,7 @@ def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_fitFR'))
+    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_fitFR'))
     f.write('refAnt = %s\n\n\n' % refant)
     f.close()
     return parset
@@ -14720,7 +14877,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('axesInPlot = [time,freq]\n')
     f.write('axisInTable = ant\n')
     f.write('minmax = [-3.14,3.14]\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_beforeFR'))
+    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_beforeFR'))
     f.write('refAnt = %s\n\n\n' % refant)
 
     f.write('[faraday]\n')
@@ -14736,7 +14893,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('soltab = sol000/rotationmeasure000\n')
     f.write('axesInPlot = [time]\n')
     f.write('axisInTable = ant\n')
-    f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FR'))
+    f.write('prefix = solution_plots_%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FR'))
 
     if dejump:
         f.write('[frdejump]\n')
@@ -14750,7 +14907,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
         f.write('soltab = sol000/rotationmeasure001\n')
         f.write('axesInPlot = [time]\n')
         f.write('axisInTable = ant\n')
-        f.write('prefix = plotlosoto%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FRdejumped'))
+        f.write('prefix = solution_plots_%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FRdejumped'))
 
     f.write('[residuals]\n')
     f.write('operation = RESIDUALS\n')
@@ -14767,7 +14924,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('AxisInTable = ant\n')
     f.write('AxisDiff = pol\n')
     f.write('plotFlag = True\n')
-    f.write('prefix = plotlosoto%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'residualphases_afterFR'))
+    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'residualphases_afterFR'))
     f.write('refAnt = %s\n' % refant)
     f.write('minmax = [-3.14,3.14]\n\n\n')
 
@@ -14805,7 +14962,7 @@ def removenonms(mslist):
     for ms in mslist:
         if ms.lower().endswith(('.h5', '.png', '.parset', '.fits', '.backup', '.obj', '.log', '.reg', '.gz', '.tar',
                                 '.tmp', '.ddfcache')) or \
-                ms.lower().startswith(('plotlosoto', 'solintimage')):
+                ms.lower().startswith(('solution_plots_', 'solintimage')):
             print('WARNING, removing ', ms, 'not a ms-type? Removed it!')
         else:
             newmslist.append(ms)
@@ -15019,13 +15176,14 @@ def find_bad_deviating_antennas(h5, ms, threshold=0.075):
         list: List of bad antenna names.
     """
     fulljones = fulljonesparmdb(h5)  # True/False
+    amplitudeleakage = amplitude_leakage_paramdb(h5)  # True/False
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5)
     if not hasamps:
         print('No amplitude000 solutions found in', h5)
         raise Exception('No amplitude000 solutions found in ' + h5)
-    if fulljones:
-        print('Amplitude solutions are fulljones, cannot determine bad antennas based on amplitude deviations')
-        raise Exception('Amplitude solutions are fulljones, cannot determine bad antennas based on amplitude deviations')
+    if fulljones or amplitudeleakage:
+        print('Amplitude solutions are fulljones or have amplitude leakage, cannot determine bad antennas based on amplitude deviations')
+        raise Exception('Amplitude solutions are fulljones or have amplitude leakage, cannot determine bad antennas based on amplitude deviations')
 
     with table(ms + '/FIELD', readonly=True, ack=False) as t:
         ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze()
@@ -15172,7 +15330,7 @@ def check_valid_ms(mslist):
             raise Exception(
                 'You are providing an MS with less than 21 timeslots, that is not enough to self-calibrate on')
         t.close()
-    
+
     if any(mslist.count(x) > 1 for x in mslist):
         print('There are duplicates in the mslist, please remove them')
         raise Exception('There are duplicates in the mslist, please remove them')
@@ -15251,7 +15409,11 @@ def basicsetup(mslist):
     # create fits_images directory in the working directory if it does not exist
     os.makedirs('fits_images', exist_ok=True)   
     # create clean_masks directory in the working directory if it does not exist
-    os.makedirs('clean_masks', exist_ok=True)   
+    os.makedirs('clean_masks', exist_ok=True)
+    # create errormaps_dd directory in the working directory if it does not exist
+    os.makedirs('errormaps_dd', exist_ok=True) 
+    # create misc directory in the working directory if it does not exist
+    os.makedirs('misc', exist_ok=True)  
 
     if args['compute_weightspectrum']:
         args['createresidualdatacolumn'] = True  # force creation of residual data column if weight spectrum is computed
@@ -15619,7 +15781,7 @@ def basicsetup(mslist):
     if args['start'] == 0 and args['stop'] is None:
         args['stop'] = 10
  
-    args['imagename'] = args['imagename'] + '_'
+    args['imagename'] = 'fits_images/' + os.path.basename(args['imagename']) + '_'
     if args['fitsmask'] is not None:
         fitsmask = args['fitsmask']
     else:
@@ -15662,6 +15824,9 @@ def basicsetup(mslist):
             args['parallelgridding'] = 4
         if args['imsize'] < 6000:
             args['parallelgridding'] = 6
+
+    if args['wgridderaccuracy'] is None:
+        args['wgridderaccuracy'] = 1e-4
 
     # set flagging paramters explicitly here to False if not set by user (to avoid they are left at None which can cause issues in some functions if not checked properly)
     if args['aoflagger'] is None:
@@ -15899,21 +16064,22 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
                     mask_mergelist.append('clean_masks/mask_extended.fits')
                 
                 cmdm = 'breizorro --make-binary --fill-holes --threshold=' + str(maskthreshold_selfcalcycle[selfcalcycle]) + \
-                       ' --restored-image=' + imagename + ' --boxsize=30 --outfile=' + 'clean_masks/' + imagename + '.mask.fits'
+                       ' --restored-image=' + imagename + ' --boxsize=30 --outfile=' + 'clean_masks/' + os.path.basename(imagename) + '.mask.fits'
                 if len(mask_mergelist) > 0:
                     cmdm += ' --merge=' + ','.join(map(str, mask_mergelist))
 
                 if fitsmask is not None:
-                    if os.path.isfile('clean_masks/' + imagename + '.mask.fits'):
-                        os.system('rm -f clean_masks/' + imagename + '.mask.fits')
-                    # same for the compressed version if it exists
-                    if os.path.isfile('clean_masks/' + imagename + '.mask.fits.gz'):
-                        os.system('rm -f clean_masks/' + imagename + '.mask.fits.gz')
+                    if os.path.isfile('clean_masks/' + os.path.basename(imagename) + '.mask.fits'):
+                        os.system('rm -f clean_masks/' + os.path.basename(imagename) + '.mask.fits')
                 print(cmdm)
                 run(cmdm)
-                print('Now gzip mask ' + 'clean_masks/' + imagename + '.mask.fits')
-                os.system('gzip ' + 'clean_masks/' + imagename + '.mask.fits')
-                fitsmask = 'clean_masks/' + imagename + '.mask.fits.gz'
+                
+                # removed compressed version if it exists
+                if os.path.isfile('clean_masks/' + os.path.basename(imagename) + '.mask.fits.gz'):
+                    os.system('rm -f clean_masks/' + os.path.basename(imagename) + '.mask.fits.gz')
+                print('Now gzip mask ' + 'clean_masks/' + os.path.basename(imagename) + '.mask.fits')
+                os.system('gzip ' + 'clean_masks/' + os.path.basename(imagename) + '.mask.fits')
+                fitsmask = 'clean_masks/' + os.path.basename(imagename) + '.mask.fits.gz'
                 fitsmask_list.append(fitsmask)
             else:
                 fitsmask = None  # no masking requested as args['maskthreshold'] less/equal 0
@@ -15957,26 +16123,26 @@ def set_fitsmask_restart(i, mslist):
             stackstr = ''  # empty string
 
         if args['idg']:
-            if os.path.isfile('clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'):
-                fitsmask = 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
+            if os.path.isfile('clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'):
+                fitsmask = 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
             else:
-                print('Cannot find: ' + 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz')
+                print('Cannot find: ' + 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz')
         else:
             if args['imager'] == 'WSCLEAN':
-                if os.path.isfile('clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'):
-                    fitsmask = 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
+                if os.path.isfile('clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'):
+                    fitsmask = 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
                 else:
-                    print('Cannot find: ' + 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz')  
+                    print('Cannot find: ' + 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz')  
             if args['imager'] == 'DDFACET':
-                if os.path.isfile('clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits'):
-                    fitsmask = 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz'
+                if os.path.isfile('clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '.app.restored.fits'):
+                    fitsmask = 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz'
                 else:
-                    print('Cannot find: ' + 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz')  
+                    print('Cannot find: ' + 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz')  
         if args['channelsout'] == 1:
             if args['imager'] == 'WSCLEAN':
-                fitsmask = 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
+                fitsmask = 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
             if args['imager'] == 'DDFACET':
-                fitsmask = 'clean_masks/' + args['imagename'] + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz'
+                fitsmask = 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz'
             fitsmask = fitsmask.replace('-MFS', '').replace('-I', '')
         print('Appending fitsmask: ', fitsmask) 
         fitsmask_list.append(fitsmask)
@@ -15992,7 +16158,7 @@ def create_Ateam_seperation_plots(mslist, start=0):
         return
     os.makedirs('plots', exist_ok=True)
     for ms in mslist:
-        outputname = os.path.join('plots', 'Ateam_' + ms + '.png')
+        outputname = 'plots/Ateam_' + os.path.basename(ms) + '.png'
         try:
             run(f'python {submodpath}/check_Ateam_separation_mod.py --outputimage={outputname} {ms}')
         except Exception:
@@ -16563,7 +16729,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '18.5.0'
+    facetselfcal_version = '19.0.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -17027,7 +17193,7 @@ def main():
             modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, candidate_soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
                             DDE_predict=args['DDE_predict'], restart=True, telescope=args['telescope']))
-            wsclean_h5list = list(np.load('wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
+            wsclean_h5list = list(np.load('misc/wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
             # re-create facet_regions/facets.reg here
             # in a restart the number of directions from the previous facet_regions/facets.reg might not match that in the h5
             create_facet_directions(args['imagename'], i, ms=mslist[0], imsize=args['imsize'],
