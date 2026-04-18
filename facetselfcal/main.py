@@ -3441,23 +3441,33 @@ def fix_zero_weight_spectrum(mslist):
             #print('Running command:', cmdtaql)
             run(cmdtaql, log=True, taql=True) 
 
-def fix_bad_weightspectrum(mslist, clipvalue):
+def fix_bad_weightspectrum(mslist, clipvalue, use_taql=True):
     """ 
     Sets bad values in WEIGHT_SPECTRUM that affect imaging and subsequent self-calibration to 0.0.
 
     Args:
         mslist (list): a list of Measurement Sets to iterate over and fix outlier values of.
         clipvalue (float): value above which WEIGHT_SPECTRUM will be set to 0.
-    Returns:
+        use_taql (bool, optional): If True, uses TAQL to update the WEIGHT_SPECTRUM column. If False, uses casacore tables. Defaults to True.
+            Returns:
         None
     """
+    
+    if isinstance(mslist, str):
+        mslist = [mslist]
+
     for ms in mslist:
         print('Clipping WEIGHT_SPECTRUM manually', ms, clipvalue)
-        with table(ms, readonly=False) as t:
-            ws = t.getcol('WEIGHT_SPECTRUM')
-            idx = np.where(ws > clipvalue)
-            ws[idx] = 0.0
-            t.putcol('WEIGHT_SPECTRUM', ws)
+        if  use_taql:
+            cmdtaql = f'taql "UPDATE {ms} SET WEIGHT_SPECTRUM[WEIGHT_SPECTRUM > {clipvalue}] = 0.0"'
+            print('Running command:', cmdtaql)
+            run(cmdtaql, log=True, taql=True)
+        else:
+            with table(ms, readonly=False) as t:
+                ws = t.getcol('WEIGHT_SPECTRUM')
+                idx = np.where(ws > clipvalue)
+                ws[idx] = 0.0
+                t.putcol('WEIGHT_SPECTRUM', ws)
     return
 
 
