@@ -12558,7 +12558,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         update_sourcedir_h5_dde(parmdb, 'facet_regions/facetdirections.p', dir_id_kept=dir_id_kept)
 
         # we need to add back the extra direction into the h5 file
-        outparmdb = 'adddirback' + parmdb
+        outparmdb = parmdb + 'adddirback.h5'
         if os.path.isfile(outparmdb):
             os.system('rm -f ' + outparmdb)
         merge_h5(h5_out=outparmdb, h5_tables=parmdb, add_directions=sourcedir_removed.tolist(), propagate_weights=False, convert_tec=False)
