@@ -4823,24 +4823,24 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
             freq_scaling = 1.0   
             min_peakflux = 0.02 
         if selfcalcycle == 0:
-            keep_N_brightest = 3
+            keep_N_brightest = 5
             distance = (20./freq_scaling) # this assumes a reasonable field of view
             N_dir_max = 3
         if selfcalcycle == 1:
             thresh_pix = 4. # lower thresholds for higher cycles
             thresh_isl = 4.  
-            keep_N_brightest = 5 
+            keep_N_brightest = 10 
             distance = (20./freq_scaling)
-            N_dir_max = 5
+            N_dir_max = 6
         if selfcalcycle >= 2:
             thresh_pix = 3.5 # lower thresholds for higher cycles
             thresh_isl = 3.5   
         if selfcalcycle == 2:
-            keep_N_brightest = 8
+            keep_N_brightest = 15
             distance = (15./freq_scaling)
             N_dir_max = 10
         if selfcalcycle >= 3:
-            keep_N_brightest = 15   
+            keep_N_brightest = 20   
             distance = (10./freq_scaling)
             N_dir_max = 15
     else:
@@ -12558,7 +12558,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         update_sourcedir_h5_dde(parmdb, 'facet_regions/facetdirections.p', dir_id_kept=dir_id_kept)
 
         # we need to add back the extra direction into the h5 file
-        outparmdb = 'adddirback' + parmdb
+        outparmdb = 'h5_solutions/' + 'adddirback' + os.path.basename(parmdb)
         if os.path.isfile(outparmdb):
             os.system('rm -f ' + outparmdb)
         merge_h5(h5_out=outparmdb, h5_tables=parmdb, add_directions=sourcedir_removed.tolist(), propagate_weights=False, convert_tec=False)
