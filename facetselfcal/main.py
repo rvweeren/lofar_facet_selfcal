@@ -16725,10 +16725,6 @@ def main():
     # If a config file exists, then read the information. Priotise specified config over default.
     if os.path.isfile(options.configpath):
         config = options.configpath
-    else:
-        config = "facetselfcal_config.txt"
-
-    if os.path.isfile(config):
         print("A config file (%s) exists, using it. This contains:" % config)
         parser = configparser.ConfigParser()
         # Preserve upper case in options
@@ -16747,6 +16743,7 @@ def main():
                 setattr(options, k, v)
             else:
                 setattr(options, k, ast.literal_eval(v))
+
     global args
     args = vars(options)
     
@@ -17480,11 +17477,16 @@ def main():
             print('Reached requested stop selfcal cycle')
             break    
 
+    # Collect h5 files
+    h5s = []
+    if args['early_stopping']:
+        h5s += glob.glob('h5_solutions/best_*solutions.h5')
+    else:
+        h5s += [f for ms in mslist for f in glob.glob('h5_solutions/merged_*selfcalcycle???_' + os.path.basename(ms) + '.h5')]
     # Write config file to merged h5parms
-    h5s = glob.glob('h5_solutions/best_*solutions.h5') if args['early_stopping'] else [f for ms in mslist for f in glob.glob('h5_solutions/merged_*selfcalcycle???_' + os.path.basename(ms) + '.h5')]
     for h5 in h5s:
-        # Write the user-specified configuration file to h5parm and otherwise all input parameters if config file not specified
-        add_config_to_h5(h5, args['configpath']) if args['configpath'] is not None else add_config_to_h5(h5, 'full_config.txt')
+        # Write all input parameters and facetselfcal version to h5parm
+        add_config_to_h5(h5, 'full_config.txt')
         add_version_to_h5(h5, facetselfcal_version)
 
     # remove sources outside central region after selfcal (to prepare for DDE solves)
