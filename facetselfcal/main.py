@@ -4381,7 +4381,7 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5, thresh_i
     # move all *pybdsf.log files to a logs directory
     if not os.path.isdir('logs'):
         os.mkdir('logs')
-    for f in glob.glob('*pybdsf.log'):
+    for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
         os.system('mv {} logs/'.format(f))
     return empty_catalog
 
@@ -4402,7 +4402,7 @@ def get_number_of_sources_in_catalog(catalogfile):
     hdu_list.close()
     return len(catalog)
 
-def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., keep_N_brightest=20, previous_catalog=None, N_dir_max=45):
+def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., keep_N_brightest=20, previous_catalog=None, N_dir_max=45, interleave_sorting=True):
     """
     Updates a calibration error catalog by filtering, merging, and removing nearby sources.
     Parameters:
@@ -4431,15 +4431,49 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
     - The final catalog is limited to `N_dir_max` entries if it exceeds this limit.
     - The output catalog is saved in FITS format, overwriting any existing file at the specified path.
     """
+    #from astropy.table import Table, vstack
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
     #print(catalog.columns)
     hdu_list.close()
-    
-    # sort catalog at Peak flux, brightest first
-    idx = catalog.argsort(keys='Peak_flux', reverse=True)
-    catalog = catalog[idx]
-    
+        
+    # sort catalog on AFLUX flux and Peak_flux
+    # first entry highest AFLUX
+    # second entry highest Peak_flux
+    # third entry second highest AFLUX
+    # fourth entry second highest Peak_flux
+    # and so on, alternating between AFLUX and Peak_flux
+
+    if interleave_sorting:
+
+         # Sort indices separately
+        idx_aflux = catalog.argsort(keys='AFLUX', reverse=True)
+        idx_peakflux  = catalog.argsort(keys='Peak_flux', reverse=True)
+
+        # Interleave while avoiding duplicates
+        seen = set()
+        final_idx = []
+
+        for i in range(max(len(idx_aflux), len(idx_peakflux))):
+            if i < len(idx_aflux):
+                if idx_aflux[i] not in seen:
+                    final_idx.append(idx_aflux[i])
+                    seen.add(idx_aflux[i])
+            if i < len(idx_peakflux):
+                if idx_peakflux[i] not in seen:
+                    final_idx.append(idx_peakflux[i])
+                    seen.add(idx_peakflux[i])
+
+        # Reorder catalog
+        catalog = catalog[final_idx]
+
+    else:
+        # sort catalog at Peak flux, brightest first
+        idx = catalog.argsort(keys='Peak_flux', reverse=True)
+        catalog = catalog[idx]
+
+    print('Catalog entries before keeping only the ', keep_N_brightest, 'brightest sources. Input:', len(catalog))
+
     if len(catalog) > keep_N_brightest:
         catalog = catalog[0:keep_N_brightest]
     
@@ -4456,11 +4490,11 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
     new_catalog = catalog.copy()
     for source_id, source in enumerate(catalog[:-1]):
         c1 = SkyCoord(source['RA']*units.degree, source['DEC']*units.degree, frame='icrs')
-        print('Trying to find sources that are too close to SOURCE ID', source_id)
+        print('Finding sources that are less than', distance, 'arcmin close to SOURCE ID', source_id)
         for faintersource_id, faintersource in enumerate(catalog[source_id+1:]): # take only sources with a higher index, skip last one
             c2 = SkyCoord(faintersource['RA']*units.degree, faintersource['DEC']*units.degree, frame='icrs')
             if c1.separation(c2).to(units.arcmin).value < distance:
-                print('Found close source with ID', faintersource['Source_id'])
+                print('Found close source with ID and peak flux', faintersource['Source_id'], faintersource['Peak_flux'], 'distance', c1.separation(c2).to(units.arcmin).value)
                 removeidx = np.where((new_catalog['Peak_flux'] == faintersource['Peak_flux']) & (new_catalog['Source_id'] == faintersource['Source_id']))[0] # do a double comparson because the vstack from catalog_prev can merger sources with the same source_id
                 assert len(removeidx) <= 1
                 if len(removeidx) > 0:
@@ -4669,6 +4703,15 @@ def add_peak_total_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.
     hdu_list_flux.close()
 
     new_catalog = catalog.copy()
+    
+    if match_radius <= 0.0:
+        # just copt over Peak_flux and Total_flux without matching
+        new_catalog['AFLUX'] = catalog_flux['Peak_flux']
+        new_catalog['TFLUX'] = catalog_flux['Total_flux']
+        print('Match radius is zero or negative, just copied over Peak_flux and Total_flux without matching')
+         # save updated catalog
+        new_catalog.write(catalogfile, format='fits', overwrite=True)
+        return
     for source_id, source in enumerate(catalog):
         # find sources in flux catalog within match_radius arcmin
         c1 = SkyCoord(source['RA']*units.degree, source['DEC']*units.degree, frame='icrs')
@@ -4818,7 +4861,12 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
             min_peakflux = 0.002
         elif freq > 1.0e9: # L band
             freq_scaling = 1.5
-            min_peakflux = 0.02
+            if selfcalcycle <=1:
+                min_peakflux = 0.02
+            elif selfcalcycle == 2:
+                min_peakflux = 0.015 # lower min_peakflux for higher cycles because we can go deeper
+            else:
+                min_peakflux = 0.01 # lower min_peakflux for higher cycles because we can go deeper    
         else: # UHF band
             freq_scaling = 1.0   
             min_peakflux = 0.02 
@@ -4834,7 +4882,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
             N_dir_max = 6
         if selfcalcycle >= 2:
             thresh_pix = 3.5 # lower thresholds for higher cycles
-            thresh_isl = 3.5   
+            thresh_isl = 3.5
         if selfcalcycle == 2:
             keep_N_brightest = 15
             distance = (15./freq_scaling)
@@ -4854,6 +4902,20 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     if args['channelsout'] == 1:
         fitsimage = fitsimage.replace('-MFS', '').replace('-I', '')    
    
+    # for standalone running
+    # create errormaps_dd directory if it does not exist
+    if not os.path.isdir('errormaps_dd'):
+        os.mkdir('errormaps_dd')
+    # create plots directory if it does not exist
+    if not os.path.isdir('plots'):
+        os.mkdir('plots')   
+    # create directions directory if it does not exist
+    if not os.path.isdir('directions'):
+        os.mkdir('directions')
+    # create facet_regions directory if it does not exist
+    if not os.path.isdir('facet_regions'):
+        os.mkdir('facet_regions')     
+
     # set input/output names
     outputerrormap1 =  'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap1.fits'
     outputerrormap2 =  'errormaps_dd/' + os.path.basename(args['imagename']) + str(selfcalcycle).zfill(3) + '-errormap2.fits'
@@ -4885,6 +4947,8 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     
     # create compact source catalog from which we can get peak fluxes
     write_compactsource_flux(fitsimage, outputfluxcatalog)
+    # add AFLUX and TFLUX columns to error catalog
+    add_peak_total_flux_to_catalog(outputfluxcatalog, outputfluxcatalog, match_radius=-1) # negative match radius means just copy over Peak_flux and Total_flux without matching
 
     # make the error map
     print('Making artifact maps from:', fitsimage)
@@ -4904,10 +4968,13 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     # create list of catalogs to merge
     catalog_list = []
     if not empty_catalog1:
+        add_peak_total_flux_to_catalog(outputcatalog1, outputfluxcatalog, match_radius=match_radius) # add peak fluxes to catalog for filtering later on
         catalog_list.append(outputcatalog1)
     if not empty_catalog2:
+        add_peak_total_flux_to_catalog(outputcatalog2, outputfluxcatalog, match_radius=match_radius) # add peak fluxes to catalog for filtering later on
         catalog_list.append(outputcatalog2)
     if not empty_catalog3:
+        add_peak_total_flux_to_catalog(outputcatalog3, outputfluxcatalog, match_radius=match_radius) # add peak fluxes to catalog for filtering later on
         catalog_list.append(outputcatalog3)
     if len(catalog_list) > 1:
         print('Merging artifact source catalogs')
@@ -4937,6 +5004,9 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
             add_source_to_catalog(outputcatalog, outputfluxcatalog, distance=distance)
         # in principle we can repeat adding sources, for now stick to one/two extra sources         
    
+    #if False: # set to True for testing so see if add_source_to_catalog works 
+    #    add_source_to_catalog(outputcatalog, outputfluxcatalog, distance=distance)  
+
     # add very bright sources to catalog to ensure they are included
     if selfcalcycle > 0 and empty_catalog: # do nothing since no no artifact sources are found (maybe the image is close to perfect)
        print('No artifact sources found, it seems the image quality is very good') # do nothing because outputcatalog does not exist, so we cannot add bright sources to it, but this is also not needed since the image quality is already very good
@@ -4957,7 +5027,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
         sys.exit(0)
 
     # find peak fluxes from compact source catalog and add to filtered catalog (put in AFLUX column)
-    add_peak_total_flux_to_catalog(outputcatalog_filtered, outputfluxcatalog, match_radius=match_radius)
+    # add_peak_total_flux_to_catalog(outputcatalog_filtered, outputfluxcatalog, match_radius=match_radius)
 
     # filter out sources too low peak flux
     filter_catalog_on_flux(outputcatalog_filtered, freq, telescope, min_peakflux=min_peakflux)
@@ -7589,7 +7659,7 @@ def makeBBSmodelforFITS(filename, extrastrname=''):
     # move all *pybdsf.log files to a logs directory
     if not os.path.isdir('logs'):
         os.mkdir('logs')
-    for f in glob.glob('*pybdsf.log'):
+    for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
         os.system('mv {} logs/'.format(f))
     return 'source' + extrastrname + '.skymodel'
 
@@ -7603,7 +7673,7 @@ def makeBBSmodelforVLASS(filename, extrastrname=''):
     # move all *pybdsf.log files to a logs directory
     if not os.path.isdir('logs'):
         os.mkdir('logs')
-    for f in glob.glob('*pybdsf.log'):
+    for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
         os.system('mv {} logs/'.format(f))
     return 'vlass' + extrastrname + '.skymodel'
 
@@ -7673,7 +7743,7 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     # move all *pybdsf.log files to a logs directory
     if not os.path.isdir('logs'):
         os.mkdir('logs')
-    for f in glob.glob('*pybdsf.log'):
+    for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
         os.system('mv {} logs/'.format(f))
     
     return 'tgss' + extrastrname + '.skymodel', filename
@@ -11160,7 +11230,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             # move all *pybdsf.log files to a logs directory
             if not os.path.isdir('logs'):
                 os.mkdir('logs')
-            for f in glob.glob('*pybdsf.log'):
+            for f in glob.glob(os.path.dirname(imagename + str(selfcalcycle).zfill(3) + '-MFS-image.fits') + '/*pybdsf.log'):
                 os.system('mv {} logs/'.format(f))
         else:
             os.system('cp -r {} facet_regions/facetdirections.skymodel'.format(imagename))
@@ -13079,9 +13149,6 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     hdul = fits.open(imagebasename + '-MFS-image.fits')
     header = hdul[0].header
 
-    # gunzip model images
-    # gunzip_model_images(imagebasename)
-
     if len(h5list) != 0:
         datacolumn = 'DATA'  # for DDE
     else:
@@ -13217,20 +13284,11 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
                     with table(ms + '.extracted_ddcor', readonly=False) as t2:
                         print('Adding WEIGHT_SPECTRUM_SOLVE')
-                        #desc = t2.getcoldesc('WEIGHT_SPECTRUM')
-                        #desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
-                        #t2.addcols(desc)
                         addcol(t2, 'WEIGHT_SPECTRUM', 'WEIGHT_SPECTRUM_SOLVE')
                         imweights = t.getcol('WEIGHT_SPECTRUM_SOLVE')
                         t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
             # remove uncorrected file to save disk space
             os.system('rm -rf ' + ms + '.extracted')
-            # average if avgfreqstep or avgtimestep > 1
-            if avgfreqstep > 1 or avgtimestep > 1:
-                average([ms + '.extracted_ddcor'], freqstep=[avgfreqstep], timestep=avgtimestep, \
-                         dysco=dysco, metadata_compression=metadata_compression)
-                os.system('rm -rf ' + ms + '.extracted_ddcor')
-                os.rename(ms + '.extracted_ddcor.avg', ms + '.extracted_ddcor')
      
     # print the imsize for the user
     if userbox is not None and userbox != 'keepall':
@@ -13239,6 +13297,10 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         imsize_to_use = int(boxsize * 3600.0 / pixsize)
         if imsize_to_use % 2 != 0:
             imsize_to_use += 1
+        if imsize_to_use > imsize:
+            # print in orange because this is a warning
+            print('\033[33mWarning: the box size used for remove-outside-center is larger than the original image size, using original image size instead\033[0m')
+            imsize_to_use = imsize
         print('Imsize to use after this extract step: {}'.format(imsize_to_use))
     elif userbox == 'keepall':
         print('No box used for remove-outside-center, entire field kept as per user request')
@@ -13249,6 +13311,10 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         imsize_to_use = int(boxsize * 3600.0 / pixsize)
         if imsize_to_use % 2 != 0:
             imsize_to_use += 1
+        if imsize_to_use > imsize:
+            # print in orange because this is a warning
+            print('\033[33mWarning: the box size used for remove-outside-center is larger than the original image size, using original image size instead\033[0m')
+            imsize_to_use = imsize    
         print('Imsize to use after this extract step: {}'.format(imsize_to_use))   
     
     # write imsize_to_use to a file so that it can be used in the next steps of the pipeline
@@ -13258,8 +13324,6 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         else:
             f.write(str(imsize_to_use))
   
-        
-        
     # remove templatebox.reg if it exists to clean things up
     if os.path.exists('templatebox.reg'):
         os.remove('templatebox.reg')
@@ -14112,10 +14176,18 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
     try: 
         if regionfile is not None:
             import regions
-            ds9regions = regions.Regions.read(regionfile, format='ds9')
-            for ds9region in ds9regions:
-                reg = ds9region.to_pixel(WCS(hdulist.header))
-                reg.plot(ax=ax, color=regioncolor, alpha=regionalpha)
+            # if regionfile is a string
+            if isinstance(regionfile, str):
+                ds9regions = regions.Regions.read(regionfile, format='ds9')
+                for ds9region in ds9regions:
+                    reg = ds9region.to_pixel(WCS(hdulist.header))
+                    reg.plot(ax=ax, color=regioncolor, alpha=regionalpha)
+            if isinstance(regionfile, list):
+                for rf in regionfile:
+                    ds9regions = regions.Regions.read(rf, format='ds9')
+                    for ds9region in ds9regions:
+                        reg = ds9region.to_pixel(WCS(hdulist.header))
+                        reg.plot(ax=ax, color=regioncolor, alpha=regionalpha)        
     except Exception as e:
         print(f"Cannot overplot facets, failed with error: {e}. Skipping.")
         
@@ -14708,7 +14780,7 @@ def write_compactsource_flux(fitsimage, outputcatalog, interactive=False):
     # move all *pybdsf.log files to a logs directory
     if not os.path.isdir('logs'):
         os.mkdir('logs')
-    for f in glob.glob('*pybdsf.log'):
+    for f in glob.glob(os.path.dirname(fitsimage) + '/*pybdsf.log'):
         os.system('mv {} logs/'.format(f))
     return
 
@@ -14736,7 +14808,7 @@ def determine_compactsource_flux(fitsimage):
     # move all *pybdsf.log files to a logs directory
     if not os.path.isdir('logs'):
         os.mkdir('logs')
-    for f in glob.glob('*pybdsf.log'):
+    for f in glob.glob(os.path.dirname(fitsimage) + '/*pybdsf.log'):
         os.system('mv {} logs/'.format(f))
     return total_flux_gaus
 
@@ -15082,7 +15154,7 @@ def MeerKAT_autodetect_highDR(fitsimage):
                     return False, catalog['Peak_flux'][0] # we can stop here, no high DR settings can be used
     return True, catalog['Peak_flux'][0]  # if we end up here we can use high DR settings
 
-def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
+def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=800.):
     """
     Determine the extract region size based on the brightest calibration artifact source in the image.
     Input: a fits image
@@ -15090,17 +15162,22 @@ def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
               margin in arcsec to add to the extract size (default 300 arcsec)
     Output: extract size in degrees
     """
+    if os.path.isdir('misc') == False:
+        os.mkdir('misc')
+    if os.path.isdir('plots') == False:
+        os.mkdir('plots')
+
     thresh_pix = 4.5
     thresh_isl = 4.5  
-    outputfluxcatalog = fitsimage.replace('.fits', '_compactsource_fluxcatalog.fits')
-    outputerrormap1 = fitsimage.replace('.fits', '_artifact_errormap1.fits')
-    outputcatalog1 = fitsimage.replace('.fits', '_artifact_sources_catalog1.fits')
-    outputerrormap2 = fitsimage.replace('.fits', '_artifact_errormap2.fits')
-    outputcatalog2 = fitsimage.replace('.fits', '_artifact_sources_catalog2.fits')
-    outputerrormap3 = fitsimage.replace('.fits', '_artifact_errormap3.fits')
-    outputcatalog3 = fitsimage.replace('.fits', '_artifact_sources_catalog3.fits')
-    outputerrormap4 = fitsimage.replace('.fits', '_artifact_errormap4.fits')
-    outputcatalog4 = fitsimage.replace('.fits', '_artifact_sources_catalog4.fits')
+    outputfluxcatalog = 'misc/' + os.path.basename(fitsimage).replace('.fits', '_compactsource_fluxcatalog.fits')
+    outputerrormap1 = 'misc/' + os.path.basename(fitsimage).replace('.fits', '_artifact_errormap1.fits')
+    outputcatalog1 = 'misc/' + os.path.basename(fitsimage).replace('.fits', '_artifact_sources_catalog1.fits')
+    outputerrormap2 = 'misc/' + os.path.basename(fitsimage).replace('.fits', '_artifact_errormap2.fits')
+    outputcatalog2 = 'misc/' + os.path.basename(fitsimage).replace('.fits', '_artifact_sources_catalog2.fits')
+    outputerrormap3 = 'misc/' + os.path.basename(fitsimage).replace('.fits', '_artifact_errormap3.fits')
+    outputcatalog3 = 'misc/' + os.path.basename(fitsimage).replace('.fits', '_artifact_sources_catalog3.fits')
+    outputerrormap4 = 'misc/' + os.path.basename(fitsimage).replace('.fits', '_artifact_errormap4.fits')
+    outputcatalog4 = 'misc/' + os.path.basename(fitsimage).replace('.fits', '_artifact_sources_catalog4.fits')
 
     with fits.open(fitsimage, ignore_missing_end=True) as hdu:
         freq = hdu[0].header['CRVAL3']  # in Hz
@@ -15109,6 +15186,8 @@ def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
 
     # make the error map
     print('Making artifact map from:', fitsimage)
+    print('Pixel size:', pixsize, 'arcsec')
+
     
     # compute the calibration error map, run 1 with small kernel to pick up small scale errors
     calibration_error_map(fitsimage,  outputerrormap1, kernelsize=31, rebin=31)
@@ -15137,10 +15216,10 @@ def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
         catalog_list.append(outputcatalog4)     
     if len(catalog_list) > 1:
         print('Merging artifact source catalogs')
-        merged_catalog = fitsimage.replace('.fits', '_artifact_sources_merged_catalog.fits')
+        merged_catalog = 'misc/' + os.path.basename(fitsimage).replace('.fits', '_artifact_sources_merged_catalog.fits')
         merge_catalogs(catalog_list, merged_catalog)
         # remove duplicate sources that are close to each other (within 3 arcmin), keep the brightest
-        update_calibration_error_catalog(merged_catalog,merged_catalog, distance=3, keep_N_brightest=999, N_dir_max=999)
+        update_calibration_error_catalog(merged_catalog,merged_catalog, distance=3, keep_N_brightest=999, N_dir_max=999, interleave_sorting=False)
     
     # create compact source catalog from which we can get peak fluxes
     write_compactsource_flux(fitsimage, outputfluxcatalog)
@@ -15158,24 +15237,23 @@ def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
     # find peak fluxes from compact source catalog and add to filtered catalog (put in AFLUX column)
     add_peak_total_flux_to_catalog(merged_catalog, outputfluxcatalog, match_radius=match_radius)
 
-    # determine extract region based on the brighest artifact source
+    # === determine extract region based on the brighest artifact source ===
   
     # load the catalog
-    hdu_list = fits.open(merged_catalog)
-    catalog = Table(hdu_list[1].data)
-    hdu_list.close()
+    with fits.open(merged_catalog) as hdu_list:
+        catalog = Table(hdu_list[1].data)
     
     # sort catalog at Peak flux, brightest first
     idx = catalog.argsort(keys='Peak_flux', reverse=True)
     catalog = catalog[idx]
 
     # get the X Y positions of the artifact sources in fitsimage
-
     extract_size_start = 0.0
     hdu = flatten(fits.open(fitsimage, ignore_missing_end=True))
     w = WCS(hdu.header)
     x_center = hdu.header['NAXIS1'] / 2
     y_center = hdu.header['NAXIS2'] / 2
+    
     # loop over sources
     for source in catalog:
         ra_source = source['RA']
@@ -15189,12 +15267,46 @@ def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=300.):
         max_distance = max([x_dist, y_dist])
         print('Max artifact distance (E-W/N-S) to image center (degrees):', max_distance * pixsize / 3600.)
         if 2 * (max_distance * pixsize) / 3600. > extract_size_start:  # in degrees
-            extract_size_start = (2 * (max_distance * pixsize) / 3600.) + ((pixsize * margin) / 3600.)  # in degrees
-    
+            extract_size_start = (2. * (max_distance * pixsize) / 3600.) + ((pixsize * margin) / 3600.)  # in degrees
+            print('RA: {}, DEC: {}'.format(ra_source, dec_source))
     if extract_size_start < min_extract_size:
         extract_size_start = min_extract_size
     logger.info('Determined extract size of ' + str(extract_size_start) + ' degrees based on artifact sources')
     print('Determined extract size of ' + str(extract_size_start) + ' degrees based on artifact sources')
+    
+    # plot the results
+    region_string = """
+    # Region file format: DS9 version 4.1
+    global color=green dashlist=8 3 width=1 font="helvetica 10 normal roman" select=1
+    fk5
+    box(137.2868914,-9.6412498,7200.000",7200.000",0)
+    """
+    with fits.open(fitsimage, ignore_missing_end=True) as hdu:
+        r = pyregion.parse(region_string)
+        r.write('misc/templatebox.reg')
+        r = pyregion.open('misc/templatebox.reg')
+        r[0].coord_list[0] = hdu[0].header['CRVAL1']  # units degr
+        r[0].coord_list[1] = hdu[0].header['CRVAL2']  # units degr
+        r[0].coord_list[2] = extract_size_start  # units degr
+        r[0].coord_list[3] = extract_size_start  # units degr
+        r.write('misc/templatebox.reg')
+    
+    # write ds9 region file from the artifact sources catalog: outputfluxcatalog
+    with fits.open(outputcatalog1) as hdu_list:
+        catalog_extract = Table(hdu_list[1].data)
+    write_ds9_regions(catalog_extract['RA'], catalog_extract['DEC'], filename='misc/extractbox_artifact_sources.reg')
+    
+    # plot the locations of the artifact sources on top of the fits image to check if artifacts are correctly identified
+    with fits.open(outputerrormap1) as hdulist:
+        imagenoise = findrms(np.ndarray.flatten(hdulist[0].data))
+        plotminmax = [-2.*imagenoise, 35.*imagenoise]
+
+    plotimage_astropy(outputerrormap1, 'plots/auto_extractbox.png', mask=None, \
+                      regionfile=['misc/extractbox_artifact_sources.reg', 'misc/templatebox.reg'], \
+                      regioncolor='red', minmax=plotminmax, regionalpha=1.0)
+
+    # remove template box region file
+    os.system('rm -f misc/templatebox.reg')
     return extract_size_start # in degrees
 
 def find_bad_deviating_antennas(h5, ms, threshold=0.075):
@@ -16765,7 +16877,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '19.0.0'
+    facetselfcal_version = '19.1.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -17273,7 +17385,8 @@ def main():
                                        modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'],
                                        metadata_compression=args['metadata_compression'], 
                                        avgtimestep=args['remove_outside_center_avgtimestep'],
-                                       avgfreqstep=args['remove_outside_center_avgfreqstep'])
+                                       avgfreqstep=args['remove_outside_center_avgfreqstep'],
+                                       ddcor=not args['remove_outside_center_noddcor'])
                 if createresidualdatacolumn_only:
                     create_residual_data_column(mslist, args['imagename'] + str(i).zfill(3), 
                                            args['pixelscale'], args['imsize'], 
@@ -17521,7 +17634,10 @@ def main():
                                disable_primary_beam=args['disable_primary_beam'], 
                                modelstoragemanager=args['modelstoragemanager'], 
                                parallelgridding=args['parallelgridding'], 
-                               metadata_compression=args['metadata_compression'])
+                               metadata_compression=args['metadata_compression'],
+                               avgtimestep=args['remove_outside_center_avgtimestep'],
+                               avgfreqstep=args['remove_outside_center_avgfreqstep'],
+                               ddcor=not args['remove_outside_center_noddcor'])
 
         # create RESIDUAL_DATA column if requested
         if args['createresidualdatacolumn']:
