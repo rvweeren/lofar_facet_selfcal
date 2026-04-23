@@ -15836,7 +15836,12 @@ def basicsetup(mslist):
             #args['forwidefield'] = False
             #args['doflagslowphases'] = False
             
-        else: # so this is a DDE run
+        else: # so this is a DDE run  
+            if args['aoflagger_residualdata'] is None:
+                args['aoflagger_residualdata'] = True
+                args['aoflagger_strategy_residualdata'] = 'default_StokesI.lua'
+                args['aoflagger_residualdata_selfcalcycle_list'] = [2]
+
             args['soltype_list'] = ['scalarphase','scalarcomplexgain']
             if args['start'] == 0 and args['stop'] is None:
                 args['stop'] = 5 # this means we can do restarting runs as well
