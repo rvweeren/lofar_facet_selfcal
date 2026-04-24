@@ -18,8 +18,8 @@ def option_parser():
                                default='image',
                                type=str)
     imagingparser.add_argument('--imsize',
-                               help='Image size, required if boxfile is not used. The default is None.',
-                               type=int)
+                               help='Image size, required if boxfile is not used. The default is None. If a text file is provided it should contain a single integer which is the image size to use.',
+                               type=str_or_int)
     imagingparser.add_argument('-n', '--niter',
                                help='Number of iterations. This is computed automatically if None.',
                                default=None,
@@ -634,7 +634,10 @@ def option_parser():
     parser.add_argument('--remove-outside-center-avgfreqstep',
                         help='Frequency step for averaging the MS after an extraction step (default=1, which means no frequency averaging).',
                         type=int,
-                        default=1) 
+                        default=1)
+    parser.add_argument('--remove-outside-center-noddcor',
+                        help='Do not applycal DD solutions from closest direction to the box center (if applicable).',
+                        action='store_true')                      
     parser.add_argument('--single-dual-speedup',
                         help='Speed up calibration and imaging if possible using datause=single/dual in DP3 and -scalar/diagonal-visibilities in WSClean. Requires a recent (mid July 2024) DP3 and WSClean versions. Default is True. Set to --single-dual-speedup=False to disable to speed-up',
                         type=ast.literal_eval,
