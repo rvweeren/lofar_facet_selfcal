@@ -12815,7 +12815,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             remove_nans(parmdb, 'amplitude000')
         medamp = get_median_amp(parmdb)
 
-        if soltype != 'amplitudeonly' and soltype != 'scalaramplitude' \
+        if soltype != 'amplitudeonly' and soltype != 'scalaramplitude' and soltype != 'leakageamplitude' \
                 and soltype != 'rotation+diagonalamplitude' \
                 and soltype != 'rotation+scalaramplitude' \
                 and soltype != 'faradayrotation+scalaramplitude' \
