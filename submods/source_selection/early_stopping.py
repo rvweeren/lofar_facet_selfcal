@@ -1,5 +1,5 @@
 import os
-import logging
+# import logging
 import pandas as pd
 import re
 
@@ -10,7 +10,7 @@ except ImportError:
     from selfcal_selection import get_images_solutions, main as quality_check
     from image_score import get_nn_model, predict_nn
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 
 def _parse_source_id(inp_str: str = None):
@@ -37,7 +37,7 @@ def _initialize_nn_model(nn_model_cache: str, skip_neural_network: bool) -> None
     try:
         nn_model = get_nn_model(cache=nn_model_cache)
     except (ImportError, SystemExit):
-        logger.info(
+        print(
             "WARNING: Issues with downloading/getting Neural Network model.. Skipping and continue without."
             "\nMost likely due to issues with accessing cortExchange or no internet access."
         )
@@ -50,7 +50,7 @@ def _get_predict_score(images: dict,
     if nn_model is None:
         return 1.0
     score = predict_nn(images[cycle], nn_model)
-    logger.info(f"Neural network score: {score}")
+    print(f"Neural network score: {score}")
     return score
 
 
@@ -97,16 +97,16 @@ def _save_best(mergedh5: dict,
     """Copy the current cycle's solutions and image as the best outputs."""
     src_h5 = mergedh5[cycle]
     dst_h5 = f'h5_solutions/best_{source_id}solutions.h5'
-    best_image = f'best_{images[cycle].split("/")[-1]}'
-    logger.info(f'{src_h5} --> {dst_h5}')
+    best_image = f'fits_images/best_{images[cycle].split("/")[-1]}'
+    print(f'{src_h5} --> {dst_h5}')
     os.system(f'cp {src_h5} {dst_h5}')
     os.system(f'cp {images[cycle]} {best_image}')
 
 
 def _log_best_cycle(df: pd.DataFrame) -> None:
     """Log which cycle produced the best image and solutions."""
-    logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
-    logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
+    print(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
+    print(f"Best solutions: Cycle {df['phase'].argmin()}")
 
 
 def early_stopping(station: str = 'international',
@@ -136,7 +136,7 @@ def early_stopping(station: str = 'international',
         return False
 
     if not images:
-        logger.info("WARNING: Issues with finding images for early-stopping. Skipping and continue without...")
+        print("WARNING: Issues with finding images for early-stopping. Skipping and continue without...")
         return False
 
     qualitymetrics = quality_check(mergedh5, images, station)
@@ -155,16 +155,16 @@ def early_stopping(station: str = 'international',
     _log_best_cycle(df)
 
     if _has_converged(df, cycle, predict_score, rms_ratio, minmax_ratio):
-        logger.info(f"Early-stopping at cycle {cycle}, because selfcal converged")
+        print(f"Early-stopping at cycle {cycle}, because selfcal converged")
         _save_best(mergedh5, images, cycle, source_id)
         return True
 
     if _has_diverged(df, cycle, rms_ratio, minmax_ratio):
-        logger.info(f"Early-stopping at cycle {cycle}, because selfcal starts to diverge...")
+        print(f"Early-stopping at cycle {cycle}, because selfcal starts to diverge...")
         _save_best(mergedh5, images, cycle, source_id)
         return True
 
-    logger.info(f"No early-stopping at cycle {cycle}")
+    print(f"No early-stopping at cycle {cycle}")
     if cycle == end_cycle - 1:
         _save_best(mergedh5, images, cycle, source_id)
 
