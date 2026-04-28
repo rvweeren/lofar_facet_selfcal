@@ -17492,6 +17492,7 @@ def main():
         # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
         if args['early_stopping'] and len(mslist)>1:
             logger.info("WARNING: --early-stopping not yet developed for multiple input MeasurementSets.\nSkipping early-stopping evaluation.")
+
         elif args['early_stopping']:
             images, mergedh5 = get_images_solutions('fits_images', 'h5_solutions')
             if early_stopping(station='international' if longbaseline else 'alldutch',
