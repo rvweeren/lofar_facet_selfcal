@@ -4,8 +4,6 @@ This script requires https://github.com/sara-nl/cortExchange to pull neural netw
 
 author__ = "Jurjen de Jong (jurjendejong@strw.leidenuniv.nl)"
 
-from cortexchange.architecture import get_architecture, Architecture
-from cortexchange.wdclient import init_downloader
 from argparse import ArgumentParser
 import os
 import warnings
@@ -30,6 +28,9 @@ def get_nn_model(model: str = 'surf/dino_big_lora_tune_posclsreg_may_O2_aug_099'
     Returns:
         Model
     """
+
+    from cortexchange.wdclient import init_downloader
+    from cortexchange.architecture import get_architecture, Architecture
 
     os.environ['TORCH_HOME'] = os.path.realpath(cache)
 

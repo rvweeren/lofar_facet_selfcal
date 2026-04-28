@@ -25,7 +25,7 @@ def _parse_source_id(inp_str: str = None):
     return parsed_inp
 
 
-def _initialize_nn_model(nn_model_cache: str, skip_neural_network) -> None:
+def _initialize_nn_model(nn_model_cache: str, skip_neural_network: bool) -> None:
     """Initialize the neural network model on the first cycle."""
 
     global nn_model
@@ -95,7 +95,7 @@ def _save_best(mergedh5: dict,
                cycle: int,
                source_id: str) -> None:
     """Copy the current cycle's solutions and image as the best outputs."""
-    src_h5 = f'h5_solutions/{mergedh5[cycle]}'
+    src_h5 = mergedh5[cycle]
     dst_h5 = f'h5_solutions/best_{source_id}solutions.h5'
     best_image = f'best_{images[cycle].split("/")[-1]}'
     logger.info(f'{src_h5} --> {dst_h5}')
@@ -130,7 +130,7 @@ def early_stopping(station: str = 'international',
     """
 
     if cycle == start_cycle:
-        _initialize_nn_model(cycle, start_cycle, nn_model_cache, skip_neural_network)
+        _initialize_nn_model(nn_model_cache, skip_neural_network)
 
     if cycle <= 3:
         return False
@@ -142,15 +142,15 @@ def early_stopping(station: str = 'international',
     qualitymetrics = quality_check(mergedh5, images, station)
     df = pd.read_csv(f"./selfcal_quality_plots/selfcal_performance_{qualitymetrics[0]}.csv")
 
-    rms_ratio    = df['rms'][cycle]/df['rms'][0]
+    rms_ratio = df['rms'][cycle]/df['rms'][0]
     minmax_ratio = df['min/max'][cycle]/df['min/max'][0]
     # Guard against NaN (recompute is a no-op, but preserves original behaviour)
     if minmax_ratio != minmax_ratio:
         minmax_ratio = df['min/max'][cycle]/df['min/max'][0]
-        rms_ratio    = df['rms'][cycle]/df['rms'][0]
+        rms_ratio = df['rms'][cycle]/df['rms'][0]
 
     predict_score = _get_predict_score(images, cycle)
-    source_id       = _parse_source_id(mergedh5[cycle]) + "_"
+    source_id = _parse_source_id(mergedh5[cycle]) + "_"
 
     _log_best_cycle(df)
 
