@@ -29,8 +29,8 @@ def get_nn_model(model: str = 'surf/dino_big_lora_tune_posclsreg_may_O2_aug_099'
         Model
     """
 
-    from cortexchange.wdclient import init_downloader
     from cortexchange.architecture import get_architecture, Architecture
+    from cortexchange.wdclient import init_downloader
 
     os.environ['TORCH_HOME'] = os.path.realpath(cache)
 
