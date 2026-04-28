@@ -17493,15 +17493,15 @@ def main():
         if args['early_stopping'] and len(mslist)>1:
             logger.info("WARNING: --early-stopping not yet developed for multiple input MeasurementSets.\nSkipping early-stopping evaluation.")
         elif args['early_stopping']:
-            images, solutions = get_images_solutions('fits_images', 'h5_solutions')
+            images, mergedh5 = get_images_solutions('fits_images', 'h5_solutions')
             if early_stopping(station='international' if longbaseline else 'alldutch',
-                           cycle=i,
-                           start_cycle=args['start'],
-                           end_cycle=args['stop'],
-                           nn_model_cache=args['nn_model_cache'],
-                           skip_neural_network=args['nn_model_cache'] is None,
-                           images=images,
-                           solutions=solutions):
+                               cycle=i,
+                               start_cycle=args['start'],
+                               end_cycle=args['stop'],
+                               nn_model_cache=args['nn_model_cache'],
+                               skip_neural_network=args['nn_model_cache'] is None,
+                               images=images,
+                               mergedh5=mergedh5):
                 break
 
         # STOP IF REQUESTED
