@@ -891,7 +891,7 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
         
         with table(ms+"::SPECTRAL_WINDOW", ack=False) as t:
             max_freq = t.getcol("CHAN_FREQ").max()
-        safe_diameter = 60.*1.4*68.*(1.28e9/max_freq) # in arcsec
+        safe_diameter = 60.*1.54*68.*(1.28e9/max_freq) # in arcsec
         if ((imsize*pixsize) + (distance_pointing_center*3600.) ) > safe_diameter:
             args['disable_primary_beam'] = True # set to True if one in mslist violates this criterion
             print("\033[33m" + "=== " + ms + " ===" + "\033[0m")
@@ -1790,9 +1790,12 @@ def remove_column_ms(mslist, colname):
     """
     mslist = [mslist] if isinstance(mslist, str) else mslist
 
+    # assert that colname is a string
+    assert isinstance(colname, str), "colname must be a string" 
+
     for ms in mslist:
         with table(ms, readonly=False, ack=False) as ts:
-            ts.removecols([colname])
+            ts.removecols(colname)
 
 
 def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
@@ -13260,7 +13263,8 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                 model = t.getcol('MODEL_DATA', startrow=row, nrow=stepsize, rowincr=1)
                 t.putcol(outcol, data - model, startrow=row, nrow=stepsize, rowincr=1)
             t.close()
-        average(mslist, freqstep=[avgfreqstep] * len(mslist), timestep=avgtimestep,
+        # do not average here in case we are applying the DD solutions later, so if len(h5list) != 0 and ddcor and userbox != 'keepall' (because otherwise we apply the solution on averaged data later which is less ideal)
+        average(mslist, freqstep=([1] * len(mslist) if len(h5list) != 0 and ddcor and userbox != 'keepall' else [avgfreqstep] * len(mslist)), timestep=(1 if len(h5list) != 0 and ddcor and userbox != 'keepall' else avgtimestep), \
                 phaseshiftbox=phaseshiftbox, dysco=dysco, make_extract=True,
                 dataincolumn=outcol, metadata_compression=metadata_compression)
         remove_column_ms(mslist, outcol) # remove SUBTRACTED_DATA to free up space
@@ -13289,6 +13293,11 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                         t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
             # remove uncorrected file to save disk space
             os.system('rm -rf ' + ms + '.extracted')
+            if avgfreqstep > 1 or avgtimestep > 1:
+                average([ms + '.extracted_ddcor'], freqstep=[avgfreqstep], timestep=avgtimestep, \
+                         dysco=dysco, metadata_compression=metadata_compression)
+                os.system('rm -rf ' + ms + '.extracted_ddcor')
+                os.rename(ms + '.extracted_ddcor.avg', ms + '.extracted_ddcor')            
      
     # print the imsize for the user
     if userbox is not None and userbox != 'keepall':
@@ -16882,7 +16891,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '19.1.0'
+    facetselfcal_version = '19.2.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
