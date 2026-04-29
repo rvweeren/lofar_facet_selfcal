@@ -14934,7 +14934,7 @@ def findrefant_core(H5file, telescope='LOFAR'):
             cs_indices = np.where(['RS' in ant for ant in ants])[0]
 
     if telescope == 'MeerKAT':
-        possible_refants = ['m013', 'm012', 'm011', 'm010', 'm009', 'm002', 'm001','m000','m008','m007','m006','m005','m004','m003']
+        possible_refants = possible_refants = ['m013', 'm012', 'm011', 'm010', 'm009', 'm002', 'm001','m000','m008','m007','m006','m005','m004','m003','m016','m017','m018','m019']
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
     
     if telescope == 'GMRT':
