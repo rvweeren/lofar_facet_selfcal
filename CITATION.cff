@@ -5,7 +5,7 @@ authors:
     given-names: Reinout J.
     orcid: https://orcid.org/0000-0002-0587-1660
 title: "facetselfcal"
-version: 19.2.0
+version: 19.2.1
 identifiers:
   - type: doi
     value: 10.1051/0004-6361/202039826

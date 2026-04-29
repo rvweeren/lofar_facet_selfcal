@@ -3,7 +3,7 @@ from losoto import h5parm
 import tables
 
 
-def flaglowamps_fulljones(parmdb, lowampval=0.1, flagging=True, setweightsphases=True):
+def flaglowamps_fulljones(parmdb, lowampval=0.1, flagging=True, setphases=True):
     """
     flag bad amplitudes in H5 parmdb, those with values < lowampval
     assume pol-axis is present (can handle length 2 (diagonal), or 4 (fulljones))
@@ -36,7 +36,7 @@ def flaglowamps_fulljones(parmdb, lowampval=0.1, flagging=True, setweightsphases
     H5.getSolset('sol000').getSoltab('amplitude000').setValues(amps)
 
     # also put phases weights and phases to zero
-    if setweightsphases:
+    if setphases:
         phases = H5.getSolset('sol000').getSoltab('phase000').getValues()[0]
         weights_p = H5.getSolset('sol000').getSoltab('phase000').getValues(weight=True)[0]
         phases_xx = phases[..., 0]
@@ -44,24 +44,24 @@ def flaglowamps_fulljones(parmdb, lowampval=0.1, flagging=True, setweightsphases
         weights_p_xx = weights_p[..., 0]
         weights_p_yy = weights_p[..., -1]
 
+        phases_xx[idx_xx] = 0.0
+        phases_yy[idx_yy] = 0.0
+        phases[..., 0] = phases_xx
+        phases[..., -1] = phases_yy
+
         if flagging:  # no flagging
             weights_p_xx[idx_xx] = 0.0
             weights_p_yy[idx_yy] = 0.0
-            phases_xx[idx_xx] = 0.0
-            phases_yy[idx_yy] = 0.0
-
             weights_p[..., 0] = weights_p_xx
             weights_p[..., -1] = weights_p_yy
-            phases[..., 0] = phases_xx
-            phases[..., -1] = phases_yy
 
             H5.getSolset('sol000').getSoltab('phase000').setValues(weights_p, weight=True)
-            H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
+        H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
     H5.close()
     return
 
 
-def flaglowamps(parmdb, lowampval=0.1, flagging=True, setweightsphases=True):
+def flaglowamps(parmdb, lowampval=0.1, flagging=True, setphases=True):
     """
     flag bad amplitudes in H5 parmdb, those with values < lowampval
     """
@@ -78,23 +78,20 @@ def flaglowamps(parmdb, lowampval=0.1, flagging=True, setweightsphases=True):
     H5.getSolset('sol000').getSoltab('amplitude000').setValues(amps)
 
     # also put phases weights and phases to zero
-    if setweightsphases:
+    if setphases:
         phases = H5.getSolset('sol000').getSoltab('phase000').getValues()[0]
         weights_p = H5.getSolset('sol000').getSoltab('phase000').getValues(weight=True)[0]
+        phases[idx] = 0.0
         if flagging:
             weights_p[idx] = 0.0
-            phases[idx] = 0.0
-            # print(idx)
             H5.getSolset('sol000').getSoltab('phase000').setValues(weights_p, weight=True)
-            H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
+        H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
 
-    # H5.getSolset('sol000').getSoltab('phase000').flush()
-    # H5.getSolset('sol000').getSoltab('amplitude000').flush()
     H5.close()
     return
 
 
-def flaghighamps(parmdb, highampval=10., flagging=True, setweightsphases=True):
+def flaghighamps(parmdb, highampval=10., flagging=True, setphases=True):
     """
     flag bad amplitudes in H5 parmdb, those with values > highampval
     """
@@ -111,23 +108,20 @@ def flaghighamps(parmdb, highampval=10., flagging=True, setweightsphases=True):
     H5.getSolset('sol000').getSoltab('amplitude000').setValues(amps)
 
     # also put phases weights and phases to zero
-    if setweightsphases:
+    if setphases:
         phases = H5.getSolset('sol000').getSoltab('phase000').getValues()[0]
         weights_p = H5.getSolset('sol000').getSoltab('phase000').getValues(weight=True)[0]
+        phases[idx] = 0.0
         if flagging:
             weights_p[idx] = 0.0
-            phases[idx] = 0.0
-            # print(idx)
             H5.getSolset('sol000').getSoltab('phase000').setValues(weights_p, weight=True)
-            H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
+        H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
 
-    # H5.getSolset('sol000').getSoltab('phase000').flush()
-    # H5.getSolset('sol000').getSoltab('amplitude000').flush()
     H5.close()
     return
 
 
-def flaghighamps_fulljones(parmdb, highampval=10., flagging=True, setweightsphases=True):
+def flaghighamps_fulljones(parmdb, highampval=10., flagging=True, setphases=True):
     """
     flag bad amplitudes in H5 parmdb, those with values > highampval
     assume pol-axis is present (can handle 2 (diagonal), or 4 (fulljones))
@@ -160,32 +154,31 @@ def flaghighamps_fulljones(parmdb, highampval=10., flagging=True, setweightsphas
     H5.getSolset('sol000').getSoltab('amplitude000').setValues(amps)
 
     # also put phases weights and phases to zero
-    if setweightsphases:
+    if setphases:
         phases = H5.getSolset('sol000').getSoltab('phase000').getValues()[0]
         weights_p = H5.getSolset('sol000').getSoltab('phase000').getValues(weight=True)[0]
         phases_xx = phases[..., 0]
         phases_yy = phases[..., -1]
         weights_p_xx = weights_p[..., 0]
         weights_p_yy = weights_p[..., -1]
-
+        phases_xx[idx_xx] = 0.0
+        phases_yy[idx_yy] = 0.0
+        phases[..., 0] = phases_xx
+        phases[..., -1] = phases_yy
+        
         if flagging:  # no flagging
             weights_p_xx[idx_xx] = 0.0
             weights_p_yy[idx_yy] = 0.0
-            phases_xx[idx_xx] = 0.0
-            phases_yy[idx_yy] = 0.0
-
             weights_p[..., 0] = weights_p_xx
             weights_p[..., -1] = weights_p_yy
-            phases[..., 0] = phases_xx
-            phases[..., -1] = phases_yy
-
             H5.getSolset('sol000').getSoltab('phase000').setValues(weights_p, weight=True)
-            H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
+
+        H5.getSolset('sol000').getSoltab('phase000').setValues(phases)
     H5.close()
     return
 
 
-def flag_bad_amps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=True):
+def flag_bad_amps(parmdb, setphases=True, flagamp1=True, flagampxyzero=True):
     """
     flag bad amplitudes in H5 parmdb, those with amplitude==1.0
     """
@@ -208,7 +201,7 @@ def flag_bad_amps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=Tr
         H.root.sol000.amplitude000.val[:] = amplitude
         H.root.sol000.amplitude000.weight[:] = weights
         # also put phases weights and phases to zero
-        if setweightsphases:
+        if setphases:
             phase = H.root.sol000.phase000.val[:]
             weights_p = H.root.sol000.phase000.weight[:]
             phase[idx] = 0.0
@@ -218,7 +211,7 @@ def flag_bad_amps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=Tr
         H.close()
 
     if fulljones:
-        if setweightsphases:
+        if setphases:
             phase = H.root.sol000.phase000.val[:]
             weights_p = H.root.sol000.phase000.weight[:]
 
@@ -230,7 +223,7 @@ def flag_bad_amps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=Tr
         if flagamp1:
             idx = np.where(amps_xx == 1.0)
             weights_xx[idx] = 0.0
-        if setweightsphases:
+        if setphases:
             phase_xx = phase[..., 0]
             weights_p_xx = weights_p[..., 0]
             phase_xx[idx] = 0.0
@@ -244,7 +237,7 @@ def flag_bad_amps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=Tr
         if flagampxyzero:
             idx = np.where(amps_xy == 0.0)  # we do not want this if we resetsols
             weights_xy[idx] = 0.0
-        if setweightsphases:
+        if setphases:
             phase_xy = phase[..., 1]
             weights_p_xy = weights_p[..., 1]
             phase_xy[idx] = 0.0
@@ -258,7 +251,7 @@ def flag_bad_amps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=Tr
         if flagampxyzero:
             idx = np.where(amps_yx == 0.0)
             weights_yx[idx] = 0.0
-        if setweightsphases:
+        if setphases:
             phase_yx = phase[..., 2]
             weights_p_yx = weights_p[..., 2]
             phase_yx[idx] = 0.0
@@ -272,7 +265,7 @@ def flag_bad_amps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=Tr
         if flagamp1:
             idx = np.where(amps_yy == 1.0)
             weights_yy[idx] = 0.0
-        if setweightsphases:
+        if setphases:
             phase_yy = phase[..., 3]
             weights_p_yy = weights_p[..., 3]
             phase_yy[idx] = 0.0
@@ -290,7 +283,7 @@ def flag_bad_amps(parmdb, setweightsphases=True, flagamp1=True, flagampxyzero=Tr
         H.root.sol000.amplitude000.val[:] = amplitude
         H.root.sol000.amplitude000.weight[:] = weights
 
-        if setweightsphases:
+        if setphases:
             phase[..., 0] = phase_xx
             phase[..., 1] = phase_xy
             phase[..., 2] = phase_yx

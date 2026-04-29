@@ -212,6 +212,10 @@ def option_parser():
                                    help="Extra option to clip WEIGHT_SPECTRUM values above the provided number. Use with care and test first manually to see what is a fitting value. The default is None.",
                                    type=float,
                                    default=None)
+    calibrationparser.add_argument('--data-clipvalue',
+                                   help="Extra option to flag DATA values above the provided number (this is done by setting WEIGHT_SPECTRUM to 0). Use with care and test first manually to see what is a fitting value. The default is None.",
+                                   type=float,
+                                   default=None)                                   
     calibrationparser.add_argument('-u', '--uvmin',
                                    help="Inner uv-cut for calibration in lambda. The default is 80 for LBA and 350 for HBA.",
                                    type=floatlist_or_float,

@@ -3456,6 +3456,10 @@ def fix_bad_weightspectrum(mslist, clipvalue, use_taql=True):
         None
     """
     
+    # check that clipvalue is larger than 0
+    if clipvalue <= 0.0:
+        raise ValueError('clipvalue must be larger than 0.0')
+
     if isinstance(mslist, str):
         mslist = [mslist]
 
@@ -3471,6 +3475,31 @@ def fix_bad_weightspectrum(mslist, clipvalue, use_taql=True):
                 idx = np.where(ws > clipvalue)
                 ws[idx] = 0.0
                 t.putcol('WEIGHT_SPECTRUM', ws)
+    return
+
+def clip_DATA(mslist, clipvalue):
+    """ 
+    Flags values in DATA above a certain threshold and sets corresponding WEIGHT_SPECTRUM values to 0.0.
+
+    Args:
+        mslist (list): a list of Measurement Sets to iterate over and fix outlier values of.
+        clipvalue (float): value for DATA above which WEIGHT_SPECTRUM will be set to 0.
+            Returns:
+        None
+    """
+
+    # assert that clipvalue is a float and is larger than 0
+    if clipvalue <= 0.0:
+        raise ValueError('clipvalue must be larger than 0.0')
+
+    if isinstance(mslist, str):
+        mslist = [mslist]
+
+    for ms in mslist:
+        print('Clipping DATA manually', ms, clipvalue)
+        cmdtaql = f'taql "UPDATE {ms} SET WEIGHT_SPECTRUM[abs(DATA) > {clipvalue}] = 0.0"'
+        print('Running command:', cmdtaql)
+        run(cmdtaql, log=True, taql=True)
     return
 
 
@@ -12773,11 +12802,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    'faradayrotation+scalaramplitude', 'faradayrotation+diagonalamplitude', \
                    'faradayrotation+scalar', 'leakage', 'leakageamplitude']:
         if resetdir is not None or resetsols is not None:
-            flag_bad_amps(parmdb, setweightsphases=includesphase, flagamp1=False,
+            flag_bad_amps(parmdb, setphases=includesphase, flagamp1=False,
                           flagampxyzero=False)  # otherwise it flags the solutions which where reset
         else:
             # if leakage or leakageamplitude we set flagamp1=False
-            flag_bad_amps(parmdb, setweightsphases=includesphase, flagamp1=(not (soltype == 'leakage' or soltype == 'leakageamplitude')))
+            flag_bad_amps(parmdb, setphases=includesphase, flagamp1=(not (soltype == 'leakage' or soltype == 'leakageamplitude')))
         if soltype == 'fulljones' or soltype =='leakage': 
             removenans_fulljones(parmdb)
         elif soltype == 'leakageamplitude':
@@ -12786,7 +12815,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             remove_nans(parmdb, 'amplitude000')
         medamp = get_median_amp(parmdb)
 
-        if soltype != 'amplitudeonly' and soltype != 'scalaramplitude' \
+        if soltype != 'amplitudeonly' and soltype != 'scalaramplitude' and soltype != 'leakageamplitude' \
                 and soltype != 'rotation+diagonalamplitude' \
                 and soltype != 'rotation+scalaramplitude' \
                 and soltype != 'faradayrotation+scalaramplitude' \
@@ -12797,22 +12826,22 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             # if normamps: #and all(rsl is None for rsl in resetsols_list) and all(rdl is None for rdl in resetdir_list):
             # otherwise you get too much setting to 1 due to large amp deviations, in particular fullones on raw data which has very high correlator amps (with different ILT vals), also resets in that case cause issues (resets are ok if the amplitudes are close to 1). Hence using the normamps test seems the most logical choice
             flaglowamps_fulljones(parmdb, lowampval=medamp / ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor),
-                                  setweightsphases=includesphase)
+                                  setphases=includesphase)
             flaghighamps_fulljones(parmdb, highampval=medamp * ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor),
-                                   setweightsphases=includesphase)
+                                   setphases=includesphase)
         else:
             # if normamps: #and all(rsl is None for rsl in resetsols_list) and all(rdl is None for rdl in resetdir_list):
             # otherwise you get too much setting to 1 due to large amp deviations, in particular fullones on raw data which has very high correlator amps (with different ILT vals), also resets in that case cause issues (resets are ok if the amplitudes are close to 1).  Hence using the normamps test seems the most logical choice
-            flaglowamps(parmdb, lowampval=medamp / ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor), setweightsphases=includesphase)
+            flaglowamps(parmdb, lowampval=medamp / ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor), setphases=includesphase)
             flaghighamps(parmdb, highampval=medamp * ampresetvalfactor, flagging=(flagging or flag_ampresetvalfactor),
-                         setweightsphases=includesphase)
+                         setphases=includesphase)
 
         if (soltype == 'fulljones' or soltype == 'leakage' or soltype == 'leakageamplitude') and clipsolutions:
             print('Fulljones/leakage/leakageamplitude and solution clipping not supported')
             raise Exception('Fulljones/leakage/leakageamplitude and clipsolutions not implemtened')
         if clipsolutions:
-            flaglowamps(parmdb, lowampval=clipsollow, flagging=True, setweightsphases=True)
-            flaghighamps(parmdb, highampval=clipsolhigh, flagging=True, setweightsphases=True)
+            flaglowamps(parmdb, lowampval=clipsollow, flagging=True, setphases=True)
+            flaghighamps(parmdb, highampval=clipsolhigh, flagging=True, setphases=True)
 
     # find bad antennas based on solution stats
     if auto_flag_antennas:
@@ -12828,8 +12857,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             # in particular for data near zero  declination which might be affected by geostationary RFI which causes high amplitude outliers in the solutions
             if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude']:
                 medamp = get_median_amp(parmdb)
-                flaglowamps(parmdb, lowampval=medamp / 1.5, flagging=False, setweightsphases=True)
-                flaghighamps(parmdb, highampval=medamp * 1.5, flagging=False, setweightsphases=True)        
+                flaglowamps(parmdb, lowampval=medamp / 1.5, flagging=False, setphases=True)
+                flaghighamps(parmdb, highampval=medamp * 1.5, flagging=False, setphases=True)        
 
     if resetsols == 'all':
         if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones', \
@@ -16891,7 +16920,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '19.2.0'
+    facetselfcal_version = '19.2.1'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -17023,14 +17052,11 @@ def main():
     # flag known bad frequencies for uGMRT data
     if args['start'] == 0: flag_uGMRT_badfreqs(mslist)
 
-
     # take out bad WEIGHT_SPECTRUM values if weightspectrum_clipvalue is set
-    if args['weightspectrum_clipvalue'] is not None:
+    if args['weightspectrum_clipvalue'] is not None and args['start'] == 0:
         fix_bad_weightspectrum(mslist, clipvalue=args['weightspectrum_clipvalue'])
-
-    # extra flagging if requested
-    #if args['start'] == 0 and args['aoflagger'] and args['aoflaggerbeforeavg']:
-    #    runaoflagger(mslist, strategy=args['aoflagger_strategy'])
+    if args['data_clipvalue'] is not None and args['start'] == 0:
+        clip_DATA(mslist, clipvalue=args['data_clipvalue'])
 
     # create Ateam plots
     if not args['phasediff_only']:
