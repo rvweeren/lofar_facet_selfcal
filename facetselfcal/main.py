@@ -82,7 +82,6 @@ sys.path.append(current_dir)
 
 # Modules
 from arguments import option_parser
-from submods.source_selection.selfcal_selection import get_images_solutions, main as quality_check
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
 from submods.h5_helpers.reset_h5parm_structure import fix_h5
 from submods.h5_merger import merge_h5
@@ -97,8 +96,10 @@ from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, updat
 from submods.h5_helpers.general_utils import make_utf8
 from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
 from submods.source_selection.phasediff_output import GetSolint, generate_csv as generate_phasediff_csv
+from submods.source_selection.selfcal_selection import get_images_solutions
+from submods.source_selection.early_stopping import early_stopping
 from submods.fair_log.config import add_config_to_h5, add_version_to_h5
-from utils.parsers import parse_history, parse_source_id
+from utils.parsers import parse_history
 
 # Set logger
 os.makedirs('logs', exist_ok=True) 
@@ -16669,102 +16670,6 @@ def set_modelstoragemanager(telescope):
     return modelstoragemanager
 
 
-
-def early_stopping(station: str = 'international', cycle: int = None):
-    """
-    Determine early-stopping based on Neural network image validation and solutions and image-based metrics.
-
-    :param station: international stations or dutch stations
-    :param cycle: cycle number
-    :param nn_model_cache: neural network model cache
-
-    Returns: stop == True, continue == False
-    """
-
-    # Early stopping
-    if cycle == args['start']:
-        global nn_model, predict_nn
-        try:
-            # NN score
-            from submods.source_selection.image_score import get_nn_model, predict_nn
-            nn_model = get_nn_model(cache=args['nn_model_cache'])
-        except (ImportError, SystemExit):
-            logger.info(
-                "WARNING: Issues with downloading/getting Neural Network model.. Skipping and continue without."
-                "\nMost likely due to issues with accessing cortExchange or no internet access.")
-            nn_model = None
-
-    # Start only after cycle 3
-    if cycle <= 3:
-        return False
-
-    # Get already obtained selfcal images and merged solutions
-    images, mergedh5 = get_images_solutions()
-    if len(images) == 0:
-        logger.info("WARNING: Issues with finding images for early-stopping. Skipping and continue without...")
-        return False
-    qualitymetrics = quality_check(mergedh5, images, station)
-
-    if nn_model is not None:
-        predict_score = predict_nn(images[cycle], nn_model)
-        logger.info(f"Neural network score: {predict_score}")
-    else:
-        predict_score = 1.0
-
-    # Open selfcal quality CSV
-    df = pd.read_csv(f"./selfcal_quality_plots/selfcal_performance_{qualitymetrics[0]}.csv")
-
-    # Get image statistics
-    minmax_ratio = df['min/max'][cycle] / df['min/max'][0]
-    if minmax_ratio != minmax_ratio:  # check for nan in final cycle
-        minmax_ratio = df['min/max'][cycle] / df['min/max'][0]
-        rms_ratio = df['rms'][cycle] / df['rms'][0]
-    else:
-        rms_ratio = df['rms'][cycle] / df['rms'][0]
-
-    iltj_id = parse_source_id(mergedh5[cycle])+"_"
-
-    # Selection criteria (good image and stable solutions, if predict==1.0, no neural network is used)
-    if (predict_score < 0.5 and df['phase'][cycle] < 0.1 and rms_ratio < 1.0 and minmax_ratio < 0.85) or \
-        (predict_score < 0.5 and df['phase'][cycle] < 0.2 and rms_ratio < 0.9 and minmax_ratio < 0.5) or \
-        (predict_score < 0.5 and df['phase'][cycle] < 0.3 and rms_ratio < 0.95 and minmax_ratio < 0.3) or \
-        (predict_score < 0.15 and df['phase'][cycle] < 0.5 and rms_ratio < 1.0 and minmax_ratio < 1.0) or \
-        (predict_score < 0.3 and df['phase'][cycle] < 0.05) or \
-        (df['phase'][cycle] < 0.003) or \
-        (df['phase'][cycle] < 0.1 and rms_ratio < 0.5 and minmax_ratio < 0.1 and predict_score == 1.0) or \
-        (df['phase'][cycle] < 0.05 and minmax_ratio < 0.1 and rms_ratio < 0.5 and predict_score == 1.0):
-        logger.info(f"Early-stopping at cycle {cycle}, because selfcal converged")
-        logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
-        logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-        logger.info(f'h5_solutions/{mergedh5[cycle]} --> h5_solutions/best_{iltj_id}solutions.h5')
-        os.system(f'cp h5_solutions/{mergedh5[cycle]} h5_solutions/best_{iltj_id}solutions.h5')
-        os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
-        return True
-    elif (df['rms'][cycle-1] < df['rms'][cycle] and df['min/max'][cycle-1] < df['min/max'][cycle]
-          and df['rms'][cycle-2] < df['rms'][cycle] and df['min/max'][cycle-2] < df['min/max'][cycle]
-            and df['rms'][cycle-3] < df['rms'][cycle] and df['min/max'][cycle-3] < df['min/max'][cycle]) or \
-            (minmax_ratio > 1.0 and rms_ratio > 1.0) or \
-            (df['phase'][cycle-1] < df['phase'][cycle] and df['phase'][cycle-2] < df['phase'][cycle]
-             and df['phase'][cycle-3] < df['phase'][cycle]) or \
-            (1.0 > predict_score > 0.85 and cycle > 10):
-        logger.info(f"Early-stopping at cycle {cycle}, because selfcal starts to diverge...")
-        logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
-        logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-        logger.info(f'h5_solutions/{mergedh5[cycle]} --> h5_solutions/best_{iltj_id}solutions.h5')
-        os.system(f'cp h5_solutions/{mergedh5[cycle]} h5_solutions/best_{iltj_id}solutions.h5')
-        os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
-        return True
-    else:
-        logger.info(f"No early-stopping at cycle {cycle}")
-        logger.info(f"Best image: Cycle {max(df['min/max'].argmin(), df['rms'].argmin())}")
-        logger.info(f"Best solutions: Cycle {df['phase'].argmin()}")
-        if cycle == args['stop'] - 1:
-            logger.info(f'h5_solutions/{mergedh5[cycle]} --> h5_solutions/best_{iltj_id}solutions.h5')
-            os.system(f'cp h5_solutions/{mergedh5[cycle]} h5_solutions/best_{iltj_id}solutions.h5')
-            os.system(f'cp {images[cycle]} best_{images[cycle].split("/")[-1]}')
-
-    return False
-
 def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solint_list, smoothnessconstraint_list):
     """
     Automatically detect if high dynamic range (DR) settings are needed for MeerKAT data and update calibration cycles accordingly.
@@ -17622,8 +17527,18 @@ def main():
         # Get additional diagnostics and/or early-stopping --> in particular useful for calibrator selection and automation
         if args['early_stopping'] and len(mslist)>1:
             logger.info("WARNING: --early-stopping not yet developed for multiple input MeasurementSets.\nSkipping early-stopping evaluation.")
-        elif args['early_stopping'] and early_stopping(station='international' if longbaseline else 'alldutch', cycle=i):
-            break
+
+        elif args['early_stopping']:
+            images, mergedh5 = get_images_solutions('fits_images', 'h5_solutions')
+            if early_stopping(station='international' if longbaseline else 'alldutch',
+                               cycle=i,
+                               start_cycle=args['start'],
+                               end_cycle=args['stop'],
+                               nn_model_cache=args['nn_model_cache'],
+                               skip_neural_network=args['nn_model_cache'] is None,
+                               images=images,
+                               mergedh5=mergedh5):
+                break
 
         # STOP IF REQUESTED
         if i == args['stop']-1:

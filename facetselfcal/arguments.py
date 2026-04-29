@@ -363,7 +363,7 @@ def option_parser():
                                    help='Automatic decision to perform early stopping during self-calibration based on image quality and solution stability. Currently only optimized for LOFAR HBA data for VLBI imaging.',
                                    action='store_true')
     calibrationparser.add_argument('--nn-model-cache',
-                                   help='Cache storage for Neural Network model for early stopping. If not given, it will download the model. This needs to be given in combination with --early-stopping.',
+                                   help='Cache storage for Neural Network model for early stopping. This only works if --early-stopping.',
                                    default='.cache/cortexchange')
     calibrationparser.add_argument('--QualityBasedWeights',
                                    help='Experts only.',

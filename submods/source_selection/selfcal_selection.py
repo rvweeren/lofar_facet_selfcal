@@ -521,20 +521,20 @@ def make_figure(vals1=None, vals2=None, label1=None, label2=None, plotname=None,
     plt.savefig(plotname, dpi=150)
 
 
-def get_images_solutions():
+def get_images_solutions(image_dir=".", solution_dir='.'):
     """ Get already obtained images and solutions """
 
-    images = glob("*MFS-I-image.fits")
+    images = glob(f"{image_dir}/*MFS-I-image.fits")
     if len(images) == 0:
-        images = glob("*MFS-image.fits")
+        images = glob(f"{image_dir}/*MFS-image.fits")
 
     # Remove 1.2arcsectaper if in list
     images = sorted([im for im in images if 'arcsectaper' not in im])
 
     # Ensure taking linear solutions
-    solutions = sorted([h5 for h5 in glob('merged_selfcal*.h5') if 'linearfulljones' in h5])
+    solutions = sorted([h5 for h5 in glob(f'{solution_dir}/merged_selfcal*.h5') if 'linearfulljones' in h5])
     if len(solutions)==0:
-        solutions = sorted(glob('merged_selfcal*.h5'))
+        solutions = sorted(glob(f'{solution_dir}/merged_selfcal*.h5'))
 
     return images, solutions
 
