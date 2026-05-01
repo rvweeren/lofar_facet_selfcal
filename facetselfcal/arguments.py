@@ -654,16 +654,12 @@ def option_parser():
                         help='Use Dysco data compression. The default is True.',
                         type=ast.literal_eval,
                         default=True)
-    #parser.add_argument('--sisco',
-    #                    help='Use Sisco data compression for MODEL columns. The default is False.',
-    #                    type=ast.literal_eval,
-    #                    default=False)
     parser.add_argument('--metadata-compression',
                         help='Use MS metadata compression (flags, uvw coordinates, and antenna table). The default is True. Will be turned of always for non-LOFAR data.',
                         type=ast.literal_eval,
                         default=True)
     parser.add_argument('--modelstoragemanager',
-                        help='String input option for the compression of MODEL_DATA. The default is auto. Other options are sisco or stokes_i; stokes_i might be turned off automatically if the solve types do not allow for stokes_i compression. Set to None if you want to turn off MODEL_DATA compression entirely.',
+                        help='String input option for the compression of MODEL_DATA. The default is "auto". Other options are "sisco", "sisco_stokes_i", "sisco_diagonal" or "stokes_i"; option provided might be turned off automatically if the solve types do not allow for this type of compression. Set to "None" if you want to turn off MODEL_DATA compression entirely.',
                         type=str,
                         default='auto')
     parser.add_argument('--resetweights',

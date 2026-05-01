@@ -1635,6 +1635,33 @@ def get_image_dynamicrange(image):
     hdul.close()
     return DR
 
+def is_stokesdiagonal_modeltype_allowed(args, telescope):
+    """
+    Determine if Diagonal sisco compression is allowed for MODEL_DATA-type columns.
+
+    Args:
+        args (dict): Dictionary of arguments, including 'single_dual_speedup', 
+                     'disable_primary_beam', and 'soltype_list'.
+        telescope (str): The telescope name (e.g., 'LOFAR').
+
+    Returns:
+        bool: True if Diagonal sisco compression is allowed, False otherwise.
+    """
+    if telescope == 'LOFAR': 
+        if not args['single_dual_speedup']:
+            if not args['disable_primary_beam']:
+                return False # so in this case we want to keep the primary beam polarization information    
+    
+    notallowed_list = ['fulljones', 'rotation', \
+                       'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', \
+                       'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', \
+                       'rotation_phmin', 'faradayrotation', 'faradayrotation+diagonal', \
+                       'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
+                       'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
+                       'faradayrotation+scalarphase', 'leakage', 'leakageamplitude']
+    for soltype in args['soltype_list']:
+        if soltype in notallowed_list: return False
+    return True
 
 def is_stokesi_modeltype_allowed(args, telescope):
     """
@@ -1651,7 +1678,7 @@ def is_stokesi_modeltype_allowed(args, telescope):
     if telescope == 'LOFAR': 
         if not args['single_dual_speedup']:
             if not args['disable_primary_beam']:
-                return False # so in this case we want the keep the primary beam polarization information    
+                return False # so in this case we want to keep the primary beam polarization information    
     
     notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', \
                        'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', \
@@ -5964,8 +5991,12 @@ def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
     for ms in inmslist:
         if modelstoragemanager is None:
             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
+        elif modelstoragemanager == 'sisco_stokes_i':
+            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]')
+        elif modelstoragemanager == 'sisco_diagonal':
+            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]')
         else:
-             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=' + modelstoragemanager + ' steps=[]')
+            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=' + modelstoragemanager + ' steps=[]')
         #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
         #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
         #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
@@ -6799,7 +6830,14 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
         cmd += 'msout.storagemanager=dysco '
         cmd += 'msout.storagemanager.weightbitrate=16 '
     if modelstoragemanager is not None and not dysco:
-        cmd += 'msout.storagemanager=' + modelstoragemanager + ' '
+        if modelstoragemanager == 'sisco_stokes_i':
+            cmd += 'msout.storagemanager=sisco '
+            cmd += 'msout.storagemanager.sisco_mode=stokes_i '
+        elif modelstoragemanager == 'sisco_diagonal':
+            cmd += 'msout.storagemanager=sisco '
+            cmd += 'msout.storagemanager.sisco_mode=diagonal '
+        else: 
+            cmd += 'msout.storagemanager=' + modelstoragemanager + ' '
     count = 0
     for parmdb in inparmdblist:
         if find_closestdir:
@@ -7081,10 +7119,10 @@ def inputchecker(args, mslist):
             print('--BLsmooth-list length does not match the length of --soltype-list')
             raise Exception('--BLsmooth-list length does not match the length of --soltype-list')
 
-    if args['modelstoragemanager'] not in ['stokes_i', 'sisco', 'auto','None', 'none']:
+    if args['modelstoragemanager'] not in ['stokes_i', 'sisco', 'auto', 'sisco_stokes_i', 'sisco_diagonal', 'None', 'none']:
          print(args['modelstoragemanager'])
-         print('Wrong input for --modelstoragemanager, needs to be "stokes_i", "sisco" , "auto", or "None"')
-         raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i, sisco, auto, or None')
+         print('Wrong input for --modelstoragemanager, needs to be "stokes_i", "sisco" , "auto", "sisco_stokes_i", "sisco_diagonal", or "None"')
+         raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i, sisco, auto, sisco_stokes_i, sisco_diagonal, or None')
 
     if args['bandpass']:
         if args['stack'] or args['DDE'] or args['stopafterskysolve'] or args['stopafterpreapply']:
@@ -11753,7 +11791,12 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     if args['modelstoragemanager'] is None:
                         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
                     else:
-                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + args['modelstoragemanager'] + ' steps=[]', log=True)                        
+                        if args['modelstoragemanager'] == 'sisco_stokes_i':
+                            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]', log=True)    
+                        elif args['modelstoragemanager'] == 'sisco_diagonal':
+                            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]', log=True)
+                        else:
+                            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + args['modelstoragemanager'] + ' steps=[]', log=True)                        
                     # do the predict with taql
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'", log=True)
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'", log=True)
@@ -11769,6 +11812,10 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     # create MODEL_DATA (no dysco!)
                     if args['modelstoragemanager'] is None:
                         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
+                    elif args['modelstoragemanager'] == 'sisco_stokes_i':
+                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]', log=True)    
+                    elif args['modelstoragemanager'] == 'sisco_diagonal':
+                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]', log=True)    
                     else:
                         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + args['modelstoragemanager'] + ' steps=[]', log=True)
                     # do the predict with taql
@@ -12080,7 +12127,12 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
         cmd += 'p.usebeammodel=True p.usechannelfreq=True p.beammode=array_factor '
         cmd += 'p.beamproximitylimit=' + str(beamproximitylimit) + ' '
     elif modelstoragemanager is not None:
-        cmd += 'msout.storagemanager=' + modelstoragemanager + ' '
+        if modelstoragemanager == 'sisco_stokes_i':
+            cmd += 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i '
+        elif modelstoragemanager == 'sisco_diagonal':
+            cmd += 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal '
+        else:
+            cmd += 'msout.storagemanager=' + modelstoragemanager + ' '
     print(cmd)
     run(cmd)
 
@@ -12143,7 +12195,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if modelstoragemanager is None:
             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
         else:
-            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + modelstoragemanager + ' steps=[]')
+            if modelstoragemanager == 'sisco_stokes_i':
+                run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]')
+            elif modelstoragemanager == 'sisco_diagonal':
+                run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]')
+            else:
+                run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + modelstoragemanager + ' steps=[]')
         # do the predict with taql
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'")
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
@@ -13041,8 +13098,13 @@ def create_splitted_ms(ms, columns_to_create, solve_msinnchan, solve_msinstartch
             if dysco:
                 cmdcol += 'msout.storagemanager=dysco '
                 cmdcol += 'msout.storagemanager.weightbitrate=16 '
-        elif modelstoragemanager is not None:           
-            cmdcol += 'msout.storagemanager=' + modelstoragemanager + ' '
+        elif modelstoragemanager is not None: 
+            if modelstoragemanager == 'sisco_stokes_i':
+                cmdcol += 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i '
+            elif modelstoragemanager == 'sisco_diagonal':
+                cmdcol += 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal '
+            else:          
+                cmdcol += 'msout.storagemanager=' + modelstoragemanager + ' '
         print(cmdcol)
         run(cmdcol)
         # now copy over the column to the temporary MS
@@ -13406,6 +13468,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     
     if args['modelstoragemanager'] == 'stokes_i':
         modelstoragemanagerwsclean = 'stokes-i' # because WSclean uses a different name than DP3
+    elif args['modelstoragemanager'] == 'sisco_stokes_i':
+        modelstoragemanagerwsclean = 'sisco-stokes-i' # because WSclean uses a different name than DP3
+    elif args['modelstoragemanager'] == 'sisco_diagonal':
+        modelstoragemanagerwsclean = 'sisco-diagonal' # because WSclean uses a different name than DP3
     else:
         modelstoragemanagerwsclean =  args['modelstoragemanager']
 
@@ -14086,7 +14152,12 @@ def updatemodelcols_includedir(modeldatacolumns, soltypelist_includedir, ms, dry
             cmddppp += modeldatacolumns[0] + ' msout=. steps=[] ' # modeldatacolumns[0] just use to first one as template
             cmddppp += 'msout.datacolumn=' + modelcol + ' '
             if modelstoragemanager is not None:
-                cmddppp += 'msout.storagemanager=' + modelstoragemanager + ' '
+                if modelstoragemanager == 'sisco_stokes_i':
+                    cmddppp += 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i '
+                elif modelstoragemanager == 'sisco_diagonal':
+                    cmddppp += 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal '
+                else:
+                    cmddppp += 'msout.storagemanager=' + modelstoragemanager + ' '
             print(cmddppp)
             if not dryrun:
                 run(cmddppp)
@@ -15876,10 +15947,10 @@ def basicsetup(mslist):
             #args['doflagslowphases'] = False
             
         else: # so this is a DDE run  
-            if args['aoflagger_residualdata'] is None:
-                args['aoflagger_residualdata'] = True
-                args['aoflagger_strategy_residualdata'] = 'default_StokesI.lua'
-                args['aoflagger_residualdata_selfcalcycle_list'] = [2]
+            #if args['aoflagger_residualdata'] is None:
+            #    args['aoflagger_residualdata'] = True
+            #    args['aoflagger_strategy_residualdata'] = 'default_StokesI.lua'
+            #    args['aoflagger_residualdata_selfcalcycle_list'] = [2]
 
             args['soltype_list'] = ['scalarphase','scalarcomplexgain']
             if args['start'] == 0 and args['stop'] is None:
@@ -16635,36 +16706,61 @@ def set_modelstoragemanager(telescope):
     if args['modelstoragemanager'] == 'None' or args['modelstoragemanager'] == 'none':
         args['modelstoragemanager'] = None
 
+    wsclean_help = subprocess.check_output(['wsclean'], text=True)
+
     modelstoragemanager = None
     if args['modelstoragemanager'] == 'auto':
-        if '-model-storage-manager' in subprocess.check_output(['wsclean'], text=True):
+        if '-model-storage-manager' in wsclean_help:
             if is_stokesi_modeltype_allowed(args, telescope):
-                print('Using stokes_i model compression')
-                modelstoragemanager = 'stokes_i'
-            elif 'sisco' in subprocess.check_output(['wsclean'], text=True):
-                print('Cannot use stokes_i model compression, using sisco instead')
-                modelstoragemanager = 'sisco'
+                if 'sisco-stokes-i' in wsclean_help:
+                    print('auto: Using sisco stokes_i model compression')
+                    modelstoragemanager = 'sisco_stokes_i'
+                else:
+                    print('auto: Using stokes_i model compression')
+                    modelstoragemanager = 'stokes_i'
+                    print('here')
+            elif 'sisco' in wsclean_help:
+                if is_stokesdiagonal_modeltype_allowed(args, telescope) and 'sisco-diagonal' in wsclean_help:
+                    print('auto: Cannot use stokes_i model compression, using sisco_diagonal instead')
+                    modelstoragemanager = 'sisco_diagonal'
+                else:
+                    print('auto: Cannot use stokes_i model compression, using sisco instead')
+                    modelstoragemanager = 'sisco'   
             else:
-                print('No model compression possible, disabling model storage manager')
+                print('auto: No model compression possible, disabling model storage manager')
                 modelstoragemanager = None  # we are here because wsclean does not support sisco compression    
         else:
             modelstoragemanager = None  # we are here because wsclean does not support the option -model-storage-manager            
     elif args['modelstoragemanager'] == 'stokes_i':
         if is_stokesi_modeltype_allowed(args, telescope):
             print('Using stokes_i model compression')
-        elif 'sisco' in subprocess.check_output(['wsclean'], text=True):
+        elif 'sisco' in wsclean_help:
             print('Cannot use stokes_i model compression, using sisco instead')
             modelstoragemanager = 'sisco'
         else:
             print('No model compression possible, disabling model storage manager')
             modelstoragemanager = None  # we are here because wsclean does not support sisco compression  
     elif args['modelstoragemanager'] == 'sisco':
-        if 'sisco' in subprocess.check_output(['wsclean'], text=True):
+        if 'sisco' in wsclean_help:
             print('Using sisco model compression')
         else:
-            print('No model compression possible, disabling model storage manager')
+            print('No sisco model compression possible, disabling model storage manager')
             modelstoragemanager = None  # we are here because wsclean does not support sisco compression
-    
+    elif args['modelstoragemanager'] == 'sisco_stokes_i':
+        if 'sisco-stokes-i' in wsclean_help and is_stokesi_modeltype_allowed(args, telescope):
+            print('Using sisco stokes_i model compression')
+            modelstoragemanager = 'sisco_stokes_i'
+        else:
+            print('No sisco_stokes_i model compression possible, disabling model storage manager')
+            modelstoragemanager = None
+    elif args['modelstoragemanager'] == 'sisco_diagonal':
+        if 'sisco-diagonal' in wsclean_help and is_stokesdiagonal_modeltype_allowed(args, telescope):
+            print('Using sisco_diagonal model compression')
+            modelstoragemanager = 'sisco_diagonal'
+        else:
+            print('No sisco_diagonal model compression possible, disabling model storage manager')
+            modelstoragemanager = None
+
     print('Storage manager:', modelstoragemanager)
     logger.info('Storage manager: ' + str(modelstoragemanager))
     return modelstoragemanager
@@ -16995,7 +17091,6 @@ def main():
 
     # SET MODEL STORAGE MANAGER
     args['modelstoragemanager'] = set_modelstoragemanager(args['telescope'])
-    #args['modelstoragemanager'] = 'sisco' # TEMPORARY OVERRIDE FOR TESTING
 
     # check if we could average more
     avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
