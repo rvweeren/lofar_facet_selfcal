@@ -1650,7 +1650,7 @@ def is_stokesdiagonal_modeltype_allowed(args, telescope):
     if telescope == 'LOFAR': 
         if not args['single_dual_speedup']:
             if not args['disable_primary_beam']:
-                return False # so in this case we want the keep the primary beam polarization information    
+                return False # so in this case we want to keep the primary beam polarization information    
     
     notallowed_list = ['fulljones', 'rotation', \
                        'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', \
@@ -1678,7 +1678,7 @@ def is_stokesi_modeltype_allowed(args, telescope):
     if telescope == 'LOFAR': 
         if not args['single_dual_speedup']:
             if not args['disable_primary_beam']:
-                return False # so in this case we want the keep the primary beam polarization information    
+                return False # so in this case we want to keep the primary beam polarization information    
     
     notallowed_list = ['complexgain', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', \
                        'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', \
@@ -15947,10 +15947,10 @@ def basicsetup(mslist):
             #args['doflagslowphases'] = False
             
         else: # so this is a DDE run  
-            if args['aoflagger_residualdata'] is None:
-                args['aoflagger_residualdata'] = True
-                args['aoflagger_strategy_residualdata'] = 'default_StokesI.lua'
-                args['aoflagger_residualdata_selfcalcycle_list'] = [2]
+            #if args['aoflagger_residualdata'] is None:
+            #    args['aoflagger_residualdata'] = True
+            #    args['aoflagger_strategy_residualdata'] = 'default_StokesI.lua'
+            #    args['aoflagger_residualdata_selfcalcycle_list'] = [2]
 
             args['soltype_list'] = ['scalarphase','scalarcomplexgain']
             if args['start'] == 0 and args['stop'] is None:
@@ -16706,52 +16706,55 @@ def set_modelstoragemanager(telescope):
     if args['modelstoragemanager'] == 'None' or args['modelstoragemanager'] == 'none':
         args['modelstoragemanager'] = None
 
+    wsclean_help = subprocess.check_output(['wsclean'], text=True)
+
     modelstoragemanager = None
     if args['modelstoragemanager'] == 'auto':
-        if '-model-storage-manager' in subprocess.check_output(['wsclean'], text=True):
+        if '-model-storage-manager' in wsclean_help:
             if is_stokesi_modeltype_allowed(args, telescope):
-                if '-sisco-stokes-i' in subprocess.check_output(['wsclean'], text=True):
-                    print('Using sisco stokes_i model compression')
+                if 'sisco-stokes-i' in wsclean_help:
+                    print('auto: Using sisco stokes_i model compression')
                     modelstoragemanager = 'sisco_stokes_i'
                 else:
-                    print('Using stokes_i model compression')
+                    print('auto: Using stokes_i model compression')
                     modelstoragemanager = 'stokes_i'
-            elif 'sisco' in subprocess.check_output(['wsclean'], text=True):
-                if is_stokesdiagonal_modeltype_allowed(args, telescope) and '-sisco-diagonal' in subprocess.check_output(['wsclean'], text=True):
-                    print('Cannot use stokes_i model compression, using sisco_diagonal instead')
+                    print('here')
+            elif 'sisco' in wsclean_help:
+                if is_stokesdiagonal_modeltype_allowed(args, telescope) and 'sisco-diagonal' in wsclean_help:
+                    print('auto: Cannot use stokes_i model compression, using sisco_diagonal instead')
                     modelstoragemanager = 'sisco_diagonal'
                 else:
-                    print('Cannot use stokes_i model compression, using sisco instead')
+                    print('auto: Cannot use stokes_i model compression, using sisco instead')
                     modelstoragemanager = 'sisco'   
             else:
-                print('No model compression possible, disabling model storage manager')
+                print('auto: No model compression possible, disabling model storage manager')
                 modelstoragemanager = None  # we are here because wsclean does not support sisco compression    
         else:
             modelstoragemanager = None  # we are here because wsclean does not support the option -model-storage-manager            
     elif args['modelstoragemanager'] == 'stokes_i':
         if is_stokesi_modeltype_allowed(args, telescope):
             print('Using stokes_i model compression')
-        elif 'sisco' in subprocess.check_output(['wsclean'], text=True):
+        elif 'sisco' in wsclean_help:
             print('Cannot use stokes_i model compression, using sisco instead')
             modelstoragemanager = 'sisco'
         else:
             print('No model compression possible, disabling model storage manager')
             modelstoragemanager = None  # we are here because wsclean does not support sisco compression  
     elif args['modelstoragemanager'] == 'sisco':
-        if 'sisco' in subprocess.check_output(['wsclean'], text=True):
+        if 'sisco' in wsclean_help:
             print('Using sisco model compression')
         else:
             print('No sisco model compression possible, disabling model storage manager')
             modelstoragemanager = None  # we are here because wsclean does not support sisco compression
     elif args['modelstoragemanager'] == 'sisco_stokes_i':
-        if '-sisco-stokes-i' in subprocess.check_output(['wsclean'], text=True) and is_stokesi_modeltype_allowed(args, telescope):
+        if 'sisco-stokes-i' in wsclean_help and is_stokesi_modeltype_allowed(args, telescope):
             print('Using sisco stokes_i model compression')
             modelstoragemanager = 'sisco_stokes_i'
         else:
             print('No sisco_stokes_i model compression possible, disabling model storage manager')
             modelstoragemanager = None
     elif args['modelstoragemanager'] == 'sisco_diagonal':
-        if '-sisco-diagonal' in subprocess.check_output(['wsclean'], text=True) and is_stokesdiagonal_modeltype_allowed(args, telescope):
+        if 'sisco-diagonal' in wsclean_help and is_stokesdiagonal_modeltype_allowed(args, telescope):
             print('Using sisco_diagonal model compression')
             modelstoragemanager = 'sisco_diagonal'
         else:
