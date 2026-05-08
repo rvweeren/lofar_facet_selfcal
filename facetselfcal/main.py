@@ -892,7 +892,7 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
         
         with table(ms+"::SPECTRAL_WINDOW", ack=False) as t:
             max_freq = t.getcol("CHAN_FREQ").max()
-        safe_diameter = 60.*1.54*68.*(1.28e9/max_freq) # in arcsec
+        safe_diameter = 60.*68.*(1.28e9/max_freq) # in arcsec
         if ((imsize*pixsize) + (distance_pointing_center*3600.) ) > safe_diameter:
             args['disable_primary_beam'] = True # set to True if one in mslist violates this criterion
             print("\033[33m" + "=== " + ms + " ===" + "\033[0m")
@@ -6770,7 +6770,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
         msout (str): name of the output Measurement Set.
         dysco (bool): Dysco compress the output Measurement Set.
         modeldatacolumns (list): Model data columns list, if len(modeldatacolumns) > 1 we have a DDE solve
-        invert (bool): invert the applycal (=corrupt)
+        invert (bool): invert the applycal (if invert is False then = corrupt)
         direction (str): Name of the direction in a multi-dir h5 for the applycal (find_closestdir needs to be False in this case)
         find_closestdir (bool): find closest direction (to phasedir MS) in multi-dir h5 file to apply
         updateweights (bool): Update WEIGHT_SPECTRUM in DP3
@@ -6779,10 +6779,20 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
         None
     """
     
+    sisco_modelstoragemanager_modes = ['sisco_stokes_i', 'sisco_diagonal', 'sisco']
+
     if 'sisco-diagonal' in subprocess.check_output(['wsclean'], text=True):
         fix_sisco_samecol_issue = False  # if sisco-diagonal is present we have a recent DP3/casacore version where writing and reading from the same column is supported, so we can disable the fix for the sisco same column issue (writing to a temporary column and then copying back) which is time consuming
     else:
         fix_sisco_samecol_issue = True
+    
+    # check if we have a fixed shape column MS, otherwise we need to use use fix_sisco_samecol_issue as well
+    # note from May 2026 onwards WSClean will write fixed shape model data columns when DATA also has a fixed shape, before this change WSClean wrote variable shape model data columns (which causes bad performance when writing sisco compressed columns into itself)
+    with table(ms, ack=False) as t:
+        coldesc = t.coldesc(msincol) # type dictionary
+        # check if the the key coldesc['desc']['shape'] exist
+        if 'shape' not in coldesc['desc']:
+            fix_sisco_samecol_issue = True
 
     # get number of frequency channels in MS and update timeslotsperparmupdate if needed
     # for large MSs with many frequency channels it smees we need to reduce the timeslotsperparmupdate to avoid segmentation faults
@@ -6811,7 +6821,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
 
     # sisco compression does not support reading and writing to the same column
     msoutcol_orig = msoutcol # save original name
-    if msincol == msoutcol and msout == '.' and modelstoragemanager == 'sisco' and fix_sisco_samecol_issue:
+    if msincol == msoutcol and msout == '.' and modelstoragemanager in sisco_modelstoragemanager_modes and fix_sisco_samecol_issue:
         msoutcol = msoutcol + '_SISCO_TEMP'
 
     cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), 8])) + ' msin=' + ms
@@ -6970,7 +6980,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
     if msout != '.':
         fix_uvw([msout])
     
-    if msincol == msoutcol_orig and msout == '.' and modelstoragemanager == 'sisco' and fix_sisco_samecol_issue:
+    if msincol == msoutcol_orig and msout == '.' and modelstoragemanager in sisco_modelstoragemanager_modes and fix_sisco_samecol_issue:
         # copy back from temporary column to original column with taql
         taql_cmd = f"taql 'UPDATE {ms} SET {msoutcol_orig} = {msoutcol}'"
         print('Copying back from temporary column to original column with taql:', taql_cmd)
@@ -7338,7 +7348,8 @@ def inputchecker(args, mslist):
                            'phaseonly_slope', 'faradayrotation', 'faradayrotation+diagonal',
                            'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',
                            'faradayrotation+scalar', 'faradayrotation+scalaramplitude',
-                           'faradayrotation+scalarphase', 'leakage', 'leakageamplitude']:
+                           'faradayrotation+scalarphase', 'leakage', 'leakageamplitude',
+                           'tec+phase', 'tec+delay', 'tec+phase+delay'] and soltype is not None:
             print('Invalid soltype input')
             raise Exception('Invalid soltype input')
 
@@ -7615,7 +7626,7 @@ def inputchecker(args, mslist):
 
     for soltype_id, soltype in enumerate(args['soltype_list']):
         wronginput = False
-        if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin']:
+        if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
             try:  # in smoothnessconstraint_list is not filled by the user
                 if args['smoothnessconstraint_list'][soltype_id] > 0.0:
                     print('smoothnessconstraint should be 0.0 for a tec-like solve')
@@ -8984,6 +8995,75 @@ def reset_phase000(h5parm):
     H.close()
     return
 
+def flag_h5_phasediff(h5parm, threshold, telescope):
+    """ Flag solutions in h5parm where the phase difference between two polarizations exceeds a threshold
+    Args:      h5parm: h5parm file
+      threshold: phase difference threshold in radians
+    """
+    
+    if fulljonesparmdb(h5parm) or amplitude_leakage_paramdb(h5parm):
+        print('Cannot flag phase differences for fulljones or amplitudeleakage solutions')
+        return
+
+    # make sure phase000 exists
+    with tables.open_file(h5parm) as Hcheck:
+        soltabs = list(Hcheck.root.sol000._v_children.keys())
+    if 'phase000' not in soltabs:
+        print('No phase000 found in ', h5parm)  
+        return    
+
+    # make sure there is a pol axis and the pol axis is the last axis
+    with tables.open_file(h5parm) as Hcheck:
+        axisn = Hcheck.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+    if 'pol' not in axisn:
+        print('No pol axis found in phase000 of ', h5parm)  
+        return
+    if axisn[-1] != 'pol':
+        print('Pol axis is not the last axis in phase000 of ', h5parm)
+        return
+
+    refant = findrefant_core(h5parm, telescope=telescope)
+
+    H = tables.open_file(h5parm, mode='r+')
+
+    phase = H.root.sol000.phase000.val[:]
+    weight = H.root.sol000.phase000.weight[:]
+    weight_xx = weight[..., 0]  # XX, assume pol is last axis
+    weight_yy = weight[..., -1]  # YY, assume pol is last axis
+    refant_idx = np.where(H.root.sol000.phase000.ant[:].astype(str) == refant)  # to deal with byte strings
+    print(refant_idx, refant)
+    antennaxis = axisn.index('ant')
+    axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+    print('Referencing phase to ', refant, 'Axis entry number', axisn.index('ant'))
+    if antennaxis == 0:
+        phasen = phase - phase[refant_idx[0], ...]
+    if antennaxis == 1:
+        phasen = phase - phase[:, refant_idx[0], ...]
+    if antennaxis == 2:
+        phasen = phase - phase[:, :, refant_idx[0], ...]
+    if antennaxis == 3:
+        phasen = phase - phase[:, :, :, refant_idx[0], ...]
+    if antennaxis == 4:
+        phasen = phase - phase[:, :, :, :, refant_idx[0], ...]
+    phase = np.copy(phasen)
+
+    # calculate phase difference between two polarizations, assuming pol is last axis and we have 2 pols
+    phasediff = phase[..., 0] - phase[..., -1]
+
+    # make sure the phase are between -pi and pi
+    phasediff = np.mod(phasediff + np.pi, 2 * np.pi) - np.pi
+
+    # flag where phase difference exceeds threshold by setting weight to zero
+    # set XX and YY weights to zero where phase difference exceeds threshold
+    weight_xx[phasediff > threshold] = 0.0
+    weight_yy[phasediff > threshold] = 0.0
+    weight[..., 0] = weight_xx
+    weight[..., -1] = weight_yy
+    H.root.sol000.phase000.weight[:] = np.copy(weight)
+    H.flush()
+    H.close()
+    return
+
 
 def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
     """ Reset solutions for directions (DDE solves only)
@@ -9905,7 +9985,7 @@ def setinitial_solint(mslist, options):
 
             # force nchan 1 for tec(andphase) solve and in case smoothnessconstraint is invoked
             # if soltype == 'tec' or  soltype == 'tecandphase' or smoothnessconstraint > 0.0:
-            if soltype == 'tec' or soltype == 'tecandphase':
+            if soltype == 'tec' or soltype == 'tecandphase' or soltype == 'tec+phase' or soltype == 'tec+delay' or soltype == 'tec+phase+delay':
                 nchan = 1
 
             nchan_ms.append(nchan)
@@ -10144,6 +10224,9 @@ def return_soltype_index(soltype_list, soltype, occurence=1, onetectypeoccurence
         if soltype == 'tecandphase' or soltype == 'tec':
             soltype_list = [sol.replace('tecandphase', 'tec') for sol in soltype_list]
             soltype = 'tec'
+        if soltype == 'tec+phase':
+            soltype_list = [sol.replace('tec+phase', 'tec') for sol in soltype_list]
+            soltype = 'tec'    
 
     sol_index = None
     count = 0
@@ -12046,7 +12129,11 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             parmdbmergelist[msnumber] = fix_h5(parmdbmergelist[msnumber])
 
         print(parmdbmergename, parmdbmergelist[msnumber], ms)
-        if args['reduce_h5size'] and ('tec' not in args['soltype_list']) and ('tecandphase' not in args['soltype_list']):
+        if args['reduce_h5size'] and ('tec' not in args['soltype_list']) \
+            and ('tecandphase' not in args['soltype_list']) \
+            and ('tec+phase' not in args['soltype_list']) \
+            and ('tec+delay' not in args['soltype_list']) \
+            and ('tec+phase+delay' not in args['soltype_list']):
             merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1],
                      merge_all_in_one=merge_all_in_one,
                      propagate_weights=True, single_pol=single_pol_merge)
@@ -12156,7 +12243,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None,
                 normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None, skymodelsetjy=False,
                 solve_msinnchan='all', solve_msinstartchan=0,
-                antenna_averaging_factors=None, antenna_smoothness_factors=None, auto_flag_antennas=False):
+                antenna_averaging_factors=None, antenna_smoothness_factors=None, auto_flag_antennas=False, max_tec_delay_wraps=5):
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
     modeldata = 'MODEL_DATA'  # the default, update if needed for scalarphasediff and phmin solves
@@ -12255,7 +12342,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         onepol = False
     if soltype in ['scalarphase', 'tecandphase', 'tec', 'scalaramplitude',
                    'scalarcomplexgain', 'rotation', 'rotation+scalar',
-                   'rotation+scalarphase', 'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
+                   'rotation+scalarphase', 'rotation+scalaramplitude',
+                   'faradayrotation', 'faradayrotation+scalar',
+                   'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase',
+                   'tec+phase', 'tec+delay', 'tec+phase+delay']:
         onepol = True
 
     if restoreflags:
@@ -12382,7 +12472,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                     and 'faradayrotation+diagonal' not in soltype_list[0:soltypenumber]:
                 cmd += 'ddecal.datause=dual '
             if soltype in ['scalarcomplexgain', 'scalaramplitude', \
-                           'tec', 'tecandphase', 'scalarphase'] \
+                           'tec', 'tecandphase', 'scalarphase','tec+phase', \
+                           'tec+delay', 'tec+phase+delay'] \
                     and 'fulljones' not in soltype_list[0:soltypenumber] \
                     and 'leakage' not in soltype_list[0:soltypenumber] \
                     and 'leakageamplitude' not in soltype_list[0:soltypenumber] \
@@ -12597,15 +12688,18 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd += 'ddecal.smoothnessspectralexponent=' + str(SMconstraintspectralexponent) + ' '
         cmd += 'ddecal.smoothnessrefdistance=' + str(SMconstraintrefdistance * 1e3) + ' '  # input units in km
 
-
-    if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation',
-                   'rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase', 'faradayrotation+diagonalphase', 'faradayrotation']:
+    if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'tec+phase', \
+                   'tec+delay', 'tec+phase+delay', 'rotation+scalarphase', \
+                   'rotation+diagonalphase', 'faradayrotation+scalarphase', \
+                   'faradayrotation+diagonalphase', 'faradayrotation']:
         cmd += 'ddecal.tolerance=' + str(tolerance) + ' '
         if soltype in ['tecandphase', 'tec']:
             cmd += 'ddecal.approximatetec=True '
             cmd += 'ddecal.stepsize=0.2 '
             cmd += 'ddecal.maxapproxiter=45 '
             cmd += 'ddecal.approxtolerance=6e-3 '
+        if soltype in ['tec+delay', 'tec+phase+delay']: 
+            cmd += 'ddecal.max_tec_delay_wraps=' + str(max_tec_delay_wraps) + ' '
     if soltype in ['complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', \
                    'rotation+diagonal', 'fulljones', 'rotation+scalar', \
                    'rotation+diagonalamplitude', 'rotation+scalaramplitude', \
@@ -12770,7 +12864,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         fix_rotationmeasurereference(parmdb, refant)
 
     # tec checking
-    if soltype in ['tec', 'tecandphase']:
+    if soltype in ['tec', 'tecandphase', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
         remove_nans(parmdb, 'tec000')
         refant = findrefant_core(parmdb, telescope=args['telescope'])
         fix_tecreference(parmdb, refant)
@@ -12824,7 +12918,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
-                       'faradayrotation+scalarphase', 'leakage']:
+                       'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -12840,7 +12934,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',\
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
-                       'faradayrotation+scalarphase', 'leakage']:
+                       'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -12908,7 +13002,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 flag_ant_list = find_bad_deviating_antennas(parmdb, ms)
                 for ant in flag_ant_list:
                     logger.info('Auto-flagging bad MeerKAT antenna based on solution stats: ' + str(ant) + ' in ' + ms)
-                    print('Auto-flagging bad MeerKAT antennas based on solution stats: ' + str(ant) + ' in ' + ms)
+                    # print in orange color to make it more visible in the logs
+                    print('\033[33mAuto-flagging bad MeerKAT antennas based on solution stats: ' + str(ant) + ' in ' + ms + '\033[0m')
                     # use taql function to flag antennas
                     flag_antenna_taql(ms, ant)
             # take take care of outliers in the solutions here as well
@@ -12926,7 +13021,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
-                       'faradayrotation+scalarphase']:
+                       'faradayrotation+scalarphase', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -13002,7 +13097,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             logger.info(cmdlosoto)
             run(cmdlosoto)
 
-    if soltype in ['tecandphase', 'tec']:
+    if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
         tecandphaseplotter(parmdb, ms,
                            outplotname=outplotname)  # use own plotter because losoto cannot add tec and phase
 
@@ -13364,6 +13459,18 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         average(mslist, freqstep=[avgfreqstep] * len(mslist), timestep=avgtimestep,
                 phaseshiftbox=phaseshiftbox, dysco=dysco, make_extract=True,
                 dataincolumn=datacolumn, metadata_compression=metadata_compression)
+        # applycal of closest direction (in multidir h5)
+        
+    if len(h5list) != 0 and not ddcor and userbox != 'keepall':
+    # in this case we do not apply the solutions, however, the flagging information in the merged solution files need to be applied to the extracted MS to make sure that bad data is flagged
+    # we apply the clostest direction in the multidir h5 into a temporary column and then remove the column afterwards so that the flags are applied but the original data is kept
+    # the temporary column is called DATA_TMP and is removed at the end of this step to free up space
+        for ms_id, ms in enumerate(mslist):
+            applycal(ms + '.extracted', h5list[ms_id], find_closestdir=True, \
+                     dysco=dysco, metadata_compression=metadata_compression, msoutcol='DATA_TMP')
+            # remove DATA_TMP column to free up space
+            remove_column_ms([ms + '.extracted'], 'DATA_TMP')
+    
     
     # applycal of closest direction (in multidir h5)
     if len(h5list) != 0 and ddcor and userbox != 'keepall':
@@ -16469,7 +16576,7 @@ def flag_autocorr(mslist):
        run(cmd)
     return   
 
-def flag_antenna_timerange_ms(ms, timerange, antenna):
+def flag_antenna_timerange_ms(ms, timerange, antenna=''):
     """
     Flag time range of of a specific antennas in an MS with DP3 preflagger
     Parameters
@@ -16479,7 +16586,7 @@ def flag_antenna_timerange_ms(ms, timerange, antenna):
     timerange : str
         Relative timerange to flag in format 'starttime..endtime'
     antenna : str
-        Antenna name to flag
+        Antenna name to flag. Default is an empty string, which means all antennas. 
     Returns
     -------
     None
@@ -16493,7 +16600,9 @@ def flag_antenna_timerange_ms(ms, timerange, antenna):
     """
    
     cmd = 'DP3 msin=' + ms + ' msout=. steps=[pr] '
-    cmd += 'pr.type=preflagger pr.reltime="[' + timerange + ']" ' + 'pr.baseline=' + antenna + '"&&*"'
+    cmd += 'pr.type=preflagger pr.reltime="[' + timerange + ']" ' 
+    if antenna != '':
+        cmd += 'pr.baseline=' + antenna + '"&&*"'
     print(cmd)
     run(cmd)
     return
