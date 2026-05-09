@@ -13466,11 +13466,11 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     # we apply the clostest direction in the multidir h5 into a temporary column and then remove the column afterwards so that the flags are applied but the original data is kept
     # the temporary column is called DATA_TMP and is removed at the end of this step to free up space
         for ms_id, ms in enumerate(mslist):
-            applycal(ms + '.extracted', h5list[ms_id], find_closestdir=True, \
+            applycal(os.path.basename(ms) + '.extracted', h5list[ms_id], find_closestdir=True, \
                      dysco=dysco, metadata_compression=metadata_compression, msoutcol='DATA_TMP')
             # remove DATA_TMP column to free up space
-            remove_column_ms([ms + '.extracted'], 'DATA_TMP')
-    
+            remove_column_ms([os.path.basename(ms) + '.extracted'], 'DATA_TMP')
+
     
     # applycal of closest direction (in multidir h5)
     if len(h5list) != 0 and ddcor and userbox != 'keepall':
