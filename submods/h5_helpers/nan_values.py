@@ -25,7 +25,7 @@ def remove_nans(parmdb, soltab):
         'phase': 0.0,
         'amplitude': 1.0,
         'rotation': 0.0,
-        'rotationmeasure': 0.0
+        'rotationmeasure': 0.0,
         'tec': 0.0,
         'delay': 0.0
     }
