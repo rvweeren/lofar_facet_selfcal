@@ -160,7 +160,7 @@ class MergeH5:
     """Merge multiple h5 tables"""
 
     def __init__(self, h5_out, h5_tables=None, ms_files=None, h5_time_freq=None, freq_res=None, time_res=None,
-                 convert_tec=True, merge_all_in_one=False, solset='sol000', filtered_dir=None, no_antenna_crash=None,
+                 convert_tec=True, convert_delay=True, merge_all_in_one=False, solset='sol000', filtered_dir=None, no_antenna_crash=None,
                  freq_concat=None, time_concat=None):
         """
         :param h5_out: name of merged output h5 table
@@ -170,6 +170,7 @@ class MergeH5:
         :param freq_res: frequency resolution in kHz
         :param time_res: time resolution in seconds
         :param convert_tec: convert TEC to phase or not
+        :param convert_delay: convert delay to phase or not
         :param merge_all_in_one: merge all in one direction
         :param solset: solset name
         :param filtered_dir: directions to filter (needs to be list with indices)
@@ -180,7 +181,9 @@ class MergeH5:
         self.h5name_out = h5_out
         self.solset = solset
         self.convert_tec = convert_tec
+        self.convert_delay = convert_delay
         self.has_converted_tec = False
+        self.has_converted_delay = False
         self.merge_all_in_one = merge_all_in_one
         self.freq_concat = freq_concat
         self.time_concat = time_concat
@@ -510,21 +513,34 @@ class MergeH5:
         # remove invalid values
         values = self.remove_invalid_values(st.getType(), values, self.axes_current)
 
-        if remove_numbers(st.getType()) == 'tec':
-            # add frequencies
-            if 'freq' not in st.getAxesNames():
-                ax = self.axes_final.index('freq') - len(self.axes_final)
-                values = expand_dims(values, axis=ax)
-                self.axes_current.insert(-1, 'freq')
-                valuestmp = values
-                for _ in range(len(self.ax_freq) - 1):
-                    values = append(values, valuestmp, axis=-2)
+        if remove_numbers(st.getType()) in {'tec', 'delay'}:
 
-            if self.convert_tec:
-                # convert tec to phase
-                shape = [1 for _ in range(values.ndim)]
-                shape[self.axes_current.index('freq')] = -1
-                values = self.tecphase_conver(values, self.ax_freq.reshape(shape))
+            # Add frequency axis if missing
+            if 'freq' not in st.getAxesNames():
+                freq_axis = self.axes_final.index('freq') - len(self.axes_final)
+
+                values = expand_dims(values, axis=freq_axis)
+                self.axes_current.insert(-1, 'freq')
+
+                values = append(
+                    *([values] * len(self.ax_freq)),
+                    axis=-2
+                )
+
+            # Prepare frequency reshape once
+            freq_shape = [1] * values.ndim
+            freq_shape[self.axes_current.index('freq')] = -1
+            freq_values = self.ax_freq.reshape(freq_shape)
+
+            converters = {
+                'tec': (self.convert_tec, self.tecphase_conver),
+                'delay': (self.convert_delay, self.delay_conver),
+            }
+
+            do_convert, converter = converters[remove_numbers(st.getType())]
+
+            if do_convert:
+                values = converter(values, freq_values)
                 soltab = 'phase'
 
         # expand pol dimensions
@@ -564,7 +580,7 @@ class MergeH5:
         # freq interpolation
         if self.freq_concat:
             values = self.concat(values, st.getType(), freq_axes, 'freq')
-        elif remove_numbers(st.getType()) != 'tec' and remove_numbers(st.getType()) != 'error':
+        elif remove_numbers(st.getType()) != 'tec' and remove_numbers(st.getType()) != 'error' and remove_numbers(st.getType()) != 'delay':
             values = self._interp_along_axis(values, freq_axes, self.ax_freq,
                                              self.axes_current.index('freq'))
 
@@ -581,23 +597,47 @@ class MergeH5:
         """
 
         soltabs = set(soltabs)
-        if self.convert_tec:
-            tp_phasetec = [li for li in soltabs if 'tec' in li or 'phase' in li]
+        if self.convert_tec and self.convert_delay:
+            tp_phasetec = [li for li in soltabs if 'tec' in li or 'phase' in li or 'delay' in li]
             tp_amplitude = [li for li in soltabs if 'amplitude' in li]
             tp_rotation = [li for li in soltabs if 'rotation' in li]
             tp_error = [li for li in soltabs if 'error' in li]
             return [sorted(tp_amplitude, key=lambda x: float(x[-3:])),
                     sorted(tp_rotation, key=lambda x: float(x[-3:])),
-                    sorted(sorted(tp_phasetec), key=lambda x: float(x[-3:])),
+                    sorted(sorted(tp_phasetec), key=lambda x: (x != 'phase000', float(x[-3:]))),
+                    sorted(tp_error, key=lambda x: float(x[-3:]))]
+        elif self.convert_tec: # Currently not used, but in case we want to convert only tec and not delay, we can use this order
+            tp_phasetec = [li for li in soltabs if 'tec' in li or 'phase' in li]
+            tp_delay = [li for li in soltabs if 'delay' in li]
+            tp_amplitude = [li for li in soltabs if 'amplitude' in li]
+            tp_rotation = [li for li in soltabs if 'rotation' in li]
+            tp_error = [li for li in soltabs if 'error' in li]
+            return [sorted(tp_amplitude, key=lambda x: float(x[-3:])),
+                    sorted(tp_rotation, key=lambda x: float(x[-3:])),
+                    sorted(sorted(tp_phasetec), key=lambda x: (x != 'phase000', float(x[-3:]))),
+                    sorted(tp_delay, key=lambda x: float(x[-3:])),
+                    sorted(tp_error, key=lambda x: float(x[-3:]))]
+        elif self.convert_delay: # Currently not used, but in case we want to convert only tec and not delay, we can use this order
+            tp_phasetec = [li for li in soltabs if 'delay' in li or 'phase' in li]
+            tp_tec = [li for li in soltabs if 'tec' in li]
+            tp_amplitude = [li for li in soltabs if 'amplitude' in li]
+            tp_rotation = [li for li in soltabs if 'rotation' in li]
+            tp_error = [li for li in soltabs if 'error' in li]
+            return [sorted(tp_amplitude, key=lambda x: float(x[-3:])),
+                    sorted(tp_rotation, key=lambda x: float(x[-3:])),
+                    sorted(sorted(tp_phasetec), key=lambda x: (x != 'phase000', float(x[-3:]))),
+                    sorted(tp_tec, key=lambda x: float(x[-3:])),
                     sorted(tp_error, key=lambda x: float(x[-3:]))]
         else:
             tp_phase = [li for li in soltabs if 'phase' in li]
             tp_tec = [li for li in soltabs if 'tec' in li]
+            tp_delay = [li for li in soltabs if 'delay' in li]
             tp_amplitude = [li for li in soltabs if 'amplitude' in li]
             tp_rotation = [li for li in soltabs if 'rotation' in li]
             tp_error = [li for li in soltabs if 'error' in li]
             return [sorted(tp_phase, key=lambda x: float(x[-3:])),
                     sorted(tp_tec, key=lambda x: float(x[-3:])),
+                    sorted(tp_delay, key=lambda x: float(x[-3:])),
                     sorted(tp_amplitude, key=lambda x: float(x[-3:])),
                     sorted(tp_rotation, key=lambda x: float(x[-3:])),
                     sorted(tp_error, key=lambda x: float(x[-3:]))]
@@ -662,6 +702,12 @@ class MergeH5:
         elif 'tec' in soltab and not self.convert_tec:
             self.tec = zeros((num_dir, len(self.ant), len(self.ax_freq), len(self.ax_time)))
 
+        if 'delay' in soltab and not self.convert_delay and len(self.polarizations) > 0:
+            self.delay = zeros(
+                (max(len(self.polarizations), 1), num_dir, len(self.ant), len(self.ax_freq), len(self.ax_time)))
+        elif 'delay' in soltab and not self.convert_delay:
+            self.delay = zeros((num_dir, len(self.ant), len(self.ax_freq), len(self.ax_time)))
+
         if 'error' in soltab and len(self.polarizations) > 0:
             self.error = zeros(
                 (max(len(self.polarizations), 1), num_dir, len(self.ant), len(self.ax_freq), len(self.ax_time)))
@@ -688,6 +734,20 @@ class MergeH5:
         self.has_converted_tec = True
 
         return -8.44797245e9 * tec / freqs
+
+    def delay_conver(self, delay, freqs):
+        """
+        convert delay to phase
+
+        :param delay: delay
+        :param freqs: frequencies
+
+        :return: phase values
+        """
+
+        self.has_converted_delay = True
+
+        return 2 * pi * delay * freqs
 
     @staticmethod
     def _interp_along_axis(x, interp_from, interp_to, axis, fill_value='extrapolate'):
@@ -742,18 +802,26 @@ class MergeH5:
                 else:
                     st = ss.getSoltab(soltab)
 
-                if not self.convert_tec or (self.convert_tec and 'tec' not in soltab):
-                    self._make_template_values(soltab)
-                    self.axes_final = [an for an in self.solaxnames if an in st.getAxesNames()]
-                    if len(self.polarizations) > 1 and 'pol' not in st.getAxesNames():
-                        self.axes_final.insert(0, 'pol')
-                elif 'tec' in soltab and self.convert_tec:
+
+                if 'tec' in soltab and self.convert_tec:
                     for st_group in self.all_soltabs:
                         if soltab in st_group and ('phase000' not in st_group and 'phase{n}'.format(n=soltab[-3:])):
                             self._make_template_values(soltab)
                             self.axes_final = [an for an in self.solaxnames if an in st.getAxesNames()]
                             if len(self.polarizations) > 1 and 'pol' not in st.getAxesNames():
                                 self.axes_final = ['pol'] + self.axes_final
+                elif 'delay' in soltab and self.convert_delay:
+                    for st_group in self.all_soltabs:
+                        if soltab in st_group and ('phase000' not in st_group and 'phase{n}'.format(n=soltab[-3:])):
+                            self._make_template_values(soltab)
+                            self.axes_final = [an for an in self.solaxnames if an in st.getAxesNames()]
+                            if len(self.polarizations) > 1 and 'pol' not in st.getAxesNames():
+                                self.axes_final = ['pol'] + self.axes_final
+                elif not self.convert_tec or (self.convert_tec and 'tec' not in soltab):
+                    self._make_template_values(soltab)
+                    self.axes_final = [an for an in self.solaxnames if an in st.getAxesNames()]
+                    if len(self.polarizations) > 1 and 'pol' not in st.getAxesNames():
+                        self.axes_final.insert(0, 'pol')
 
                 # add dir if missing
                 if 'dir' not in self.axes_final:
@@ -809,7 +877,7 @@ class MergeH5:
         :return: new values
         """
 
-        if 'phase' in soltab or 'tec' in soltab:
+        if 'phase' in soltab or 'tec' in soltab or 'delay' in soltab or 'error' in soltab:
             values[~isfinite(values)] = 0.
         elif 'amplitude' in soltab:
             if 'pol' in axlist:
@@ -855,7 +923,7 @@ class MergeH5:
                 if dim_pol == 4:
                     values_new[1, ...] = 0
                     values_new[2, ...] = 0
-            elif type in ['phase', 'error', 'tec']:
+            elif type in ['phase', 'error', 'tec', 'delay']:
                 values_new = zeros((dim_pol,) + values.shape)
             else:
                 sys.exit('ERROR: Only type in [amplitude, phase] allowed [%s requested].' % str(type))
@@ -872,7 +940,7 @@ class MergeH5:
                 if dim_pol == 4:
                     values_new[1, ...] = 0
                     values_new[2, ...] = 0
-            elif type in ['phase', 'error', 'tec']:
+            elif type in ['phase', 'error', 'tec', 'delay']:
                 values_new = zeros((dim_pol,) + values.shape[1:])
             else:
                 sys.exit('ERROR: Only type in [amplitude, phase] allowed [%s requested].' % str(type))
@@ -979,7 +1047,8 @@ class MergeH5:
                         self.n += 1
                     if self.n > 1:  # for self.n==1 --> dont have to do anything
                         if (st.getType() in ['tec', 'phase', 'rotation'] and self.convert_tec) \
-                                or (st.getType() in ['phase', 'rotation'] and not self.convert_tec):
+                                or (st.getType() in ['phase', 'rotation'] and not self.convert_tec and not self.convert_delay) \
+                                or (st.getType() == 'delay' and self.convert_delay):
                             shape = list(self.phases.shape)
                             dir_index = self.phases.ndim - 4
                             if dir_index < 0:
@@ -1006,6 +1075,15 @@ class MergeH5:
                                 shape[dir_index] = 1
                                 self.tec = append(self.tec, zeros(shape),
                                                   axis=dir_index)  # add clean phase to merge with
+                        elif st.getType() == 'delay' and not self.convert_delay:
+                            shape = list(self.delay.shape)
+                            dir_index = self.delay.ndim - 4
+                            if dir_index < 0:
+                                sys.exit('ERROR: Missing dir axes.')
+                            if self.n > shape[dir_index]:
+                                shape[dir_index] = 1
+                                self.delay = append(self.delay, zeros(shape),
+                                                     axis=dir_index)  # add clean delay to merge with
                         elif st.getType() == 'error':
                             dir_index = self.error.ndim - 4
                             if dir_index < 0:
@@ -1014,10 +1092,11 @@ class MergeH5:
                                 shape[dir_index] = 1
                                 self.error = append(self.error, zeros(shape),
                                                     axis=dir_index)  # add clean phase to merge with
+                        else:
+                            sys.exit(f'ERROR: Unknown solution type combinations --- {st.getType()} --- convert_tec: {self.convert_tec} --- convert_delay: {self.convert_delay}')
 
                 # Add the solution table axis --> tec, phase, rotation, amplitude, or error
-                if (
-                        st.getType() == 'tec' and self.convert_tec) or st.getType() == 'phase' or st.getType() == 'rotation':
+                if (st.getType() == 'tec' and self.convert_tec) or (st.getType() == 'delay' and self.convert_delay) or st.getType() == 'phase' or st.getType() == 'rotation':
 
                     # add values
                     if self.fulljones and not self.doublefulljones:
@@ -1061,6 +1140,16 @@ class MergeH5:
                     else:
                         # average tec
                         self.tec[idx, ...] += values[...] / max(self.tecnum, 1)
+
+                elif st.getType() == 'delay' and not self.convert_delay:
+
+                    # add values
+                    if len(self.polarizations) > 0:
+                        # average delay
+                        self.delay[:, idx, ...] += values[:, ...]
+                    else:
+                        # average delay
+                        self.delay[idx, ...] += values[...]
 
                 elif st.getType() == 'error':
 
@@ -1201,12 +1290,14 @@ class MergeH5:
         else:
             DP3_axes = []
 
-        if 'phase' in soltab or ('tec' in soltab and self.convert_tec):
+        if 'phase' in soltab or ('tec' in soltab and self.convert_tec) or ('delay' in soltab and self.convert_delay):
             self.phases = reorderAxes(self.phases, self.axes_final, DP3_axes)
         elif 'amplitude' in soltab:
             self.amplitudes = reorderAxes(self.amplitudes, self.axes_final, DP3_axes)
         elif 'tec' in soltab and not self.convert_tec:
             self.tec = reorderAxes(self.tec, self.axes_final, DP3_axes)
+        elif 'delay' in soltab and not self.convert_delay:
+            self.delay = reorderAxes(self.delay, self.axes_final, DP3_axes)
         elif 'error' in soltab:
             self.error = reorderAxes(self.error, self.axes_final, DP3_axes)
 
@@ -1342,6 +1433,14 @@ class MergeH5:
             solsetout.makeSoltab('tec', axesNames=self.axes_final,
                                  axesVals=axes_vals,
                                  vals=self.tec, weights=weights)
+        elif 'delay' in soltab and not self.convert_delay:
+            if shape_axes_vals != self.delay.shape:
+                self.delay = reorderAxes(self.delay, self.axes_current, self.axes_final)
+            weights = ones(self.delay.shape)
+            print('Value shape after --> {values}'.format(values=weights.shape))
+            solsetout.makeSoltab('delay', axesNames=self.axes_final,
+                                 axesVals=axes_vals,
+                                 vals=self.delay, weights=weights)
         elif 'error' in soltab:
             if shape_axes_vals != self.error.shape:
                 self.error = reorderAxes(self.error, self.axes_current, self.axes_final)
@@ -1491,7 +1590,6 @@ class MergeH5:
                     h5_antennas = F.root._f_get_child(solset).antenna[:]
 
                 for soltab in ss._v_groups.keys():
-                    print(soltab)
                     st = ss._f_get_child(soltab)
                     AXES = st.val.attrs['AXES']
                     attrsaxes = AXES.decode('utf8').split(',')
@@ -1592,7 +1690,6 @@ class MergeH5:
         """
 
         print("\nPropagating weights in:")
-
         with tables.open_file(self.h5name_out, 'r+') as H:
             for solset in H.root._v_groups.keys():
                 ss = H.root._f_get_child(solset)
@@ -1600,14 +1697,16 @@ class MergeH5:
 
                 if self.has_converted_tec and not any(['tec' in i for i in soltabs]):
                     soltabs += ['tec000']
+                if self.has_converted_delay and not any(['delay' in i for i in soltabs]):
+                    soltabs += ['delay000']
 
-                print(soltabs)
                 for n, soltab in enumerate(soltabs):
                     print(soltab + ', from:')
 
-                    if 'tec' in soltab and \
-                            soltab not in list(ss._v_groups.keys()):
+                    if 'tec' in soltab and soltab not in list(ss._v_groups.keys()):
                         st = ss._f_get_child(soltab.replace('tec', 'phase'))
+                    elif 'delay' in soltab and soltab not in list(ss._v_groups.keys()):
+                        st = ss._f_get_child(soltab.replace('delay', 'phase'))
                     else:
                         st = ss._f_get_child(soltab)
 
@@ -1615,6 +1714,8 @@ class MergeH5:
 
                     if self.has_converted_tec and 'tec' in soltab:
                         weight_out = ss._f_get_child(soltab.replace('tec', 'phase')).weight[:]
+                    elif self.has_converted_delay and 'delay' in soltab:
+                        weight_out = ss._f_get_child(soltab.replace('delay', 'phase')).weight[:]
                     else:
                         weight_out = ones(shape)
 
@@ -2169,7 +2270,7 @@ def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, time
     :param h5_time_freq (str or boolean): h5 file to take freq and time axis from
     :param freq_av (int): averaging factor frequency axis
     :param time_av (int): averaging factor time axis
-    :param convert_tec (boolean): convert TEC to phase or not
+    :param convert_tec (boolean): convert TEC (and delay) to phase or not
     :param merge_all_in_one: merge all in one direction
     :param lin2circ: boolean for linear to circular conversion
     :param circ2lin: boolean for circular to linear conversion
@@ -2262,7 +2363,7 @@ def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, time
             "ERROR: Cannot do both time and frequency concat (ask Jurjen for assistance to implement this feature)")
 
     # Merge class setup
-    merge = MergeH5(h5_out=h5_out, h5_tables=h5_tables, ms_files=ms_files, convert_tec=convert_tec,
+    merge = MergeH5(h5_out=h5_out, h5_tables=h5_tables, ms_files=ms_files, convert_tec=convert_tec, convert_delay=convert_tec, # Currently convert_tec also converts delay to phases, as we don't use them separately (yet)
                     merge_all_in_one=merge_all_in_one, h5_time_freq=h5_time_freq, time_res=time_res, freq_res=freq_res,
                     filtered_dir=filtered_dir, no_antenna_crash=no_antenna_crash, freq_concat=freq_concat,
                     time_concat=time_concat)
@@ -2287,6 +2388,7 @@ def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, time
     merge.get_allkeys()
 
     # Merging
+    print(merge.all_soltabs)
     for st_group in merge.all_soltabs:
         if len(st_group) > 0:
             for st in st_group:
@@ -2295,8 +2397,8 @@ def merge_h5(h5_out=None, h5_tables=None, ms_files=None, h5_time_freq=None, time
                 merge.get_model_h5('sol000', st)
                 merge.merge_tables('sol000', st, min_distance)
             if not merge.doublefulljones:
-                if merge.convert_tec and (('phase' in st_group[0]) or ('tec' in st_group[0])):
-                    # make sure tec is merged in phase only (if convert_tec==True)
+                if merge.convert_tec and (('phase' in st_group[0]) or ('tec' in st_group[0]) or ('delay' in st_group[0])):
+                    # make sure tec and delay are merged in phase only (if convert_tec==True)
                     merge.create_new_dataset('sol000', 'phase')
                 else:
                     if not 'rotation' in st:
@@ -2431,7 +2533,7 @@ def parse_input():
     parser.add_argument('--freq_res', type=float, help='Frequency resolution of output h5parm in kHz.')
     parser.add_argument('--time_av', type=int, help='Time averaging factor.')
     parser.add_argument('--freq_av', type=int, help='Frequency averaging factor.')
-    parser.add_argument('--keep_tec', action='store_true', help='Do not convert TEC to phase.')
+    parser.add_argument('--keep_tec', action='store_true', help='Do not convert TEC (and delay) to phase.')
     parser.add_argument('--merge_all_in_one', action='store_true', help='Merge all solutions into one direction.')
     parser.add_argument('--lin2circ', action='store_true', help='Transform linear polarization to circular.')
     parser.add_argument('--circ2lin', action='store_true', help='Transform circular polarization to linear.')
