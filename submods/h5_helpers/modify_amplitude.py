@@ -68,6 +68,7 @@ def get_all_antennas_from_h5list(h5list):
         'amplitude000': True,
         'phase000': True,
         'tec000': True,
+        'delay000': True,
         'rotation000': True,
         'rotationmeasure000': True
     }
@@ -105,7 +106,7 @@ def get_all_antennas_from_h5list(h5list):
 def h5_has_dir(h5):
     """Check if any sol set contains 'dir' in its AXES attributes."""
     with tables.open_file(h5) as H:
-        for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000', 'rotationmeasure000']:
+        for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000', 'rotationmeasure000', 'delay000']:
             try:
                 if 'dir' in getattr(H.root.sol000, sol_type).val.attrs['AXES'].decode().split(','):
                     return True
