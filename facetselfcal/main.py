@@ -91,6 +91,7 @@ from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
 from submods.h5_helpers.modify_amplitude import get_median_amp, normamplitudes, normslope_withmatrix, normamplitudes_withmatrix
 from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5,  fix_rotationreference, fix_weights_rotationmeasureh5, fix_rotationmeasurereference
 from submods.h5_helpers.modify_tec import fix_tecreference
+from submods.h5_helpers.modify_delay import fix_delayreference
 from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones, removenans_amplitude_leakage
 from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
 from submods.h5_helpers.general_utils import make_utf8
@@ -2082,7 +2083,7 @@ def copy_over_solutions_from_skipped_directions(modeldatacolumnsin, id_kept):
         # copy over the values
         with tables.open_file(matchging_h5, mode='r') as hmatch:
 
-            for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000', 'rotationmeasure000']:
+            for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000', 'rotationmeasure000', 'delay000']:
                 try:
                     getattr(hempty.root.sol000, sol_type).val[:] = np.copy(getattr(hmatch.root.sol000, sol_type).val[:])
                     print(f'Copied over {sol_type}')
@@ -3812,7 +3813,7 @@ def find_closest_H5time_toms(H5filelist, ms):
     for H5file in H5filelist:
         with tables.open_file(H5file, mode='r') as H:
             times = None
-            for sol_type in ['amplitude000', 'rotation000', 'phase000', 'tec000', 'rotationmeasure000']:
+            for sol_type in ['amplitude000', 'rotation000', 'phase000', 'tec000', 'rotationmeasure000', 'delay000']:
                 try:
                     times = np.sort(getattr(H.root.sol000, sol_type).time[:])
                     break
@@ -3858,7 +3859,7 @@ def time_match_mstoH5(H5filelist, ms):
     for H5file in H5filelist:
         with tables.open_file(H5file, mode='r') as H:
             times = None
-            for sol_type in ['amplitude000', 'rotation000', 'phase000', 'tec000', 'rotationmeasure000']:
+            for sol_type in ['amplitude000', 'rotation000', 'phase000', 'tec000', 'rotationmeasure000', 'delay000']:
                 try:
                     times = getattr(H.root.sol000, sol_type).time[:]
                     break
@@ -6028,7 +6029,7 @@ def amplitude_leakage_paramdb(h5):
     Returns:
         amplitudeleakage (bool): whether the sol000 contains amplitude leakage solutions.
     """
-    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5)
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay = check_soltabs(h5)
     if hasphase:
         return False # if we have phase solutions, we cannot we do not have amplitude only leakage solutions
 
@@ -6076,7 +6077,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
       None
     """
     fulljones = fulljonesparmdb(h5parm)  # True/False
-    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay = check_soltabs(h5parm)
     amplitudeleakage = amplitude_leakage_paramdb(h5parm)
 
     with tables.open_file(h5parm) as H:
@@ -6093,6 +6094,10 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
             tec = H.root.sol000.tec000.val[:]
             antennas = H.root.sol000.tec000.ant[:]
             axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+        if hasdelay:
+            delay = H.root.sol000.delay000.val[:]
+            antennas = H.root.sol000.delay000.ant[:]
+            axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
         if hasrotation:
             rotation = H.root.sol000.rotation000.val[:]
             antennas = H.root.sol000.rotation000.ant[:]
@@ -6101,6 +6106,7 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
             faradayrotation = H.root.sol000.rotationmeasure000.val[:]
             antennas = H.root.sol000.rotationmeasure000.ant[:]
             axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+
 
         for antennaid, antenna in enumerate(antennas):
             if antenna[0:2] != keepanntennastr:
@@ -6153,6 +6159,21 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                     if antennaxis == 4:
                         tec[:, :, :, :, antennaid, ...] = 0.0
 
+                if hasdelay:
+                    antennaxis = axisn.index('ant')
+                    axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+                    print('Resetting delay', antenna, 'Axis entry number', axisn.index('ant'))
+                    if antennaxis == 0:
+                        delay[antennaid, ...] = 0.0
+                    if antennaxis == 1:
+                        delay[:, antennaid, ...] = 0.0
+                    if antennaxis == 2:
+                        delay[:, :, antennaid, ...] = 0.0
+                    if antennaxis == 3:
+                        delay[:, :, :, antennaid, ...] = 0.0
+                    if antennaxis == 4:
+                        delay[:, :, :, :, antennaid, ...] = 0.0
+
                 if hasrotation:
                     antennaxis = axisn.index('ant')
                     axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
@@ -6188,10 +6209,13 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
             H.root.sol000.amplitude000.val[:] = np.copy(amp)
         if hastec:
             H.root.sol000.tec000.val[:] = np.copy(tec)
+        if hasdelay:
+            H.root.sol000.delay000.val[:] = np.copy(delay)
         if hasrotation:
             H.root.sol000.rotation000.val[:] = np.copy(rotation)
         if hasrotationmeasure:
             H.root.sol000.rotationmeasure000.val[:] = np.copy(faradayrotation)
+
 
     return
 
@@ -6304,7 +6328,7 @@ def ntimesH5(H5file):
         times (int): length of the time axis.
     """
 
-    sol_types = ['amplitude000', 'phase000', 'tec000', 'rotationmeasure000', 'rotation000']
+    sol_types = ['amplitude000', 'phase000', 'tec000', 'rotationmeasure000', 'rotation000', 'delay000']
 
     with tables.open_file(H5file, mode='r') as H:
         for sol_type in sol_types:
@@ -6313,8 +6337,8 @@ def ntimesH5(H5file):
             except AttributeError:
                 continue
 
-        print('No amplitude000, phase000, tec000, rotationmeasure000, or rotation000 solutions found')
-        raise Exception('No amplitude000, phase000, tec000, rotationmeasure000, or rotation000 solutions found')
+        print('No amplitude000, phase000, tec000, rotationmeasure000, rotation000, or delay000 solutions found')
+        raise Exception('No amplitude000, phase000, tec000, rotationmeasure000, rotation000, or delay000 solutions found')
 
 
 def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
@@ -6749,7 +6773,7 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None)
     special_DIL = False
     with tables.open_file(h5parm, mode='r') as H:
         dirnames = None
-        for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000','rotationmeasure000']:
+        for sol_type in ['phase000', 'amplitude000', 'tec000', 'rotation000','rotationmeasure000', 'delay000']:
             try:
                 dirnames = getattr(H.root.sol000, sol_type).dir[:]
                 break  # Stop if dirnames is found
@@ -6949,6 +6973,22 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                 cmd += 'ac' + str(count) + '.type=applycal '
                 cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
                 cmd += 'ac' + str(count) + '.correction=tec000 '
+                if not invert:
+                    cmd += 'ac' + str(count) + '.invert=False '
+                if direction is not None:
+                    if direction.startswith(
+                            'MODEL_DATA'):  # because then the direction name in the h5 contains bracket strings
+                        cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
+                    else:
+                        cmd += 'ac' + str(count) + '.direction=' + direction + ' '
+                count = count + 1
+
+            if 'delay000' in soltabs:
+                cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
+                cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
+                cmd += 'ac' + str(count) + '.type=applycal '
+                cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
+                cmd += 'ac' + str(count) + '.correction=delay000 '
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '
                 if direction is not None:
@@ -7641,15 +7681,15 @@ def inputchecker(args, mslist):
 
     for soltype_id, soltype in enumerate(args['soltype_list']):
         wronginput = False
-        if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
+        if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay']:
             try:  # in smoothnessconstraint_list is not filled by the user
                 if args['smoothnessconstraint_list'][soltype_id] > 0.0:
-                    print('smoothnessconstraint should be 0.0 for a tec-like solve')
+                    print('smoothnessconstraint should be 0.0 for a tec/delay-like solve')
                     wronginput = True
             except:
                 pass
             if wronginput:
-                raise Exception('smoothnessconstraint should be 0.0 for a tec-like solve')
+                raise Exception('smoothnessconstraint should be 0.0 for a tec/delay-like solve')
 
     for smoothnessconstraint in args['smoothnessconstraint_list']:
         if smoothnessconstraint < 0.0:
@@ -7984,7 +8024,7 @@ def number_freqchan_h5(h5parmin):
         int: Number of frequency channels in the H5 file.
     """
     freq = []
-    solution_types = ['phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000']
+    solution_types = ['phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000', 'delay000']
 
     with tables.open_file(h5parmin) as H:
         for sol_type in solution_types:
@@ -8649,6 +8689,11 @@ def set_weights_h5_to_one(h5parm):
          # update weights to 1.0
          H.root.sol000.tec000.weight[goodvals] = 1.0
 
+    if 'delay000' in soltabs:
+         goodvals =  np.isfinite(H.root.sol000.delay000.val[:])
+         # update weights to 1.0
+         H.root.sol000.delay000.weight[goodvals] = 1.0
+
     if 'rotation000' in soltabs:
          goodvals =  np.isfinite(H.root.sol000.rotation000.val[:])
          # update weights to 1.0
@@ -8713,7 +8758,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     print(h5parm, stationlist)
     fulljones = fulljonesparmdb(h5parm)  # True/False
     amplitudeleakage = amplitude_leakage_paramdb(h5parm)  # True/False
-    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay = check_soltabs(h5parm)
 
     H = tables.open_file(h5parm, 'r+')
 
@@ -8728,6 +8773,10 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     elif hastec:
         antennas = H.root.sol000.tec000.ant[:]
         axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+
+    elif hasdelay:
+        antennas = H.root.sol000.delay000.ant[:]
+        axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')    
 
     elif hasrotation:
         antennas = H.root.sol000.rotation000.ant[:]
@@ -8763,6 +8812,12 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     if refant is None and hastec:
         refant = findrefant_core(h5parm, telescope=telescope)
         force_close(h5parm)
+
+    # should not be needed as h5_merger does not create delay000
+    # keep this code in case of future h5_merger updates so we are safe
+    if refant is None and hasdelay:
+        refant = findrefant_core(h5parm, telescope=telescope)
+        force_close(h5parm)    
 
     if hasamps:
         amp = H.root.sol000.amplitude000.val[:]
@@ -8802,6 +8857,25 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
         if antennaxis == 4:
             tecn = tec - tec[:, :, :, :, refant_idx[0], ...]
         tec = np.copy(tecn)
+
+    if hasdelay:
+        delay = H.root.sol000.delay000.val[:]
+        refant_idx = np.where(H.root.sol000.delay000.ant[:].astype(str) == refant)  # to deal with byte strings
+        print(refant_idx, refant)
+        antennaxis = axisn.index('ant')
+        axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+        print('Referencing delay to ', refant, 'Axis entry number', axisn.index('ant'))
+        if antennaxis == 0:
+            delayn = delay - delay[refant_idx[0], ...]
+        if antennaxis == 1:
+            delayn = delay - delay[:, refant_idx[0], ...]
+        if antennaxis == 2:
+            delayn = delay - delay[:, :, refant_idx[0], ...]
+        if antennaxis == 3:
+            delayn = delay - delay[:, :, :, refant_idx[0], ...]
+        if antennaxis == 4:
+            delayn = delay - delay[:, :, :, :, refant_idx[0], ...]
+        delay = np.copy(delayn)
 
     if hasrotation:
         rotation = H.root.sol000.rotation000.val[:]
@@ -8848,7 +8922,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
         # else:
         #  antenna_str = antenna # already str type
 
-        print(antenna, hasphase, hasamps, hastec, hasrotation)
+        print(antenna, hasphase, hasamps, hastec, hasrotation, hasdelay)
         if antenna in stationlist:  # in this case reset value to 0.0 (or 1.0)
             if hasphase:
                 antennaxis = axisn.index('ant')
@@ -8921,6 +8995,20 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
                     tec[:, :, :, antennaid, ...] = 0.0
                 if antennaxis == 4:
                     tec[:, :, :, :, antennaid, ...] = 0.0
+            if hasdelay:
+                antennaxis = axisn.index('ant')
+                axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+                print('Resetting delay', antenna, 'Axis entry number', axisn.index('ant'))
+                if antennaxis == 0:
+                    delay[antennaid, ...] = 0.0
+                if antennaxis == 1:
+                    delay[:, antennaid, ...] = 0.0
+                if antennaxis == 2:
+                    delay[:, :, antennaid, ...] = 0.0
+                if antennaxis == 3:
+                    delay[:, :, :, antennaid, ...] = 0.0
+                if antennaxis == 4:
+                    delay[:, :, :, :, antennaid, ...] = 0.0
             if hasrotation:
                 antennaxis = axisn.index('ant')
                 axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
@@ -8957,6 +9045,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
         H.root.sol000.amplitude000.val[:] = np.copy(amp)
     if hastec:
         H.root.sol000.tec000.val[:] = np.copy(tec)
+    if hasdelay:
+        H.root.sol000.delay000.val[:] = np.copy(delay)    
     if hasrotation:
         H.root.sol000.rotation000.val[:] = np.copy(rotation)
     if hasrotationmeasure:
@@ -8972,7 +9062,7 @@ def check_soltabs(h5parm):
     Check the presence of various solution types in an h5 file.
     Returns if phase, amplitude, tec, and rotation are in h5.
     """
-    hasphase = hasamps = hasrotation = hastec = hasrotationmeasure = False
+    hasphase = hasamps = hasrotation = hastec = hasrotationmeasure = hasdelay = False
 
     with tables.open_file(h5parm) as H:
         soltabs = list(H.root.sol000._v_children.keys())
@@ -8987,8 +9077,10 @@ def check_soltabs(h5parm):
             hasrotation = True
         elif 'rotationmeasure' in s:
             hasrotationmeasure = True
+        elif 'delay' in s:
+            hasdelay = True    
 
-    return hasphase, hasamps, hasrotation, hastec, hasrotationmeasure
+    return hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay
 
 def reset_phase000(h5parm):
     """ Reset phase000 solutions to zero
@@ -9091,7 +9183,7 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
     print(h5parm, dirlist)
     fulljones = fulljonesparmdb(h5parm)
     amplitudeleakage = amplitude_leakage_paramdb(h5parm)
-    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5parm)
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay = check_soltabs(h5parm)
 
     # in case refant is None but h5 still has phase
     # this can happen with a scalaramplitude and soltypelist_includedir is used
@@ -9119,6 +9211,12 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
         refant = findrefant_core(h5parm, telescope=telescope)
         force_close(h5parm)
 
+    # should not be needed as h5_merger does not create delay000
+    # keep this code in case of future h5_merger updates so we are safe
+    if refant is None and hasdelay:
+        refant = findrefant_core(h5parm, telescope=telescope)
+        force_close(h5parm)
+
     H = tables.open_file(h5parm, mode='r+')
 
     if hasamps:
@@ -9133,6 +9231,10 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
         directions = H.root.sol000.tec000.dir[:]
         axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
 
+    elif hasdelay:
+        directions = H.root.sol000.delay000.dir[:]
+        axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+
     elif hasrotation:
         directions = H.root.sol000.rotation000.dir[:]
         axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
@@ -9140,6 +9242,7 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
     elif hasrotationmeasure:
         directions = H.root.sol000.rotationmeasure000.dir[:]
         axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+
 
     if hasamps:
         amp = H.root.sol000.amplitude000.val[:]
@@ -9180,6 +9283,25 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
         if antennaxis == 4:
             tecn = tec - tec[:, :, :, :, refant_idx[0], ...]
         tec = np.copy(tecn)
+
+    if hasdelay:
+        delay = H.root.sol000.delay000.val[:]
+        refant_idx = np.where(H.root.sol000.delay000.ant[:].astype(str) == refant)  # to deal with byte strings
+        print(refant_idx, refant)
+        antennaxis = axisn.index('ant')
+        axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+        print('Referencing delay to ', refant, 'Axis entry number', axisn.index('ant'))
+        if antennaxis == 0:
+            delayn = delay - delay[refant_idx[0], ...]
+        if antennaxis == 1:
+            delayn = delay - delay[:, refant_idx[0], ...]
+        if antennaxis == 2:
+            delayn = delay - delay[:, :, refant_idx[0], ...]
+        if antennaxis == 3:
+            delayn = delay - delay[:, :, :, refant_idx[0], ...]
+        if antennaxis == 4:
+            delayn = delay - delay[:, :, :, :, refant_idx[0], ...]
+        delay = np.copy(delayn)
 
     if hasrotation:
         rotation = H.root.sol000.rotation000.val[:]
@@ -9296,6 +9418,20 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
                     tec[:, :, :, directionid, ...] = 0.0
                 if diraxis == 4:
                     tec[:, :, :, :, directionid, ...] = 0.0
+            if hasdelay:
+                diraxis = axisn.index('dir')
+                axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+                print('Resetting delay direction ID', directionid, 'Axis entry number', axisn.index('dir'))
+                if diraxis == 0:
+                    delay[directionid, ...] = 0.0
+                if diraxis == 1:
+                    delay[:, directionid, ...] = 0.0
+                if diraxis == 2:
+                    delay[:, :, directionid, ...] = 0.0
+                if diraxis == 3:
+                    delay[:, :, :, directionid, ...] = 0.0
+                if diraxis == 4:
+                    delay[:, :, :, :, directionid, ...] = 0.0
             if hasrotation:
                 diraxis = axisn.index('dir')
                 axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
@@ -9333,6 +9469,8 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
         H.root.sol000.amplitude000.val[:] = np.copy(amp)
     if hastec:
         H.root.sol000.tec000.val[:] = np.copy(tec)
+    if hasdelay:
+        H.root.sol000.delay000.val[:] = np.copy(delay)    
     if hasrotation:
         H.root.sol000.rotation000.val[:] = np.copy(rotation)
     if hasrotationmeasure:
@@ -10000,7 +10138,7 @@ def setinitial_solint(mslist, options):
 
             # force nchan 1 for tec(andphase) solve and in case smoothnessconstraint is invoked
             # if soltype == 'tec' or  soltype == 'tecandphase' or smoothnessconstraint > 0.0:
-            if soltype == 'tec' or soltype == 'tecandphase' or soltype == 'tec+phase' or soltype == 'tec+delay' or soltype == 'tec+phase+delay':
+            if soltype == 'tec' or soltype == 'tecandphase' or soltype == 'tec+phase' or soltype == 'tec+delay' or soltype == 'tec+phase+delay' or soltype == 'delay':
                 nchan = 1
 
             nchan_ms.append(nchan)
@@ -10638,6 +10776,27 @@ def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttec
     f.close()
     return parset
 
+def create_losoto_delayparset(ms, refant='CS003HBA0', outplotname='fastdelay', markersize=2):
+    parset = 'losoto_parsets/losoto_plotfastdelay.parset'
+    os.system('rm -f ' + parset)
+    f = open(parset, 'w')
+
+    f.write('pol = []\n')
+    f.write('Ncpu = 0\n\n\n')
+
+    f.write('[plotdelay]\n')
+    f.write('operation = PLOT\n')
+    f.write('soltab = [sol000/delay000]\n')
+    f.write('axesInPlot = [time]\n')
+    f.write('axisInTable = ant\n')
+    f.write('minmax = [-0.2,0.2]\n')
+    f.write('figSize=[120,20]\n')
+    f.write('markerSize=%s\n' % int(markersize))
+    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+    f.write('refAnt = %s\n' % refant)
+
+    f.close()
+    return parset
 
 def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', markersize=2):
     parset = 'losoto_parsets/losoto_plotfasttec.parset'
@@ -11129,13 +11288,13 @@ def check_phaseup(H5name):
     Notes
     -----
     The function searches through multiple solution types in the following order:
-    'phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000'.
+    'phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000', 'delay000'.
     It stops at the first solution type where antennas are successfully found.
     """
 
     with tables.open_file(H5name, mode='r') as H5:
         ants = []
-        for sol_type in ['phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000']:
+        for sol_type in ['phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000', 'delay000']:
             try:
                 ants = getattr(H5.root.sol000, sol_type).ant[:]
                 break  # Stop if antennas are found in the current solution type
@@ -12148,6 +12307,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             and ('tecandphase' not in args['soltype_list']) \
             and ('tec+phase' not in args['soltype_list']) \
             and ('tec+delay' not in args['soltype_list']) \
+            and ('delay' not in args['soltype_list']) \
             and ('tec+phase+delay' not in args['soltype_list']):
             merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1],
                      merge_all_in_one=merge_all_in_one,
@@ -12360,7 +12520,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    'rotation+scalarphase', 'rotation+scalaramplitude',
                    'faradayrotation', 'faradayrotation+scalar',
                    'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase',
-                   'tec+phase', 'tec+delay', 'tec+phase+delay']:
+                   'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay']:
         onepol = True
 
     if restoreflags:
@@ -12488,7 +12648,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 cmd += 'ddecal.datause=dual '
             if soltype in ['scalarcomplexgain', 'scalaramplitude', \
                            'tec', 'tecandphase', 'scalarphase','tec+phase', \
-                           'tec+delay', 'tec+phase+delay'] \
+                           'tec+delay', 'tec+phase+delay', 'delay'] \
                     and 'fulljones' not in soltype_list[0:soltypenumber] \
                     and 'leakage' not in soltype_list[0:soltypenumber] \
                     and 'leakageamplitude' not in soltype_list[0:soltypenumber] \
@@ -12704,7 +12864,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd += 'ddecal.smoothnessrefdistance=' + str(SMconstraintrefdistance * 1e3) + ' '  # input units in km
 
     if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'tec+phase', \
-                   'tec+delay', 'tec+phase+delay', 'rotation+scalarphase', \
+                   'tec+delay', 'tec+phase+delay', 'delay', 'rotation+scalarphase', \
                    'rotation+diagonalphase', 'faradayrotation+scalarphase', \
                    'faradayrotation+diagonalphase', 'faradayrotation']:
         cmd += 'ddecal.tolerance=' + str(tolerance) + ' '
@@ -12885,6 +13045,13 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         fix_tecreference(parmdb, refant)
         force_close(parmdb)
 
+    # delay checking
+    if soltype in ['tec+delay', 'tec+phase+delay', 'delay']:
+        remove_nans(parmdb, 'delay000')
+        refant = findrefant_core(parmdb, telescope=args['telescope'])
+        fix_delayreference(parmdb, refant)
+        force_close(parmdb)    
+
     # phase checking
     if soltype in ['rotation+diagonal', 'rotation+diagonalphase',
                    'rotation+scalar', 'rotation+scalarphase',
@@ -12933,7 +13100,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
-                       'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
+                       'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', \
+                       'tec+phase+delay', 'delay']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -12949,7 +13117,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',\
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
-                       'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
+                       'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -13036,7 +13204,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
-                       'faradayrotation+scalarphase', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
+                       'faradayrotation+scalarphase', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -13112,7 +13280,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             logger.info(cmdlosoto)
             run(cmdlosoto)
 
-    if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
+    if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay']:
         tecandphaseplotter(parmdb, ms, telescope=args['telescope'],
                            outplotname=outplotname)  # use own plotter because losoto cannot add tec and phase
 
@@ -15111,7 +15279,7 @@ def findrefant_core(H5file, telescope='LOFAR'):
     soltabs = solset.getSoltabNames()
     for st in soltabs:
         # Find a reasonable soltab to use
-        if 'phase000' in st or 'rotation000' in st or 'tec000' in st or 'rotationmeasure000' in st:
+        if 'phase000' in st or 'rotation000' in st or 'tec000' in st or 'rotationmeasure000' in st or 'delay000' in st:
             break
     soltab = solset.getSoltab(st)
 
@@ -15555,7 +15723,7 @@ def find_bad_deviating_antennas(h5, ms, threshold=0.075):
     """
     fulljones = fulljonesparmdb(h5)  # True/False
     amplitudeleakage = amplitude_leakage_paramdb(h5)  # True/False
-    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure = check_soltabs(h5)
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay = check_soltabs(h5)
     if not hasamps:
         print('No amplitude000 solutions found in', h5)
         raise Exception('No amplitude000 solutions found in ' + h5)
