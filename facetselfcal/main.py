@@ -5989,22 +5989,36 @@ def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
+        nchan = len(get_frequencies_from_ms(ms))
         if modelstoragemanager is None:
             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
+            run("taql 'update " + ms + " set MODEL_DATA_PDIFF=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
         elif modelstoragemanager == 'sisco_stokes_i':
-            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]')
+            # create temporary column with the phase diff to avoid DP3 error std exception detected: Diagonal storage modes cannot store data for which the 2nd and 3rd correlation are non-zero
+            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF_TMP steps=[]') # create temporary column uncompressed
+            run("taql 'update " + ms + " set MODEL_DATA_PDIFF_TMP=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+            # now create the sisco compressed column based on the temporary column with the correct phase diff
+            run('DP3 msin=' + ms + ' msout=. msin.datacolumn=MODEL_DATA_PDIFF_TMP msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]')
+            # remove temporary column
+            remove_column_ms(ms, 'MODEL_DATA_PDIFF_TMP')
         elif modelstoragemanager == 'sisco_diagonal':
-            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]')
+            # create temporary column with the phase diff to avoid DP3 error std exception detected: Diagonal storage modes cannot store data for which the 2nd and 3rd correlation are non-zero
+            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF_TMP steps=[]') # create temporary column uncompressed
+            run("taql 'update " + ms + " set MODEL_DATA_PDIFF_TMP=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+            # now create the sisco compressed column based on the temporary column with the correct phase diff
+            run('DP3 msin=' + ms + ' msout=. msin.datacolumn=MODEL_DATA_PDIFF_TMP msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]')
+            # remove temporary column
+            remove_column_ms(ms, 'MODEL_DATA_PDIFF_TMP')
         else:
             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=' + modelstoragemanager + ' steps=[]')
+            run("taql 'update " + ms + " set MODEL_DATA_PDIFF=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+
         #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,0]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
         #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,3]=(0.5+0i)'")  # because I = RR+LL/2 (this is tricky because we work with phase diff)
         #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,1]=(0+0i)'")
         #run("taql" + " 'update " + ms + " set MODEL_DATA_PDIFF[,2]=(0+0i)'")
         # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-        nchan = len(get_frequencies_from_ms(ms))
-        run("taql 'update " + ms + " set MODEL_DATA_PDIFF=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
-
+        
 
 def amplitude_leakage_paramdb(h5):
     """ Checks if a given h5parm has amplitude leakage solutions in sol000.
@@ -12243,7 +12257,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None,
                 normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None, skymodelsetjy=False,
                 solve_msinnchan='all', solve_msinstartchan=0,
-                antenna_averaging_factors=None, antenna_smoothness_factors=None, auto_flag_antennas=False, max_tec_delay_wraps=5):
+                antenna_averaging_factors=None, antenna_smoothness_factors=None, auto_flag_antennas=False, max_tec_delay_wraps=12):
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
     modeldata = 'MODEL_DATA'  # the default, update if needed for scalarphasediff and phmin solves
