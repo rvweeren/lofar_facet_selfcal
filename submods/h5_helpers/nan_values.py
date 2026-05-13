@@ -26,6 +26,8 @@ def remove_nans(parmdb, soltab):
         'amplitude': 1.0,
         'rotation': 0.0,
         'rotationmeasure': 0.0
+        'tec': 0.0,
+        'delay': 0.0
     }
     sol_type = solset.getType()
     vals[idxnan] = default_values.get(sol_type, 0.0)
