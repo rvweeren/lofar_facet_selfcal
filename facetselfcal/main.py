@@ -6661,20 +6661,21 @@ def uvmaxflag(msin, uvmax):
     return
 
 
-def tecandphaseplotter(h5, ms, outplotname='plot.png'):
+def tecandphaseplotter(h5, ms, telescope='LOFAR', outplotname='plot.png'):
     """ Make TEC and phase plots.
 
     Args:
         h5 (str): path to the H5parm to plot.
         ms (str): path to th ecorresponding Measurement Set.
+        telescope (str): telescope name.
         outplotname (str): name of the output plot.
     Returns:
         None
     """
     if not os.path.isdir('solution_plots_%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
         os.system('mkdir solution_plots_%s' % os.path.basename(ms))
-    cmd = f'python {submodpath}/plot_tecandphase.py  '
-    cmd += '--H5file=' + h5 + ' --outfile=solution_plots_%s/%s_nolosoto.png' % (os.path.basename(ms), os.path.basename(outplotname))
+    cmd = f'python {submodpath}/plot_tecdelayphase.py  '
+    cmd += '--H5file=' + h5 + ' --outfile=solution_plots_%s/%s_nolosoto.png --telescope=%s' % (os.path.basename(ms), os.path.basename(outplotname), args['telescope'])
     print(cmd)
     run(cmd)
     return
@@ -13112,7 +13113,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             run(cmdlosoto)
 
     if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
-        tecandphaseplotter(parmdb, ms,
+        tecandphaseplotter(parmdb, ms, telescope=args['telescope'],
                            outplotname=outplotname)  # use own plotter because losoto cannot add tec and phase
 
     if soltype in ['tec']:
