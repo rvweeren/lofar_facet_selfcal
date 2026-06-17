@@ -12972,11 +12972,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    if 'error000' in soltabs: soltabs.remove('error000')
                    
                 cmd += "ddecal.initialsolutions.soltab='[" + ','.join(map(str, soltabs)) + "]' "
-    print('^^^^^^^^^^^')
-    print('^^^^^^^^^^^')
-    print(soltypein)
-    if soltypein == 'tec+phase+delay':
-        cmd += "ddecal.initialsolutions.h5parm=h5_solutions/scalarphase1_skyselfcalcycle000_J174713+653236_DI.concat.ms.avg.phaseup.h5 ddecal.initialsolutions.soltab='phase000' "
+    #print('^^^^^^^^^^^')
+    #print('^^^^^^^^^^^')
+    #print(soltypein)
+    #if soltypein == 'tec+phase+delay':
+    #    cmd += "ddecal.initialsolutions.h5parm=h5_solutions/scalarphase1_skyselfcalcycle000_J174713+653236_DI.concat.ms.avg.phaseup.h5 ddecal.initialsolutions.soltab='phase000' "
 
 
     ms_tmp = None # set to None so that we can check if it is created later
