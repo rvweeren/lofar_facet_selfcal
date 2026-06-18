@@ -7070,7 +7070,12 @@ def inputchecker(args, mslist):
                     print(f"Measurement Set {ms} is already not a single source MS, it contains multiple FIELD_IDs. Please split the MS into single source MSs before running facetselfcal.")
                     raise Exception(f"Measurement Set {ms} is already not a single source MS, it contains multiple FIELD_IDs. Please split the MS into single source MSs before running facetselfcal.")
  
-        # check that there 
+    if args['telescope'] == 'Meerkat' or args['telescope'] == 'GMRT':
+        # prevent users from doing a bandpass correction for a DDE solve
+        if (args['preapplybandpassH5_list'][0]) is not None and args['DDE']:
+            print('Pre-applying bandpass correction is not allowed for DDE solve')
+            raise Exception('Pre-applying bandpass correction is not allowed for DDE solve')
+        
     if args['telescope'] == 'GMRT':
         # do not allow any time averaging for GMRT data
         # this is because of issues with the UVW coordinates for time gaps that are filled with DP3
@@ -12043,6 +12048,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                               0, 0.0, onlypredict=True, idg=False,
                               fulljones_h5_facetbeam=not args['single_dual_speedup'])
 
+                nchan = len(get_frequencies_from_ms(ms))
                 if skymodelpointsource is not None and type(skymodelpointsource) is float:
                     # create MODEL_DATA (no dysco!)
                     if args['modelstoragemanager'] is None:
@@ -12074,7 +12080,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
                     # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
                     #run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
-                    nchan = len(get_frequencies_from_ms(ms))
+                    
 
             
                 if skymodelpointsource is not None and type(skymodelpointsource) is list:
@@ -12103,7 +12109,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'", log=True)
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
                     # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-                    nchan = len(get_frequencies_from_ms(ms))
+                    # nchan = len(get_frequencies_from_ms(ms))
                     
 
         # do the stack and normalization
@@ -12475,6 +12481,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     # if skymodelpointsource is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if skymodelpointsource is not None and create_modeldata and len(modeldatacolumns) == 0:
+        nchan_taql = len(get_frequencies_from_ms(ms))
         # create MODEL_DATA (no dysco!)
         if modelstoragemanager is None:
             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
@@ -12502,7 +12509,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
         # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-        nchan_taql = len(get_frequencies_from_ms(ms))       
+               
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
         # PM means point source model adjusted weights
