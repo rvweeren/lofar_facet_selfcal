@@ -7070,7 +7070,12 @@ def inputchecker(args, mslist):
                     print(f"Measurement Set {ms} is already not a single source MS, it contains multiple FIELD_IDs. Please split the MS into single source MSs before running facetselfcal.")
                     raise Exception(f"Measurement Set {ms} is already not a single source MS, it contains multiple FIELD_IDs. Please split the MS into single source MSs before running facetselfcal.")
  
-        # check that there 
+    if args['telescope'] == 'Meerkat' or args['telescope'] == 'GMRT':
+        # prevent users from doing a bandpass correction for a DDE solve
+        if (args['preapplybandpassH5_list'][0]) is not None and args['DDE']:
+            print('Pre-applying bandpass correction is not allowed for DDE solve')
+            raise Exception('Pre-applying bandpass correction is not allowed for DDE solve')
+        
     if args['telescope'] == 'GMRT':
         # do not allow any time averaging for GMRT data
         # this is because of issues with the UVW coordinates for time gaps that are filled with DP3
@@ -12043,17 +12048,31 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                               0, 0.0, onlypredict=True, idg=False,
                               fulljones_h5_facetbeam=not args['single_dual_speedup'])
 
+                nchan = len(get_frequencies_from_ms(ms))
                 if skymodelpointsource is not None and type(skymodelpointsource) is float:
                     # create MODEL_DATA (no dysco!)
                     if args['modelstoragemanager'] is None:
                         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
+                        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
                     else:
                         if args['modelstoragemanager'] == 'sisco_stokes_i':
-                            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]', log=True)    
+                            # create temporary column with the phase diff to avoid DP3 error std exception detected: Diagonal storage modes cannot store data for which the 2nd and 3rd correlation are non-zero
+                            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_TMP steps=[]', log=True)
+                            run("taql 'update " + ms + " set MODEL_DATA_TMP=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+                            run('DP3 msin=' + ms + ' msout=. msin.datacolumn=MODEL_DATA_TMP msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]', log=True)
+                            # remove temporary column
+                            remove_column_ms(ms, 'MODEL_DATA_TMP')
                         elif args['modelstoragemanager'] == 'sisco_diagonal':
-                            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]', log=True)
+                            # create temporary column with the phase diff to avoid DP3 error std exception detected: Diagonal storage modes cannot store data for which the 2nd and 3rd correlation are non-zero
+                            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_TMP steps=[]', log=True)
+                            run("taql 'update " + ms + " set MODEL_DATA_TMP=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+                            run('DP3 msin=' + ms + ' msout=. msin.datacolumn=MODEL_DATA_TMP msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]', log=True)
+                            # remove temporary column
+                            remove_column_ms(ms, 'MODEL_DATA_TMP')
                         else:
-                            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + args['modelstoragemanager'] + ' steps=[]', log=True)                        
+                            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + args['modelstoragemanager'] + ' steps=[]', log=True)
+                            run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+                        
                     # do the predict with taql
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'", log=True)
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'", log=True)
@@ -12061,28 +12080,37 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
                     # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
                     #run("taql 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i),MODEL_DATA[,1]=(0+0i),MODEL_DATA[,2]=(0+0i),MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
-                    nchan = len(get_frequencies_from_ms(ms))
-                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+                    
 
             
                 if skymodelpointsource is not None and type(skymodelpointsource) is list:
                     # create MODEL_DATA (no dysco!)
                     if args['modelstoragemanager'] is None:
                         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]', log=True)
+                        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource[ms_id]) + "+0i,0+0i,0+0i," + str(skymodelpointsource[ms_id]) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
                     elif args['modelstoragemanager'] == 'sisco_stokes_i':
-                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]', log=True)    
+                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_TMP steps=[]', log=True)
+                        run("taql 'update " + ms + " set MODEL_DATA_TMP=array([" + str(skymodelpointsource[ms_id]) + "+0i,0+0i,0+0i," + str(skymodelpointsource[ms_id]) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+                        run('DP3 msin=' + ms + ' msout=. msin.datacolumn=MODEL_DATA_TMP msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]', log=True)
+                        # remove temporary column
+                        remove_column_ms(ms, 'MODEL_DATA_TMP')    
                     elif args['modelstoragemanager'] == 'sisco_diagonal':
-                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]', log=True)    
+                        run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_TMP steps=[]', log=True)
+                        run("taql 'update " + ms + " set MODEL_DATA_TMP=array([" + str(skymodelpointsource[ms_id]) + "+0i,0+0i,0+0i," + str(skymodelpointsource[ms_id]) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+                        run('DP3 msin=' + ms + ' msout=. msin.datacolumn=MODEL_DATA_TMP msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]', log=True)
+                        # remove temporary column
+                        remove_column_ms(ms, 'MODEL_DATA_TMP')
                     else:
                         run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + args['modelstoragemanager'] + ' steps=[]', log=True)
+                        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource[ms_id]) + "+0i,0+0i,0+0i," + str(skymodelpointsource[ms_id]) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
                     # do the predict with taql
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource[ms_id]) + "+0i)'", log=True)
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource[ms_id]) + "+0i)'", log=True)
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'", log=True)
                     #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'", log=True)
                     # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-                    nchan = len(get_frequencies_from_ms(ms))
-                    run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource[ms_id]) + "+0i,0+0i,0+0i," + str(skymodelpointsource[ms_id]) + "+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+                    # nchan = len(get_frequencies_from_ms(ms))
+                    
 
         # do the stack and normalization
         # mslist_stacked = stacked MS (one per common time axis / timestack); mss_timestacks = list of MSs that were used to create each stack
@@ -12418,7 +12446,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 ncpu_max=24, bdaaverager=False, DP3_dual_single=True, soltype_list=None, soltypelist_includedir=None,
                 normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None, skymodelsetjy=False,
                 solve_msinnchan='all', solve_msinstartchan=0,
-                antenna_averaging_factors=None, antenna_smoothness_factors=None, auto_flag_antennas=False, max_tec_delay_wraps=12):
+                antenna_averaging_factors=None, antenna_smoothness_factors=None, auto_flag_antennas=False, max_tec_delay_wraps=15):
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
     modeldata = 'MODEL_DATA'  # the default, update if needed for scalarphasediff and phmin solves
@@ -12453,24 +12481,35 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     # if skymodelpointsource is not None and soltypein != 'scalarphasediff' and soltypein != 'scalarphasediffFR' and create_modeldata:
     if skymodelpointsource is not None and create_modeldata and len(modeldatacolumns) == 0:
+        nchan_taql = len(get_frequencies_from_ms(ms))
         # create MODEL_DATA (no dysco!)
         if modelstoragemanager is None:
             run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA steps=[]')
+            run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan_taql) + ",4])'", log=True, taql=True) 
         else:
             if modelstoragemanager == 'sisco_stokes_i':
-                run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]')
+                run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_TMP steps=[]')
+                run("taql 'update " + ms + " set MODEL_DATA_TMP=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan_taql) + ",4])'", log=True, taql=True)
+                run('DP3 msin=' + ms + ' msout=. msin.datacolumn=MODEL_DATA_TMP msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]')
+                # remove temporary column
+                remove_column_ms(ms, 'MODEL_DATA_TMP')
             elif modelstoragemanager == 'sisco_diagonal':
-                run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]')
+                run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_TMP steps=[]')
+                run("taql 'update " + ms + " set MODEL_DATA_TMP=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan_taql) + ",4])'", log=True, taql=True)
+                run('DP3 msin=' + ms + ' msout=. msin.datacolumn=MODEL_DATA_TMP msout.datacolumn=MODEL_DATA msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]')
+                # remove temporary column
+                remove_column_ms(ms, 'MODEL_DATA_TMP')
             else:
                 run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA msout.storagemanager=' + modelstoragemanager + ' steps=[]')
+                run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan_taql) + ",4])'", log=True, taql=True) 
+
         # do the predict with taql
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,0]=(" + str(skymodelpointsource) + "+0i)'")
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,3]=(" + str(skymodelpointsource) + "+0i)'")
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,1]=(0+0i)'")
         #run("taql" + " 'update " + ms + " set MODEL_DATA[,2]=(0+0i)'")
         # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
-        nchan_taql = len(get_frequencies_from_ms(ms))       
-        run("taql 'update " + ms + " set MODEL_DATA=array([" + str(skymodelpointsource) + "+0i,0+0i,0+0i," + str(skymodelpointsource) + "+0i], [" + str(nchan_taql) + ",4])'", log=True, taql=True) 
+               
 
     if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
         # PM means point source model adjusted weights
@@ -12940,6 +12979,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    if 'error000' in soltabs: soltabs.remove('error000')
                    
                 cmd += "ddecal.initialsolutions.soltab='[" + ','.join(map(str, soltabs)) + "]' "
+    #print('^^^^^^^^^^^')
+    #print('^^^^^^^^^^^')
+    #print(soltypein)
+    #if soltypein == 'tec+phase+delay':
+    #    cmd += "ddecal.initialsolutions.h5parm=h5_solutions/scalarphase1_skyselfcalcycle000_J174713+653236_DI.concat.ms.avg.phaseup.h5 ddecal.initialsolutions.soltab='phase000' "
+
 
     ms_tmp = None # set to None so that we can check if it is created later
     if solve_msinnchan != 'all':
