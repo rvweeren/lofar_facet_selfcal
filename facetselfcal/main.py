@@ -7189,7 +7189,7 @@ def inputchecker(args, mslist):
             print('--BLsmooth-list length does not match the length of --soltype-list')
             raise Exception('--BLsmooth-list length does not match the length of --soltype-list')
 
-    if args['modelstoragemanager'] not in ['stokes_i', 'sisco', 'auto', 'sisco_stokes_i', 'sisco_diagonal', 'None', 'none']:
+    if args['modelstoragemanager'] not in ['stokes_i', 'sisco', 'auto', 'sisco_stokes_i', 'sisco_diagonal', 'None', 'none', None]:
          print(args['modelstoragemanager'])
          print('Wrong input for --modelstoragemanager, needs to be "stokes_i", "sisco" , "auto", "sisco_stokes_i", "sisco_diagonal", or "None"')
          raise Exception('Wrong input for --modelstoragemanager, needs to be stokes_i, sisco, auto, sisco_stokes_i, sisco_diagonal, or None')
