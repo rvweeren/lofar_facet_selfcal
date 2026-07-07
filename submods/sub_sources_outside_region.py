@@ -108,9 +108,9 @@ def getimsize(image):
         if 'Image-NPix' in line:
             imsizeddf = np.int_(line.split('=')[1])
         elif 'Image-Cell' in line:
-            cellddf = np.float_(line.split('=')[1])
+            cellddf = np.float64(line.split('=')[1])
         elif 'Weight-Robust' in line:
-            robustddf = np.float_(line.split('=')[1])
+            robustddf = np.float64(line.split('=')[1])
 
     if imsizeddf is None:
         print('Could not determine the image size, should have been 20000(?) or 6000(?)')
