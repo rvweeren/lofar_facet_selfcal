@@ -16852,8 +16852,8 @@ def flag_uGMRT_badfreqs(mslist):
         if freq > 100 and freq < 250:  # band2
             freqranges = '[99MHz..128MHz,167MHz..188MHz,243MHz..301MHz]'
         elif freq >= 250 and freq < 500:  # band3
-            #freqranges = '[306MHz..326MHz,370MHz..380MHz,460']
-            freqranges = None
+            #freqranges = '[360MHz..380MHz,390MHz..391MHz]'
+            freqranges = '[347MHz..349.7MHz,355MHz..380MHz,390MHz..391MHz]'
         elif freq >= 500 and freq < 800:  # band4    
             #freqranges = '[580MHz..620MHz,730MHz..750MHz]'
             freqranges = None
@@ -17258,7 +17258,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '19.2.1'
+    facetselfcal_version = '19.2.2'
     print_title(facetselfcal_version)
 
     # copy h5s locally

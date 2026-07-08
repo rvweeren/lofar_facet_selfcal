@@ -29,7 +29,15 @@ jobs:
 
       - name: Download flocs SIF (no cache)
         run: |
-          curl -L "https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif" -o flocs.sif
+          curl --fail --location --ipv4 --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 --max-time 600 \
+            "https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif" \
+            -o flocs.sif
+          if ! inspect_error="$(singularity inspect flocs.sif 2>&1 >/dev/null)"; then
+            printf '%s\n' "$inspect_error" >&2
+            echo "Downloaded flocs.sif is not a valid Singularity image" >&2
+            exit 1
+          fi
           ls -lh flocs.sif
           df -h
 
