@@ -29,7 +29,26 @@ jobs:
 
       - name: Download flocs SIF (no cache)
         run: |
-          curl -L "https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif" -o flocs.sif
+          urls=(
+            "https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif"
+            "http://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif"
+            "ftp://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif"
+          )
+          downloaded=false
+          for url in "${urls[@]}"; do
+            echo "Attempting download from $url"
+            if curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 \
+              --connect-timeout 20 --max-time 600 "$url" -o flocs.sif \
+              && singularity inspect flocs.sif >/dev/null 2>&1; then
+              downloaded=true
+              break
+            fi
+            rm -f flocs.sif
+          done
+          if ! $downloaded; then
+            echo "Failed to download flocs_ci.sif from any supported URL" >&2
+            exit 1
+          fi
           ls -lh flocs.sif
           df -h
 
