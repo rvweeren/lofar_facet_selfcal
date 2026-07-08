@@ -33,7 +33,10 @@ jobs:
             --connect-timeout 20 --max-time 600 \
             "https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif" \
             -o flocs.sif
-          singularity inspect flocs.sif >/dev/null 2>&1
+          if ! singularity inspect flocs.sif >/dev/null; then
+            echo "Downloaded flocs.sif is not a valid Singularity image" >&2
+            exit 1
+          fi
           ls -lh flocs.sif
           df -h
 
