@@ -7051,10 +7051,25 @@ def inputchecker(args, mslist):
         args (dict): argparse inputs.
         mslist (str list): list of ms
     """
-    # if args['BLsmooth']:
-    #    if True in args['BLsmooth_list']:
-    #        print('--BLsmooth cannot be used together with --BLsmooth-list')
-    #        raise Exception('--BLsmooth cannot be used together with --BLsmooth-list')
+    
+    # if args['smoothnessrefdistance_list'] contains a number higher than 0.0
+    if any(x > 0.0 for x in args['smoothnessrefdistance_list']):
+        # so we have a non-zero value in the list, in that case check that the list has the same length as args['soltype_list']
+        if len(args['smoothnessrefdistance_list']) != len(args['soltype_list']):
+            print('--smoothnessrefdistance-list and --soltype-list must have the same length')
+            raise Exception('--smoothnessrefdistance-list and --soltype-list must have the same length')
+
+    # check that the number of CPUs is >= 1 for WSClean 
+    if args['ncpu_max_WSClean'] is not None:
+        if args['ncpu_max_WSClean'] < 1:
+            print('--ncpu-max-WSClean must be >= 1')
+            raise Exception('--ncpu-max-WSClean must be >= 1')
+
+    # check that the number of CPUs is >= 1 for DP3
+    if args['ncpu_max_DP3'] is not None:
+        if args['ncpu_max_DP3'] < 1:
+            print('--ncpu-max-DP3 must be >= 1')
+            raise Exception('--ncpu-max-DP3 must be >= 1')
 
     # check that the file exists 
     if isinstance(args['imsize'], str):
@@ -13839,8 +13854,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     mask_region(model, squarebox, 'fits_images/box_' + os.path.basename(model))
 
             cmd = 'wsclean -predict '
-            # if not usewgridder and not idg:
-            #  cmd += '-padding 1.8 '
+            if args['ncpu_max_WSClean'] is not None:
+                cmd += '-j ' + str(args['ncpu_max_WSClean']) + ' '
             if channelsout > 1:
 
                 if args['fix_model_frequencies']: # Implementing model manipulation
@@ -13902,8 +13917,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
             # predict with wsclean
         cmd = 'wsclean -predict '
-        # if not usewgridder and not idg:
-        #  cmd += '-padding 1.8 '
+        if args['ncpu_max_WSClean'] is not None:
+            cmd += '-j ' + str(args['ncpu_max_WSClean']) + ' '
         if channelsout > 1:
             cmd += '-channels-out ' + str(channelsout) + ' '
             if args['gapchanneldivision']:
@@ -13981,6 +13996,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
             # step 3 predict with wsclean
             cmd = 'wsclean -predict '
+            if args['ncpu_max_WSClean'] is not None:
+                cmd += '-j ' + str(args['ncpu_max_WSClean']) + ' '
             if predict_inmodelcol:  # directly predict the right column name
                 cmd += '-model-column MODEL_DATA_DD' + str(facet_id) + ' '
             if args['modelstoragemanager'] is not None:
@@ -14064,6 +14081,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
     if args['imager'] == 'WSCLEAN':
         cmd = 'wsclean '
+        if args['ncpu_max_WSClean'] is not None:
+            cmd += '-j ' + str(args['ncpu_max_WSClean']) + ' '
         cmd += '-no-update-model-required '
         cmd += '-minuv-l ' + str(uvminim) + ' '
         if uvmaxim is not None:
@@ -14267,9 +14286,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # We check for DDEimaging to avoid a predict for image000 in a --DDE run
             # because at that moment there is no h5list yet, avoiding an unnecessary DI-type predict
             cmd = 'wsclean -predict '  # -size '
-            # cmd += str(int(imsize)) + ' ' + str(int(imsize)) +  ' -predict '
-            # if not usewgridder and not idg:
-            #     cmd += '-padding 1.8 '
+            if args['ncpu_max_WSClean'] is not None:
+                cmd += '-j ' + str(args['ncpu_max_WSClean']) + ' '
             if channelsout > 1:
                 if args['fix_model_frequencies']: # Implementing model manipulation
                     freq_string, freqs = frequencies_from_models(args['wscleanskymodel']) # Get frequency info from models
@@ -17258,7 +17276,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '19.2.2'
+    facetselfcal_version = '19.2.3'
     print_title(facetselfcal_version)
 
     # copy h5s locally

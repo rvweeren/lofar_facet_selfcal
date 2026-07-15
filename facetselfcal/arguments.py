@@ -166,6 +166,10 @@ def option_parser():
                                help='Accuracy for wgridder in WSClean (see WSClean documentation). The default is 0.0001 which is a good value for high resolution imaging.',
                                type=float,
                                default=None)
+    imagingparser.add_argument('--ncpu-max-WSClean',
+                               help='Maximum number of threads for WSClean, default=None. None means WSClean can use all available threads, i.e., all CPU cores.',
+                               type=int,
+                               default=None)   
 
     calibrationparser = parser.add_argument_group(
         "-------------------------Calibration Settings-------------------------")
@@ -265,7 +269,7 @@ def option_parser():
     calibrationparser.add_argument("--smoothnessrefdistance-list",
                                    type=arg_as_list,
                                    default=[0., 0., 0.],
-                                   help="If smoothnessrefdistance is not equal to zero then this parameter determines the freqeuency smoothness reference distance in units of km, with the smoothness scaling with distance. See DP3 documentation. The default is [0.,0.,0.].")
+                                   help="If smoothnessrefdistance is not equal to zero then this parameter determines the freqeuency smoothness reference distance in units of km, with the smoothness scaling with distance. See DP3 documentation. The default is a list of zeros")
     
     calibrationparser.add_argument("--antenna-averaging-factors-list",
                                    type=arg_as_list,
