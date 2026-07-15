@@ -3,6 +3,7 @@
 .idea
 __pycache__
 lofar_facet_selfcal.egg-info
+remote_singularity_python.sh
 
 #astro data
 *.ms
