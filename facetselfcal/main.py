@@ -14335,13 +14335,20 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 run(cmd)
 
         if args['imager'] == 'DDFACET':
+            from pipeline import parse_parset
+            keywords=parse_parset([os.environ['DDF_DIR']+'/DDFacet/DDFacet/Parset/DefaultParset.cfg'],use_headings=True)
+            match "Beam-PhasedArrayMode" in keywords:
+                case True:
+                    beammode_option = "--Beam-PhasedArrayMode"
+                case False:
+                    beammode_option = "--Beam-LOFARBeamMode"
             makemslist(mslist)
             # restoringbeam = '15'
             cmd = 'DDF.py --Data-MS=mslist.txt --Deconv-PeakFactor=0.001 --Data-ColName=' + imcol + ' ' + \
                   '--Parallel-NCPU=32 --Output-Mode=Clean --Deconv-CycleFactor=0 ' + \
                   '--Deconv-MaxMinorIter=' + str(niter) + ' --Deconv-MaxMajorIter=5 ' + \
                   '--Deconv-Mode=SSD --Weight-Robust=' + str(robust) + ' --Image-NPix=' + str(int(imsize)) + ' ' + \
-                  '--CF-wmax=50000 --CF-Nw=100 --Beam-Model=None --Beam-LOFARBeamMode=A --Beam-NBand=1 ' + \
+                  f'--CF-wmax=50000 --CF-Nw=100 --Beam-Model=None {beammode_option}=A --Beam-NBand=1 ' + \
                   '--Output-Also=onNeds --Image-Cell=' + str(pixsize) + ' --Facets-NFacets=1 --Freq-NDegridBand=1 ' + \
                   '--Deconv-RMSFactor=3.0 --Deconv-FluxThreshold=0.0 --Data-Sort=1 --Cache-Dir=. --Freq-NBand=2 ' + \
                   '--GAClean-MinSizeInit=10 --Facets-DiamMax=1.5 --Facets-DiamMin=0.1 ' + \

@@ -799,6 +799,14 @@ def main():
         os.system('rm -f ' + outdico)  # clean up
         os.system('rm -f ' + outmask)
 
+        from pipeline import parse_parset
+        keywords=parse_parset([os.environ['DDF_DIR']+'/DDFacet/DDFacet/Parset/DefaultParset.cfg'],use_headings=True)
+        match "Beam-PhasedArrayMode" in keywords:
+            case True:
+                beammode_option = "--Beam-PhasedArrayMode"
+            case False:
+                beammode_option = "--Beam-LOFARBeamMode"
+
         if boxfile != 'fullfield':
             if args['HMPmodelfits'] is not None:
                 mask_region_cube(args['HMPmodelfits'], boxfile, outmask)
@@ -821,7 +829,7 @@ def main():
                         args['chunkhours']) + " --Data-MS=" + args[
                             'mslist'] + " --Deconv-PeakFactor 0.001000 --Data-ColName " + args[
                             'column'] + " --Parallel-NCPU=" + str(
-                        ncpu) + " --Facets-CatNodes=" + clustercat + " --Beam-CenterNorm=1 --Deconv-Mode SSD --Beam-Model=LOFAR --Beam-LOFARBeamMode=A --Weight-Robust " + str(
+                        ncpu) + " --Facets-CatNodes=" + clustercat + f" --Beam-CenterNorm=1 --Deconv-Mode SSD --Beam-Model=LOFAR {beammode_option}=A --Weight-Robust " + str(
                         robust) + " --Image-NPix=" + str(
                         imagenpix) + " --CF-wmax 50000 --CF-Nw 100 --Output-Also onNeds --Image-Cell " + str(
                         imagecell) + " --Facets-NFacets=11 --SSDClean-NEnlargeData 0 --Freq-NDegridBand 1 --Beam-NBand 1 --Facets-DiamMax 1.5 --Facets-DiamMin 0.1 --Deconv-RMSFactor=3.000000 --SSDClean-ConvFFTSwitch 10000 --Data-Sort 1 --Cache-Dir=. --Log-Memory 1 --Cache-Weight=reset --Output-Mode=Predict --Output-RestoringBeam 6.000000 --Freq-NBand=2 --RIME-DecorrMode=FT --SSDClean-SSDSolvePars [S,Alpha] --SSDClean-BICFactor 0 --Mask-Auto=1 --Mask-SigTh=5.00 --Mask-External=" + outmask + " --DDESolutions-GlobalNorm=None --DDESolutions-DDModeGrid=AP --DDESolutions-DDModeDeGrid=AP --DDESolutions-DDSols=[" +
@@ -832,8 +840,8 @@ def main():
                         args['chunkhours']) + " --Data-MS=" + args['mslist'] + " --Data-ColName " + args[
                             'column'] + " --Parallel-NCPU=" + str(
                         ncpu) + " --Facets-CatNodes=" + clustercat + " --Beam-CenterNorm=" + gethistorykey(outmask,
-                                                                                                           'Beam-CenterNorm') + " --Beam-LOFARBeamMode=" + gethistorykey(
-                        outmask, 'Beam-LOFARBeamMode') + " --Deconv-Mode HMP --Beam-Model=" + gethistorykey(outmask,
+                                                                                                           'Beam-CenterNorm') + f" {beammode_option}" + gethistorykey(
+                            outmask, beammode_option[2:]) + " --Deconv-Mode HMP --Beam-Model=" + gethistorykey(outmask,
                                                                                                             'Beam-Model') + " --Weight-Robust " + str(
                         robust) + " --Image-NPix=" + str(
                         imagenpix) + " --CF-wmax 50000 --CF-Nw 100 --Output-Also onNeds --Image-Cell " + str(
@@ -858,7 +866,7 @@ def main():
                         args['chunkhours']) + " --Data-MS=" + args[
                             'mslist'] + " --Deconv-PeakFactor 0.001000 --Data-ColName " + args[
                             'column'] + " --Parallel-NCPU=" + str(
-                        ncpu) + " --Facets-CatNodes=" + clustercat + " --Beam-CenterNorm=1 --Deconv-Mode SSD --Beam-Model=LOFAR --Beam-LOFARBeamMode=A --Weight-Robust " + str(
+                        ncpu) + " --Facets-CatNodes=" + clustercat + f" --Beam-CenterNorm=1 --Deconv-Mode SSD --Beam-Model=LOFAR {beammode_option}=A --Weight-Robust " + str(
                         robust) + " --Image-NPix=" + str(
                         imagenpix) + " --CF-wmax 50000 --CF-Nw 100 --Output-Also onNeds --Image-Cell " + str(
                         imagecell) + " --Facets-NFacets=11 --SSDClean-NEnlargeData 0 --Freq-NDegridBand 1 --Beam-NBand 1 --Facets-DiamMax 1.5 --Facets-DiamMin 0.1 --Deconv-RMSFactor=3.000000 --SSDClean-ConvFFTSwitch 10000 --Data-Sort 1 --Cache-Dir=. --Log-Memory 1 --Cache-Weight=reset --Output-Mode=Predict --Output-RestoringBeam 6.000000 --Freq-NBand=2 --RIME-DecorrMode=FT --SSDClean-SSDSolvePars [S,Alpha] --SSDClean-BICFactor 0 --Mask-Auto=1 --Mask-SigTh=5.00 --Mask-External=" + outmask + " --DDESolutions-GlobalNorm=None --DDESolutions-DDModeGrid=AP --DDESolutions-DDModeDeGrid=AP --DDESolutions-DDSols=[" + ddsolstr + "] --Predict-InitDicoModel=" + outdico + " --Selection-UVRangeKm=" + uvsel + " --GAClean-MinSizeInit=10 --Cache-Reset 1 --Beam-Smooth=1 --Predict-ColName='PREDICT_SUB' --DDESolutions-SolsDir=SOLSDIR --Misc-IgnoreDeprecationMarking=1")
@@ -872,8 +880,8 @@ def main():
                         args['chunkhours']) + " --Data-MS=" + args['mslist'] + " --Data-ColName " + args[
                             'column'] + " --Parallel-NCPU=" + str(
                         ncpu) + " --Facets-CatNodes=" + clustercat + " --Beam-CenterNorm=" + gethistorykey(outmask,
-                                                                                                           'Beam-CenterNorm') + " --Beam-LOFARBeamMode=" + gethistorykey(
-                        outmask, 'Beam-LOFARBeamMode') + " --Deconv-Mode HMP --Beam-Model=" + gethistorykey(outmask,
+                                                                                                           'Beam-CenterNorm') + f" {beammode_option}" + gethistorykey(
+                            outmask, beammode_option[2:]) + " --Deconv-Mode HMP --Beam-Model=" + gethistorykey(outmask,
                                                                                                             'Beam-Model') + " --Weight-Robust " + str(
                         robust) + " --Image-NPix=" + str(
                         imagenpix) + " --CF-wmax 50000 --CF-Nw 100 --Output-Also onNeds --Image-Cell " + str(
@@ -895,7 +903,7 @@ def main():
             run("DDF.py --Output-Name=image_full_ampphase_di_m.NS_SUB --Data-MS=" + args[
                 'mslist'] + " --Deconv-PeakFactor 0.001000 --Data-ColName " + args[
                     'column'] + " --Parallel-NCPU=" + str(
-                ncpu) + " --Facets-CatNodes=" + clustercat + " --Beam-CenterNorm=1 --Deconv-Mode SSD --Beam-Model=LOFAR --Beam-LOFARBeamMode=A --Weight-Robust " + str(
+                ncpu) + " --Facets-CatNodes=" + clustercat + f" --Beam-CenterNorm=1 --Deconv-Mode SSD --Beam-Model=LOFAR {beammode_option}=A --Weight-Robust " + str(
                 robust) + " --Image-NPix=" + str(
                 imagenpix) + " --CF-wmax 50000 --CF-Nw 100 --Output-Also onNeds --Image-Cell " + str(
                 imagecell) + " --Facets-NFacets=11 --SSDClean-NEnlargeData 0 --Freq-NDegridBand 1 --Beam-NBand 1 --Facets-DiamMax 1.5 --Facets-DiamMin 0.1 --Deconv-RMSFactor=3.000000 --SSDClean-ConvFFTSwitch 10000 --Data-Sort 1 --Cache-Dir=. --Log-Memory 1 --Cache-Weight=reset --Output-Mode=Predict --Output-RestoringBeam 6.000000 --Freq-NBand=2 --RIME-DecorrMode=FT --SSDClean-SSDSolvePars [S,Alpha] --SSDClean-BICFactor 0 --Mask-Auto=1 --Mask-SigTh=5.00 --Mask-External=" + outmask + " --DDESolutions-GlobalNorm=None --DDESolutions-DDModeGrid=AP --DDESolutions-DDModeDeGrid=AP --DDESolutions-DDSols=" + ddsolstr + " --DDESolutions-SolsDir=SOLSDIR --Predict-InitDicoModel=" + outdico + " --Selection-UVRangeKm=" + uvsel + " --GAClean-MinSizeInit=10 --Cache-Reset 1 --Beam-Smooth=1 --Predict-ColName='PREDICT_SUB' --Misc-IgnoreDeprecationMarking=1")
@@ -1017,7 +1025,7 @@ def main():
 
         run("DDF.py --Output-Name=image_full_ampphase_di_m.NS_TAR --Data-MS=" + args[
             'mslist'] + " --Deconv-PeakFactor 0.001000 --Data-ColName " + args['column'] + " --Parallel-NCPU=" + str(
-            ncpu) + " --Facets-CatNodes=" + clustercat + " --Beam-CenterNorm=1 --Deconv-Mode SSD --Beam-Model=LOFAR --Beam-LOFARBeamMode=A --Weight-Robust -0.500000 --Image-NPix=20000 --CF-wmax 50000 --CF-Nw 100 --Output-Also onNeds --Image-Cell 1.500000 --Facets-NFacets=11 --SSDClean-NEnlargeData 0 --Freq-NDegridBand 1 --Beam-NBand 1 --Facets-DiamMax 1.5 --Facets-DiamMin 0.1 --Deconv-RMSFactor=3.000000 --SSDClean-ConvFFTSwitch 10000 --Data-Sort 1 --Cache-Dir=. --Log-Memory 1 --Cache-Weight=reset --Output-Mode=Predict --Output-RestoringBeam 6.000000 --Freq-NBand=2 --RIME-DecorrMode=FT --SSDClean-SSDSolvePars [S,Alpha] --SSDClean-BICFactor 0 --Mask-Auto=1 --Mask-SigTh=5.00 --Mask-External=" + outmask + " --DDESolutions-GlobalNorm=None --DDESolutions-DDModeGrid=AP --DDESolutions-DDModeDeGrid=AP --DDESolutions-DDSols=" + solsfile + " --Predict-InitDicoModel=" + outdico_target + " --Selection-UVRangeKm=" + uvsel + " --GAClean-MinSizeInit=10 --Cache-Reset 1 --Beam-Smooth=1 --Predict-ColName='PREDICT_TAR' --Misc-IgnoreDeprecationMarking=1")
+            ncpu) + " --Facets-CatNodes=" + clustercat + f" --Beam-CenterNorm=1 --Deconv-Mode SSD --Beam-Model=LOFAR {beammode_option}=A --Weight-Robust -0.500000 --Image-NPix=20000 --CF-wmax 50000 --CF-Nw 100 --Output-Also onNeds --Image-Cell 1.500000 --Facets-NFacets=11 --SSDClean-NEnlargeData 0 --Freq-NDegridBand 1 --Beam-NBand 1 --Facets-DiamMax 1.5 --Facets-DiamMin 0.1 --Deconv-RMSFactor=3.000000 --SSDClean-ConvFFTSwitch 10000 --Data-Sort 1 --Cache-Dir=. --Log-Memory 1 --Cache-Weight=reset --Output-Mode=Predict --Output-RestoringBeam 6.000000 --Freq-NBand=2 --RIME-DecorrMode=FT --SSDClean-SSDSolvePars [S,Alpha] --SSDClean-BICFactor 0 --Mask-Auto=1 --Mask-SigTh=5.00 --Mask-External=" + outmask + " --DDESolutions-GlobalNorm=None --DDESolutions-DDModeGrid=AP --DDESolutions-DDModeDeGrid=AP --DDESolutions-DDSols=" + solsfile + " --Predict-InitDicoModel=" + outdico_target + " --Selection-UVRangeKm=" + uvsel + " --GAClean-MinSizeInit=10 --Cache-Reset 1 --Beam-Smooth=1 --Predict-ColName='PREDICT_TAR' --Misc-IgnoreDeprecationMarking=1")
 
         for ms in msfiles:
             # run('kMS.py --MSName %s --SolverType KAFCA --PolMode Scalar --BaseImageName Predict_DDT --NIterKF 6 --CovQ 0.100000 --LambdaKF=0.500000 --NCPU 32 --OutSolsName DIT --PowerSmooth=0.000000 --InCol DATA_SUB --Weighting Natural --UVMinMax=0.100000,1000.000000 --SolsDir=SOLSDIR --SolverType CohJones --PolMode Scalar --SkyModelCol PREDICT_TAR --OutCol DATA_SUB_CORRECTED --ApplyToDir 0 --dt 1.0 --NChanSols 1'%(ms))
