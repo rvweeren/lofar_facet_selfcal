@@ -59,11 +59,11 @@ from astropy.table import Table, vstack
 from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
 from astropy.time import Time
 from astroquery.skyview import SkyView
-from losoto import h5parm
-import bdsf
-from casacore.tables import taql, table, makecoldesc
-import losoto
-import losoto.lib_operations
+from losoto import h5parm # type: ignore
+import bdsf # type: ignore
+from casacore.tables import taql, table, makecoldesc # type: ignore
+import losoto # type: ignore
+import losoto.lib_operations # type: ignore
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -115,6 +115,167 @@ matplotlib.use('Agg')
 
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+
+
+def calculate_overlap_area(d, r1, r2):
+    """Calculates the intersection area of two circles of radii r1 and r2 separated by distance d."""
+    if d >= r1 + r2:
+        return 0.0
+    if d <= abs(r1 - r2):
+        return np.pi * min(r1, r2)**2
+
+    r1_sq = r1**2
+    r2_sq = r2**2
+    
+    alpha = np.arccos((r1_sq + d**2 - r2_sq) / (2 * r1 * d))
+    beta = np.arccos((r2_sq + d**2 - r1_sq) / (2 * r2 * d))
+    
+    area = (r1_sq * alpha - r1_sq * np.sin(2 * alpha) / 2 +
+            r2_sq * beta - r2_sq * np.sin(2 * beta) / 2)
+    return area
+
+def find_shadowed_intervals(ms, shadow_fraction=0.1): 
+    """
+    Uses python-casacore to scan the MS and find exactly which baselines 
+    and times are shadowed based on UVW coordinates and antenna diameters.
+    """
+    # 1. Get antenna diameters from the ANTENNA subtable
+    with table(ms + "/ANTENNA", ack=False) as ant_tab:
+        names = ant_tab.getcol("NAME") 
+        diameters = ant_tab.getcol("DISH_DIAMETER") + 1000
+        print(f"Found {len(names)} antennas in the ANTENNA table.")
+        print("Antenna names and diameters:")
+        for i in range(len(names)):
+            print(f"  {names[i]}: {diameters[i]}")
+
+        radii = {i: diameters[i] / 2.0 for i in range(len(names))}
+        ant_names = {i: names[i] for i in range(len(names))}
+
+    print("Analyzing UVW geometry over time for shadowing...")
+    
+    # Dict to store grouped intervals: {(ant1_name, ant2_name): [[t_start, t_end], ...]}
+    shadow_events = {}
+
+    # 2. Open the main table to inspect UVW coordinates per baseline over time
+    with table(ms, ack=False) as t:
+        # We only need metadata columns to keep memory usage low
+        a1 = t.getcol("ANTENNA1")
+        a2 = t.getcol("ANTENNA2")
+        times = t.getcol("TIME")
+        uvw = t.getcol("UVW")
+        
+        # Calculate projected distance in the U-V plane
+        d_projected = np.sqrt(uvw[:, 0]**2 + uvw[:, 1]**2)
+        w_coords = uvw[:, 2]
+
+        for i in range(len(ms)):
+            idx1, idx2 = a1[i], a2[i]
+            if idx1 == idx2:
+                continue # Skip autocorrelations
+                
+            r1, r2 = radii[idx1], radii[idx2]
+            d = d_projected[i]
+            
+            if d < (r1 + r2):
+                # An overlap exists; calculate the exact area
+                overlap = calculate_overlap_area(d, r1, r2)
+                if overlap <= 0:
+                    continue
+                
+                # Determine which antenna is shadowed based on W sign
+                # MS convention: UVW vector = Pos(Ant1) - Pos(Ant2). 
+                # If W > 0, Ant1 is closer to the source, shadowing Ant2.
+                shadowed_idx = idx2 if w_coords[i] > 0 else idx1
+                shadowed_radius = radii[shadowed_idx]
+                shadowed_area = np.pi * (shadowed_radius**2)
+                
+                if (overlap / shadowed_area) >= shadow_fraction:
+                    pair = tuple(sorted([ant_names[idx1], ant_names[idx2]]))
+                    t = times[i]
+                    
+                    if pair not in shadow_events:
+                        shadow_events[pair] = []
+                    shadow_events[pair].append(t)
+
+    # 3. Consolidate individual time row entries into continuous intervals
+    consolidated_flags = []
+    for pair, t_list in shadow_events.items():
+        t_list = sorted(list(set(t_list)))
+        if not t_list:
+            continue
+            
+        # Group timestamps into ranges
+        start_t = t_list[0]
+        prev_t = t_list[0]
+        
+        # Assuming typical time steps, tolerate small gaps if rows aren't perfectly contiguous
+        dt_tolerance = 10.0 
+        
+        for current_t in t_list[1:]:
+            if current_t - prev_t > dt_tolerance:
+                consolidated_flags.append((pair[0], pair[1], start_t, prev_t))
+                start_t = current_t
+            prev_t = current_t
+        consolidated_flags.append((pair[0], pair[1], start_t, prev_t))
+
+    return consolidated_flags
+
+def run_dp3_shadow_flagging(ms, shadow_fraction=0.1):
+    """Generates the DP3 parset with explicit baseline/abstime preflagger steps."""
+   
+    # Find the geometry violations
+    flags = find_shadowed_intervals(ms, shadow_fraction)
+    
+    if not flags:
+        print("No antenna shadowing detected based on your criteria. Nothing to flag.")
+        return
+
+    print(f"Found {len(flags)} baseline/time windows affected by shadowing.")
+    
+    # Construct DP3 steps dynamically
+    step_names = []
+    parset_content = [
+        f"msin = {ms}",
+        "msout = .", # Update in-place
+    ]
+    
+    for idx, (ant1, ant2, t_start, t_end) in enumerate(flags):
+        step_name = f"shadow_{idx}"
+        step_names.append(step_name)
+        
+        # Formulate precise ISO/UTC time strings or use strict casacore double epoch format.
+        # DP3 abstime accepts time strings or direct Modified Julian Date / Epoch expressions,
+        # but absolute string bounds or bracket syntax work best. 
+        # Here we use DP3's custom range format for abstime: [t_start, t_end]
+        parset_content.extend([
+            f"{step_name}.type = preflagger",
+            f"{step_name}.baseline = {ant1} & {ant2}",
+            f"{step_name}.abstime = [{t_start}, {t_end}]"
+        ])
+        
+    parset_content.insert(2, f"steps = [{', '.join(step_names)}]")
+
+    # Write the dynamically compiled parset
+    parset = "dp3_shadow.parset"
+    with open(parset, "w") as f:
+        f.write("\n".join(parset_content))
+    sys.exit()    
+    print(f"Executing DP3 with {len(step_names)} explicit preflagger steps...")
+    try:
+        result = subprocess.run(
+            ["DP3", str(parset)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        print("DP3 execution complete. Shadowed data successfully flagged.")
+    except subprocess.CalledProcessError as e:
+        print(f"DP3 Error: {e.stderr}")
+    finally:
+        if os.path.isfile(parset):
+            os.remove(parset)
+
 
 
 def create_homogenized_facetdirections(facetdirections, separateradius=5.0):
@@ -2344,7 +2505,7 @@ def getGSM(ms_input, SkymodelPath='gsm.skymodel', Radius="5.", DoDownload="Force
     targetname : str
         Give the patch a certain name, default: "pointing"
     """
-    import lsmtool
+    import lsmtool # type: ignore
     FileExists = os.path.isfile(SkymodelPath)
     if (not FileExists and os.path.exists(SkymodelPath)):
         raise ValueError("download_tgss_skymodel_target: Path: \"%s\" exists but is not a file!" % (SkymodelPath))
@@ -5906,7 +6067,8 @@ def tmpmakeantresidual(mslist, selfcalcycle, multiscale, fitsmask_list, restorin
         for ms in mslist:
             os.system('rm -rf ' +  ms + '_' + ant)
         # remove psf, residual images, model images, dirty, and beam images
-        clean_up_images(args['imagename'] + str(i).zfill(3) + stackstr + '_residual_' + ant, model=True)
+        stackstr = ''
+        clean_up_images(args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '_residual_' + ant, model=True)
 
 
 def gunzip_model_images(imagebasename):
@@ -9548,7 +9710,7 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
         raise ValueError('Number of antennas in Measurement Set does not match number of antennas in H5parm.')
 
     if (beamlib.lower() == 'stationresponse') or (beamlib.lower() == 'lofarbeam'):
-        from lofar.stationresponse import stationresponse
+        from lofar.stationresponse import stationresponse # type: ignore
         sr = stationresponse(ms, inverse, useElementResponse, useArrayFactor, useChanFreq)
 
         for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant', 'time', 'pol', 'freq'], weight=False):
@@ -9634,7 +9796,7 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
 
 def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFactor, useChanFreq, ms, freqs, times, ra,
                               dec, ra_ref, dec_ref, reference_xyz, phase_xyz):
-    import everybeam
+    import everybeam # type: ignore
     if useElementResponse and useArrayFactor:
         # print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
         obs = everybeam.load_telescope(ms, use_differential_beam=False, use_channel_frequency=useChanFreq)
@@ -11569,7 +11731,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     elif selfcalcycle == 0:
         # Only run this if selfcalcycle==0 [elif]
         # Try to load previous facet_regions/facetdirections.skymodel
-        import lsmtool
+        import lsmtool # type: ignore
         if 'skymodel' not in imagename:
             img = bdsf.process_image(imagename + str(selfcalcycle).zfill(3) + '-MFS-image.fits', mean_map='zero',
                                      rms_map=True, rms_box=(160, 40))
@@ -14542,7 +14704,7 @@ def updatemodelcols_includedir(modeldatacolumns, soltypelist_includedir, ms, dry
     return modeldatacolumns_solve_newnames, sourcedir[id_removed][:], id_kept
 
 def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
-    import lsmtool
+    import lsmtool # type: ignore
     print('Loading:', skymodelin)
     LSM = lsmtool.load(skymodelin)
     LSM.group(algorithm='facet', facet=facetfitsfile)
@@ -14638,7 +14800,7 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
  
     try: 
         if regionfile is not None:
-            import regions
+            import regions # type: ignore
             # if regionfile is a string
             if isinstance(regionfile, str):
                 ds9regions = regions.Regions.read(regionfile, format='ds9')
@@ -16037,6 +16199,10 @@ def basicsetup(mslist):
     freqs = t.getcol('CHAN_FREQ')[0]
     chan_width = np.median(t.getcol('CHAN_WIDTH')[0])
     t.close()
+
+    if args['multiscale'] is not None:
+        # do not allow update_multiscale to be set automatically further below if multiscale is specified
+        args['update_multiscale'] = False
    
     if args['telescope'] == 'LOFAR':
         if freq < 100e6:
@@ -16181,8 +16347,7 @@ def basicsetup(mslist):
         if args['DDE']:
             args['usemodeldataforsolints'] = False
             if args['facetdirections'] is None: # allow auto mode with user-provided facet directions
-                args['auto_directions'] = True
-            args['mask_extended'] = True   
+                args['auto_directions'] = True  
             if args['mask_extended'] is None: # so not set by user, so we can set it to True in auto
                 args['mask_extended'] = True 
             if args['update_multiscale'] is None: # so not set by user, so we can set it to True in auto
