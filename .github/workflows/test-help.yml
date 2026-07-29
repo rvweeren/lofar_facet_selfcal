@@ -27,12 +27,27 @@ jobs:
           echo "SINGULARITY_CACHEDIR=$RUNNER_TEMP/singularity-cache" >> $GITHUB_ENV
           mkdir -p "$RUNNER_TEMP/singularity-cache"
 
-      - name: Download flocs SIF (no cache)
+      - name: Download flocs SIF (with fallback)
         run: |
-          curl --fail --location --ipv4 --retry 5 --retry-all-errors --retry-delay 5 \
-            --connect-timeout 20 --max-time 600 \
-            "https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif" \
-            -o flocs.sif
+          set -euo pipefail
+
+          PRIMARY_URL="https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif"
+          FALLBACK_URL="https://nextcloud.strw.leidenuniv.nl/index.php/s/G7kZrrZ7cobt2XK/download"
+
+          download_image () {
+            local url="$1"
+            echo "Attempting download from: $url"
+            curl --fail --location --ipv4 --retry 5 --retry-all-errors --retry-delay 5 \
+              --connect-timeout 20 --max-time 600 \
+              "$url" -o flocs.sif
+          }
+
+          if ! download_image "$PRIMARY_URL"; then
+            echo "Primary download failed, trying fallback URL..."
+            rm -f flocs.sif
+            download_image "$FALLBACK_URL"
+          fi
+
           if ! inspect_error="$(singularity inspect flocs.sif 2>&1 >/dev/null)"; then
             printf '%s\n' "$inspect_error" >&2
             echo "Downloaded flocs.sif is not a valid Singularity image" >&2
