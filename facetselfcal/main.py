@@ -117,167 +117,6 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
-def calculate_overlap_area(d, r1, r2):
-    """Calculates the intersection area of two circles of radii r1 and r2 separated by distance d."""
-    if d >= r1 + r2:
-        return 0.0
-    if d <= abs(r1 - r2):
-        return np.pi * min(r1, r2)**2
-
-    r1_sq = r1**2
-    r2_sq = r2**2
-    
-    alpha = np.arccos((r1_sq + d**2 - r2_sq) / (2 * r1 * d))
-    beta = np.arccos((r2_sq + d**2 - r1_sq) / (2 * r2 * d))
-    
-    area = (r1_sq * alpha - r1_sq * np.sin(2 * alpha) / 2 +
-            r2_sq * beta - r2_sq * np.sin(2 * beta) / 2)
-    return area
-
-def find_shadowed_intervals(ms, shadow_fraction=0.1): 
-    """
-    Uses python-casacore to scan the MS and find exactly which baselines 
-    and times are shadowed based on UVW coordinates and antenna diameters.
-    """
-    # 1. Get antenna diameters from the ANTENNA subtable
-    with table(ms + "/ANTENNA", ack=False) as ant_tab:
-        names = ant_tab.getcol("NAME") 
-        diameters = ant_tab.getcol("DISH_DIAMETER") + 1000
-        print(f"Found {len(names)} antennas in the ANTENNA table.")
-        print("Antenna names and diameters:")
-        for i in range(len(names)):
-            print(f"  {names[i]}: {diameters[i]}")
-
-        radii = {i: diameters[i] / 2.0 for i in range(len(names))}
-        ant_names = {i: names[i] for i in range(len(names))}
-
-    print("Analyzing UVW geometry over time for shadowing...")
-    
-    # Dict to store grouped intervals: {(ant1_name, ant2_name): [[t_start, t_end], ...]}
-    shadow_events = {}
-
-    # 2. Open the main table to inspect UVW coordinates per baseline over time
-    with table(ms, ack=False) as t:
-        # We only need metadata columns to keep memory usage low
-        a1 = t.getcol("ANTENNA1")
-        a2 = t.getcol("ANTENNA2")
-        times = t.getcol("TIME")
-        uvw = t.getcol("UVW")
-        
-        # Calculate projected distance in the U-V plane
-        d_projected = np.sqrt(uvw[:, 0]**2 + uvw[:, 1]**2)
-        w_coords = uvw[:, 2]
-
-        for i in range(len(ms)):
-            idx1, idx2 = a1[i], a2[i]
-            if idx1 == idx2:
-                continue # Skip autocorrelations
-                
-            r1, r2 = radii[idx1], radii[idx2]
-            d = d_projected[i]
-            
-            if d < (r1 + r2):
-                # An overlap exists; calculate the exact area
-                overlap = calculate_overlap_area(d, r1, r2)
-                if overlap <= 0:
-                    continue
-                
-                # Determine which antenna is shadowed based on W sign
-                # MS convention: UVW vector = Pos(Ant1) - Pos(Ant2). 
-                # If W > 0, Ant1 is closer to the source, shadowing Ant2.
-                shadowed_idx = idx2 if w_coords[i] > 0 else idx1
-                shadowed_radius = radii[shadowed_idx]
-                shadowed_area = np.pi * (shadowed_radius**2)
-                
-                if (overlap / shadowed_area) >= shadow_fraction:
-                    pair = tuple(sorted([ant_names[idx1], ant_names[idx2]]))
-                    t = times[i]
-                    
-                    if pair not in shadow_events:
-                        shadow_events[pair] = []
-                    shadow_events[pair].append(t)
-
-    # 3. Consolidate individual time row entries into continuous intervals
-    consolidated_flags = []
-    for pair, t_list in shadow_events.items():
-        t_list = sorted(list(set(t_list)))
-        if not t_list:
-            continue
-            
-        # Group timestamps into ranges
-        start_t = t_list[0]
-        prev_t = t_list[0]
-        
-        # Assuming typical time steps, tolerate small gaps if rows aren't perfectly contiguous
-        dt_tolerance = 10.0 
-        
-        for current_t in t_list[1:]:
-            if current_t - prev_t > dt_tolerance:
-                consolidated_flags.append((pair[0], pair[1], start_t, prev_t))
-                start_t = current_t
-            prev_t = current_t
-        consolidated_flags.append((pair[0], pair[1], start_t, prev_t))
-
-    return consolidated_flags
-
-def run_dp3_shadow_flagging(ms, shadow_fraction=0.1):
-    """Generates the DP3 parset with explicit baseline/abstime preflagger steps."""
-   
-    # Find the geometry violations
-    flags = find_shadowed_intervals(ms, shadow_fraction)
-    
-    if not flags:
-        print("No antenna shadowing detected based on your criteria. Nothing to flag.")
-        return
-
-    print(f"Found {len(flags)} baseline/time windows affected by shadowing.")
-    
-    # Construct DP3 steps dynamically
-    step_names = []
-    parset_content = [
-        f"msin = {ms}",
-        "msout = .", # Update in-place
-    ]
-    
-    for idx, (ant1, ant2, t_start, t_end) in enumerate(flags):
-        step_name = f"shadow_{idx}"
-        step_names.append(step_name)
-        
-        # Formulate precise ISO/UTC time strings or use strict casacore double epoch format.
-        # DP3 abstime accepts time strings or direct Modified Julian Date / Epoch expressions,
-        # but absolute string bounds or bracket syntax work best. 
-        # Here we use DP3's custom range format for abstime: [t_start, t_end]
-        parset_content.extend([
-            f"{step_name}.type = preflagger",
-            f"{step_name}.baseline = {ant1} & {ant2}",
-            f"{step_name}.abstime = [{t_start}, {t_end}]"
-        ])
-        
-    parset_content.insert(2, f"steps = [{', '.join(step_names)}]")
-
-    # Write the dynamically compiled parset
-    parset = "dp3_shadow.parset"
-    with open(parset, "w") as f:
-        f.write("\n".join(parset_content))
-    sys.exit()    
-    print(f"Executing DP3 with {len(step_names)} explicit preflagger steps...")
-    try:
-        result = subprocess.run(
-            ["DP3", str(parset)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True
-        )
-        print("DP3 execution complete. Shadowed data successfully flagged.")
-    except subprocess.CalledProcessError as e:
-        print(f"DP3 Error: {e.stderr}")
-    finally:
-        if os.path.isfile(parset):
-            os.remove(parset)
-
-
-
 def create_homogenized_facetdirections(facetdirections, separateradius=5.0):
     # check that facetdirections is a list of strings, otherwise this function cannot be used
     if isinstance(facetdirections, list) and all(isinstance(facetdirections, str) for facetdirections in facetdirections):
@@ -7228,10 +7067,10 @@ def inputchecker(args, mslist):
             raise Exception('--ncpu-max-WSClean must be >= 1')
 
     # check that the number of CPUs is >= 1 for DP3
-    if args['ncpu_max_DP3'] is not None:
-        if args['ncpu_max_DP3'] < 1:
-            print('--ncpu-max-DP3 must be >= 1')
-            raise Exception('--ncpu-max-DP3 must be >= 1')
+    if args['ncpu_max_DP3solve'] is not None:
+        if args['ncpu_max_DP3solve'] < 1:
+            print('--ncpu-max-DP3solve must be >= 1')
+            raise Exception('--ncpu-max-DP3solve must be >= 1')
 
     # check that the file exists 
     if isinstance(args['imsize'], str):
@@ -17582,6 +17421,12 @@ def main():
     # create Ateam plots
     if not args['phasediff_only']:
         create_Ateam_seperation_plots(mslist, start=args['start'])
+
+    # flag shadowed antennas for MeerKAT, VLA, ATCA, GMRT, WSRT, ASKAP
+    if args['start'] == 0:
+        for ms in mslist:
+            if get_telescope_from_ms(ms) in ['MeerKAT', 'VLA', 'ATCA', 'GMRT', 'WSRT', 'ASKAP']:
+                run('python ' + submodpath + '/python shadow_flag.py --ms=' + ms)
 
     # fix UVW coordinates (for time averaging with MeerKAT data)
     if args['start'] == 0: fix_uvw(mslist)
