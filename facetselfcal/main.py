@@ -1162,7 +1162,7 @@ def applycal_restart_di(mslist, selfcalcycle):
     return
 
 
-def MeerKAT_pbcor_Lband(fitsimage, outfile, freq=None, ms=None, pblimit=0.0): 
+def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0): 
     """
     Apply a MeerKAT primary beam correction to a L-band FITS image.
 
@@ -1205,6 +1205,9 @@ def MeerKAT_pbcor_Lband(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
         G4 =  0.00078e-13
         G5 =  0.00019e-16
 
+    - For UHF and S-band frequencies, different coefficients are used as specified in the code.
+      These were derived from fitting the katbeam model (average of 13 frequencies) with the given polynomial form.
+        
     - The beam correction formula follows the AIPS PBCOR convention.
 
     References
@@ -1219,11 +1222,8 @@ def MeerKAT_pbcor_Lband(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
       information is used when available.
 
     """
-    G1 =-0.3514e-3
-    G2 = 0.5600e-7
-    G3 =-0.0474e-10
-    G4 = 0.00078e-13
-    G5 = 0.00019e-16
+
+
  
     if freq is None:
         hdul = fits.open(fitsimage)
@@ -1231,7 +1231,26 @@ def MeerKAT_pbcor_Lband(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
         freq = header['CRVAL3']/1e9
         print('Frequency found from the FITS image [GHz]:', freq)
         hdul.close()
- 
+
+    if (freq > 500e6) and (freq < 1.0e9):  # UHF-band
+        G1 =-0.3409306414e-3
+        G2 = 0.5002777932e-7
+        G3 =-0.0406048877e-10
+        G4 = 0.0017837276e-13
+        G5 = -0.0000297565e-16
+    if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
+        G1 =-0.3514e-3
+        G2 = 0.5600e-7
+        G3 =-0.0474e-10
+        G4 = 0.00078e-13
+        G5 = 0.00019e-16
+    if (freq >= 1.7e9) and (freq < 4.0e9):  # S-band
+        G1 =-0.2829793167e-3
+        G2 = 0.3462301721e-7
+        G3 =-0.0237871692e-10
+        G4 = 0.0009189657e-13
+        G5 = -0.0000148312e-16
+
     hdu = fits.open(fitsimage,  ignore_missing_end=True)
     hduflat = flatten(hdu)
     img = hduflat.data   
@@ -14241,20 +14260,20 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 print('Doing manual primary beam correction for MeerKAT image')
                 if os.path.isfile(imageout + '-MFS-image-pb.fits'):
                     outfile = (imageout + '-MFS-image-pb.fits').replace('-MFS-image-pb.fits', '-MFS-image-manualpb.fits')
-                    MeerKAT_pbcor_Lband(imageout + '-MFS-image-pb.fits', outfile, ms=mslist[0])
+                    MeerKAT_pbcor(imageout + '-MFS-image-pb.fits', outfile, ms=mslist[0])
                 else: #so this must be a run without facets
                     if fullpol:
                         outfile = (imageout + '-MFS-I-image.fits').replace('-MFS-I-image.fits', '-MFS-I-image-manualpb.fits')
-                        MeerKAT_pbcor_Lband(imageout + '-MFS-I-image.fits', outfile, ms=mslist[0])
+                        MeerKAT_pbcor(imageout + '-MFS-I-image.fits', outfile, ms=mslist[0])
                         outfile = (imageout + '-MFS-Q-image.fits').replace('-MFS-Q-image.fits', '-MFS-Q-image-manualpb.fits')
-                        MeerKAT_pbcor_Lband(imageout + '-MFS-Q-image.fits', outfile, ms=mslist[0])
+                        MeerKAT_pbcor(imageout + '-MFS-Q-image.fits', outfile, ms=mslist[0])
                         outfile = (imageout + '-MFS-U-image.fits').replace('-MFS-U-image.fits', '-MFS-U-image-manualpb.fits')
-                        MeerKAT_pbcor_Lband(imageout + '-MFS-U-image.fits', outfile, ms=mslist[0])
+                        MeerKAT_pbcor(imageout + '-MFS-U-image.fits', outfile, ms=mslist[0])
                         outfile = (imageout + '-MFS-V-image.fits').replace('-MFS-V-image.fits', '-MFS-V-image-manualpb.fits')
-                        MeerKAT_pbcor_Lband(imageout + '-MFS-V-image.fits', outfile, ms=mslist[0])                                                                          
+                        MeerKAT_pbcor(imageout + '-MFS-V-image.fits', outfile, ms=mslist[0])                                                                          
                     else:
                         outfile = (imageout + '-MFS-image.fits').replace('-MFS-image.fits', '-MFS-image-manualpb.fits')
-                        MeerKAT_pbcor_Lband(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
+                        MeerKAT_pbcor(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
 
         # write info about how the primary beam correction was done to the FITS header and processing history
         write_processing_history(' '.join(map(str, sys.argv)), facetselfcal_version, imageout)
@@ -14336,20 +14355,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 run(cmd)
 
         if args['imager'] == 'DDFACET':
-            from pipeline import parse_parset
-            keywords=parse_parset([os.environ['DDF_DIR']+'/DDFacet/DDFacet/Parset/DefaultParset.cfg'],use_headings=True)
-            match "Beam-PhasedArrayMode" in keywords:
-                case True:
-                    beammode_option = "--Beam-PhasedArrayMode"
-                case False:
-                    beammode_option = "--Beam-LOFARBeamMode"
             makemslist(mslist)
             # restoringbeam = '15'
             cmd = 'DDF.py --Data-MS=mslist.txt --Deconv-PeakFactor=0.001 --Data-ColName=' + imcol + ' ' + \
                   '--Parallel-NCPU=32 --Output-Mode=Clean --Deconv-CycleFactor=0 ' + \
                   '--Deconv-MaxMinorIter=' + str(niter) + ' --Deconv-MaxMajorIter=5 ' + \
                   '--Deconv-Mode=SSD --Weight-Robust=' + str(robust) + ' --Image-NPix=' + str(int(imsize)) + ' ' + \
-                  f'--CF-wmax=50000 --CF-Nw=100 --Beam-Model=None {beammode_option}=A --Beam-NBand=1 ' + \
+                  '--CF-wmax=50000 --CF-Nw=100 --Beam-Model=None --Beam-LOFARBeamMode=A --Beam-NBand=1 ' + \
                   '--Output-Also=onNeds --Image-Cell=' + str(pixsize) + ' --Facets-NFacets=1 --Freq-NDegridBand=1 ' + \
                   '--Deconv-RMSFactor=3.0 --Deconv-FluxThreshold=0.0 --Data-Sort=1 --Cache-Dir=. --Freq-NBand=2 ' + \
                   '--GAClean-MinSizeInit=10 --Facets-DiamMax=1.5 --Facets-DiamMin=0.1 ' + \
@@ -17433,7 +17445,7 @@ def main():
     if args['start'] == 0:
         for ms in mslist:
             if get_telescope_from_ms(ms) in ['MeerKAT', 'VLA', 'ATCA', 'GMRT', 'WSRT', 'ASKAP']:
-                run('python ' + submodpath + '/python shadow_flag.py --ms=' + ms)
+                run('python ' + submodpath + '/shadow_flag.py --ms=' + ms)
 
     # fix UVW coordinates (for time averaging with MeerKAT data)
     if args['start'] == 0: fix_uvw(mslist)
