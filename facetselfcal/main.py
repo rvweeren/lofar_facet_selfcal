@@ -616,7 +616,7 @@ def split_columns(ms, outms, column='CORRECTED_DATA'):
     fix_uvw([outms])
     return
 
-def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, compress_target_only=True):
+def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, compress_target_only=True, fix_uvw_coordinates=True):
     """
     Splits a multisource Measurement Set (MS) into separate single-source MS files.
     Parameters:
@@ -625,6 +625,7 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
         dryrun (bool, optional): If True, the function will not exceute the TaQl commands. Default is False.
         compressed (bool, optional): If True, the output MS will be compressed. Default is False.
         compress_target_only (bool, optional): If True, only the target MS will be compressed. The target source MS is assumed to be the one with the most time integration. Default is True.
+        fix_uvw_coordinates (bool, optional): If True, the UVW coordinates will be fixed. Default is True.
     Returns:
         list of str: List of paths to the newly created single-source Measurement Sets. 
                      If the input MS contains only a single source, returns a list containing the original MS path.
@@ -740,7 +741,8 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
                         run(cmddp3)
                         # remove uncompressed MS
                         os.system('rm -rf ' + outname)
-                        fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
+                        if fix_uvw_coordinates:
+                            fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
                     outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
                 elif compress_target_only and field_id == target_field_id: # only compress if this is the target source
                     print('Compressing the target source MS with DP3 and dysco...')
@@ -752,7 +754,8 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
                         run(cmddp3)        
                         # remove uncompressed MS
                         os.system('rm -rf ' + outname)
-                        fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
+                        if fix_uvw_coordinates:
+                            fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
                     outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
 
             mslistout.append(outname)
@@ -1232,19 +1235,19 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
         print('Frequency found from the FITS image [GHz]:', freq)
         hdul.close()
 
-    if (freq > 500e6) and (freq < 1.0e9):  # UHF-band
+    if (freq > 0.5) and (freq < 1.0):  # UHF-band
         G1 =-0.3409306414e-3
         G2 = 0.5002777932e-7
         G3 =-0.0406048877e-10
         G4 = 0.0017837276e-13
         G5 = -0.0000297565e-16
-    if (freq >= 1.0e9) and (freq < 1.7e9):  # L-band
+    if (freq >= 1.0) and (freq < 1.7):  # L-band
         G1 =-0.3514e-3
         G2 = 0.5600e-7
         G3 =-0.0474e-10
         G4 = 0.00078e-13
         G5 = 0.00019e-16
-    if (freq >= 1.7e9) and (freq < 4.0e9):  # S-band
+    if (freq >= 1.7) and (freq < 4.0):  # S-band
         G1 =-0.2829793167e-3
         G2 = 0.3462301721e-7
         G3 =-0.0237871692e-10
@@ -1282,14 +1285,17 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
 
     hdu[0].data[0,0,:,:] = img/pb
 
-
-    # Apply primary beam limit if specified
-    # first find the radius where the primary beam response equals the pblimit
+    # Apply the primary beam limit by finding the first radial crossing.
+    # This avoids holes if the polynomial becomes non-physical and rises again.
     if pblimit > 0.0:
-        # Find where pb is less than the pblimit
-        mask = pb < pblimit
-        # Set those pixels to NaN or some other value to indicate they are not corrected
-        hdu[0].data[0,0,:,:][mask] = np.nan
+        radial_distance = np.unique(np.sort(separray.ravel()))
+        radial_pb = 1. + G1*((freq*radial_distance)**2) + G2*((freq*radial_distance)**4) + G3*((freq*radial_distance)**6) + G4*((freq*radial_distance)**8) + G5*((freq*radial_distance)**10)
+        cutoff_idx = np.flatnonzero(radial_pb <= pblimit)
+
+        if cutoff_idx.size > 0:
+            cutoff_radius = radial_distance[cutoff_idx[0]]
+            mask = separray >= cutoff_radius
+            hdu[0].data[0,0,:,:][mask] = np.nan
 
     astropy.io.fits.writeto(outfile, hdu[0].data, hdu[0].header, overwrite=True)
     return outfile
