@@ -129,7 +129,7 @@ def _compute_antenna_uvw(ant_positions: np.ndarray, time_mjd_sec: float,
 # ---------------------------------------------------------------------------
 
 def detect_shadowed_antennas(ms_path: str, tolerance: float = 0.0,
-                              verbose: bool = False):
+                             verbose: bool = False):
     """
     Read the MS and return a dict mapping antenna_name → sorted list of
     (t_start_mjd_sec, t_end_mjd_sec) intervals during which that antenna
@@ -140,12 +140,10 @@ def detect_shadowed_antennas(ms_path: str, tolerance: float = 0.0,
     ms_path   : path to the Measurement Set
     tolerance : allowed shadow overlap in metres (default 0.0)
     verbose   : print progress information
-
     Returns
     -------
     dict  antenna_name (str) → list of [t_start, t_end] pairs (MJD seconds)
     """
-
     # -- ANTENNA subtable --------------------------------------------------
     ant_tab = ct.table(os.path.join(ms_path, 'ANTENNA'),
                        readonly=True, ack=False)
@@ -214,7 +212,7 @@ def detect_shadowed_antennas(ms_path: str, tolerance: float = 0.0,
                 phase_dir_ref=phase_dir_ref,
             )
 
-            baseline_uvw = ant_uvw[row_ant2] - ant_uvw[row_ant1]
+            baseline_uvw = ant_uvw[row_ant1] - ant_uvw[row_ant2]
             proj_dist = np.sqrt(baseline_uvw[:, 0] ** 2 + baseline_uvw[:, 1] ** 2)
             w = baseline_uvw[:, 2]
 
