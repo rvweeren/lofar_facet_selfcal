@@ -6469,10 +6469,10 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
 
     # prevent GMRT data from being in time because of UVW coordinates issue
     # DP3 fills in UVW coordinates incorrectly for GMRT data when time gaps are present
-    if timestep is not None and args['telescope'] == 'GMRT':
-        if timestep > 1:
-            print('Time averaging cannot be used for GMRT data due to UVW issues')
-            raise Exception('Time averaging cannot be used for GMRT data due to UVW issues')
+    # if timestep is not None and args['telescope'] == 'GMRT':
+    #    if timestep > 1:
+    #        print('Time averaging cannot be used for GMRT data due to UVW issues')
+    #        raise Exception('Time averaging cannot be used for GMRT data due to UVW issues')
 
     outmslist = []
     for ms_id, ms in enumerate(mslist):
@@ -7117,17 +7117,17 @@ def inputchecker(args, mslist):
             print('Pre-applying bandpass correction is not allowed for DDE solve')
             raise Exception('Pre-applying bandpass correction is not allowed for DDE solve')
         
-    if args['telescope'] == 'GMRT':
-        # do not allow any time averaging for GMRT data
-        # this is because of issues with the UVW coordinates for time gaps that are filled with DP3
-        # the UVW coordinates in this filled gaps are not correct and lead to image artifacts 
-        if args['avgtimestep'] is not None:
-            if args['avgtimestep'] > 1:
-                print('Time averaging cannot be used for GMRT data due to UVW issues')
-                raise Exception('Time averaging cannot be used for GMRT data due to UVW issues')
-        if args['remove_outside_center_avgtimestep'] > 1:
-            print('Time averaging cannot be used for GMRT data due to UVW issues')
-            raise Exception('Time averaging cannot be used for GMRT data due to UVW issues')        
+    #if args['telescope'] == 'GMRT':
+    #    # do not allow any time averaging for GMRT data
+    #    # this is because of issues with the UVW coordinates for time gaps that are filled with DP3
+    #    # the UVW coordinates in this filled gaps are not correct and lead to image artifacts 
+    #    if args['avgtimestep'] is not None:
+    #        if args['avgtimestep'] > 1:
+    #            print('Time averaging cannot be used for GMRT data due to UVW issues')
+    #            raise Exception('Time averaging cannot be used for GMRT data due to UVW issues')
+    #    if args['remove_outside_center_avgtimestep'] > 1:
+    #        print('Time averaging cannot be used for GMRT data due to UVW issues')
+    #        raise Exception('Time averaging cannot be used for GMRT data due to UVW issues')        
 
     assert args['start'] >= 0, '--start must be >= 0'
     if args['stop'] is not None:
@@ -17305,7 +17305,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '19.2.3'
+    facetselfcal_version = '19.3.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -17387,6 +17387,7 @@ def main():
     # zero weights result in fully flagged data when doing time/freq averaging in DP3
     if args['start'] == 0: fix_GMRT_weights(mslist)
 
+
     # fix irregular time axes or avoid bloated MS, do this first before any other step
     # in case of multiple scans on the calibrator this avoids DP3 adding of lot flagged data in between
     if args['bandpass']:
@@ -17465,6 +17466,13 @@ def main():
     # the [0] at the end is to avoid the extra output returned by fix_equidistant_times
     mslist = fix_equidistant_times(mslist, args['start'] != 0, \
                                    dysco=args['dysco'], metadata_compression=args['metadata_compression'])[0]
+
+    # for the GMRT fix possible bad UVW coordinates from DP3 inserting flagged timeslots at gaps, do this before any DP3 time averaging
+    # these bad UVW coodinates cause issues when time averaging the data in DP3, so we need to fix them first (becasue that can combine flagged and unflagged visibilities and then the UVW coordinates are wrong for the unflagged averaged visibilities)
+    if args['start'] == 0:
+        for ms in mslist:
+            if get_telescope_from_ms(ms) == 'GMRT':
+                run('python ' + submodpath + '/fix_uvw_with_offset.py ' + ms + ' --flagged-only')
 
     # fix TIME axis for GMRT data (nothing happens for other telescopes)
     if args['start'] == 0: fix_time_axis_gmrt(mslist)
