@@ -32,6 +32,10 @@ Usage examples:
 - Standard auto settings:\
 `python /<path>/lofar_facet_selfcal/facetselfcal.py --imsize=1600 --auto -i yourimagename yourextracted.ms` 
 
+Also see [LOFAR HBA Dutch stations processing](https://github.com/rvweeren/lofar_facet_selfcal/wiki/LOFAR-HBA-Dutch-stations-processing
+)
+
+
 - With a config file (see an example in data/example_config.txt)):\
 `python /<path>/lofar_facet_selfcal/facetselfcal.py --config=yourconfig.txt yourextracted.ms`
 
@@ -54,3 +58,6 @@ Some specific MeerKAT related information can be found [here](https://github.com
 
 # uGMRT
 Some notes on [uGMRT processing](https://github.com/rvweeren/lofar_facet_selfcal/wiki/uGMRT-processing)
+
+# ASKAP
+Some notes on [ASKAP processing](https://github.com/rvweeren/lofar_facet_selfcal/wiki/ASKAP-processing)
