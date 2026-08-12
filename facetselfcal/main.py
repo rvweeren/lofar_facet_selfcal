@@ -321,14 +321,12 @@ def aoflagger_column(mslist, aoflagger_strategy=None, column='CORRECTED_DATA'):
         if aoflagger_strategy is not None:
             cmd += 'ao.strategy=' +  aoflagger_strategy + ' '         
         cmd += 'steps=[ao] '
-        #try:
         print('Running AOFlagger on ' + ms + ' with strategy: ' + aoflagger_strategy)
         print(cmd)
         run(cmd)
-        #except: # DP3 crashes when flagging on RR and LL for some reason, this is a workaround
-        #    cmdao = 'aoflagger -column ' + column +' -strategy ' + aoflagger_strategy + ' ' + ms
-        #    print('Running AOFlagger on ' + ms + ' with strategy: ' + aoflagger_strategy)
-        #    run(cmdao)
+        # remove temporary strategy file if it was created
+    if aoflagger_strategy is not None and os.path.isfile('tmp.' + os.path.basename(aoflagger_strategy)):
+        os.system('rm -f tmp.' + os.path.basename(aoflagger_strategy))
 
 def setjy_casa(ms):
     """
@@ -16157,7 +16155,7 @@ def basicsetup(mslist):
         elif args['telescope'] == 'ASKAP':
             args['robust'] = -0.5
         elif args['telescope'] == 'GMRT':
-            args['robust'] = -0.5
+            args['robust'] = -0.0
         else:
             args['robust'] = -0.5        
 
