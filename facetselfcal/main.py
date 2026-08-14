@@ -42,8 +42,10 @@ import multiprocessing
 import os
 import os.path
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 
 from itertools import product
 from itertools import groupby
@@ -6135,8 +6137,8 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
         for antennaid, antenna in enumerate(antennas):
             if antenna[0:2] != keepanntennastr:
                 if hasphase:
-                    antennaxis = axisn.index('ant')
                     axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
                     print('Resetting phase', antenna, 'Axis entry number', axisn.index('ant'))
                     # print(phase[:,:,antennaid,...])
                     if antennaxis == 0:
@@ -6151,8 +6153,8 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                         phase[:, :, :, :, antennaid, ...] = 0.0
                     # print(phase[:,:,antennaid,...])
                 if hasamps:
-                    antennaxis = axisn.index('ant')
                     axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
                     print('Resetting amplitude', antenna, 'Axis entry number', axisn.index('ant'))
                     if antennaxis == 0:
                         amp[antennaid, ...] = 1.0
@@ -6169,8 +6171,8 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                         amp[..., 2] = 0.0  # YX, assume pol is last axis
 
                 if hastec:
-                    antennaxis = axisn.index('ant')
                     axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
                     print('Resetting TEC', antenna, 'Axis entry number', axisn.index('ant'))
                     if antennaxis == 0:
                         tec[antennaid, ...] = 0.0
@@ -6184,8 +6186,8 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                         tec[:, :, :, :, antennaid, ...] = 0.0
 
                 if hasdelay:
-                    antennaxis = axisn.index('ant')
                     axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
                     print('Resetting delay', antenna, 'Axis entry number', axisn.index('ant'))
                     if antennaxis == 0:
                         delay[antennaid, ...] = 0.0
@@ -6199,8 +6201,8 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                         delay[:, :, :, :, antennaid, ...] = 0.0
 
                 if hasrotation:
-                    antennaxis = axisn.index('ant')
                     axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
                     print('Resetting rotation', antenna, 'Axis entry number', axisn.index('ant'))
                     if antennaxis == 0:
                         rotation[antennaid, ...] = 0.0
@@ -6213,8 +6215,8 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
                     if antennaxis == 4:
                         rotation[:, :, :, :, antennaid, ...] = 0.0
                 if hasrotationmeasure:
-                    antennaxis = axisn.index('ant')
                     axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
                     print('Resetting faradayrotation', antenna, 'Axis entry number', axisn.index('ant'))
                     if antennaxis == 0:
                         faradayrotation[antennaid, ...] = 0.0
@@ -8790,16 +8792,40 @@ def fix_phasereference(h5parm, refant):
     H.close()
     return
 
+def h5flags2ms(h5parm, ms, dysco=True):
+    """ Copy flags from h5parm (which means weight=0) to a ms
+    It this this by first creating a copy of the h5parm file, then resetting all the solution values to 1.0 or 0.0
+    The appycal() is used to so that that flags make it to the MS
+    Since this is essentially a copy, since the solutions are all 1.0 or 0.0 we do this on the DATA column
+    which means DATA does not change, apart from the flags being copied over
+    Args:
+      h5parm: h5parm file
+      ms: measurement set
+      dysco: use dysco compression for the output MS, default True (should not matter since compression state cannot be altered when writing to an existing column)
+    """
+    fd, h5parmcopy = tempfile.mkstemp(suffix='.h5', prefix='facetselfcal-')
+    os.close(fd)
+    try:
+        shutil.copy2(h5parm, h5parmcopy)
+        resetsolsforstations(h5parmcopy, stationlist='all', refant=None)
+        applycal(ms, h5parmcopy, msincol='DATA', msoutcol='DATA', dysco=dysco)
+    finally:
+        if os.path.exists(h5parmcopy):
+            os.remove(h5parmcopy)
 
 def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     """ Reset solutions for stations
 
     Args:
       h5parm: h5parm file
-      stationlist: station name list
+      stationlist: station name list, or 'all' to reset solutions for all stations
       refant: reference antenna
     """
     print(h5parm, stationlist)
+    if isinstance(stationlist, str) and stationlist.lower() == 'all':
+        resetall = True
+    else:
+        resetall = False
     fulljones = fulljonesparmdb(h5parm)  # True/False
     amplitudeleakage = amplitude_leakage_paramdb(h5parm)  # True/False
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay = check_soltabs(h5parm)
@@ -8829,6 +8855,12 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     elif hasrotationmeasure:
         antennas = H.root.sol000.rotationmeasure000.ant[:]
         axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+
+    # Expand the special ``all`` value to the station names used by the
+    # solution tables, so the existing per-station reset logic handles every
+    # station.
+    if resetall:
+        stationlist = antennas.astype(str).tolist()
 
 
     # in case refant is None but h5 still has phase
@@ -8869,6 +8901,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
         phase = H.root.sol000.phase000.val[:]
         refant_idx = np.where(H.root.sol000.phase000.ant[:].astype(str) == refant)  # to deal with byte strings
         print(refant_idx, refant)
+        axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
         antennaxis = axisn.index('ant')
         print('Referencing phase to ', refant, 'Axis entry number', axisn.index('ant'))
         if antennaxis == 0:
@@ -8887,8 +8920,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
         tec = H.root.sol000.tec000.val[:]
         refant_idx = np.where(H.root.sol000.tec000.ant[:].astype(str) == refant)  # to deal with byte strings
         print(refant_idx, refant)
-        antennaxis = axisn.index('ant')
         axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+        antennaxis = axisn.index('ant')
         print('Referencing tec to ', refant, 'Axis entry number', axisn.index('ant'))
         if antennaxis == 0:
             tecn = tec - tec[refant_idx[0], ...]
@@ -8906,8 +8939,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
         delay = H.root.sol000.delay000.val[:]
         refant_idx = np.where(H.root.sol000.delay000.ant[:].astype(str) == refant)  # to deal with byte strings
         print(refant_idx, refant)
-        antennaxis = axisn.index('ant')
         axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+        antennaxis = axisn.index('ant')
         print('Referencing delay to ', refant, 'Axis entry number', axisn.index('ant'))
         if antennaxis == 0:
             delayn = delay - delay[refant_idx[0], ...]
@@ -8925,8 +8958,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
         rotation = H.root.sol000.rotation000.val[:]
         refant_idx = np.where(H.root.sol000.rotation000.ant[:].astype(str) == refant)  # to deal with byte strings
         print(refant_idx, refant)
-        antennaxis = axisn.index('ant')
         axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+        antennaxis = axisn.index('ant')
         print('Referencing rotation to ', refant, 'Axis entry number', axisn.index('ant'))
         if antennaxis == 0:
             rotationn = rotation - rotation[refant_idx[0], ...]
@@ -8944,8 +8977,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
         faradayrotation = H.root.sol000.rotationmeasure000.val[:]
         refant_idx = np.where(H.root.sol000.rotationmeasure000.ant[:].astype(str) == refant)  # to deal with byte strings
         print(refant_idx, refant)
-        antennaxis = axisn.index('ant')
         axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+        antennaxis = axisn.index('ant')
         print('Referencing faradayrotation to ', refant, 'Axis entry number', axisn.index('ant'))
         if antennaxis == 0:
             faradayrotationn = faradayrotation - faradayrotation[refant_idx[0], ...]
@@ -8969,8 +9002,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
         print(antenna, hasphase, hasamps, hastec, hasrotation, hasdelay)
         if antenna in stationlist:  # in this case reset value to 0.0 (or 1.0)
             if hasphase:
-                antennaxis = axisn.index('ant')
                 axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+                antennaxis = axisn.index('ant')
                 print('Resetting phase', antenna, 'Axis entry number', axisn.index('ant'))
                 # print(phase[:,:,antennaid,...])
                 if antennaxis == 0:
@@ -8985,8 +9018,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
                     phase[:, :, :, :, antennaid, ...] = 0.0
                 # print(phase[:,:,antennaid,...])
             if hasamps:
-                antennaxis = axisn.index('ant')
                 axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                antennaxis = axisn.index('ant')
                 print('Resetting amplitude', antenna, 'Axis entry number', axisn.index('ant'))
                 if antennaxis == 0:
                     amp[antennaid, ...] = 1.0
@@ -9026,8 +9059,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
                     # amp[...,2] = 0.0 # YX, assume pol is last axis
 
             if hastec:
-                antennaxis = axisn.index('ant')
                 axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+                antennaxis = axisn.index('ant')
                 print('Resetting TEC', antenna, 'Axis entry number', axisn.index('ant'))
                 if antennaxis == 0:
                     tec[antennaid, ...] = 0.0
@@ -9040,8 +9073,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
                 if antennaxis == 4:
                     tec[:, :, :, :, antennaid, ...] = 0.0
             if hasdelay:
-                antennaxis = axisn.index('ant')
                 axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+                antennaxis = axisn.index('ant')
                 print('Resetting delay', antenna, 'Axis entry number', axisn.index('ant'))
                 if antennaxis == 0:
                     delay[antennaid, ...] = 0.0
@@ -9054,8 +9087,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
                 if antennaxis == 4:
                     delay[:, :, :, :, antennaid, ...] = 0.0
             if hasrotation:
-                antennaxis = axisn.index('ant')
                 axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+                antennaxis = axisn.index('ant')
                 print('Resetting rotation', antenna, 'Axis entry number', axisn.index('ant'))
                 if antennaxis == 0:
                     rotation[antennaid, ...] = 0.0
@@ -9068,8 +9101,8 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
                 if antennaxis == 4:
                     rotation[:, :, :, :, antennaid, ...] = 0.0
             if hasrotationmeasure:
-                antennaxis = axisn.index('ant')
                 axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+                antennaxis = axisn.index('ant')
                 print('Resetting faradayrotation', antenna, 'Axis entry number', axisn.index('ant'))
                 if antennaxis == 0:
                     faradayrotation[antennaid, ...] = 0.0
@@ -9117,10 +9150,10 @@ def check_soltabs(h5parm):
             hasphase = True
         elif 'tec' in s:
             hastec = True
-        elif 'rotation' in s:
-            hasrotation = True
         elif 'rotationmeasure' in s:
             hasrotationmeasure = True
+        elif 'rotation' in s:
+            hasrotation = True
         elif 'delay' in s:
             hasdelay = True    
 
@@ -9183,8 +9216,8 @@ def flag_h5_phasediff(h5parm, threshold, telescope):
     weight_yy = weight[..., -1]  # YY, assume pol is last axis
     refant_idx = np.where(H.root.sol000.phase000.ant[:].astype(str) == refant)  # to deal with byte strings
     print(refant_idx, refant)
-    antennaxis = axisn.index('ant')
     axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+    antennaxis = axisn.index('ant')
     print('Referencing phase to ', refant, 'Axis entry number', axisn.index('ant'))
     if antennaxis == 0:
         phasen = phase - phase[refant_idx[0], ...]
@@ -9294,8 +9327,8 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
         phase = H.root.sol000.phase000.val[:]
         refant_idx = np.where(H.root.sol000.phase000.ant[:].astype(str) == refant)  # to deal with byte strings
         print(refant_idx, refant)
-        antennaxis = axisn.index('ant')
         axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+        antennaxis = axisn.index('ant')
         print('Referencing phase to ', refant, 'Axis entry number', axisn.index('ant'))
         if antennaxis == 0:
             phasen = phase - phase[refant_idx[0], ...]
@@ -9313,8 +9346,8 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
         tec = H.root.sol000.tec000.val[:]
         refant_idx = np.where(H.root.sol000.tec000.ant[:].astype(str) == refant)  # to deal with byte strings
         print(refant_idx, refant)
-        antennaxis = axisn.index('ant')
         axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+        antennaxis = axisn.index('ant')
         print('Referencing tec to ', refant, 'Axis entry number', axisn.index('ant'))
         if antennaxis == 0:
             tecn = tec - tec[refant_idx[0], ...]
@@ -9332,8 +9365,8 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
         delay = H.root.sol000.delay000.val[:]
         refant_idx = np.where(H.root.sol000.delay000.ant[:].astype(str) == refant)  # to deal with byte strings
         print(refant_idx, refant)
-        antennaxis = axisn.index('ant')
         axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+        antennaxis = axisn.index('ant')
         print('Referencing delay to ', refant, 'Axis entry number', axisn.index('ant'))
         if antennaxis == 0:
             delayn = delay - delay[refant_idx[0], ...]
@@ -9351,8 +9384,8 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
         rotation = H.root.sol000.rotation000.val[:]
         refant_idx = np.where(H.root.sol000.rotation000.ant[:].astype(str) == refant)  # to deal with byte strings
         print(refant_idx, refant)
-        antennaxis = axisn.index('ant')
         axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+        antennaxis = axisn.index('ant')
         print('Referencing rotation to ', refant, 'Axis entry number', axisn.index('ant'))
         if antennaxis == 0:
             rotationn = rotation - rotation[refant_idx[0], ...]
@@ -9370,8 +9403,8 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
         faradayrotation = H.root.sol000.rotationmeasure000.val[:]
         refant_idx = np.where(H.root.sol000.rotationmeasure000.ant[:].astype(str) == refant)  # to deal with byte strings
         print(refant_idx, refant)
-        antennaxis = axisn.index('ant')
         axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+        antennaxis = axisn.index('ant')
         print('Referencing faradayrotation to ', refant, 'Axis entry number', axisn.index('ant'))
         if antennaxis == 0:
             faradayrotationn = faradayrotation - faradayrotation[refant_idx[0], ...]
