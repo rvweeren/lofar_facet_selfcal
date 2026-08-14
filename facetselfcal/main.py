@@ -8803,8 +8803,13 @@ def h5flags2ms(h5parm, ms, dysco=True):
       ms: measurement set
       dysco: use dysco compression for the output MS, default True (should not matter since compression state cannot be altered when writing to an existing column)
     """
-    fd, h5parmcopy = tempfile.mkstemp(suffix='.h5', prefix='facetselfcal-')
-    os.close(fd)
+    # create a copy of the h5parm file, then reset all the solution values to 1.0 or 0.0
+    h5parmcopy = h5parm + '.copy'
+    # now copy the file with cp -f
+    if os.path.isfile(h5parmcopy):
+        os.remove(h5parmcopy)
+    os.system('cp -f ' + h5parm + ' ' + h5parmcopy)
+
     try:
         shutil.copy2(h5parm, h5parmcopy)
         resetsolsforstations(h5parmcopy, stationlist='all', refant=None)
@@ -8829,6 +8834,14 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     fulljones = fulljonesparmdb(h5parm)  # True/False
     amplitudeleakage = amplitude_leakage_paramdb(h5parm)  # True/False
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay = check_soltabs(h5parm)
+
+    # in case refant is None but h5 still has phase
+    # this can happen with a scalaramplitude and soltypelist_includedir is used
+    # in this case we have pertubative direction
+    # in this case h5_merger has already been run which created a phase000 entry
+    if refant is None and hasphase:
+        refant = findrefant_core(h5parm, telescope=telescope)
+        force_close(h5parm)
 
     H = tables.open_file(h5parm, 'r+')
 
@@ -8861,15 +8874,6 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     # station.
     if resetall:
         stationlist = antennas.astype(str).tolist()
-
-
-    # in case refant is None but h5 still has phase
-    # this can happen with a scalaramplitude and soltypelist_includedir is used
-    # in this case we have pertubative direction
-    # in this case h5_merger has already been run which created a phase000 entry
-    if refant is None and hasphase:
-        refant = findrefant_core(h5parm, telescope=telescope)
-        force_close(h5parm)
 
     # should not be needed as h5_merger does not create rotation000
     # keep this code in case of future h5_merger updates so we are safe
@@ -15434,7 +15438,7 @@ def findrefant_core(H5file, telescope='LOFAR'):
                             "tile083", "tile084", "tile094", "tile095"]
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
 
-    if len(cs_indices) == 0:
+    if len(cs_indices) == 0 and telescope == 'LOFAR':
         # print in red
         print('\033[91mWarning: no reference stations found, using all antennas to find refant\033[0m')
         cs_indices = np.arange(len(ants))
