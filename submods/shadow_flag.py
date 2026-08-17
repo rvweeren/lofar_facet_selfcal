@@ -45,6 +45,13 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+GMRT_TIME_OFFSET_SECONDS = 17723.0
+
+
+# ---------------------------------------------------------------------------
 # Helper: MJD seconds → DP3 / casacore MVTime string  (DD-Mon-YYYY/HH:MM:SS.sss)
 # ---------------------------------------------------------------------------
 
@@ -124,6 +131,23 @@ def _compute_antenna_uvw(ant_positions: np.ndarray, time_mjd_sec: float,
     return ant_uvw
 
 
+def _get_telescope_name(ms_path: str) -> str:
+    """Return the telescope name from the OBSERVATION subtable, or empty string if not found."""
+    obs_path = os.path.join(ms_path, 'OBSERVATION')
+    if not os.path.isdir(obs_path):
+        return ""
+    try:
+        obs_tab = ct.table(obs_path, readonly=True, ack=False)
+        try:
+            if 'TELESCOPE_NAME' in obs_tab.colnames() and obs_tab.nrows() > 0:
+                return str(obs_tab.getcol('TELESCOPE_NAME')[0])
+        finally:
+            obs_tab.close()
+    except Exception:
+        pass
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Shadow detection
 # ---------------------------------------------------------------------------
@@ -144,6 +168,15 @@ def detect_shadowed_antennas(ms_path: str, tolerance: float = 0.0,
     -------
     dict  antenna_name (str) → list of [t_start, t_end] pairs (MJD seconds)
     """
+    telescope = _get_telescope_name(ms_path)
+    is_gmrt = 'GMRT' in telescope.upper()
+    time_offset = GMRT_TIME_OFFSET_SECONDS if is_gmrt else 0.0
+
+    if is_gmrt:
+        print(f"[shadow] Detected telescope '{telescope}': applying {time_offset:.1f} s time offset for UVW calculation")
+    elif verbose and telescope:
+        print(f"[shadow] Detected telescope '{telescope}'")
+
     # -- ANTENNA subtable --------------------------------------------------
     ant_tab = ct.table(os.path.join(ms_path, 'ANTENNA'),
                        readonly=True, ack=False)
@@ -206,7 +239,7 @@ def detect_shadowed_antennas(ms_path: str, tolerance: float = 0.0,
         if np.any(cross_mask):
             ant_uvw = _compute_antenna_uvw(
                 ant_positions=ant_positions,
-                time_mjd_sec=time_val,
+                time_mjd_sec=time_val + time_offset,
                 time_ref=time_ref,
                 phase_dir_radec=phase_dir_by_field[field_id],
                 phase_dir_ref=phase_dir_ref,
