@@ -17,7 +17,7 @@ function execute(input)
   -- Other options are e.g.:
   -- { 'XY', 'YX' } to flag only XY and YX, or
   -- { 'I', 'Q' } to flag only on Stokes I and Q
-  local flag_polarizations = input:get_polarizations()
+  local flag_polarizations = {'RR', 'LL'}
 
   local base_threshold = 3.0 -- lower means more sensitive detection
   -- How to flag complex values, options are: phase, amplitude, real, imaginary, complex
@@ -36,7 +36,7 @@ function execute(input)
   -- End of generic settings
   --
 
-  local inpPolarizations = {'RR', 'LL'}
+  local inpPolarizations = input:get_polarizations()
 
   if not exclude_original_flags then
     input:clear_mask()
