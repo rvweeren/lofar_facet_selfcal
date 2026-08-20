@@ -36,6 +36,7 @@
 import ast
 import configparser
 import fnmatch
+import gc
 import glob
 import logging
 import multiprocessing
@@ -117,6 +118,156 @@ matplotlib.use('Agg')
 
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+
+
+
+def remove_syspower(mslist):
+    """Remove the SYSPOWER column from a measurement set, if it exists.
+    This is necessary because the SYSPOWER column, if it is large, makes DP3 slow. 
+    Only remove the SYSPOWER column if it exists, otherwise do nothing for EVLA and VLA
+    Input:
+    mslist : list of str
+    """
+    if isinstance(mslist, str):        
+        mslist = [mslist]
+    for ms in mslist:
+        if get_telescope_from_ms(ms) in ['EVLA', 'VLA']:
+            with table(ms, readonly=False) as t:
+                if 'SYSPOWER' in t.keywordnames():
+                    print('Removing SYSPOWER column from ' + ms)
+                    t.removekeyword('SYSPOWER')
+                   
+            if os.path.isdir(ms + '/SYSPOWER'):
+                shutil.rmtree(ms + '/SYSPOWER')        
+
+def split_ms_spws(ms, dysco=True):
+    """Split a measurement set into one output measurement set per SPW.
+
+    The input measurement set is inspected to determine its number of spectral
+    windows. Each resulting file is named ``<input>_spwNNN.ms`` (or, for an
+    input ending in ``.ms``, ``<input base>_spwNNN.ms``), with the SPW index
+    zero-padded to three digits.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the input measurement set.
+    dysco : bool, optional
+        Whether to use the dysco storage manager for the output measurement sets.    
+
+    Returns
+    -------
+    None
+        The split measurement sets are written to disk.
+    """
+
+    # get SPWids from the MS
+    with table(os.path.join(ms, 'DATA_DESCRIPTION'), readonly=True) as t:
+        spw_ids = t.getcol('SPECTRAL_WINDOW_ID')
+
+    # check that there are more than one unique SPW, otherwise do nothing
+    if len(np.unique(spw_ids)) <= 1:
+        print('Only one unique SPW found in ' + ms + ', no splitting needed.') 
+        return
+
+    # get the unique DATA_DESC_IDs actually present in the main data rows
+    with table(ms, readonly=True) as t:
+        # Using np.unique isolates only the IDs that contain actual rows of data
+        active_ddids = np.unique(t.getcol("DATA_DESC_ID"))
+
+    # map those DDIDs back to their actual Spectral Window IDs
+    with table(os.path.join(ms, 'DATA_DESCRIPTION'), readonly=True) as t:
+        # Fetch the mapping array where row index = DDID, value = SPW_ID
+        spw_mapping = t.getcol("SPECTRAL_WINDOW_ID")
+    
+        # Filter the map using our active DDIDs
+        active_spws = [spw_mapping[ddid] for ddid in active_ddids]
+
+    print(f"Spectral Windows with actual data: {sorted(list(set(active_spws)))}")
+
+    # remove syspower column from the MS, if it exists, to avoid DP3 slowdowns
+    remove_syspower(ms)
+
+    for spw in sorted(list(set(active_spws))):    
+        # use zfill to make sure the spw number is 3 digits
+        # put the ms in the current working directory, not in the same directory as the input ms, to avoid permission issues
+        ms_basename = os.path.basename(ms)
+        if ms_basename.endswith('.ms') or ms_basename.endswith('.MS'):
+            output_ms = os.path.join(os.getcwd(), ms_basename[:-3] + '_spw' + str(spw).zfill(3) + '.ms')
+        else:
+            output_ms = os.path.join(os.getcwd(), ms_basename + '_spw' + str(spw).zfill(3) + '.ms')
+
+        #with table(ms, readonly=True) as orig_ms:
+        #    # Select the rows matching your desired SPW
+        #    query = """
+        #        SELECT FROM $orig_ms
+        #        WHERE DATA_DESC_ID IN [
+        #            SELECT FROM ::DATA_DESCRIPTION
+        #            WHERE SPECTRAL_WINDOW_ID == $spw
+        #            GIVING [ROWID()]
+        #        ]
+        #    """
+        #    selected_rows = taql(query)
+
+        #    # Use .copy() with deep/valuecopy flags to force a new physical MS on disk
+        #    # delete the output MS if it already exists
+        if os.path.exists(output_ms):
+            if os.path.isdir(output_ms):
+                shutil.rmtree(output_ms)
+            else:
+                os.remove(output_ms)
+        #    selected_rows.copy(output_ms, deep=True, valuecopy=True)
+        #    selected_rows.close()
+        cmddp3 = f"DP3 msin={ms} msout={output_ms} steps=[] msin.band={spw} "
+        cmddp3 += "msout.uvwcompression=False msout.antennacompression=False "
+        if dysco:
+            cmddp3 += f"msout.storagemanager=dysco msout.storagemanager.weightbitrate=16 "
+        print(cmddp3)
+        run(cmddp3)
+
+
+def collect_all_frequencies(mslist):
+    """
+    Collects all unique frequencies from a list of Measurement Sets (MS) and returns them as a sorted numpy array.
+    """
+    frequencies = set()
+    for ms in mslist:
+        with table(ms + '/SPECTRAL_WINDOW', readonly=True) as t:
+            freqs = t.getcol('CHAN_FREQ')[0]# Get the first channel frequency for each SPW    
+            print(f'Frequencies in {ms}: {freqs}')
+            frequencies.update(freqs)
+    return np.sort(list(frequencies))
+
+def is_ms_regularized(ms_path: str) -> bool:
+    """
+    Checks if a Measurement Set has a perfectly regularized time-baseline grid structure.
+    
+    Parameters:
+        ms_path (str): Path to the Measurement Set directory.
+        
+    Returns:
+        bool: True if the MS is perfectly regularized, False otherwise.
+    """
+    try:
+        # Open the main table; read-only mode is safer and faster
+        with table(ms_path, readonly=True, ack=False) as t:
+            # If the table is entirely empty, it cannot be considered regularized
+            if t.nrows() == 0:
+                return False
+                
+            # Extract only the TIME column to minimize memory usage
+            times = t.getcol("TIME")
+            
+        # Count how many baseline rows exist for each unique timestamp
+        _, counts = np.unique(times, return_counts=True)
+        
+        # If the grid is perfectly regular, every timestamp must have the exact same count.
+        # This means the unique list of counts will have a length of exactly 1.
+        return len(np.unique(counts)) == 1
+
+    except Exception as e:
+        print(f"Error reading Measurement Set at {ms_path}: {e}")
+        return False
 
 
 def create_homogenized_facetdirections(facetdirections, separateradius=5.0):
@@ -232,6 +383,371 @@ def fix_GMRT_weights(mslist):
         run("taql" + " 'update " + ms + " set WEIGHT_SPECTRUM[,2]=WEIGHT_SPECTRUM[,3]'", taql=True) # set LR weights to LL weights
     return
 
+
+def updateCrosshand(ms, variance, chunk_size=10000):
+    '''
+    Fill the XY/RL and YX/LR cross-hand polarizations with complex Gaussian random noise
+    based on the provided variance.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    variance : float or tuple/list of (float, float)
+        The noise variance in Jy^2. If a tuple (var_RR, var_LL) is provided,
+        the geometric mean sqrt(var_RR * var_LL) is used for the cross-hands.
+    chunk_size : int, default=1000
+        Number of rows to process at once.
+    '''
+    logging.info("- Adaptation of cross-hand polarisation visibility data -")
+    logging.info("Filling crosshand polarizations with random noise in MS %s", ms)
+    with table(ms, readonly=False, ack=False) as t:
+        if 'DATA' not in t.colnames():
+            print("DATA column not found, skipping.")
+            raise Exception("DATA column not found in the measurement set.")
+
+        # Determine cross-hand noise variance and standard deviation per component (Re and Im)
+        if isinstance(variance, (tuple, list, np.ndarray)):
+            var_cross = float(np.sqrt(variance[0] * variance[1]))
+        else:
+            var_cross = float(variance)
+
+        # For a complex visibility V = Re + 1j*Im with total Var(V) = var_cross,
+        # Var(Re) = Var(Im) = var_cross / 2.
+        sigma_1d = np.sqrt(max(var_cross, 0.0) / 2.0)
+        logging.info(f"Using crosshand variance = {var_cross:.6e} Jy^2 (1D sigma = {sigma_1d:.6e} Jy)")
+
+        # Check shape using a single-row sample
+        sample = t.getcol("DATA", startrow=0, nrow=1)
+        if sample.shape[-1] != 4:
+            logging.warning("Expected 4 pols in DATA, found %d. Skipping.", sample.shape[-1])
+            return
+
+        rng = np.random.default_rng()
+        total_rows = t.nrows()
+        for start_row in range(0, total_rows, chunk_size):
+            nrow = min(chunk_size, total_rows - start_row)
+            chunk = t.getcol("DATA", startrow=start_row, nrow=nrow)
+            nchan = chunk.shape[1]
+            
+            # Generate independent complex Gaussian noise for RL (idx 1) and LR (idx 2)
+            noise_rl = (rng.normal(0.0, sigma_1d, size=(nrow, nchan)) + 
+                        1j * rng.normal(0.0, sigma_1d, size=(nrow, nchan))).astype(chunk.dtype)
+            noise_lr = (rng.normal(0.0, sigma_1d, size=(nrow, nchan)) + 
+                        1j * rng.normal(0.0, sigma_1d, size=(nrow, nchan))).astype(chunk.dtype)
+
+            chunk[:, :, 1] = noise_rl
+            chunk[:, :, 2] = noise_lr
+
+            t.putcol("DATA", chunk, startrow=start_row, nrow=nrow)
+            del chunk, noise_rl, noise_lr
+            print(f"Processed rows {start_row} to {start_row + nrow} of {total_rows} for cross-hand noise injection.")
+            gc.collect()
+
+def parse_bad_freq_ranges(bad_freq_ranges):
+    '''
+    Parse bad frequency range specifications into a list of (f_min, f_max) tuples in Hz.
+
+    Supported inputs:
+      - string in DP3/preflagger format:
+        "99MHz..128MHz,167MHz..188MHz,243MHz..301MHz,347MHz..349.7MHz,355MHz..380MHz,390MHz..391MHz,750MHz..850MHz"
+        or "[99MHz..128MHz, ...]"
+      - list/tuple of strings: ["99MHz..128MHz", "167MHz..188MHz"]
+      - list/tuple of frequency tuples/lists: [(99e6, 128e6), ...]
+    '''
+    if not bad_freq_ranges:
+        return []
+
+    def _to_hz(val):
+        if isinstance(val, (int, float)):
+            return float(val)
+        s = str(val).strip()
+        s_lower = s.lower()
+        if s_lower.endswith("ghz"):
+            return float(s[:-3].strip()) * 1e9
+        elif s_lower.endswith("mhz"):
+            return float(s[:-3].strip()) * 1e6
+        elif s_lower.endswith("khz"):
+            return float(s[:-3].strip()) * 1e3
+        elif s_lower.endswith("hz"):
+            return float(s[:-2].strip())
+        else:
+            return float(s)
+
+    parsed_ranges = []
+    if isinstance(bad_freq_ranges, str):
+        clean_str = bad_freq_ranges.strip().lstrip("[").rstrip("]")
+        tokens = [t.strip() for t in re.split(r"[,;\s]+", clean_str) if t.strip()]
+    elif isinstance(bad_freq_ranges, (list, tuple)):
+        tokens = bad_freq_ranges
+    else:
+        return []
+
+    for item in tokens:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            f1, f2 = _to_hz(item[0]), _to_hz(item[1])
+            parsed_ranges.append((min(f1, f2), max(f1, f2)))
+        elif isinstance(item, str) and ".." in item:
+            parts = item.split("..")
+            if len(parts) == 2:
+                f1, f2 = _to_hz(parts[0]), _to_hz(parts[1])
+                parsed_ranges.append((min(f1, f2), max(f1, f2)))
+
+    return parsed_ranges
+
+
+def getVarianceRRLL(ms, data_column="DATA", num_baselines=6, candidate_pool_size=25,
+                    top_quantile=0.85, max_flag_fraction=0.50, min_unflagged_samples=500,
+                    bad_freq_ranges="99MHz..128MHz,167MHz..188MHz,243MHz..301MHz,347MHz..349.7MHz,355MHz..380MHz,390MHz..391MHz,750MHz..850MHz",
+                    random_seed=42):
+    '''
+    Determine the robust noise variance of the RR and LL visibility columns using the longest baselines.
+
+    This method estimates the thermal noise variance per visibility sample for the RR and LL
+    (or XX and YY) correlations. It selects the longest physical baselines in the array where
+    extended sky emission is heavily resolved out. To be robust against RFI and systematic
+    imperfections:
+        1. Known bad frequency ranges (e.g. persistent RFI bands) are masked and excluded from
+            the calculation.
+        2. Consecutive frequency-channel differences (ΔV = V_{chan+1} - V_{chan}) are used to
+            subtract out residual continuum sky flux, bandpass ripples, and fringe patterns.
+        3. The Median Absolute Deviation (MAD) is computed separately on the real and imaginary parts
+            to eliminate transient RFI spikes without being skewed by outliers.
+        4. Multiple diverse antenna pairs are randomly sampled across the top baseline-length quantile
+            to avoid bias if the antennas on the absolute longest baseline are malfunctioning or noisy.
+        5. Baselines with excessive flagging or near-zero variance (dead antennas) are rejected.
+        6. A cross-baseline consensus filter (MAD-based) discards outlier baseline variances.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    data_column : str, default="DATA"
+        Name of the visibility data column in the Measurement Set to analyze
+        (e.g., "DATA", "CORRECTED_DATA", "RESIDUAL_DATA").
+    num_baselines : int, default=6
+        Target number of healthy, independent long baselines to evaluate and include
+        in the consensus variance calculation.
+    candidate_pool_size : int, default=25
+        Maximum number of candidate long baselines to draw from the top-length pool.
+        Larger values provide more candidates for antenna diversity and backup if
+        several baselines are flagged or dead.
+    top_quantile : float, default=0.85
+        Quantile cutoff (between 0.0 and 1.0) defining the threshold for "long baselines"
+        based on 3D physical antenna separation in the ANTENNA subtable.
+        Default 0.85 selects baselines in the top 15% longest baseline lengths.
+    max_flag_fraction : float, default=0.50
+        Maximum allowed fraction of flagged samples (0.0 to 1.0) on a candidate baseline.
+        Baselines exceeding this flag threshold are skipped.
+    min_unflagged_samples : int, default=500
+        Minimum number of valid, unflagged adjacent-channel difference pairs required
+        on a baseline. Baselines with fewer unflagged samples are discarded.
+    bad_freq_ranges : str, list of str, list of tuples, or None, default="99MHz..128MHz,..."
+        Frequency ranges with bad data/known RFI to ignore during variance calculation.
+        Can be given as a comma/space-separated string (e.g. "99MHz..128MHz,167MHz..188MHz"),
+        a bracketed string ("[99MHz..128MHz, ...]"), or a list of range strings / (fmin, fmax) tuples.
+    random_seed : int or None, default=42
+        Random seed used to shuffle candidate long baselines to ensure reproducible,
+        diverse baseline selection across runs.
+
+    Returns
+    -------
+    tuple of (float, float)
+        A 2-tuple (var_RR, var_LL) containing the estimated thermal noise variance in Jy^2
+        for the RR and LL polarizations (or XX and YY if linear).
+    '''
+    logging.info("- Estimating robust visibility variance for RR and LL from long baselines -")
+    
+    rng = np.random.default_rng(random_seed)
+
+    # 1. Identify RR and LL (or XX and YY) polarization indices
+    with table(ms + "/POLARIZATION", readonly=True, ack=False) as tpol:
+        corr_type = tpol.getcol("CORR_TYPE")[0]
+    corr_map = {corr: idx for idx, corr in enumerate(corr_type)}
+    
+    if 5 in corr_map and 8 in corr_map:
+        idx_rr, idx_ll = corr_map[5], corr_map[8]
+    elif 9 in corr_map and 12 in corr_map:
+        idx_rr, idx_ll = corr_map[9], corr_map[12]
+    elif len(corr_type) == 2:
+        idx_rr, idx_ll = 0, 1
+    elif len(corr_type) >= 4:
+        idx_rr, idx_ll = 0, 3
+    else:
+        idx_rr, idx_ll = 0, min(3, len(corr_type) - 1)
+
+    pol_indices = {"RR": idx_rr, "LL": idx_ll}
+
+    # 2. Identify and mask bad frequency channels
+    parsed_bad_ranges = parse_bad_freq_ranges(bad_freq_ranges)
+    with table(ms + "/SPECTRAL_WINDOW", readonly=True, ack=False) as tspect:
+        chan_freqs = tspect.getcol("CHAN_FREQ")[0]
+    bad_freq_mask = np.zeros(len(chan_freqs), dtype=bool)
+
+    if parsed_bad_ranges:
+        for f_min, f_max in parsed_bad_ranges:
+            bad_freq_mask |= (chan_freqs >= f_min) & (chan_freqs <= f_max)
+        n_bad = np.sum(bad_freq_mask)
+        if n_bad > 0:
+            logging.info(f"Ignoring {n_bad}/{len(chan_freqs)} frequency channels matching bad frequency ranges.")
+
+    # 3. Compute physical baseline lengths from ANTENNA subtable
+    with table(ms + "/ANTENNA", readonly=True, ack=False) as t_ant:
+        ant_pos = t_ant.getcol("POSITION")
+        ant_names = t_ant.getcol("NAME") if "NAME" in t_ant.colnames() else None
+        num_ants = len(ant_pos)
+
+    baseline_lengths = {}
+    for a1 in range(num_ants):
+        for a2 in range(a1 + 1, num_ants):
+            dist = np.linalg.norm(ant_pos[a1] - ant_pos[a2])
+            baseline_lengths[(a1, a2)] = dist
+
+    sorted_bls = sorted(baseline_lengths.items(), key=lambda x: x[1], reverse=True)
+    all_lengths = np.array([bl[1] for bl in sorted_bls])
+
+    # Filter candidates from upper quantile of baseline lengths
+    cutoff_dist = np.quantile(all_lengths, top_quantile)
+    long_candidates = [pair for pair, dist in sorted_bls if dist >= cutoff_dist]
+    if not long_candidates:
+        long_candidates = [pair for pair, dist in sorted_bls[:candidate_pool_size]]
+
+    # Shuffle candidates to sample various long baselines
+    rng.shuffle(long_candidates)
+    pool_candidates = long_candidates[:candidate_pool_size]
+
+    # Ensure antenna diversity (avoid over-representing a single bad antenna)
+    ant_usage_count = {i: 0 for i in range(num_ants)}
+    selected_pairs = []
+    for a1, a2 in pool_candidates:
+        if ant_usage_count[a1] < 2 and ant_usage_count[a2] < 2:
+            selected_pairs.append((a1, a2))
+            ant_usage_count[a1] += 1
+            ant_usage_count[a2] += 1
+        if len(selected_pairs) >= candidate_pool_size:
+            break
+
+    for pair in pool_candidates:
+        if pair not in selected_pairs:
+            selected_pairs.append(pair)
+
+    # 4. Robust variance estimator using channel differencing + MAD
+    def robust_variance_from_visibilities(vis, flags):
+        flags_eff = flags | bad_freq_mask[np.newaxis, :]
+        diff = vis[:, 1:] - vis[:, :-1]
+        valid_diff = (~flags_eff[:, 1:]) & (~flags_eff[:, :-1])
+        diff_valid = diff[valid_diff]
+        n_samples = diff_valid.size
+
+        if n_samples < min_unflagged_samples:
+            return np.nan, np.nan, n_samples
+
+        diff_re = diff_valid.real
+        diff_im = diff_valid.imag
+
+        mad_re = np.median(np.abs(diff_re - np.median(diff_re)))
+        mad_im = np.median(np.abs(diff_im - np.median(diff_im)))
+
+        sigma_re = (1.4826 * mad_re) / np.sqrt(2.0)
+        sigma_im = (1.4826 * mad_im) / np.sqrt(2.0)
+
+        var_total = (sigma_re ** 2) + (sigma_im ** 2)
+        std_total = np.sqrt(var_total)
+        return float(var_total), float(std_total), n_samples
+
+    # 5. Measure variance across selected baselines
+    with table(ms, readonly=True, ack=False) as t_main:
+        colnames = t_main.colnames()
+        has_flag_row = "FLAG_ROW" in colnames
+        if data_column not in colnames:
+            raise KeyError(f"Column '{data_column}' not found in MS {ms}")
+
+        baseline_results = []
+        for a1, a2 in selected_pairs:
+            taql_query = f"ANTENNA1 == {a1} && ANTENNA2 == {a2}"
+            with t_main.query(taql_query) as sub_t:
+                n_rows = sub_t.nrows()
+                if n_rows == 0:
+                    continue
+
+                vis_data = sub_t.getcol(data_column)
+                flags = sub_t.getcol("FLAG")
+
+                if has_flag_row:
+                    flag_rows = sub_t.getcol("FLAG_ROW")
+                    flags[flag_rows, :, :] = True
+
+                bl_length = baseline_lengths.get((min(a1, a2), max(a1, a2)), 0.0)
+                a1_label = ant_names[a1] if ant_names is not None else str(a1)
+                a2_label = ant_names[a2] if ant_names is not None else str(a2)
+
+                res_entry = {
+                    "baseline": (a1, a2),
+                    "antennas": (a1_label, a2_label),
+                    "length_m": bl_length,
+                }
+
+                skip_baseline = False
+                for pol_name, pol_idx in pol_indices.items():
+                    vis_pol = vis_data[:, :, pol_idx]
+                    flag_pol = flags[:, :, pol_idx]
+
+                    flags_eff_pol = flag_pol | bad_freq_mask[np.newaxis, :]
+                    flag_frac = float(np.mean(flags_eff_pol))
+                    res_entry[f"flag_frac_{pol_name}"] = flag_frac
+
+                    if flag_frac > max_flag_fraction:
+                        skip_baseline = True
+                        break
+
+                    var_val, std_val, n_diffs = robust_variance_from_visibilities(vis_pol, flag_pol)
+
+                    # Discard dead antenna or numerical failure
+                    if np.isnan(var_val) or var_val <= 1e-18:
+                        skip_baseline = True
+                        break
+
+                    res_entry[f"var_{pol_name}"] = var_val
+                    res_entry[f"std_{pol_name}"] = std_val
+
+                if not skip_baseline:
+                    baseline_results.append(res_entry)
+
+                if len(baseline_results) >= num_baselines * 2:
+                    break
+
+    if len(baseline_results) == 0:
+        logging.warning("No unflagged healthy long baselines found. Falling back to default variance 1.0.")
+        return 1.0, 1.0
+
+    # 6. Outlier rejection across baselines
+    consensus_vars = {}
+    for pol_name in ["RR", "LL"]:
+        vars_all = np.array([b[f"var_{pol_name}"] for b in baseline_results])
+        med_var = np.median(vars_all)
+        mad_var = np.median(np.abs(vars_all - med_var))
+
+        cutoff = max(3.0 * (1.4826 * mad_var), 0.5 * med_var)
+        good_mask = np.abs(vars_all - med_var) <= cutoff
+
+        if np.sum(good_mask) == 0:
+            good_mask = np.ones(len(vars_all), dtype=bool)
+
+        consensus_vars[pol_name] = float(np.median(vars_all[good_mask]))
+
+    var_rr = consensus_vars["RR"]
+    var_ll = consensus_vars["LL"]
+
+    logging.info(f"Consensus visibility noise variance: RR = {var_rr:.6e} Jy^2 (std = {np.sqrt(var_rr):.6e} Jy), "
+                    f"LL = {var_ll:.6e} Jy^2 (std = {np.sqrt(var_ll):.6e} Jy)")
+    logging.info(f"Estimated from {len(baseline_results)} healthy long baselines.")
+    for b in baseline_results[:5]:
+        logging.debug(f"  BL {b['antennas'][0]}-{b['antennas'][1]} ({b['length_m']:.1f} m): "
+                        f"RR var={b.get('var_RR', np.nan):.3e}, LL var={b.get('var_LL', np.nan):.3e}, "
+                        f"flag_RR={b.get('flag_frac_RR', 0.0):.1%}")
+
+    return var_rr, var_ll
+
 def fix_time_axis_gmrt(mslist):
     """
     Fixes the TIME and INTERVAL columns in Measurement Sets (MS) from the GMRT telescope.
@@ -325,7 +841,7 @@ def aoflagger_column(mslist, aoflagger_strategy=None, column='CORRECTED_DATA'):
         cmd += 'steps=[ao] '
         print('Running AOFlagger on ' + ms + ' with strategy: ' + aoflagger_strategy)
         print(cmd)
-        run(cmd)
+        run(cmd, log=True)
         # remove temporary strategy file if it was created
     if aoflagger_strategy is not None and os.path.isfile('tmp.' + os.path.basename(aoflagger_strategy)):
         os.system('rm -f tmp.' + os.path.basename(aoflagger_strategy))
@@ -869,14 +1385,16 @@ def write_primarybeam_info(cmd, imagebasename, telescope=None):
             if '-apply-primary-beam' in cmd:
                 hdul[0].header['COMMENT'] = "Full primary beam correction applied. Image is science ready."
 
-def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
+  
+
+def check_applyfacetbeam(mslist, imsize, pixsize, telescope):
     """
-    Checks whether the image field of view (FoV) for MeerKAT data is too large to safely use the -apply-facet-beam/-apply-primary-beam option in WSClean, and enforces the --disable-primary-beam option if necessary.
+    Checks whether the image field of view (FoV) for MeerKAT/GMRT data is too large to safely use the -apply-facet-beam/-apply-primary-beam option in WSClean, and enforces the --disable-primary-beam option if necessary.
     Parameters:
         mslist (list of str): List of measurement set (MS) file paths to check.
         imsize (float): Image size in pixels.
         pixsize (float): Pixel size in arcseconds.
-        telescope (str): Name of the telescope. Function only applies checks if this is 'MeerKAT'.
+        telescope (str): Name of the telescope. Function only applies checks if this is 'MeerKAT' or 'GMRT'.
     Returns:
         None
     Side Effects:
@@ -888,7 +1406,7 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
         - The function assumes the existence of a global 'args' dictionary and a 'logger' object.
         - The function also assumes the presence of 'compute_distance_to_pointingcenter' and 'table' utilities.
     """
-    if telescope != 'MeerKAT':
+    if telescope not in ['GMRT', 'MeerKAT']:
         return
     
     for ms in mslist:
@@ -896,7 +1414,23 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
         
         with table(ms+"::SPECTRAL_WINDOW", ack=False) as t:
             max_freq = t.getcol("CHAN_FREQ").max()
-        safe_diameter = 60.*68.*(1.28e9/max_freq) # in arcsec
+            freq = np.median(t.getcol("CHAN_FREQ"))
+
+        if telescope == 'MeerKAT':
+            safe_diameter = 60.*68.*(1.28e9/max_freq) # in arcsec
+
+        if telescope == 'GMRT':
+            if 0.125e9 <= freq <= 0.250e9:
+                safe_diameter = 60.*120.*(187.5e6/max_freq) # in arcsec
+            elif 0.250e9 < freq <= 0.500e9:
+                safe_diameter = 60.*75.*(375e6/max_freq) # in arcsec
+            elif 0.550e9 <= freq <= 0.850e9:
+                safe_diameter = 60.*38.*(700e6/max_freq) # in arcsec
+            elif 1.050e9 <= freq <= 1.450e9:
+                safe_diameter = 60.*23.*(1230e6/max_freq) # in arcsec
+            else:
+                raise ValueError("Frequency {} GHz is outside the supported GMRT frequency ranges for primary beam checks.".format(freq))
+
         if ((imsize*pixsize) + (distance_pointing_center*3600.) ) > safe_diameter:
             args['disable_primary_beam'] = True # set to True if one in mslist violates this criterion
             print("\033[33m" + "=== " + ms + " ===" + "\033[0m")
@@ -907,6 +1441,7 @@ def check_applyfacetbeam_MeerKAT(mslist, imsize, pixsize, telescope):
             print("\033[33m" + "Save Fov [deg]: " + str(safe_diameter/3600) + "\033[0m")
             logger.warning('Your image FoV is too large to use -apply-facet-beam/-apply-primary-beam in WSClean. The option --disable-primary-beam is automatically invoked: ' + ms)
     return    
+
 
 def is_two_pol_ms(ms):
     """
@@ -1241,18 +1776,20 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
         G3 =-0.0406048877e-10
         G4 = 0.0017837276e-13
         G5 = -0.0000297565e-16
-    if (freq >= 1.0) and (freq < 1.7):  # L-band
+    elif (freq >= 1.0) and (freq < 1.7):  # L-band
         G1 =-0.3514e-3
         G2 = 0.5600e-7
         G3 =-0.0474e-10
         G4 = 0.00078e-13
         G5 = 0.00019e-16
-    if (freq >= 1.7) and (freq < 4.0):  # S-band
+    elif (freq >= 1.7) and (freq < 4.0):  # S-band
         G1 =-0.2829793167e-3
         G2 = 0.3462301721e-7
         G3 =-0.0237871692e-10
         G4 = 0.0009189657e-13
         G5 = -0.0000148312e-16
+    else:
+        raise ValueError('Frequency must be within a published MeerKAT band: 0.5-1.0, 1.0-1.7, or 1.7-4.0 GHz.')
 
     hdu = fits.open(fitsimage,  ignore_missing_end=True)
     hduflat = flatten(hdu)
@@ -1298,6 +1835,117 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
             hdu[0].data[0,0,:,:][mask] = np.nan
 
     astropy.io.fits.writeto(outfile, hdu[0].data, hdu[0].header, overwrite=True)
+    return outfile
+
+
+def uGMRT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
+    """
+    Apply a (u)GMRT primary beam correction to a FITS image.
+    Parameters
+    ----------
+    fitsimage : str
+        Path to the input FITS image that needs to be corrected.
+
+    outfile : str
+        Path where the primary-beam-corrected FITS image will be saved.
+
+    freq : float, optional
+        Observing frequency in GHz. If not provided, the function reads CRVAL3
+        from the FITS header, assuming it is in Hz.
+
+    ms : str, optional
+        Path to the Measurement Set. If provided, the pointing center is read
+        from its FIELD/REFERENCE_DIR column. Otherwise, the image center is
+        used as the pointing center.
+
+    pblimit : float, optional
+        Primary beam limit in fraction of the peak. Pixels outside the first
+        radial crossing of this limit are set to NaN. Default is 0.0.
+
+    Returns
+    -------
+    outfile : str
+        Path to the corrected FITS image written to disk.
+
+    Notes
+    -----
+    The correction follows the AIPS PBCOR polynomial convention:
+
+        F(x) = 1 + a*x/10**3 + b*x**2/10**7 + c*x**3/10**10 + d*x**4/10**13
+
+    where x is the squared distance from the pointing center in
+    (arcmin * frequency_GHz)**2. The coefficients are from the GMRT primary
+    beam fits shown in the GMRT calibration documentation. The fifth AIPS
+    term, which would use PBPARM(7)/10**16, is not included because the table
+    provides coefficients only through PBPARM(6).
+
+    PBPARM are based on https://www.gmrt.ncra.tifr.res.in/gtac/sch/c51webfiles/gtac_51_status_doc.pdf
+    """
+    if freq is None:
+        with fits.open(fitsimage) as hdul:
+            freq = hdul[0].header['CRVAL3'] / 1e9
+        print('Frequency found from the FITS image [GHz]:', freq)
+
+    if 0.125 <= freq <= 0.250:
+        coefficients = (-3.089, 39.314, -23.011, 5.037)
+    elif 0.250 < freq <= 0.500:
+        coefficients = (-3.129, 38.816, -21.608, 4.483)
+    elif 0.550 <= freq <= 0.850:
+        coefficients = (-3.263, 42.618, -25.580, 5.823)
+    elif 1.050 <= freq <= 1.450:
+        coefficients = (-2.614, 27.594, -13.268, 2.395)
+    else:
+        raise ValueError(
+            'Frequency must be within a published (u)GMRT band: '
+            '125-250, 250-500, 550-850, or 1050-1450 MHz.'
+        )
+
+    coefficient_a, coefficient_b, coefficient_c, coefficient_d = coefficients
+    hdu = fits.open(fitsimage, ignore_missing_end=True)
+    hduflat = flatten(hdu)
+    img = hduflat.data
+    print('IMAGE shape', img.shape)
+    x, y = np.indices(img.shape)
+
+    w = WCS(hduflat.header)
+    if ms is not None:
+        print('Taking pointing center from the ms')
+        with table(ms + '/FIELD', readonly=True, ack=False) as t:
+            ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze()
+        center = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')
+    else:
+        center = w.pixel_to_world(img.shape[0] / 2., img.shape[1] / 2.)
+        print('Assume image center is the pointing center')
+        print('Make sure this is correct, if not provide the ms to the function')
+        print('CENTER image:', center)
+
+    coordinates = w.pixel_to_world(np.ravel(x), np.ravel(y))
+    separation = center.separation(coordinates).arcmin
+    separation = separation.reshape(img.shape)
+    radius_frequency = freq * separation
+    beam_argument = radius_frequency ** 2
+    primary_beam = (1. + coefficient_a * beam_argument / 10**3
+                    + coefficient_b * beam_argument ** 2 / 10**7
+                    + coefficient_c * beam_argument ** 3 / 10**10
+                    + coefficient_d * beam_argument ** 4 / 10**13)
+
+    hdu[0].data[0, 0, :, :] = img / primary_beam
+
+    if pblimit > 0.0:
+        radial_distance = np.unique(np.sort(separation.ravel()))
+        radial_argument = (freq * radial_distance) ** 2
+        radial_beam = (1. + coefficient_a * radial_argument / 10**3
+                   + coefficient_b * radial_argument ** 2 / 10**7
+                   + coefficient_c * radial_argument ** 3 / 10**10
+                   + coefficient_d * radial_argument ** 4 / 10**13)
+        cutoff_idx = np.flatnonzero(radial_beam <= pblimit)
+
+        if cutoff_idx.size > 0:
+            cutoff_radius = radial_distance[cutoff_idx[0]]
+            hdu[0].data[0, 0, :, :][separation >= cutoff_radius] = np.nan
+
+    astropy.io.fits.writeto(outfile, hdu[0].data, hdu[0].header, overwrite=True)
+    hdu.close()
     return outfile
 
 
@@ -3107,7 +3755,14 @@ def add_dummyms(msfiles):
     freqaxis = freqaxis[np.array(tuple(idx))]
     sortedmslist = list(msfiles[i] for i in idx)
     freqspacing = np.diff(freqaxis)
-    minfreqspacing = np.min(np.diff(freqaxis))
+    positive_freqspacing = freqspacing[freqspacing > 0.0]
+
+    # Duplicate frequencies do not represent a gap. Ignore their zero spacing
+    # when determining the regular grid step to avoid division by zero.
+    if len(positive_freqspacing) == 0:
+        print('No positive frequency spacing found; no dummy MS files needed')
+        return sortedmslist
+    minfreqspacing = np.min(positive_freqspacing)
 
     # insert dummies in the ms list if needed
     count = 0
@@ -14012,7 +14667,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 cmd += '-scalar-visibilities '  # scalar solutions
 
-        if args['telescope'] == 'LOFAR' or args['telescope'] == 'MeerKAT':
+        if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT']:
             if not disable_primarybeam_predict:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                 if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
@@ -14090,7 +14745,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # NEW CODE FOR SPEEDUP
             if singlefacetpredictspeedup:
                 cmd += '-facet-regions ' + dirofinput + '/facet' + str(facet_id) + '.reg' + ' '
-                if args['telescope'] == 'LOFAR' or args['telescope'] == 'MeerKAT':
+                if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT']:
                     if not disable_primarybeam_predict:
                         # check if -model-fpb.fits is there for image000 (in case image000 was made without facets)
                         if selfcalcycle == 0:
@@ -14257,7 +14912,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 else:
                     cmd += '-scalar-visibilities '  # scalar solutions
 
-            if args['telescope'] == 'LOFAR' or args['telescope'] == 'MeerKAT':
+            if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT']:
                 if not disable_primarybeam_image:
                     cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                     if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
@@ -14266,7 +14921,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 mslist_concat, h5list_concat_tmp = concat_ms_wsclean_facetimaging(mslist, concatms=False)
             cmd += '-facet-regions ' + facetregionfile + ' '
             if sharedfacetreads: cmd += '-shared-facet-reads -shared-facet-writes '
-            if (args['telescope'] == 'LOFAR' or args['telescope'] == 'MeerKAT') and not disable_primarybeam_image:
+            if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT'] and not disable_primarybeam_image:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                 if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
                 if not fulljones_h5_facetbeam:
@@ -14277,7 +14932,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 if not disable_primarybeam_image:
                     cmd += '-apply-primary-beam -use-differential-lofar-beam '
                     cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
-            if args['telescope'] == 'MeerKAT' and not idg and not disable_primarybeam_image:
+            if args['telescope'] in ['MeerKAT', 'GMRT'] and not idg and not disable_primarybeam_image:
                 cmd += '-apply-primary-beam '
 
 
@@ -14295,26 +14950,44 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
         clean_up_images(imageout)
 
-        # do manual  pbcor for MeerKAT images if -applybeam or -apply-facet-beam was not used
-        if args['telescope'] == 'MeerKAT':
+        # do manual  pbcor for MeerKAT/GMRT images if -applybeam or -apply-facet-beam was not used
+        if args['telescope'] in ['MeerKAT','GMRT']:
             if '-apply-facet-beam' not in cmd and '-apply-primary-beam' not in cmd:
-                print('Doing manual primary beam correction for MeerKAT image')
+                print('Doing manual primary beam correction for MeerKAT/GMRT image')
                 if os.path.isfile(imageout + '-MFS-image-pb.fits'):
                     outfile = (imageout + '-MFS-image-pb.fits').replace('-MFS-image-pb.fits', '-MFS-image-manualpb.fits')
-                    MeerKAT_pbcor(imageout + '-MFS-image-pb.fits', outfile, ms=mslist[0])
+                    if args['telescope'] == 'MeerKAT':
+                        MeerKAT_pbcor(imageout + '-MFS-image-pb.fits', outfile, ms=mslist[0])
+                    elif args['telescope'] == 'GMRT':
+                        uGMRT_pbcor(imageout + '-MFS-image-pb.fits', outfile, ms=mslist[0])
                 else: #so this must be a run without facets
                     if fullpol:
                         outfile = (imageout + '-MFS-I-image.fits').replace('-MFS-I-image.fits', '-MFS-I-image-manualpb.fits')
-                        MeerKAT_pbcor(imageout + '-MFS-I-image.fits', outfile, ms=mslist[0])
+                        if args['telescope'] == 'MeerKAT':
+                            MeerKAT_pbcor(imageout + '-MFS-I-image.fits', outfile, ms=mslist[0])
+                        elif args['telescope'] == 'GMRT':
+                            uGMRT_pbcor(imageout + '-MFS-I-image.fits', outfile, ms=mslist[0])
                         outfile = (imageout + '-MFS-Q-image.fits').replace('-MFS-Q-image.fits', '-MFS-Q-image-manualpb.fits')
-                        MeerKAT_pbcor(imageout + '-MFS-Q-image.fits', outfile, ms=mslist[0])
+                        if args['telescope'] == 'MeerKAT':
+                            MeerKAT_pbcor(imageout + '-MFS-Q-image.fits', outfile, ms=mslist[0])
+                        elif args['telescope'] == 'GMRT':
+                            uGMRT_pbcor(imageout + '-MFS-Q-image.fits', outfile, ms=mslist[0])
                         outfile = (imageout + '-MFS-U-image.fits').replace('-MFS-U-image.fits', '-MFS-U-image-manualpb.fits')
-                        MeerKAT_pbcor(imageout + '-MFS-U-image.fits', outfile, ms=mslist[0])
+                        if args['telescope'] == 'MeerKAT':
+                            MeerKAT_pbcor(imageout + '-MFS-U-image.fits', outfile, ms=mslist[0])
+                        elif args['telescope'] == 'GMRT':
+                            uGMRT_pbcor(imageout + '-MFS-U-image.fits', outfile, ms=mslist[0])
                         outfile = (imageout + '-MFS-V-image.fits').replace('-MFS-V-image.fits', '-MFS-V-image-manualpb.fits')
-                        MeerKAT_pbcor(imageout + '-MFS-V-image.fits', outfile, ms=mslist[0])                                                                          
+                        if args['telescope'] == 'MeerKAT':
+                            MeerKAT_pbcor(imageout + '-MFS-V-image.fits', outfile, ms=mslist[0])
+                        elif args['telescope'] == 'GMRT':
+                            uGMRT_pbcor(imageout + '-MFS-V-image.fits', outfile, ms=mslist[0])                                                                          
                     else:
                         outfile = (imageout + '-MFS-image.fits').replace('-MFS-image.fits', '-MFS-image-manualpb.fits')
-                        MeerKAT_pbcor(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
+                        if args['telescope'] == 'MeerKAT':
+                            MeerKAT_pbcor(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
+                        elif args['telescope'] == 'GMRT':
+                            uGMRT_pbcor(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
 
         # write info about how the primary beam correction was done to the FITS header and processing history
         write_processing_history(' '.join(map(str, sys.argv)), facetselfcal_version, imageout)
@@ -15971,11 +16644,18 @@ def check_valid_ms(mslist):
     2. Ensures that no MS path starts with a '.' character (to avoid relative or hidden paths).
     3. Checks that each MS contains more than 20 unique time steps (sufficient data for self-calibration).
     4. Ensures there are no duplicate MS entries in the list.
+    5. Checks that there is only one spectral window (SPW) in each MS.
+    6. Validates that each MS has a perfectly regularized time-baseline grid structure.
+    7. Checks that the MS is a directory and not some other file type.
     Raises:
         Exception: If any MS directory does not exist.
         Exception: If any MS path starts with a '.' character.
         Exception: If any MS contains 20 or fewer unique time steps.
         Exception: If there are duplicate MS entries in the list.
+        Exception: If any MS contains more than one spectral window (SPW).
+        Exception: If any MS is not perfectly regularized.
+        Exception: If any MS path is not a directory.
+    
     Args:
         mslist (list of str): List of paths to Measurement Set directories to validate.
     Returns:
@@ -15989,6 +16669,27 @@ def check_valid_ms(mslist):
             print(ms, ' This ms starts with a "." character, this is not allowed')
             raise Exception('Invalid ms name, do not use relative paths')
 
+    # check we have a directory and not some other file type 
+    for ms in mslist:
+        if not os.path.isdir(ms):
+            print(ms, ' is not a directory, this is not allowed')
+            raise Exception('Invalid ms name, do not use relative paths')
+
+    # check that each MS contains only one spectral window (SPW)
+    for ms in mslist:
+        with table(os.path.join(ms, 'SPECTRAL_WINDOW'), readonly=True) as t:
+            n_spws = t.nrows()
+        if n_spws != 1:
+            print(ms, ' contains more than one spectral window (SPW)')
+            raise Exception('Each MS must contain exactly one spectral window (SPW)')
+
+    # check if MS is regularized
+    for ms in mslist:
+        if not is_ms_regularized(ms):
+            print(ms, ' is not perfectly regularized')
+            raise Exception('Each MS must have a perfectly regularized time-baseline grid structure')
+
+    # check that each MS contains more than 20 unique time steps
     for ms in mslist:
         t = table(ms, ack=False)
         times = np.unique(t.getcol('TIME'))
@@ -16001,6 +16702,7 @@ def check_valid_ms(mslist):
                 'You are providing an MS with less than 21 timeslots, that is not enough to self-calibrate on')
         t.close()
 
+    # check for duplicates in the mslist
     if any(mslist.count(x) > 1 for x in mslist):
         print('There are duplicates in the mslist, please remove them')
         raise Exception('There are duplicates in the mslist, please remove them')
@@ -17340,7 +18042,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '19.3.0'
+    facetselfcal_version = '19.5.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -17483,10 +18185,10 @@ def main():
     if not args['phasediff_only']:
         create_Ateam_seperation_plots(mslist, start=args['start'])
 
-    # flag shadowed antennas for MeerKAT, VLA, ATCA, GMRT, WSRT, ASKAP
+    # flag shadowed antennas for MeerKAT, VLA, EVLA, ATCA, GMRT, WSRT, ASKAP
     if args['start'] == 0:
         for ms in mslist:
-            if get_telescope_from_ms(ms) in ['MeerKAT', 'VLA', 'ATCA', 'GMRT', 'WSRT', 'ASKAP']:
+            if get_telescope_from_ms(ms) in ['MeerKAT', 'VLA', 'EVLA', 'ATCA', 'GMRT', 'WSRT', 'ASKAP']:
                 run('python ' + submodpath + '/shadow_flag.py --ms=' + ms)
 
     # fix UVW coordinates (for time averaging with MeerKAT data)
@@ -17660,7 +18362,7 @@ def main():
         createresidualdatacolumn_only = False
 
     # check if we can use -apply-facet-beam or disable_primary_beam needs to be set
-    check_applyfacetbeam_MeerKAT(mslist, args['imsize'], args['pixelscale'], args['telescope'])
+    check_applyfacetbeam(mslist, args['imsize'], args['pixelscale'], args['telescope'])
 
     # Insert MS history from facetselfcal
     for ms in mslist:
@@ -17725,12 +18427,25 @@ def main():
         if (args['preapplybandpassH5_list'][0]) is not None and i == 0:
             preapply_bandpass(args['preapplybandpassH5_list'], mslist, dysco=args['dysco'], 
                               updateweights=args['preapplybandpassH5_updateweights'])
-            if args['aoflagger_afterbandpassapply']:
-                aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_afterbandpassapply'], column='DATA')
             # write keyword to MS to indicate bandpass has been applied
             for ms in mslist:
                 with table(ms, readonly=False) as t:
                     t.putcolkeyword('DATA', 'BANDPASS_APPLIED', True)
+            # read out the keyword FAKE_RLLR for the DATA column if this keyword exists
+            for ms in mslist:
+                fake_rllr = False # initialize variable
+                with table(ms, readonly=True, ack=False) as t:
+                    if 'FAKE_RLLR' in t.colkeywordnames('DATA'): # inserted by fixuGMRT_revised.py for uGMRT data
+                        fake_rllr = t.getcolkeyword('DATA', 'FAKE_RLLR')
+                        print('This is a MS were fake cross-hand correlations were added to the DATA column')
+                        print('Because we apply a bandpass solution we need to regenerate the fake cross-hand correlations in the DATA column because otherwise the noise is not flat')
+                        logger.info('Regenerating fake cross-hand correlations in the DATA column for MS %s' % ms)
+                if fake_rllr:
+                    variance = getVarianceRRLL(ms)  # get variance of RR and LL correlations
+                    updateCrosshand(ms, variance)  # update the cross-hand correlations in the DATA column based on the RR and LL variance         
+            # importantly, run AOFlagger after applying the updateCrosshand update because otherwise the bandpass structure can be imposed on the noise if fake noise was injected in the cross-hand correlations. This intrduces major unwanted flagging
+            if args['aoflagger_afterbandpassapply']:
+                aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_afterbandpassapply'], column='DATA')
 
         # PRE-APPLY SOLUTIONS (from a nearby direction for example)
         if (args['preapplyH5_list'][0]) is not None and i == 0:
