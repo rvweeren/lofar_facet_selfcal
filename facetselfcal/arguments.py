@@ -169,7 +169,11 @@ def option_parser():
     imagingparser.add_argument('--ncpu-max-WSClean',
                                help='Maximum number of threads for WSClean, default=None. None means WSClean can use all available threads, i.e., all CPU cores.',
                                type=int,
-                               default=None)   
+                               default=None)
+    imagingparser.add_argument('--enlarge-safe-FoV-diameter',
+                               help='Expert option to enlarge the safe FoV diameter for -apply-facet-beam/-apply-primary-beam. Default is 1.0 (no enlargement).',
+                               type=float,
+                               default=1.0)
 
     calibrationparser = parser.add_argument_group(
         "-------------------------Calibration Settings-------------------------")
@@ -617,16 +621,17 @@ def option_parser():
     parser.add_argument('--remove-outside-center',
                         help='Subtract sources that are outside the central parts of the FoV, square box is used in the phase center with sizes of 3.0, 2.0, 1.5 degr for MeerKAT UHF, L, and S-band, repspectively. In case you want something else set --remove-outside-center-box. In case of a --DDE solve the solution closest to the box center is applied.',
                         action='store_true')
-    parser.add_argument('--remove-outside-center-box',
-                        help='User defined box DS9 region file to subtract sources that are outside \
+    parser.add_argument('--remove-outside-center-box', '--remove-outside-center-region',
+                        help='User defined DS9 region file to subtract sources that are outside \
                         this part of the image, see also --remove-outside-center. If "keepall" is \
                         set then no subtract is done and everything is kept, this is mainly useful \
-                        if you are already working on box-extracted data. If number is given a \
+                        if you are already working on extracted data. If number is given a \
                         boxsize of this size (degr) will be used in the phase center. The option \
                         "auto" will determine the boxsize automatically based on the artifacts \
                         detected in last selfcal image the image. In case of a --DDE solve the \
-                        solution closest to the box center is applied (unless of a --DDE solve the \
-                        solution closest to the box center is applied (unless "keepall" is set).',
+                        solution closest to the center is applied (unless of a --DDE solve the \
+                        solution closest to the center is applied (unless "keepall" is set). Box, \
+                        circle, and ellipse formats are supported.',
                         type=str_or_float,
                         default=None)
     parser.add_argument('--remove-outside-center-auto-minboxsize',
