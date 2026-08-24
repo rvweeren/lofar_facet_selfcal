@@ -121,6 +121,50 @@ os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
 
+def get_EVLA_IF_pair(ms):
+    """Return the EVLA IF pair encoded in a single-SPW measurement set.
+
+    EVLA has two independent data streams, represented by the A/C and B/D
+    IF pairs. The pair is read from the first spectral-window ``NAME`` and is
+    returned as ``"AC"`` or ``"BD"`` so measurement sets can be sorted by
+    IF pair.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the measurement set.
+
+    Returns
+    -------
+    str
+        The detected IF pair, either ``"AC"`` or ``"BD"``.
+
+    Raises
+    ------
+    ValueError
+        If the spectral-window name does not identify an A/C or B/D pair.
+    """
+    # check telescope is EVLA
+    if get_telescope_from_ms(ms) != 'EVLA':
+        print('IF pair detection is only supported for EVLA measurement sets, but the telescope for MS ' + ms + ' is ' + get_telescope_from_ms(ms))
+        raise ValueError('IF pair detection is only supported for EVLA measurement sets.')
+
+    with table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False) as t:
+        name = t.getcol('NAME')[0]
+    # format is 'EVLA_X#B2D2#53'
+    # strip off the part between the # symbols
+    name = name.split('#')[1]
+
+    # if characetrs A and C are in then return 'AC'
+    if 'A' in name and 'C' in name:
+        return 'AC'
+    elif 'B' in name and 'D' in name:
+        return 'BD'
+    else:
+        # there is some problem
+        raise ValueError('Could not determine IF pair for EVLA MS ' + ms + ', NAME=' + name)     
+
+
 def remove_syspower(mslist):
     """Remove the SYSPOWER column from a measurement set, if it exists.
     This is necessary because the SYSPOWER column, if it is large, makes DP3 slow. 
@@ -1387,7 +1431,7 @@ def write_primarybeam_info(cmd, imagebasename, telescope=None):
 
   
 
-def check_applyfacetbeam(mslist, imsize, pixsize, telescope):
+def check_applyfacetbeam(mslist, imsize, pixsize, telescope, enlarge_safe_FoV_diameter=1.0):
     """
     Checks whether the image field of view (FoV) for MeerKAT/GMRT data is too large to safely use the -apply-facet-beam/-apply-primary-beam option in WSClean, and enforces the --disable-primary-beam option if necessary.
     Parameters:
@@ -1395,6 +1439,7 @@ def check_applyfacetbeam(mslist, imsize, pixsize, telescope):
         imsize (float): Image size in pixels.
         pixsize (float): Pixel size in arcseconds.
         telescope (str): Name of the telescope. Function only applies checks if this is 'MeerKAT' or 'GMRT'.
+        enlarge_safe_FoV_diameter (float, optional): Factor to enlarge the safe FoV diameter. Default is 1.0 (no enlargement).
     Returns:
         None
     Side Effects:
@@ -1430,6 +1475,10 @@ def check_applyfacetbeam(mslist, imsize, pixsize, telescope):
                 safe_diameter = 60.*23.*(1230e6/max_freq) # in arcsec
             else:
                 raise ValueError("Frequency {} GHz is outside the supported GMRT frequency ranges for primary beam checks.".format(freq))
+ 
+        #  enlarge_safe_FoV_diameter: factor to enlarge the safe FoV diameter. Default is 1.0 (no enlargement).
+        # use with care as it can use unstable behaviour when the beam goes through a null which can cause nummerical issues in the primary beam correction.
+        safe_diameter *= enlarge_safe_FoV_diameter # Enlarge the safe FoV diameter by the specified factor
 
         if ((imsize*pixsize) + (distance_pointing_center*3600.) ) > safe_diameter:
             args['disable_primary_beam'] = True # set to True if one in mslist violates this criterion
@@ -1700,7 +1749,7 @@ def applycal_restart_di(mslist, selfcalcycle):
     return
 
 
-def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0): 
+def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15): 
     """
     Apply a MeerKAT primary beam correction to a L-band FITS image.
 
@@ -1723,7 +1772,7 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
 
     pblimit : float, optional
         Primary beam limit (in fraction of the peak) to apply the correction. Pixels with
-        primary beam response below this limit will not be corrected. Default is 0.0 (no limit).    
+        primary beam response below this limit will not be corrected. Default is 0.15 (zero means no limit).    
 
     Returns
     -------
@@ -1838,7 +1887,7 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
     return outfile
 
 
-def uGMRT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
+def uGMRT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
     """
     Apply a (u)GMRT primary beam correction to a FITS image.
     Parameters
@@ -1860,7 +1909,7 @@ def uGMRT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.0):
 
     pblimit : float, optional
         Primary beam limit in fraction of the peak. Pixels outside the first
-        radial crossing of this limit are set to NaN. Default is 0.0.
+        radial crossing of this limit are set to NaN. Default is 0.15 (zero means no limit).
 
     Returns
     -------
@@ -3079,16 +3128,38 @@ def getGSM(ms_input, SkymodelPath='gsm.skymodel', Radius="5.", DoDownload="Force
 
     return SkymodelPath
 
+def create_pointing_list(mslist):
+    """
+    Create a list of pointing centers from a list of Measurement Sets (MS). Round pointing center to 1arcsec precision. This is used to group MSs with the same pointing center for concatenation.
+    """
+    pointing_list = []
+    print('Taking pointing center from the ms')
+    for ms in mslist:
+        with table(ms + '/FIELD', readonly=True, ack=False) as t:
+            ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze()
+            center = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')   
+            # Round to 1arcsec precision
+            center_ra = round(center.ra.deg * 3600) / 3600
+            center_dec = round(center.dec.deg * 3600) / 3600
+            center = SkyCoord(center_ra * units.deg, center_dec * units.deg, frame='icrs')
+            pointing_list.append(center)
+
+    return pointing_list
 
 def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
-    keyfunct = lambda x: ' '.join(sorted(getAntennas(x)))
+    plist = create_pointing_list(mslist)
+    pointing_by_ms = dict(zip(mslist, plist))
+
+    def keyfunct(ms):
+        center = pointing_by_ms[ms]
+        return (center.ra.deg, center.dec.deg, tuple(sorted(getAntennas(ms))))
 
     MSs_list = sorted(mslist, key=keyfunct)  # needs to be sorted
 
     groups = []
     for k, g in groupby(MSs_list, keyfunct):
         groups.append(list(g))
-    print(f"Found {len(groups)} groups of datasets with same antennas.")
+    print(f"Found {len(groups)} groups of datasets with the same pointing center and antennas.")
 
     for i, group in enumerate(groups, start=1):
         antennas = ', '.join(getAntennas(group[0]))
@@ -3120,7 +3191,7 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
     # MSs_files_clean = ' '.join(MSs_files_clean)
 
     # print('Use the following ms files as input in wsclean:')
-    # print(MSs_files_clean)
+    print(MSs_files_clean)
     fix_uvw(MSs_files_clean)
     return MSs_files_clean, H5s_files_clean
 
@@ -7175,7 +7246,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                     # shift to the first MS's phase center
                     cmd += ' shift.phasecenter=\\[' + str(ra_ref) + ',' + str(dec_ref) + '\\] '
                 else:
-                    cmd += ' shift.phasecenter=\\[' + getregionboxcenter(phaseshiftbox) + '\\] '
+                    cmd += ' shift.phasecenter=\\[' + getregioncenter(phaseshiftbox, standardbox=False) + '\\] '
             else:
                 if removeinternational:
                     cmd += ' steps=[f,av] '
@@ -7732,7 +7803,20 @@ def inputchecker(args, mslist):
         args (dict): argparse inputs.
         mslist (str list): list of ms
     """
-    
+
+    if args['remove_outside_center_box'] is not None:
+         # carry out checks to see if args['remove_outside_center_box'] is correctly set by user
+         # check if the box can be converted to a float number
+         # check if it is a strong 'keepall' or 'auto'
+         # if it is a string but not 'keepall' or 'auto' it must be a file name and then we need to check of the file exists
+        try:
+            float(args['remove_outside_center_box'])
+        except ValueError:
+            if args['remove_outside_center_box'] != 'keepall' and args['remove_outside_center_box'] != 'auto':
+                if not os.path.exists(args['remove_outside_center_box']):
+                    print(f"File {args['remove_outside_center_box']} does not exist.")
+                    raise Exception(f"File {args['remove_outside_center_box']} does not exist.")     
+
     # if args['smoothnessrefdistance_list'] contains a number higher than 0.0
     if any(x > 0.0 for x in args['smoothnessrefdistance_list']):
         # so we have a non-zero value in the list, in that case check that the list has the same length as args['soltype_list']
@@ -8538,7 +8622,7 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
         if len(r[:]) > 1:
             print('Composite region file, not allowed')
             raise Exception('Composite region file, not allowed')
-        phasecenter = getregionboxcenter(boxfile)
+        phasecenter = getregioncenter(boxfile)
         phasecenterc = phasecenter.replace('deg', '')
         xs = np.ceil((r[0].coord_list[2]) * 3600. / tgsspixsize)
         ys = np.ceil((r[0].coord_list[3]) * 3600. / tgsspixsize)
@@ -8587,8 +8671,38 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     return 'tgss' + extrastrname + '.skymodel', filename
 
 
-def getregionboxcenter(regionfile, standardbox=True):
-    """ Extract box center of a DS9 box region.
+def getregionsize(regionfile):
+    """ Extract size of a DS9 region in degrees.
+    """
+    r = pyregion.open(regionfile)
+
+    if len(r[:]) > 1:
+        print('Only one region can be specified, your file contains', len(r[:]))
+        raise Exception('Only one region can be specified, your file contains')
+
+    if r[0].name not in ['box', 'circle', 'ellipse']:
+        print('Only box, circle, or ellipse region supported', r[0].name)
+        raise Exception('Only box, circle, or ellipse region supported')
+
+    if r[0].name == 'box':
+        boxsizex = r[0].coord_list[2]
+        boxsizey = r[0].coord_list[3]
+
+    if r[0].name == 'circle':
+        boxradius = r[0].coord_list[2]
+        boxsizex = boxradius * 2.
+        boxsizey = boxradius * 2.
+
+    if r[0].name == 'ellipse':
+        boxradius1 = r[0].coord_list[2] # semi-major axis in the x-direction if angle=0
+        boxradius2 = r[0].coord_list[3] # semi-minor axis in the y-direction if angle=0
+        boxsizex = boxradius1 * 2.
+        boxsizey = boxradius2 * 2.
+
+    return max([boxsizex, boxsizey])
+
+def getregioncenter(regionfile, standardbox=True):
+    """ Extract box center of a DS9 region.
 
     Args:
         regionfile (str): path to the region file.
@@ -8602,15 +8716,33 @@ def getregionboxcenter(regionfile, standardbox=True):
         print('Only one region can be specified, your file contains', len(r[:]))
         raise Exception('Only one region can be specified, your file contains')
 
-    if r[0].name != 'box':
-        print('Only box region supported')
-        raise Exception('Only box region supported')
+    if r[0].name not in ['box', 'circle', 'ellipse']:
+        print('Only box, circle, or ellipse region supported', r[0].name)
+        raise Exception('Only box, circle, or ellipse region supported')
 
-    ra = r[0].coord_list[0]
-    dec = r[0].coord_list[1]
-    boxsizex = r[0].coord_list[2]
-    boxsizey = r[0].coord_list[3]
-    angle = r[0].coord_list[4]
+    if r[0].name == 'box':
+        ra = r[0].coord_list[0]
+        dec = r[0].coord_list[1]
+        boxsizex = r[0].coord_list[2]
+        boxsizey = r[0].coord_list[3]
+        angle = r[0].coord_list[4]
+
+    if r[0].name == 'circle':
+        ra = r[0].coord_list[0]
+        dec = r[0].coord_list[1]
+        boxradius = r[0].coord_list[2]
+        #boxsizex = boxradius * 2.
+        #boxsizey = boxradius * 2.
+        angle = 0.
+
+    if r[0].name == 'ellipse':
+        ra = r[0].coord_list[0]
+        dec = r[0].coord_list[1]
+        boxradius1 = r[0].coord_list[2] # semi-major axis in the x-direction if angle=0
+        boxradius2 = r[0].coord_list[3] # semi-minor axis in the y-direction if angle=0
+        #boxsizex = boxradiusx * 2.
+        #boxsizey = boxradiusy * 2.
+        angle = r[0].coord_list[4]
 
     if standardbox:
         if boxsizex != boxsizey:
@@ -14316,8 +14448,12 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         boxsize = float(userbox) # userbox is a number
         # overwrite boxsize value here with user specified number
         userbox = 'templatebox.reg' # set this as we are going to use the template region file                 
-    except:
-        pass # userbox is not a number    
+    except ValueError:
+        if userbox is not None and userbox != 'keepall' and userbox != 'auto':
+            # so we have a user provided regionfile
+            if not os.path.isfile(userbox):
+                raise Exception('User provided region file ' + userbox + ' does not exist')
+            boxsize = getregionsize(userbox)  # get the boxsize from the user provided region file    
         
     if userbox == 'auto':
         if args['remove_outside_center_auto_minboxsize'] is not None:
@@ -14519,6 +14655,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
     """
     
+    if args['telescope'] in ['MeerKAT', 'GMRT']:
+        # static primary beam, this should speed up the imaging
+        facet_beam_update_time = 12*3600 # set an 12 hr
+
     # since the addition of the -model-storage-manager the option -model-column can be used without hitting a DP3 error 
     #Related to this was that WSClean up to now uses the same storage manager (read: file) for multiple model columns. While this is 'legal', it turned out that Dp3's DDECal with those model columns as input didn't work with this (due to complicated multi-threading issues).
     if '-model-storage-manager' in subprocess.check_output(['wsclean'], text=True):
@@ -14900,7 +15040,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             cmd += '-facet-regions ' + facetregionfile + ' '
             if sharedfacetreads: cmd += '-shared-facet-reads -shared-facet-writes '
             if args['groupms_h5facetspeedup'] and len(mslist) > 1:
-                mslist_concat, h5list_concat = concat_ms_wsclean_facetimaging(mslist, h5list=h5list, concatms=False)
+                mslist_concat, h5list_concat = concat_ms_wsclean_facetimaging(mslist, h5list=h5list, concatms=selfcalcycle is not None and ((selfcalcycle+1 in args['aoflagger_correcteddata_selfcalcycle_list']) or (selfcalcycle+1 in args['aoflagger_residualdata_selfcalcycle_list'])))
                 cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list_concat)) + ' '
                 cmd += ' amplitude000,phase000 '
             else:
@@ -14918,7 +15058,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
         elif forceimagingwithfacets and facetregionfile is not None:  # so h5list is zero, but we still want facet imaging
             if args['groupms_h5facetspeedup'] and len(mslist) > 1:
-                mslist_concat, h5list_concat_tmp = concat_ms_wsclean_facetimaging(mslist, concatms=False)
+                mslist_concat, h5list_concat_tmp = concat_ms_wsclean_facetimaging(mslist, concatms=selfcalcycle is not None and ((selfcalcycle+1 in args['aoflagger_correcteddata_selfcalcycle_list']) or (selfcalcycle+1 in args['aoflagger_residualdata_selfcalcycle_list'])))
             cmd += '-facet-regions ' + facetregionfile + ' '
             if sharedfacetreads: cmd += '-shared-facet-reads -shared-facet-writes '
             if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT'] and not disable_primarybeam_image:
@@ -15820,7 +15960,7 @@ def getimsize(boxfile, cellsize=1.5, increasefactor=1.2, DDE=None):
     xs = np.ceil((r[0].coord_list[2]) * increasefactor * 3600. / cellsize)
     ys = np.ceil((r[0].coord_list[3]) * increasefactor * 3600. / cellsize)
 
-    imsize = np.ceil(xs)  # // Round up decimals to an integer
+    imsize = np.ceil(max([xs, ys]))  # // Round up decimals to an integer
     if (imsize % 2 == 1):
         imsize = imsize + 1
 
@@ -18042,7 +18182,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     os.system(f'cp {submodpath}/polconv.py .')
 
-    facetselfcal_version = '19.5.0'
+    facetselfcal_version = '19.6.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -18362,7 +18502,8 @@ def main():
         createresidualdatacolumn_only = False
 
     # check if we can use -apply-facet-beam or disable_primary_beam needs to be set
-    check_applyfacetbeam(mslist, args['imsize'], args['pixelscale'], args['telescope'])
+    check_applyfacetbeam(mslist, args['imsize'], args['pixelscale'], args['telescope'],  \
+                         enlarge_safe_FoV_diameter=args['enlarge_safe_FoV_diameter'])
 
     # Insert MS history from facetselfcal
     for ms in mslist:
@@ -18556,7 +18697,7 @@ def main():
                       removenegativecc=args['removenegativefrommodel'],
                       paralleldeconvolution=args['paralleldeconvolution'],
                       parallelgridding=args['parallelgridding'],
-                      h5list=wsclean_h5list,
+                      h5list=wsclean_h5list, selfcalcycle=i,
                       facetregionfile=facetregionfile, DDEimaging=args['DDE'],
                       stack=args['stack'],
                       disable_primarybeam_image=args['disable_primary_beam'],
@@ -18815,7 +18956,7 @@ def main():
                   removenegativecc=args['removenegativefrommodel'],
                   paralleldeconvolution=args['paralleldeconvolution'],
                   parallelgridding=args['parallelgridding'],
-                  h5list=wsclean_h5list,
+                  h5list=wsclean_h5list, selfcalcycle=i + 1,
                   facetregionfile=facetregionfile, DDEimaging=args['DDE'],
                   disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
