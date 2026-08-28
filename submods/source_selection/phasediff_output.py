@@ -135,7 +135,7 @@ class GetSolint:
         """
 
         if cst >= self.limit ** 2:
-            return 2*np.pi
+            return 2 * np.pi # replacement for infinity
         else:
             return - np.log(1 - cst / (self.limit ** 2))
 
