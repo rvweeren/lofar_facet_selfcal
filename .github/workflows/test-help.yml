@@ -97,7 +97,7 @@ jobs:
         run: |
           singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/facetselfcal.py \
-          --imsize=1600 \
+          --imsize=512 \
           -i testdi \
           --pixelscale=0.075 \
           --uvmin=20000 \
@@ -120,6 +120,37 @@ jobs:
           --makeimage-ILTlowres-HBA \
           --makeimage-fullpol \
           --resetsols-list="[None,'alldutch',None,None]" \
+          --stop=1 \
+          --stopafterskysolve \
+          --test \
+          /repo/.github/data/test.ms
+
+      - name: Run calibration with skymodel and station group calibration
+        run: |
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
+          python /repo/facetselfcal.py \
+          --imsize=256 \
+          -i testdi2 \
+          --pixelscale=0.075 \
+          --uvmin=20000 \
+          --robust=-1.5 \
+          --uvminim=1500 \
+          --skymodel=/repo/.github/data/test.skymodel \
+          --soltype-list="['scalarphasediff','scalarphase','scalarcomplexgain','fulljones']" \
+          --soltypecycles-list="[0,0,0,0]" \
+          --solint-list="['8min','32s','20min','20min']" \
+          --nchan-list="[1,1,1,1]" \
+          --smoothnessconstraint-list="[10.0,1.25,7.5,5.0]" \
+          --normamps=False \
+          --smoothnessreffrequency-list="[120.,120.,0.,0.]" \
+          --antennaconstraint-list="['core',None,None,'alldutch']" \
+          --forwidefield \
+          --skipbackup \
+          --channelsout 2 \
+          --fitspectralpol 1 \
+          --uvminscalarphasediff=0 \
+          --antenna_averaging-factors-list = [None,'core:5,remote:2,international:1','alldutch:2,international:1','alldutch:2,international:1']
+          --antenna-smoothness-factors-list = [None,'core:5,remote:2,international:1','alldutch:2,international:1','alldutch:2,international:1']
           --stop=1 \
           --stopafterskysolve \
           --test \
