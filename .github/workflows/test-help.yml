@@ -97,7 +97,7 @@ jobs:
         run: |
           singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/facetselfcal.py \
-          --imsize=512 \
+          --imsize=256 \
           -i testdi \
           --pixelscale=0.075 \
           --uvmin=20000 \
