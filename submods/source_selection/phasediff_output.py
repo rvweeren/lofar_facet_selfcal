@@ -135,7 +135,7 @@ class GetSolint:
         """
 
         if cst >= self.limit ** 2:
-            return 999 # replacement for infinity
+            return 2 * np.pi # replacement for infinity
         else:
             return - np.log(1 - cst / (self.limit ** 2))
 
@@ -231,7 +231,7 @@ class GetSolint:
         return self.limit * np.sqrt(1 - np.exp(-(self.C / np.sqrt(t))))
 
 
-def generate_csv(h5s: list = None, ref_solint: int = 10, optimal_score: float = 1.75, make_plot: bool = True):
+def generate_csv(h5s: list = None, ref_solint: int = 10, optimal_score: float = 1.75, make_plot: bool = False):
     """
     Generate CSV file with phasediff score
 
