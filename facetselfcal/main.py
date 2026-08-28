@@ -5,7 +5,6 @@
 # python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy
 # run with less disk-space usage, remove all but merged h5
 # continue splitting functions in facetselfcal in separate modules
-# auto update channels out and fitspectralpol for high dynamic range
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
 # useful? https://learning-python.com/thumbspage.html
@@ -15,7 +14,6 @@
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
 # bug related to sources-pb.txt in facet imaging being empty if no -apply-beam is used
 # fix RR-LL referencing for flaged solutions, check for possible superterp reference station
-# put all fits images in images folder, all solutions in solutions folder? to reduce clutter
 # phase detrending.
 # BLsmooth constant smooth for gain solves
 # use scalarphasediff sols stats for solints? test amplitude stats as well
@@ -37,6 +35,7 @@ import ast
 import configparser
 import fnmatch
 import gc
+import concurrent.futures
 import glob
 import logging
 import multiprocessing
@@ -47,9 +46,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 from itertools import product
 from itertools import groupby
+
+# avoid numexpr warning when cpu_count() exceeds its default NUMEXPR_MAX_THREADS (64)
+os.environ.setdefault('NUMEXPR_MAX_THREADS', str(multiprocessing.cpu_count()))
 
 # Third party imports
 import astropy
@@ -864,13 +867,19 @@ def aoflagger_column(mslist, aoflagger_strategy=None, column='CORRECTED_DATA'):
                     print("\033[33m" + "WARNING: AOFlagger cannot flag RR/RL/LR/LL data in DP3" + "\033[0m")
                     print("\033[33m" + "WARNING: Will temporarily replace RR/RL/LR/LL with XX/XY/YX/YY" + "\033[0m")
                     if os.path.isfile('tmp.' + os.path.basename(aoflagger_strategy)):
-                        os.system('rm tmp.' + os.path.basename(aoflagger_strategy))
-                    os.system('cp ' + aoflagger_strategy + ' tmp.' + os.path.basename(aoflagger_strategy))
+                        Path('tmp.' + os.path.basename(aoflagger_strategy)).unlink(missing_ok=True)
+                    shutil.copy(aoflagger_strategy, 'tmp.' + os.path.basename(aoflagger_strategy))
                     # using linux sed command to replace the strings in the file
-                    os.system('sed -i "s/RR/XX/g" tmp.' + os.path.basename(aoflagger_strategy))
-                    os.system('sed -i "s/RL/XY/g" tmp.' + os.path.basename(aoflagger_strategy))
-                    os.system('sed -i "s/LR/YX/g" tmp.' + os.path.basename(aoflagger_strategy)) 
-                    os.system('sed -i "s/LL/YY/g" tmp.' + os.path.basename(aoflagger_strategy))
+
+                    target_file = Path(f"tmp.{Path(aoflagger_strategy).name}")
+                    if target_file.is_file():
+                        text = target_file.read_text()
+                        # Chain the replacements exactly like the sed commands did
+                        text = (text.replace("RR", "XX")
+                                    .replace("RL", "XY")
+                                    .replace("LR", "YX")
+                                    .replace("LL", "YY"))
+                        target_file.write_text(text)
                     aoflagger_strategy = 'tmp.' + os.path.basename(aoflagger_strategy)
         
     # run DP3 with AOFlagger
@@ -888,7 +897,7 @@ def aoflagger_column(mslist, aoflagger_strategy=None, column='CORRECTED_DATA'):
         run(cmd, log=True)
         # remove temporary strategy file if it was created
     if aoflagger_strategy is not None and os.path.isfile('tmp.' + os.path.basename(aoflagger_strategy)):
-        os.system('rm -f tmp.' + os.path.basename(aoflagger_strategy))
+        Path('tmp.' + os.path.basename(aoflagger_strategy)).unlink(missing_ok=True)
 
 def setjy_casa(ms):
     """
@@ -1166,7 +1175,7 @@ def split_columns(ms, outms, column='CORRECTED_DATA'):
     """ 
     # Remove  MS if it exists
     if os.path.isdir(outms):
-        os.system('rm -rf {}'.format(outms))
+        shutil.rmtree(outms, ignore_errors=True)
     cmd = "taql 'select FLAG_CATEGORY,WEIGHT,SIGMA,ARRAY_ID,DATA_DESC_ID,EXPOSURE,\
            FEED1,FEED2,FIELD_ID,FLAG_ROW,INTERVAL,OBSERVATION_ID,PROCESSOR_ID,\
            SCAN_NUMBER,STATE_ID,TIME,TIME_CENTROID,UVW,ANTENNA1,ANTENNA2,FLAG,\
@@ -1267,7 +1276,7 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
             outname = os.path.basename(msin) + '.' + source_names[field_id]
             # Remove  MS if it exists
             if os.path.isdir(outname) and not dryrun:
-                os.system('rm -rf {}'.format(outname))
+                shutil.rmtree(outname, ignore_errors=True)
          
             if not dryrun:
                 cmd = "taql 'select from {} where FIELD_ID=={} giving {} as plain'".format(msin, field_id, outname)
@@ -1295,12 +1304,12 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
                     print('Compressing the output MS with DP3 and dysco...')
                     # remove MS if it exists
                     if os.path.isdir(outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])) and not dryrun:
-                        os.system('rm -rf ' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]))
+                        shutil.rmtree(outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]), ignore_errors=True)
                     print(cmddp3)
                     if not dryrun:
                         run(cmddp3)
                         # remove uncompressed MS
-                        os.system('rm -rf ' + outname)
+                        shutil.rmtree(outname, ignore_errors=True)
                         if fix_uvw_coordinates:
                             fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
                     outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
@@ -1308,12 +1317,12 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
                     print('Compressing the target source MS with DP3 and dysco...')
                     # remove MS if it exists
                     if os.path.isdir(outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])) and not dryrun:
-                        os.system('rm -rf ' + outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]))
+                        shutil.rmtree(outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]), ignore_errors=True)
                     print(cmddp3)
                     if not dryrun:
                         run(cmddp3)        
                         # remove uncompressed MS
-                        os.system('rm -rf ' + outname)
+                        shutil.rmtree(outname, ignore_errors=True)
                         if fix_uvw_coordinates:
                             fix_uvw([outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id])])
                     outname = outname.replace('.' + source_names[field_id], '.dysco.' + source_names[field_id]) # so the append works at the end of the loop
@@ -1383,6 +1392,7 @@ def write_processing_history(cmd, version, imagebasename):
     imagelist = glob.glob( imagebasename + '*image*.fits')
     for image in imagelist:
         print('Updating FITS header:', image)
+        logger.info('Updating FITS header facetselfcal command: ' + image)
         with fits.open(image, mode='update') as hdul:
             # Add the command used for processing to the primary header
             hdul[0].header['HISTORY'] = "facetselfcal version: " + version
@@ -1412,7 +1422,7 @@ def write_primarybeam_info(cmd, imagebasename, telescope=None):
     """
     imagelist = glob.glob( imagebasename + '*image-pb.fits')
     for image in imagelist:
-        print('Updating FITS header:', image)
+        logger.info('Updating FITS header primary beam correction info: ' + image)
         with fits.open(image, mode='update') as hdul:
             # Add a comment to the primary header
             if '-apply-facet-beam' in cmd:
@@ -1420,7 +1430,7 @@ def write_primarybeam_info(cmd, imagebasename, telescope=None):
             if '-apply-facet-beam' not in cmd and '-apply-facet-solutions' in cmd:   
                 hdul[0].header['COMMENT'] = "Full primary beam correction has not been applied." 
                 if telescope is not None:
-                    if telescope == 'MeerKAT':
+                    if telescope == 'MeerKAT' or telescope == 'GMRT':
                         hdul[0].header['COMMENT'] = "You can use the <imagename>-MFS-image-manualpb.fits file."
                     else:
                         hdul[0].header['COMMENT'] = "Manually correct your image for the primary beam."        
@@ -2114,9 +2124,7 @@ def rename_models(model_basename, rename_no, model_prefix = "tmp_"):
             split_number = split_number[:-4] + number_shift 
 
             model_out = model_prefix + split_number + "-model.fits"
-
-            command = f'cp {model} {model_out}'
-            os.system(command)
+            shutil.copy(model, model_out)
     
     if len(pblist) > 0:
         # Remove not needed models
@@ -2129,9 +2137,7 @@ def rename_models(model_basename, rename_no, model_prefix = "tmp_"):
             split_number = split_number[:-4] + number_shift 
 
             model_out = model_prefix + split_number + "-model-pb.fits"
-
-            command = f'cp {model} {model_out}'
-            os.system(command)
+            shutil.copy(model, model_out)
 
     # Still need to update args['wscleanskymodel'] to include prefix
 
@@ -2246,7 +2252,7 @@ def clean_up_images(imagename, model=False):
     if model:
         imagelist += sorted(glob.glob(imagename + '-????-*model*.fits'))
     for image in imagelist:
-        os.system('rm -f ' + image)
+        Path(image).unlink(missing_ok=True)
     return
 
 def flag_antenna_taql(ms, antennaname):
@@ -2555,7 +2561,7 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
         h5list_sols.append('Dir' + str(colid).zfill(2) + '.h5')
     print('These are the h5 that need merging:', h5list_sols)
     if os.path.isfile(parmdb_out):
-        os.system('rm -f ' + parmdb_out)
+        Path(parmdb_out).unlink(missing_ok=True)
 
     f = open('facet_regions/facetdirections.p', 'rb')
     sourcedir = pickle.load(f)  # units are radian
@@ -2588,7 +2594,7 @@ def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
 
     if clean_up:
         for h5 in h5list_sols:
-            os.system('rm -f ' + h5)
+            Path(h5).unlink(missing_ok=True)
     return
 
 def read_MeerKAT_wscleanmodel_5spix(filename, outfile):
@@ -2648,8 +2654,16 @@ def read_MeerKAT_wscleanmodel_5spix(filename, outfile):
     ascii.write(data, outfile, overwrite=True, format='fast_no_header')
     
     # add formatting line
-    formatstr = "'1iFormat = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation'"
-    os.system("sed -i " + formatstr + " " + outfile)
+
+    # 1. Define the exact text header to insert (no shell quotes needed)
+    header = "Format = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation\n"
+    out_path = Path(outfile)
+
+    # 2. Safely read the existing file content, prepend the header, and save it back
+    if out_path.is_file():
+        original_content = out_path.read_text()
+        out_path.write_text(header + original_content)
+
     return    
 
 def read_MeerKAT_wscleanmodel_4spix(filename, outfile):
@@ -2704,9 +2718,15 @@ def read_MeerKAT_wscleanmodel_4spix(filename, outfile):
     
     ascii.write(data, outfile, overwrite=True, format='fast_no_header')
     
-    # add formatting line
-    formatstr = "'1iFormat = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation'"
-    os.system("sed -i " + formatstr + " " + outfile)
+    # 1. Define the exact text header to insert (no shell quotes needed)
+    header = "Format = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation\n"
+    out_path = Path(outfile)
+
+    # 2. Safely read the existing file content, prepend the header, and save it back
+    if out_path.is_file():
+        original_content = out_path.read_text()
+        out_path.write_text(header + original_content)
+
     return    
 
 
@@ -2761,8 +2781,15 @@ def read_MeerKAT_wscleanmodel_3spix(filename, outfile):
     ascii.write(data, outfile, overwrite=True, format='fast_no_header')
     
     # add formatting line
-    formatstr = "'1iFormat = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation'"
-    os.system("sed -i " + formatstr + " " + outfile)
+
+
+    header = "Format = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation\n"
+    out_path = Path(outfile)
+
+    if out_path.is_file():
+        original_content = out_path.read_text()
+        out_path.write_text(header + original_content)
+
     return    
 
 def copy_over_solutions_from_skipped_directions(modeldatacolumnsin, id_kept):
@@ -2985,7 +3012,7 @@ def bda_mslist(mslist, pixsize, imsize, dryrun=False, metadata_compression=True)
         print(cmd)
         if not dryrun:
             if os.path.isdir(ms + '.bda'):
-                os.system('rm -rf ' + ms + '.bda')
+                shutil.rmtree(ms + '.bda')
             run(cmd)
         bda_mslist.append(ms + '.bda')
     fix_uvw(bda_mslist)
@@ -3104,13 +3131,12 @@ def getGSM(ms_input, SkymodelPath='gsm.skymodel', Radius="5.", DoDownload="Force
     tries = 0
     while errorcode != 0 and tries < 5:
         if Source == 'TGSS':
-            errorcode = os.system(
-                "wget -O " + SkymodelPath + " \'http://tgssadr.strw.leidenuniv.nl/cgi-bin/gsmv5.cgi?coord=" + str(
-                    RATar) + "," + str(DECTar) + "&radius=" + str(Radius) + "&unit=deg&deconv=y\' ")
+            url = "http://tgssadr.strw.leidenuniv.nl/cgi-bin/gsmv5.cgi?coord={},{}&radius={}&unit=deg&deconv=y".format(
+                RATar, DECTar, Radius)
         elif Source == 'GSM':
-            errorcode = os.system(
-                "wget -O " + SkymodelPath + " \'https://lcs165.lofar.eu/cgi-bin/gsmv1.cgi?coord=" + str(
-                    RATar) + "," + str(DECTar) + "&radius=" + str(Radius) + "&unit=deg&deconv=y\' ")
+            url = "https://lcs165.lofar.eu/cgi-bin/gsmv1.cgi?coord={},{}&radius={}&unit=deg&deconv=y".format(
+                RATar, DECTar, Radius)
+        errorcode = subprocess.run(["wget", "-O", SkymodelPath, url]).returncode
         time.sleep(5)
         tries += 1
 
@@ -3170,7 +3196,7 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
     H5s_files_clean = []
     for g, group in enumerate(groups):
         if os.path.isdir(f'wsclean_concat_{g}.ms') and concatms:
-            os.system(f'rm -rf wsclean_concat_{g}.ms')
+            shutil.rmtree(f'wsclean_concat_{g}.ms', ignore_errors=True)
 
         if h5list is not None:
             h5group = []
@@ -3180,7 +3206,7 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
             print('MS group and matched h5 group', group, h5group)
             print('------------------------------')
             if os.path.isfile(f'wsclean_concat_{g}.h5'):
-                os.system(f'rm -rf wsclean_concat_{g}.h5')
+                shutil.rmtree(f'wsclean_concat_{g}.h5', ignore_errors=True)
             merge_h5(h5_out=f'wsclean_concat_{g}.h5', h5_tables=h5group, propagate_weights=True, time_concat=True)
             H5s_files_clean.append(f'wsclean_concat_{g}.h5')
         if concatms:
@@ -4011,7 +4037,7 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True, met
                 cmd += 'msout.scalarflags=False '
             cmd += 'msout=' + msoutconcat + ' '
             if os.path.isdir(msoutconcat):
-                os.system('rm -rf ' + msoutconcat)
+                shutil.rmtree(msoutconcat, ignore_errors=True)
         run(cmd, log=False)
         fix_uvw([msoutconcat])
     return
@@ -4447,7 +4473,7 @@ def remove_flagged_data_startend(mslist):
         if (goodstartid != 0) or (goodendid != len(alltimes)):
             msout = ms + '.cut'
             if os.path.isdir(msout):
-                os.system('rm -rf ' + msout)
+                shutil.rmtree(msout, ignore_errors=True)
                 time.sleep(2)  # wait a bit to make sure the directory is removed
 
             cmd = taql + " ' select from " + ms + " where TIME in (select distinct TIME from " + ms
@@ -5176,7 +5202,7 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5, thresh_i
         None
     """
     if os.path.isfile(outfile):
-        os.system('rm -f ' + outfile)
+        Path(outfile).unlink(missing_ok=True)
     empty_catalog = False
     img = bdsf.process_image(filename,mean_map='const', rms_map=True, \
                              rms_box=(35,5), thresh_pix=thresh_pix,thresh_isl=thresh_isl,\
@@ -5194,7 +5220,7 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5, thresh_i
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
-        os.system('mv {} logs/'.format(f))
+        shutil.move(f, 'logs/')
     return empty_catalog
 
 def get_number_of_sources_in_catalog(catalogfile):
@@ -5795,7 +5821,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
         update_calibration_error_catalog(outputcatalog, outputcatalog, distance=distance, keep_N_brightest=keep_N_brightest, N_dir_max=N_dir_max)
     if len(catalog_list) == 1:
         print('Only one artifact source catalog found, using this one directly')
-        os.system('cp -f {} {}'.format(catalog_list[0], outputcatalog))
+        shutil.copy(catalog_list[0], outputcatalog)
 
     if len(catalog_list) == 0:
         print('No artifact sources found in any catalog')
@@ -5831,8 +5857,8 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     elif previous_catalog is not None: # this can happend when the calibration is already very good and no new artifact sources are found
         print('No new sources found, copying previous catalog to current cycle')
         if os.path.isfile(outputcatalog_filtered): # delete existing filtered catalog if it exists
-            os.system('rm -f {}'.format(outputcatalog_filtered))
-        os.system('cp {} {}'.format(previous_catalog, outputcatalog_filtered))
+            Path(outputcatalog_filtered).unlink(missing_ok=True)
+        shutil.copy(previous_catalog, outputcatalog_filtered)
     else:
         # print in green text
         print('\033[92m' + 'No artefact sources found on first image, cannot continue, there is no need for DDE calibration' + '\033[0m')
@@ -6050,23 +6076,22 @@ def convert_lta_to_uvfits(lta_file_name, uvfits_file_name=None, target_list=[],
     https://ftp.strw.leidenuniv.nl/intema/spam/
     """
     
-
-    import shutil
     # for standalone usage
     datapathc = os.path.dirname(os.path.abspath(__file__))
     
     # copy nessesary files to current directory
     gmrtdatapath = '/'.join(datapathc.split('/')[0:-1])+'/facetselfcal/gmrt'
-    os.system(f'cp -f {gmrtdatapath}/listscan-{version} .')
-    os.system(f'cp -f {gmrtdatapath}/gvfits-{version} .')
+    shutil.copy(f'{gmrtdatapath}/listscan-{version}', '.')
+    shutil.copy(f'{gmrtdatapath}/gvfits-{version}', '.')
     libsgmrt = glob.glob(f'{gmrtdatapath}/lib/*.so*')
-    os.system('mkdir -p lib')
+    os.makedirs('lib', exist_ok=True)
     for lib in libsgmrt:
-        os.system(f'cp -f {lib} lib/')
+        shutil.copy(lib, 'lib/')
 
     # make excutable
-    os.system(f'chmod +x listscan-{version}')
-    os.system(f'chmod +x gvfits-{version}')
+    for executable in (f'listscan-{version}', f'gvfits-{version}'):
+        executable_path = Path(executable)
+        executable_path.chmod(executable_path.stat().st_mode | 0o111)
 
     # version of listscan/gvfits
     listscan = './listscan-%s' % (version)
@@ -6115,11 +6140,12 @@ def convert_lta_to_uvfits(lta_file_name, uvfits_file_name=None, target_list=[],
         os.remove(plan_file_name)
   
     if sys.stdout.name == '<stdout>':
-        result = os.system('%s %s' % (listscan, lta_file_name))
+        result = subprocess.run([listscan, lta_file_name]).returncode
     else:
         sys.stdout.flush()
         sys.stderr.flush()
-        result = os.system('%s %s >> %s 2>&1' % (listscan, lta_file_name, sys.stdout.name))
+        with open(sys.stdout.name, 'a') as logfile:
+            result = subprocess.run([listscan, lta_file_name], stdout=logfile, stderr=subprocess.STDOUT).returncode
         sys.stdout.flush()
         sys.stderr.flush()
     if result != 0:
@@ -6308,11 +6334,12 @@ def convert_lta_to_uvfits(lta_file_name, uvfits_file_name=None, target_list=[],
     # convert to UVFITS and clean up
     if len(source_list) > 0:
         if sys.stdout.name == '<stdout>':
-            result = os.system('%s %s' % (gvfits, lsout_file_name))
+            result = subprocess.run([gvfits, lsout_file_name]).returncode
         else:
             sys.stdout.flush()
             sys.stderr.flush()
-            result = os.system('%s %s >> %s 2>&1' % (gvfits, lsout_file_name, sys.stdout.name))
+            with open(sys.stdout.name, 'a') as logfile:
+                result = subprocess.run([gvfits, lsout_file_name], stdout=logfile, stderr=subprocess.STDOUT).returncode
             sys.stdout.flush()
             sys.stderr.flush()
         if result != 0:
@@ -6329,8 +6356,10 @@ def convert_lta_to_uvfits(lta_file_name, uvfits_file_name=None, target_list=[],
         os.remove(plan_file_name)
     
     # cleanup copied libraries
-    os.system('rm -f listscan-%s gvfits-%s' % (version, version))
-    os.system('rm -rf lib')
+
+    Path(f'listscan-{version}').unlink(missing_ok=True)
+    Path(f'gvfits-{version}').unlink(missing_ok=True)
+    shutil.rmtree('lib', ignore_errors=True)
     #for lib in libsgmrt:
     #    libname = os.path.basename(lib)
     #    if os.path.isfile(libname):
@@ -6400,12 +6429,14 @@ def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', wei
     print(f'Using input column {incol}')
     print(f'Writing to {outputms}')
     if not isinstance(inmslist, list):
-        os.system('cp -r {} {}'.format(inmslist, outputms))
+        if os.path.isdir(outputms):  # delete MS if it exists
+            shutil.rmtree(outputms, ignore_errors=True)
+        shutil.copytree(inmslist, outputms)
         print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
         return True
     if os.path.isdir(outputms):  # delete MS if it exists
-        os.system('rm -rf ' + outputms)
-    os.system('cp -r {} {}'.format(inmslist[0], outputms))
+        shutil.rmtree(outputms, ignore_errors=True)
+    shutil.copytree(inmslist[0], outputms)
     taql('UPDATE stack.MS SET DATA=DATA_NORM*WEIGHT_SPECTRUM_PM')
     with table(outputms, readonly=False, ack=True) as t_main:
         for ms in inmslist[1:]:
@@ -6479,12 +6510,14 @@ def stackMS_taql(inmslist: list, outputms_prefix: str = 'stack', incol: str = 'D
         print(f'Using input column {incol}')
         print(f'Writing to {outputms}')
         if not isinstance(inmslist_timestack, list):
-            os.system('cp -r {} {}'.format(inmslist_timestack, outputms))
+            if os.path.isdir(outputms):  # delete MS if it exists
+                shutil.rmtree(outputms, ignore_errors=True)
+            shutil.copytree(inmslist_timestack, outputms)
             print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
             return True
         if os.path.isdir(outputms):  # delete MS if it exists
-            os.system('rm -rf ' + outputms)
-        os.system('cp -r {} {}'.format(inmslist_timestack[0], outputms))
+            shutil.rmtree(outputms, ignore_errors=True)
+        shutil.copytree(inmslist_timestack[0], outputms)
 
         TAQLSTR = f'UPDATE {outputms} SET DATA = ('
         sum_clause = ' + '.join(
@@ -6631,8 +6664,8 @@ def tmpmakeantresidual(mslist, selfcalcycle, multiscale, fitsmask_list, restorin
     for ant in antenna_names:
         for ms in mslist:
             if os.path.isdir(ms + '_' + ant):
-                os.system('rm -rf ' + ms + '_' + ant) 
-            os.system('cp -r ' + ms + ' ' + ms + '_' + ant) 
+                shutil.rmtree(ms + '_' + ant, ignore_errors=True)
+            shutil.copytree(ms, ms + '_' + ant)    
             # flag atenna
             flag_antenna_taql(ms + '_'  + ant, [ant])
         
@@ -6655,48 +6688,67 @@ def tmpmakeantresidual(mslist, selfcalcycle, multiscale, fitsmask_list, restorin
                       disable_primarybeam_predict=args['disable_primary_beam'],
                       fulljones_h5_facetbeam=not args['single_dual_speedup'])
         for ms in mslist:
-            os.system('rm -rf ' +  ms + '_' + ant)
+            shutil.rmtree(ms + '_' + ant, ignore_errors=True)
         # remove psf, residual images, model images, dirty, and beam images
         stackstr = ''
         clean_up_images(args['imagename'] + str(selfcalcycle).zfill(3) + stackstr + '_residual_' + ant, model=True)
 
 
-def gunzip_model_images(imagebasename):
+def gunzip_model_images(imagebasename, n_parallel=4):
     """ Gunzips all model images with the given base name.
     Parameters
     ----------
     imagebasename : str
         The base filename for model images (e.g., 'myimage_001' if files are named  like 'myimage_001-0001-model-pb.fits').
+    n_parallel : int
+        Number of gunzip processes to run in parallel.
     """
     imagelist1 = glob.glob(imagebasename + '-????-model*.fits.gz') # channel maps
     imagelist2 = glob.glob(imagebasename + '-???-model*.fits.gz') # MFS maps
     imagelist = sorted(imagelist1) + sorted(imagelist2)
-    for image in imagelist:
+
+    def _gunzip(image):
         print('Now gunzip ' + image)
-        os.system('gunzip -f ' + image)
+        subprocess.run(['gunzip', '-f', image], check=True)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel) as executor:
+        futures = [executor.submit(_gunzip, image) for image in imagelist]
+        for future in futures:
+            future.result()
     return
 
 
-def gzip_model_images(imagebasename):
+def gzip_model_images(imagebasename, n_parallel=4):
     """ Gzips all model images with the given base name.
     Parameters
     ----------
     imagebasename : str
         The base filename for model images (e.g., 'myimage_001' if files are named  like
         'myimage_001-0001-model-pb.fits').
+    n_parallel : int
+        Number of gzip processes to run in parallel.
     """
+
+    imagelist1gz = glob.glob(imagebasename + '-????-model*.fits.gz') # gzip channel maps
+    imagelist2gz = glob.glob(imagebasename + '-???-model*.fits.gz') # gzip MFS maps
+
+    # delete any existing compressed files to avoid confusion
+    for image in imagelist1gz + imagelist2gz:
+        print('Removing ' + image + ' because it already exists')
+        Path(image).unlink(missing_ok=True)
+
     imagelist1 = glob.glob(imagebasename + '-????-model*.fits') # channel maps
     imagelist2 = glob.glob(imagebasename + '-???-model*.fits') # MFS maps
     imagelist = sorted(imagelist1) + sorted(imagelist2)
-    for image in imagelist:
-        # check if gzipped version already exists
-        if os.path.isfile(image + '.gz'):
-            # remove uncompressed version
-            print('Removing ' + image + ' because ' + image + '.gz already exists')
-            os.system('rm -f ' + image)
-        else:
-            print('Now gzip ' + image)
-            os.system('gzip -f ' + image)
+
+    def _gzip(image):
+        print('Now gzip ' + image)
+        subprocess.run(['gzip', '-f', image], check=True)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel) as executor:
+        futures = [executor.submit(_gzip, image) for image in imagelist]
+        for future in futures:
+            future.result()
     return        
 
 def fix_fpb_images(modelimagebasename):
@@ -6721,7 +6773,7 @@ def fix_fpb_images(modelimagebasename):
 
     Notes
     -----
-    This function uses `os.system` to perform file copying and prints the copy commands.
+    This function uses `shutil.copy` to perform file copying and prints the copy commands.
     """
     pblist = glob.glob(modelimagebasename + '-????-model-pb.fits')
     fpblist = glob.glob(modelimagebasename + '-????-model-fpb.fits')
@@ -6729,8 +6781,8 @@ def fix_fpb_images(modelimagebasename):
     if len(pblist) == len(fpblist): return # nothing is needed
     assert len(fpblist) == 0 # if we are here we should not have any fpb images
     for image in pblist:
-       print('cp ' + image + ' ' + image.replace('-model-pb.fits','-model-fpb.fits'))
-       os.system('cp ' + image + ' ' + image.replace('-model-pb.fits','-model-fpb.fits'))
+       print('copying ' + image + ' ' + image.replace('-model-pb.fits','-model-fpb.fits'))
+       shutil.copy(image, image.replace('-model-pb.fits','-model-fpb.fits'))
 
 
 def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
@@ -7009,7 +7061,7 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
 
         if start == 0:  # only phaseup if start selfcal from cycle 0, so skip for a restart
             if os.path.isdir(msout):
-                os.system('rm -rf ' + msout)
+                shutil.rmtree(msout, ignore_errors=True)
                 time.sleep(2)  # wait for the directory to be removed
             print(cmd)
             run(cmd)
@@ -7311,7 +7363,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             if start == 0:
                 print('Average with default WEIGHT_SPECTRUM:', cmd)
                 if os.path.isdir(msout):
-                    os.system('rm -rf ' + msout)
+                    shutil.rmtree(msout, ignore_errors=True)
                     time.sleep(2)  # wait for the directory to be removed
                 run(cmd, log=True)
 
@@ -7380,7 +7432,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                     if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if present otherwise this is not needed
                         print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
                         if os.path.isdir(msouttmp):
-                            os.system('rm -rf ' + msouttmp)
+                            shutil.rmtree(msouttmp, ignore_errors=True)
                             time.sleep(2)  # wait for the directory to be removed
                         run(cmd)
 
@@ -7397,7 +7449,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                                 t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
 
                         # clean up
-                        os.system('rm -rf ' + msouttmp)
+                        shutil.rmtree(msouttmp, ignore_errors=True)
 
             outmslist.append(msout)
         else:
@@ -7449,7 +7501,7 @@ def tecandphaseplotter(h5, ms, telescope='LOFAR', outplotname='plot.png'):
         None
     """
     if not os.path.isdir('solution_plots_%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
-        os.system('mkdir solution_plots_%s' % os.path.basename(ms))
+        os.makedirs("solution_plots_%s" % os.path.basename(ms), exist_ok=True)
     cmd = f'python {submodpath}/plot_tecdelayphase.py  '
     cmd += '--H5file=' + h5 + ' --outfile=solution_plots_%s/%s_nolosoto.png --telescope=%s' % (os.path.basename(ms), os.path.basename(outplotname), args['telescope'])
     print(cmd)
@@ -8582,7 +8634,7 @@ def makeBBSmodelforFITS(filename, extrastrname=''):
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
-        os.system('mv {} logs/'.format(f))
+        shutil.move(f, 'logs/')
     return 'source' + extrastrname + '.skymodel'
 
 
@@ -8596,7 +8648,7 @@ def makeBBSmodelforVLASS(filename, extrastrname=''):
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
-        os.system('mv {} logs/'.format(f))
+        shutil.move(f, 'logs/')
     return 'vlass' + extrastrname + '.skymodel'
 
 
@@ -8615,8 +8667,8 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     """
     tgsspixsize = 6.2
     if boxfile is None and imsize is None:
-        print('Wring input detected, boxfile or imsize needs to be set')
-        raise Exception('Wring input detected, boxfile or imsize needs to be set')
+        print('Wrong input detected, boxfile or imsize needs to be set')
+        raise Exception('Wrong input detected, boxfile or imsize needs to be set')
     if boxfile is not None:
         r = pyregion.open(boxfile)
         if len(r[:]) > 1:
@@ -8648,9 +8700,9 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
         filename = SkyView.get_image_list(position=phasecenterc, survey='TGSS ADR1', pixels=int(xs), cache=False)
         print(filename)
         if os.path.isfile(filename[0].split('/')[-1]):
-            os.system('rm -f ' + filename[0].split('/')[-1])
+            Path(filename[0].split('/')[-1]).unlink(missing_ok=True)
         time.sleep(10)
-        os.system('wget ' + filename[0])
+        subprocess.run(['wget', filename[0]])
         filename = filename[0].split('/')[-1]
         print(filename)
     else:
@@ -8666,7 +8718,7 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
-        os.system('mv {} logs/'.format(f))
+        shutil.move(f, 'logs/')
     
     return 'tgss' + extrastrname + '.skymodel', filename
 
@@ -8922,7 +8974,7 @@ def makemslist(mslist):
     Returns:
         None
     """
-    os.system('rm -rf mslist.txt')
+    Path('mslist.txt').unlink(missing_ok=True)
     f = open('mslist.txt', 'w')
     for ms in mslist:
         f.write(str(ms) + '\n')
@@ -9264,8 +9316,8 @@ def makephaseCDFh5(phaseh5, backup=True, testscfactor=1.):
     # note for scalarphase/phaseonly solve, does not work for tecandphase as freq axis is missing there for phase000
     if backup:
         if os.path.isfile(phaseh5 + '.psbackup'):
-            os.system('rm -f ' + phaseh5 + '.psbackup')
-        os.system('cp ' + phaseh5 + ' ' + phaseh5 + '.psbackup')
+            Path(phaseh5 + '.psbackup').unlink(missing_ok=True)
+        shutil.copy(phaseh5, phaseh5 + '.psbackup')    
 
     H5 = tables.open_file(phaseh5, mode='a')
 
@@ -9301,13 +9353,13 @@ def makephaseCDFh5_h5merger(phaseh5, ms, modeldatacolumns, backup=True, testscfa
 
     if backup:
         if os.path.isfile(phaseh5 + '.psbackup'):
-            os.system('rm -f ' + phaseh5 + '.psbackup')
-        os.system('cp ' + phaseh5 + ' ' + phaseh5 + '.psbackup')
+            Path(phaseh5 + '.psbackup').unlink(missing_ok=True)
+        shutil.copy(phaseh5, phaseh5 + '.psbackup')
     # going to overwrite phaseh5, first move to new file
     if os.path.isfile(phaseh5 + '.in'):
-        os.system('rm -f ' + phaseh5 + '.in')
-    os.system('mv ' + phaseh5 + ' ' + phaseh5 + '.in')
-
+        Path(phaseh5 + '.in').unlink(missing_ok=True)
+    Path(phaseh5).rename(f"{phaseh5}.in")
+    
     merge_h5(h5_out=phaseh5, h5_tables=phaseh5 + '.in', ms_files=ms, merge_all_in_one=merge_all_in_one,
              propagate_weights=True)
     H5 = tables.open_file(phaseh5, mode='a')
@@ -9592,10 +9644,10 @@ def h5flags2ms(h5parm, ms, dysco=True):
     """
     # create a copy of the h5parm file, then reset all the solution values to 1.0 or 0.0
     h5parmcopy = h5parm + '.copy'
-    # now copy the file with cp -f
+    # now copy the file with
     if os.path.isfile(h5parmcopy):
         os.remove(h5parmcopy)
-    os.system('cp -f ' + h5parm + ' ' + h5parmcopy)
+    shutil.copy(h5parm, h5parmcopy)
 
     try:
         shutil.copy2(h5parm, h5parmcopy)
@@ -10566,15 +10618,15 @@ def cleanup(mslist):
         mslist: list with MS files
     """
     for ms in mslist:
-        os.system('rm -rf ' + ms)
+        shutil.rmtree(ms, ignore_errors=True)
 
-    os.system('rm -f *first-residual.fits')
-    os.system('rm -f *psf.fits')
-    os.system('rm -f *-00*-*.fits')
-    os.system('rm -f *dirty.fits')
-    os.system('rm -f solintimage*model.fits')
-    os.system('rm -f solintimage*residual.fits')
-    os.system('rm -f *pybdsf.log')
+    Path('*first-residual.fits').unlink(missing_ok=True)
+    Path('*psf.fits').unlink(missing_ok=True)
+    Path('*-00*-*.fits').unlink(missing_ok=True)
+    Path('*dirty.fits').unlink(missing_ok=True)
+    Path('solintimage*model.fits').unlink(missing_ok=True)
+    Path('solintimage*residual.fits').unlink(missing_ok=True)
+    Path('*pybdsf.log').unlink(missing_ok=True)
     return
 
 
@@ -10634,9 +10686,9 @@ def flagms_startend(ms, tecsolsfile, tecsolint):
         print(cmd)
         run(cmd, taql=True)
         fix_uvw([msout])
-        os.system('rm -rf ' + ms)
+        shutil.rmtree(ms, ignore_errors=True)
         time.sleep(2)  # give some time to remove the MS
-        os.system('mv ' + msout + ' ' + ms)
+        Path(msout).rename(ms)
     return
 
 
@@ -10676,9 +10728,9 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True, metadata_comp
     """
     # chdeck if output is already there and remove
     if os.path.isdir(ms + '.cut'):
-        os.system('rm -rf ' + ms + '.cut')
+        shutil.rmtree(ms + '.cut', ignore_errors=True)
     if os.path.isdir(ms + '.cuttmp'):
-        os.system('rm -rf ' + ms + '.cuttmp')
+        shutil.rmtree(ms + '.cuttmp', ignore_errors=True)
     time.sleep(2)  # give some time to remove the MS
 
     cmd = 'DP3 msin=' + ms + ' ' + 'msout=' + ms + '.cut '
@@ -10728,7 +10780,7 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True, metadata_comp
         t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
 
     # clean up
-    os.system('rm -rf ' + ms + '.cuttmp')
+    shutil.rmtree(ms + '.cuttmp', ignore_errors=True)
 
     return
 
@@ -10782,7 +10834,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
     for ms in mslist:
         msout = ms + '.calibrated'
         if os.path.isdir(msout):
-            os.system('rm -rf ' + msout)
+            shutil.rmtree(msout, ignore_errors=True)
             time.sleep(2)  # give it some time to remove
         cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msout=' + msout + ' steps=[] '
         if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
@@ -10825,13 +10877,14 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
             cmd += facetregionfile + ' '
 
     if os.path.isfile(outtarname):
-        os.system('rm -f ' + outtarname)
+        Path(outtarname).unlink(missing_ok=True)
     logger.info('Creating archived calibrated tarball: ' + outtarname)
     run(cmd)
 
     for ms in mslist:
         msout = ms + '.calibrated'
-        os.system('rm -rf ' + msout)
+        shutil.rmtree(msout, ignore_errors=True)
+        time.sleep(2)  # give it some time to remove
     return
 
 
@@ -11594,7 +11647,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     Create a losoto parset to fill the beam correction values'.
     """
     parset = 'losoto_parsets/losotobeam.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('pol = [XX,YY]\n')
@@ -11623,7 +11676,7 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
 
 def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttecandphase', markersize=2):
     parset = 'losoto_parsets/losoto_plotfasttecandphase.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('pol = []\n')
@@ -11646,7 +11699,7 @@ def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttec
 
 def create_losoto_delayparset(ms, refant='CS003HBA0', outplotname='fastdelay', markersize=2):
     parset = 'losoto_parsets/losoto_plotfastdelay.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('pol = []\n')
@@ -11668,7 +11721,7 @@ def create_losoto_delayparset(ms, refant='CS003HBA0', outplotname='fastdelay', m
 
 def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', markersize=2):
     parset = 'losoto_parsets/losoto_plotfasttec.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('pol = []\n')
@@ -11691,7 +11744,7 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', marke
 
 def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outplotname='rotation', markersize=2):
     parset = 'losoto_parsets/losoto_plotrotation.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('pol = [XX,YY]\n')
@@ -11717,7 +11770,7 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
 
 def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onepol=False, outplotname='fastphase', onetime=False, markersize=2):
     parset = 'losoto_parsets/losoto_plotfastphase.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('pol = [XX,YY]\n')
@@ -11772,7 +11825,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
                                     refant='CS003HBA0', onechannel=False, medamp=2.5, flagphases=True,
                                     onepol=False, outplotname='slowamp', fulljones=False, onetime=False, markersize=2):
     parset = 'losoto_parsets/losoto_flag_apgrid.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     # f.write('pol = []\n')
@@ -11948,7 +12001,7 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
 def create_losoto_flag_ap_only(ms, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
                                onechannel=False, flagphases=True, onetime=False):
     parset = 'losoto_parsets/losoto_flag_ap_only.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('soltab = [sol000/*]\n')
@@ -12009,7 +12062,7 @@ def create_losoto_bandpassparset(intype, ms, h5):
     """
     assert intype == 'phase' or intype == 'amplitude' or intype == 'a&p'
     parset = 'losoto_parsets/losoto_bandpass.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('soltab = [sol000/*]\n')
@@ -12062,7 +12115,7 @@ def create_losoto_bandpassparset(intype, ms, h5):
 def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=True, refant='CS003HBA0',
                                      onechannel=False, outplotname='runningmedian'):
     parset = 'losoto_parsets/losoto_mediansmooth.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('pol = []\n')
@@ -12400,7 +12453,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
         print(PatchPositions_array)
         # write new facetdirections.p file
         if os.path.isfile('facet_regions/facetdirections.p'):
-            os.system('rm -f facet_regions/facetdirections.p')
+            Path('facet_regions/facetdirections.p').unlink(missing_ok=True)
         f = open('facet_regions/facetdirections.p', 'wb')
         pickle.dump(PatchPositions_array, f)
         f.close()
@@ -12427,9 +12480,9 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             if not os.path.isdir('logs'):
                 os.mkdir('logs')
             for f in glob.glob(os.path.dirname(imagename + str(selfcalcycle).zfill(3) + '-MFS-image.fits') + '/*pybdsf.log'):
-                os.system('mv {} logs/'.format(f))
+                shutil.move(f, 'logs/')
         else:
-            os.system('cp -r {} facet_regions/facetdirections.skymodel'.format(imagename))
+            shutil.copy(imagename, 'facet_regions/facetdirections.skymodel')
         LSM = lsmtool.load('facet_regions/facetdirections.skymodel')
 
         if numClusters > 0:
@@ -12447,7 +12500,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             PatchPositions_array[patch_id, 1] = PatchPositions[patch][1].to(units.rad).value  # Dec
         # Run code below for if and elif
         if os.path.isfile('facet_regions/facetdirections.p'):
-            os.system('rm -f facet_regions/facetdirections.p')
+            Path('facet_regions/facetdirections.p').unlink(missing_ok=True)
         f = open('facet_regions/facetdirections.p', 'wb')
         pickle.dump(PatchPositions_array, f)
         f.close()
@@ -12672,19 +12725,19 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
     # --- start CREATE fits_images/facets.fits -----
     # remove previous fits_images/facets.fits if needed
     if os.path.isfile('fits_images/facets.fits'):
-        os.system('rm -f fits_images/facets.fits')
+        Path('fits_images/facets.fits').unlink(missing_ok=True)
     if skyview == None:
         if not restart and wscleanskymodel is None and skymodel is None:
-            os.system('cp ' + imagebasename + str(selfcalcycle).zfill(3) + '-MFS-image.fits' + ' fits_images/facets.fits')
+            shutil.copy(imagebasename + str(selfcalcycle).zfill(3) + '-MFS-image.fits', 'fits_images/facets.fits')
         if not restart and wscleanskymodel is not None:
             create_empty_fitsimage(mslist[0], int(args['imsize']), float(args['pixelscale']), 'fits_images/facets.fits')
         if not restart and skymodel is not None:
             create_empty_fitsimage(mslist[0], int(args['imsize']), float(args['pixelscale']), 'fits_images/facets.fits')
     else:
-        os.system('cp ' + skyview + ' fits_images/facets.fits')
-    
+        shutil.copy(skyview, 'fits_images/facets.fits')
+
     if restart:  # in that case we also have a previous image avaialble
-        os.system('cp ' + imagebasename + str(selfcalcycle - 1).zfill(3) + '-MFS-image.fits' + ' fits_images/facets.fits')
+        shutil.copy(imagebasename + str(selfcalcycle - 1).zfill(3) + '-MFS-image.fits', 'fits_images/facets.fits')
 
     # --- end CREATE fits_images/facets.fits -----
 
@@ -13172,9 +13225,9 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             parmdbmergename_pc = 'h5_solutions/merged_selfcalcycle' + str(selfcalcycle).zfill(
                 3) + '_linearfulljones_' + os.path.basename(ms) + '.h5'
         if os.path.isfile(parmdbmergename):
-            os.system('rm -f ' + parmdbmergename)
+            Path(parmdbmergename).unlink(missing_ok=True)
         if os.path.isfile(parmdbmergename_pc):
-            os.system('rm -f ' + parmdbmergename_pc)
+            Path(parmdbmergename_pc).unlink(missing_ok=True)
         wsclean_h5list.append(parmdbmergename)
 
         # add extra from preapplyH5_list
@@ -13475,7 +13528,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         # check for previous old parmdb and remove them
     if os.path.isfile(parmdb):
         print('H5 file exists  ', parmdb)
-        os.system('rm -f ' + parmdb)
+        Path(parmdb).unlink(missing_ok=True)
 
     cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), ncpu_max])) + \
           ' msin=' + ms + ' msout=. '
@@ -13885,10 +13938,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if ms_tmp is not None:
         # remove the temporary MS
         print('Removing temporary MS:', ms_tmp)
-        os.system('rm -rf ' + ms_tmp)
+        shutil.rmtree(ms_tmp, ignore_errors=True)
 
     if selfcalcycle == 0 and (soltypein == "scalarphasediffFR" or soltypein == "scalarphasediff") and not args['phasediff_only']:
-        os.system("cp -r " + parmdb + " " + parmdb + ".scbackup")
+        shutil.copy(parmdb, parmdb + '.scbackup')
 
     if (len(modeldatacolumns_solve) > 0) and (len(modeldatacolumns) != len(modeldatacolumns_solve)):
         # fix coordinates otherwise h5merge will merge all directions into one when add_directions is done (as all coordinates are the same up to this point)
@@ -13897,7 +13950,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         # we need to add back the extra direction into the h5 file
         outparmdb = 'h5_solutions/' + 'adddirback' + os.path.basename(parmdb)
         if os.path.isfile(outparmdb):
-            os.system('rm -f ' + outparmdb)
+            Path(outparmdb).unlink(missing_ok=True)  # remove the file if it exists
         merge_h5(h5_out=outparmdb, h5_tables=parmdb, add_directions=sourcedir_removed.tolist(), propagate_weights=False, convert_tec=False)
 
         # now we split them all into separate h5 per direction so we can reorder and fill them
@@ -13909,9 +13962,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         copy_over_solutions_from_skipped_directions(modeldatacolumns, dir_id_kept)
 
         # create backup of parmdb and remove orginal and cleanup
-        os.system('cp -f ' + parmdb + ' ' + parmdb + '.backup')
-        os.system('rm -f ' + parmdb)
-        os.system('rm -f ' + outparmdb)
+        shutil.copy(parmdb, parmdb + '.backup')
+        Path(parmdb).unlink(missing_ok=True)
+        Path(outparmdb).unlink(missing_ok=True)
 
         # merge h5 files in order of the directions in facet_regions/facetdirections.p and recreate parmdb
         # clean up previously splitted directions inside this function
@@ -13985,7 +14038,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         print('Fiting for Faraday Rotation with losoto on the phase differences')
         # work with copies H5 because losoto changes the format splitting off the length 1 direction axis creating issues
         # with H5merge (also add additional solution talbes which we do not want)
-        os.system('cp -f ' + parmdb + ' ' + 'FRcopy' + parmdb)
+        shutil.copy(parmdb, 'FRcopy' + parmdb)
         losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb, telescope=args['telescope']), outplotname=outplotname,
                                                  dejump=dejumpFR)
         run('losoto ' + 'FRcopy' + parmdb + ' ' + losoto_parsetFR)
@@ -14133,12 +14186,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                                       includesphase=includesphase, onechannel=onechannel,
                                                       flagphases=flagslowphases, onetime=ntimesH5(parmdb)==1)
   
-            os.system('cp -f ' + parmdb + ' ' + parmdb + '.allresetsolbackup_gridflagging')
+            shutil.copy(parmdb, parmdb + '.allresetsolbackup_gridflagging')
             print('losoto ' + parmdb + ' ' + losotoparset)
             run('losoto ' + parmdb + ' ' + losotoparset, log=True)
 
         # make a backup of the parmdb before resetting all solutions
-        os.system('cp -f ' + parmdb + ' ' + parmdb + '.allresetsolbackup')
+        shutil.copy(parmdb, parmdb + '.allresetsolbackup')
         resetsolsforstations(parmdb, antennaconstraintstr(resetsols, antennasms, HBAorLBA, useforresetsols=True,
                                                           telescope=args['telescope']), refant=refant, telescope=args['telescope'])
 
@@ -14229,7 +14282,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
         # MAKE losoto command
         if flagging:
-            os.system('cp -f ' + parmdb + ' ' + parmdb + '.backup')
+            shutil.copy(parmdb, parmdb + '.backup')
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset
         if onechannel and (ntimesH5(parmdb) == 1): 
             print('Skipping losoto amplitude plot because only one time and one frequency channel')
@@ -14572,7 +14625,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         for ms_id, ms in enumerate(mslist):
             ms = os.path.basename(ms)
             if os.path.isdir(ms + '.extracted_ddcor'):
-                os.system('rm -rf ' + ms + '.extracted_ddcor')
+                shutil.rmtree(ms + '.extracted_ddcor', ignore_errors=True)
                 time.sleep(2)  # wait for the directory to be removed
             applycal(ms + '.extracted',h5list[ms_id], find_closestdir=True, 
                      msout=ms + '.extracted_ddcor', dysco=dysco, metadata_compression=metadata_compression)
@@ -14586,11 +14639,11 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                         imweights = t.getcol('WEIGHT_SPECTRUM_SOLVE')
                         t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
             # remove uncorrected file to save disk space
-            os.system('rm -rf ' + ms + '.extracted')
+            shutil.rmtree(ms + '.extracted', ignore_errors=True)
             if avgfreqstep > 1 or avgtimestep > 1:
                 average([ms + '.extracted_ddcor'], freqstep=[avgfreqstep], timestep=avgtimestep, \
                          dysco=dysco, metadata_compression=metadata_compression)
-                os.system('rm -rf ' + ms + '.extracted_ddcor')
+                shutil.rmtree(ms + '.extracted_ddcor', ignore_errors=True)
                 os.rename(ms + '.extracted_ddcor.avg', ms + '.extracted_ddcor')            
      
     # print the imsize for the user
@@ -14758,7 +14811,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # remove box_ model files to save space
             if squarebox is not None:
                 for model in sorted(glob.glob('fits_images/box_' + os.path.basename(imageout) + '-????-*model*.fits')):
-                    os.system('rm -f ' + model)
+                    Path(model).unlink(missing_ok=True)
         return
     #  --- end predict only ---
 
@@ -14826,7 +14879,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         # remove box_ model files to save space
         if squarebox != 'keepall':
             for model in sorted(glob.glob('fits_images/box_' + os.path.basename(imageout) + '-????-*model*.fits')):
-                os.system('rm -f ' + model)
+                Path(model).unlink(missing_ok=True)
         return
         #  --- NO-FACET-LOOP end DDE CORRUPT-predict only ---
 
@@ -14916,7 +14969,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     #  --- end DDE predict only ---
 
     # ----- MAIN IMAGING PART ------
-    os.system('rm -f ' + imageout + '-*.fits')
+    for file_path in Path('.').glob(imageout + '-*.fits'):
+        file_path.unlink(missing_ok=True)
     imcol = 'CORRECTED_DATA'
     # check for all ms in mslist
     # situation can be that only some ms have CORRECTED_DATA based on what happens in the beamcor
@@ -15533,7 +15587,7 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
         ax.contour(maskdata, colors='red', levels=[0.1 * imagenoiseinfo], filled=False, alpha=0.6, linewidths=1)
 
     if os.path.isfile(outplotname + '.png'):
-        os.system('rm -f ' + outplotname + '.png')
+        Path(outplotname + '.png').unlink(missing_ok=True)  # remove existing file to avoid permission issues
     plt.savefig(outplotname, dpi=450, format='png')
     plt.close()
     return
@@ -15622,8 +15676,7 @@ def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
                            linewidths=1)
         except:
             pass
-    if os.path.isfile(outplotname + '.png'):
-        os.system('rm -f ' + outplotname + '.png')
+    Path(outplotname + '.png').unlink(missing_ok=True)
     f.save(outplotname, dpi=120, format='png')
     logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
     return
@@ -16118,7 +16171,7 @@ def write_compactsource_flux(fitsimage, outputcatalog, interactive=False):
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(fitsimage) + '/*pybdsf.log'):
-        os.system('mv {} logs/'.format(f))
+        shutil.move(f, 'logs/')
     return
 
 
@@ -16146,7 +16199,7 @@ def determine_compactsource_flux(fitsimage):
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(fitsimage) + '/*pybdsf.log'):
-        os.system('mv {} logs/'.format(f))
+        shutil.move(f, 'logs/')
     return total_flux_gaus
 
 
@@ -16276,7 +16329,7 @@ def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
     Create a losoto parset to fit Faraday Rotation on the phase difference'.
     """
     parset = 'losoto_parsets/losotoFR_plotresult.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('[plotFRresult]\n')
@@ -16298,7 +16351,7 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     Create a losoto parset to fit Faraday Rotation on the phase difference'.
     """
     parset = 'losoto_parsets/losotoFR.parset'
-    os.system('rm -f ' + parset)
+    Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
 
     f.write('[duplicate]\n')
@@ -16643,7 +16696,7 @@ def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=800.):
                       regioncolor='red', minmax=plotminmax, regionalpha=1.0)
 
     # remove template box region file
-    os.system('rm -f misc/templatebox.reg')
+    Path('misc/templatebox.reg').unlink(missing_ok=True)
     return extract_size_start # in degrees
 
 def find_bad_deviating_antennas(h5, ms, threshold=0.075):
@@ -17595,15 +17648,15 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
 
                 if fitsmask is not None:
                     if os.path.isfile('clean_masks/' + os.path.basename(imagename) + '.mask.fits'):
-                        os.system('rm -f clean_masks/' + os.path.basename(imagename) + '.mask.fits')
+                        Path('clean_masks/' + os.path.basename(imagename) + '.mask.fits').unlink(missing_ok=True)  # remove previous mask if it exists
                 print(cmdm)
                 run(cmdm)
                 
                 # removed compressed version if it exists
                 if os.path.isfile('clean_masks/' + os.path.basename(imagename) + '.mask.fits.gz'):
-                    os.system('rm -f clean_masks/' + os.path.basename(imagename) + '.mask.fits.gz')
+                    Path('clean_masks/' + os.path.basename(imagename) + '.mask.fits.gz').unlink(missing_ok=True)
                 print('Now gzip mask ' + 'clean_masks/' + os.path.basename(imagename) + '.mask.fits')
-                os.system('gzip ' + 'clean_masks/' + os.path.basename(imagename) + '.mask.fits')
+                subprocess.run(['gzip', 'clean_masks/' + os.path.basename(imagename) + '.mask.fits'], check=True)
                 fitsmask = 'clean_masks/' + os.path.basename(imagename) + '.mask.fits.gz'
                 fitsmask_list.append(fitsmask)
             else:
@@ -18180,7 +18233,7 @@ def main():
     global submodpath, datapath, facetselfcal_version
     datapath = os.path.dirname(os.path.abspath(__file__))
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
-    os.system(f'cp {submodpath}/polconv.py .')
+    shutil.copy(submodpath + '/polconv.py', '.')
 
     facetselfcal_version = '19.6.0'
     print_title(facetselfcal_version)
@@ -18188,7 +18241,7 @@ def main():
     # copy h5s locally
     for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
         if h5parmdb is not None:
-            os.system('cp ' + h5parmdb + ' .')  # make them local because source direction will be updated for merging
+            shutil.copy(h5parmdb, '.')
             args['preapplyH5_list'][h5parm_id] = h5parmdb.split('/')[-1]  # update input list to local location
 
     # deal with glob-like string input for preapplybandpassH5_list
@@ -18705,17 +18758,7 @@ def main():
                       fulljones_h5_facetbeam=not args['single_dual_speedup'])
             
             if remove_outside_center_only or createresidualdatacolumn_only:
-                if remove_outside_center_only:
-                    remove_outside_box(mslist, args['imagename'] + str(i).zfill(3), args['pixelscale'],
-                                       args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
-                                       dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'],
-                                       h5list=wsclean_h5list, facetregionfile=facetregionfile,
-                                       disable_primary_beam=args['disable_primary_beam'], 
-                                       modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'],
-                                       metadata_compression=args['metadata_compression'], 
-                                       avgtimestep=args['remove_outside_center_avgtimestep'],
-                                       avgfreqstep=args['remove_outside_center_avgfreqstep'],
-                                       ddcor=not args['remove_outside_center_noddcor'])
+
                 if createresidualdatacolumn_only:
                     create_residual_data_column(mslist, args['imagename'] + str(i).zfill(3), 
                                            args['pixelscale'], args['imsize'], 
@@ -18729,8 +18772,21 @@ def main():
                                            metadata_compression=args['metadata_compression'])
                     if args['compute_weightspectrum']:
                         for ms in mslist:
-                            cmdw = f'python {submodpath}/uGMRTSetWeights.py -f 12 ' + ms
-                            os.system(cmdw)                     
+                            cmdw = ['python', f'{submodpath}/uGMRTSetWeights.py', '-f', '12', ms]
+                            subprocess.run(cmdw, check=True) 
+
+                if remove_outside_center_only:
+                    remove_outside_box(mslist, args['imagename'] + str(i).zfill(3), args['pixelscale'],
+                                       args['imsize'], args['channelsout'], single_dual_speedup=args['single_dual_speedup'],
+                                       dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'],
+                                       h5list=wsclean_h5list, facetregionfile=facetregionfile,
+                                       disable_primary_beam=args['disable_primary_beam'], 
+                                       modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'],
+                                       metadata_compression=args['metadata_compression'], 
+                                       avgtimestep=args['remove_outside_center_avgtimestep'],
+                                       avgfreqstep=args['remove_outside_center_avgfreqstep'],
+                                       ddcor=not args['remove_outside_center_noddcor'])
+                  
                 if not args['keepmodelcolumns']: remove_model_columns(mslist)
                 return
             
@@ -18820,8 +18876,8 @@ def main():
                 set_weights_h5_to_one(parmdb)
                 if os.path.isfile(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_')):
                     # remove existing bandpass file
-                    os.system('rm -f ' + parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_'))
-                os.system('mv ' + parmdb + ' ' + parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_'))    
+                    Path(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_')).unlink(missing_ok=True)
+                Path(parmdb).rename(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_'))    
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
 
@@ -18888,8 +18944,8 @@ def main():
                 set_weights_h5_to_one(parmdb)
                 if os.path.isfile(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_')):
                     # remove existing bandpass file
-                    os.system('rm -f ' + parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_'))
-                os.system('mv ' + parmdb + ' ' + parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_'))
+                    Path(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_')).unlink(missing_ok=True)
+                Path(parmdb).rename(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_'))
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
 
@@ -18961,22 +19017,6 @@ def main():
                   disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
                   fulljones_h5_facetbeam=not args['single_dual_speedup'])
-        
-        if args['remove_outside_center']:
-            remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), 
-                               args['pixelscale'],
-                               args['imsize'], args['channelsout'], 
-                               single_dual_speedup=args['single_dual_speedup'],
-                               dysco=args['dysco'],
-                               userbox=args['remove_outside_center_box'], idg=args['idg'],
-                               h5list=wsclean_h5list, facetregionfile=facetregionfile,
-                               disable_primary_beam=args['disable_primary_beam'], 
-                               modelstoragemanager=args['modelstoragemanager'], 
-                               parallelgridding=args['parallelgridding'], 
-                               metadata_compression=args['metadata_compression'],
-                               avgtimestep=args['remove_outside_center_avgtimestep'],
-                               avgfreqstep=args['remove_outside_center_avgfreqstep'],
-                               ddcor=not args['remove_outside_center_noddcor'])
 
         # create RESIDUAL_DATA column if requested
         if args['createresidualdatacolumn']:
@@ -18992,8 +19032,25 @@ def main():
                                         metadata_compression=args['metadata_compression'])
             if args['compute_weightspectrum']:
                 for ms in mslist:
-                    cmdw = f'python {submodpath}/uGMRTSetWeights.py -f 12 ' + ms
-                    os.system(cmdw)                            
+                    cmdw = ['python', f'{submodpath}/uGMRTSetWeights.py', '-f', '12', ms]
+                    subprocess.run(cmdw, check=True) 
+                    
+        if args['remove_outside_center']:
+            remove_outside_box(mslist, args['imagename'] + str(i + 1).zfill(3), 
+                               args['pixelscale'],
+                               args['imsize'], args['channelsout'], 
+                               single_dual_speedup=args['single_dual_speedup'],
+                               dysco=args['dysco'],
+                               userbox=args['remove_outside_center_box'], idg=args['idg'],
+                               h5list=wsclean_h5list, facetregionfile=facetregionfile,
+                               disable_primary_beam=args['disable_primary_beam'], 
+                               modelstoragemanager=args['modelstoragemanager'], 
+                               parallelgridding=args['parallelgridding'], 
+                               metadata_compression=args['metadata_compression'],
+                               avgtimestep=args['remove_outside_center_avgtimestep'],
+                               avgfreqstep=args['remove_outside_center_avgfreqstep'],
+                               ddcor=not args['remove_outside_center_noddcor'])
+                   
 
         # compress model images with gzip to save space
         gzip_model_images(args['imagename'] + str(i + 1).zfill(3))
@@ -19002,7 +19059,7 @@ def main():
     if not args['keepmodelcolumns']: remove_model_columns(mslist)
 
     # CLEAN UP SOME FILES TO AVOID CLUTTER
-    os.system('rm -f polconv.py')
+    Path('polconv.py').unlink(missing_ok=True)
 
     # ARCHIVE DATA AFTER SELFCAL if requested
     if not longbaseline and not args['noarchive']:
