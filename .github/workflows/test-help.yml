@@ -149,8 +149,8 @@ jobs:
           --channelsout 2 \
           --fitspectralpol 1 \
           --uvminscalarphasediff=0 \
-          --antenna-averaging-factors-list=[None,'core:5,remote:2,international:1','alldutch:2,international:1','alldutch:2,international:1']
-          --antenna-smoothness-factors-list=[None,'core:5,remote:2,international:1','alldutch:2,international:1','alldutch:2,international:1']
+          --antenna-averaging-factors-list=[None,'core:5,remote:2,international:1','alldutch:2,international:1','alldutch:2,international:1'] \
+          --antenna-smoothness-factors-list=[None,'core:5,remote:2,international:1','alldutch:2,international:1','alldutch:2,international:1'] \
           --stop=1 \
           --stopafterskysolve \
           --test \
