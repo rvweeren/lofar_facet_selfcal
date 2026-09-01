@@ -242,11 +242,8 @@ def generate_csv(h5s: list = None, ref_solint: int = 10, optimal_score: float = 
         make_plot: Make phasediff plot
     """
 
-    h5s = h5s
     if len(h5s)==1 and ' ' in h5s[0]:
         h5s = h5s[0].split(" ")
-    elif h5s is None:
-        h5s = glob("P*_phasediff/phasediff0*.h5")
 
     with open('phasediff_output.csv', 'w') as f:
         writer = csv.writer(f)
@@ -267,7 +264,6 @@ def generate_csv(h5s: list = None, ref_solint: int = 10, optimal_score: float = 
     # sort output
     df = pd.read_csv('phasediff_output.csv').sort_values(by='spd_score')
     df.to_csv('phasediff_output.csv', index=False)
-
 
 
 def parse_args():
