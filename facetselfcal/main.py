@@ -13811,7 +13811,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 print(SMconstraint)
                 print(dir_id_kept)
                 SMconstraint = [SMconstraint[i] for i in dir_id_kept]  # overwrite SMconstraint, selecting on the directions kept
-                max_smconstraint = float(np.max(SMconstraint))
+            max_smconstraint = float(np.max(SMconstraint))
             smoothness_dd_factors = [float(ddsf) / max_smconstraint for ddsf in SMconstraint]  
             cmd += 'ddecal.smoothness_dd_factors=' + "'" + str(smoothness_dd_factors).replace(' ', '') + "' "
         cmd += 'ddecal.smoothnessconstraint=' + str(np.max(SMconstraint) * 1e6) + ' '
