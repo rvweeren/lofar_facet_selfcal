@@ -5220,6 +5220,8 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5, thresh_i
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     return empty_catalog
 
@@ -8634,6 +8636,8 @@ def makeBBSmodelforFITS(filename, extrastrname=''):
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     return 'source' + extrastrname + '.skymodel'
 
@@ -8648,6 +8652,8 @@ def makeBBSmodelforVLASS(filename, extrastrname=''):
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     return 'vlass' + extrastrname + '.skymodel'
 
@@ -8718,6 +8724,8 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     
     return 'tgss' + extrastrname + '.skymodel', filename
@@ -12480,6 +12488,8 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             if not os.path.isdir('logs'):
                 os.mkdir('logs')
             for f in glob.glob(os.path.dirname(imagename + str(selfcalcycle).zfill(3) + '-MFS-image.fits') + '/*pybdsf.log'):
+                if os.path.isfile('logs/' + os.path.basename(f)):
+                    os.remove('logs/' + os.path.basename(f))
                 shutil.move(f, 'logs/')
         else:
             shutil.copy(imagename, 'facet_regions/facetdirections.skymodel')
@@ -16171,7 +16181,10 @@ def write_compactsource_flux(fitsimage, outputcatalog, interactive=False):
     # move all *pybdsf.log files to a logs directory
     if not os.path.isdir('logs'):
         os.mkdir('logs')
+    
     for f in glob.glob(os.path.dirname(fitsimage) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     return
 
@@ -16200,6 +16213,8 @@ def determine_compactsource_flux(fitsimage):
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(fitsimage) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     return total_flux_gaus
 
