@@ -17488,7 +17488,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
     # Solve and get best solution interval
     for ms_id, ms in enumerate(mslist):
         scorelist = []
-        parmdb = 'scalarphasediffstat' + '_' + os.path.basename(ms) + '.h5'
+        parmdb = 'h5_solutions/scalarphasediffstat' + '_' + os.path.basename(ms) + '.h5'
         runDPPPbase(ms, str(solint) + 'min', nchan, parmdb=parmdb, soltype='scalarphasediff', uvminscalarphasediff=0.0,
                     dysco=args['dysco'], modelstoragemanager=args['modelstoragemanager'], uvmin=20000)
 
@@ -17516,9 +17516,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
             t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', S.cstd)
 
         if args['phasediff_only']:
-            generate_phasediff_csv(glob.glob("scalarphasediffstat*.h5"))
-        else:
-            S.plot_C("T=" + str(round(S.best_solint, 2)) + " min", ms + '_phasediffscore.png')
+            generate_phasediff_csv(glob.glob("h5_solutions/scalarphasediffstat*.h5"))
 
     return
 
@@ -18698,7 +18696,7 @@ def main():
         # Generate phasediff stat CSV here if more than 2
         if args['compute_phasediffstat'] and len(args['soltype_list'])>=2:
             if args['solint_list'][0]=='10min':
-                generate_phasediff_csv(glob.glob("scalarphasediff*.h5"))
+                generate_phasediff_csv(glob.glob("h5_solutions/scalarphasediff*.h5"))
             else:
                 print("WARNING: Cannot generate phasediff CSV because solution interval for scalarphasediff is not 10min")
         if args['phasediff_only']:
