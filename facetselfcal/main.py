@@ -3422,7 +3422,7 @@ def check_for_highmem_longsolint(mslist, facetdirections):
             lcm = math.lcm(*solints)
             divisors = [int(lcm / i) for i in solints]
             
-            print('Solint passed to DP3 would be:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
+            print('Solint passed to DP3 is:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
             if lcm > int(10.*ms_ntimes):
                 print('Bad divisor for solutions_per_direction DDE solve. DP3 Solint > number of timeslots in the MS')
                 sys.exit()
@@ -13811,7 +13811,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 print(SMconstraint)
                 print(dir_id_kept)
                 SMconstraint = [SMconstraint[i] for i in dir_id_kept]  # overwrite SMconstraint, selecting on the directions kept
-            smoothness_dd_factors = [ ddsf/np.max(SMconstraint) for ddsf in SMconstraint]  
+                max_smconstraint = float(np.max(SMconstraint))
+            smoothness_dd_factors = [float(ddsf) / max_smconstraint for ddsf in SMconstraint]  
             cmd += 'ddecal.smoothness_dd_factors=' + "'" + str(smoothness_dd_factors).replace(' ', '') + "' "
         cmd += 'ddecal.smoothnessconstraint=' + str(np.max(SMconstraint) * 1e6) + ' '
         cmd += 'ddecal.smoothnessreffrequency=' + str(SMconstraintreffreq * 1e6) + ' '
@@ -17517,7 +17518,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
 
         if args['phasediff_only']:
             generate_phasediff_csv(glob.glob("h5_solutions/scalarphasediffstat*.h5"))
-
+        
     return
 
 
@@ -18531,6 +18532,7 @@ def main():
 
     if args['groupms_h5facetspeedup'] and args['start'] == 0 and len(mslist) > 1:
         concat_ms_wsclean_facetimaging(mslist)
+    
 
     # create ./facet_regions/facets.reg so we have it avaialble for image000
     # so that we can use WSClean facet mode, but without having h5 DDE solutions
