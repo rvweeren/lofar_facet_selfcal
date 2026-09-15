@@ -179,7 +179,7 @@ def remove_syspower(mslist):
         mslist = [mslist]
     for ms in mslist:
         if get_telescope_from_ms(ms) in ['EVLA', 'VLA']:
-            with table(ms, readonly=False) as t:
+            with table(ms, readonly=False, ack=False) as t:
                 if 'SYSPOWER' in t.keywordnames():
                     print('Removing SYSPOWER column from ' + ms)
                     t.removekeyword('SYSPOWER')
@@ -3422,7 +3422,7 @@ def check_for_highmem_longsolint(mslist, facetdirections):
             lcm = math.lcm(*solints)
             divisors = [int(lcm / i) for i in solints]
             
-            print('Solint passed to DP3 would be:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
+            print('Solint passed to DP3 is:', lcm, ' --Number of timeslots in MS:', ms_ntimes)
             if lcm > int(10.*ms_ntimes):
                 print('Bad divisor for solutions_per_direction DDE solve. DP3 Solint > number of timeslots in the MS')
                 sys.exit()
@@ -5220,6 +5220,8 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5, thresh_i
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     return empty_catalog
 
@@ -8634,6 +8636,8 @@ def makeBBSmodelforFITS(filename, extrastrname=''):
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     return 'source' + extrastrname + '.skymodel'
 
@@ -8648,6 +8652,8 @@ def makeBBSmodelforVLASS(filename, extrastrname=''):
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     return 'vlass' + extrastrname + '.skymodel'
 
@@ -8718,6 +8724,8 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(filename) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     
     return 'tgss' + extrastrname + '.skymodel', filename
@@ -12480,6 +12488,8 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
             if not os.path.isdir('logs'):
                 os.mkdir('logs')
             for f in glob.glob(os.path.dirname(imagename + str(selfcalcycle).zfill(3) + '-MFS-image.fits') + '/*pybdsf.log'):
+                if os.path.isfile('logs/' + os.path.basename(f)):
+                    os.remove('logs/' + os.path.basename(f))
                 shutil.move(f, 'logs/')
         else:
             shutil.copy(imagename, 'facet_regions/facetdirections.skymodel')
@@ -13811,7 +13821,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 print(SMconstraint)
                 print(dir_id_kept)
                 SMconstraint = [SMconstraint[i] for i in dir_id_kept]  # overwrite SMconstraint, selecting on the directions kept
-            smoothness_dd_factors = [ ddsf/np.max(SMconstraint) for ddsf in SMconstraint]  
+            max_smconstraint = float(np.max(SMconstraint))
+            smoothness_dd_factors = [float(ddsf) / max_smconstraint for ddsf in SMconstraint]  
             cmd += 'ddecal.smoothness_dd_factors=' + "'" + str(smoothness_dd_factors).replace(' ', '') + "' "
         cmd += 'ddecal.smoothnessconstraint=' + str(np.max(SMconstraint) * 1e6) + ' '
         cmd += 'ddecal.smoothnessreffrequency=' + str(SMconstraintreffreq * 1e6) + ' '
@@ -16170,7 +16181,10 @@ def write_compactsource_flux(fitsimage, outputcatalog, interactive=False):
     # move all *pybdsf.log files to a logs directory
     if not os.path.isdir('logs'):
         os.mkdir('logs')
+    
     for f in glob.glob(os.path.dirname(fitsimage) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     return
 
@@ -16199,6 +16213,8 @@ def determine_compactsource_flux(fitsimage):
     if not os.path.isdir('logs'):
         os.mkdir('logs')
     for f in glob.glob(os.path.dirname(fitsimage) + '/*pybdsf.log'):
+        if os.path.isfile('logs/' + os.path.basename(f)):
+            os.remove('logs/' + os.path.basename(f))
         shutil.move(f, 'logs/')
     return total_flux_gaus
 
@@ -16295,6 +16311,10 @@ def findrefant_core(H5file, telescope='LOFAR'):
 
     if telescope == 'ASKAP':
         possible_refants = ['ak01','ak02','ak03','ak04','ak05','ak06','ak07','ak08','ak09','ak10','ak11','ak12','ak13','ak14']
+        cs_indices = np.where([ant in possible_refants for ant in ants])[0]
+
+    if telescope == 'EVLA':
+        possible_refants = ['ea02','ea03','ea04','ea05','ea06','ea07','ea08','ea09','ea10','ea11','ea12','ea13','ea14', 'ea15','ea16','ea17','ea18','ea19','ea20','ea21','ea22','ea23','ea24','ea25','ea26','ea27','ea28']
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
 
     if telescope == 'MWA':
@@ -17088,6 +17108,8 @@ def basicsetup(mslist):
             args['robust'] = -0.5
         elif args['telescope'] == 'GMRT':
             args['robust'] = -0.0
+        elif args['telescope'] == 'EVLA' or args['telescope'] == 'VLA':    
+            args['robust'] = 0.0
         else:
             args['robust'] = -0.5        
 
@@ -17517,7 +17539,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
 
         if args['phasediff_only']:
             generate_phasediff_csv(glob.glob("h5_solutions/scalarphasediffstat*.h5"))
-
+        
     return
 
 
@@ -18233,7 +18255,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '19.6.0'
+    facetselfcal_version = '19.6.1'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -18362,6 +18384,10 @@ def main():
         args['flag_antenna_list'] = None  # since we use it above set flag_antenna_list to None now
         if args['aoflagger'] and args['aoflaggerbeforeavg']:
             args['aoflagger'] = False # turn off now because we used it above    
+
+    # remove the SYSPOWER column from a measurement set (relevant for (E)VLA data)
+    # keeping this column will slow DP3 down significantly
+    remove_syspower(mslist)
 
     # flag known bad frequencies for uGMRT data
     if args['start'] == 0: flag_uGMRT_badfreqs(mslist)
@@ -18531,6 +18557,7 @@ def main():
 
     if args['groupms_h5facetspeedup'] and args['start'] == 0 and len(mslist) > 1:
         concat_ms_wsclean_facetimaging(mslist)
+    
 
     # create ./facet_regions/facets.reg so we have it avaialble for image000
     # so that we can use WSClean facet mode, but without having h5 DDE solutions
