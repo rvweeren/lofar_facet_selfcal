@@ -179,7 +179,7 @@ def remove_syspower(mslist):
         mslist = [mslist]
     for ms in mslist:
         if get_telescope_from_ms(ms) in ['EVLA', 'VLA']:
-            with table(ms, readonly=False) as t:
+            with table(ms, readonly=False, ack=False) as t:
                 if 'SYSPOWER' in t.keywordnames():
                     print('Removing SYSPOWER column from ' + ms)
                     t.removekeyword('SYSPOWER')
@@ -16313,6 +16313,10 @@ def findrefant_core(H5file, telescope='LOFAR'):
         possible_refants = ['ak01','ak02','ak03','ak04','ak05','ak06','ak07','ak08','ak09','ak10','ak11','ak12','ak13','ak14']
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
 
+    if telescope == 'EVLA':
+        possible_refants = ['ea02','ea03','ea04','ea05','ea06','ea07','ea08','ea09','ea10','ea11','ea12','ea13','ea14', 'ea15','ea16','ea17','ea18','ea19','ea20','ea21','ea22','ea23','ea24','ea25','ea26','ea27','ea28']
+        cs_indices = np.where([ant in possible_refants for ant in ants])[0]
+
     if telescope == 'MWA':
         possible_refants = ["tile012", "tile013", "tile014", "tile015", "tile017", "tile024", "tile025", "tile026", "tile027", "tile032",
                             "tile033", "tile034", "tile035", "tile036", "tile037", "tile038", "tile041", "tile042", "tile043", "tile044",
@@ -17104,6 +17108,8 @@ def basicsetup(mslist):
             args['robust'] = -0.5
         elif args['telescope'] == 'GMRT':
             args['robust'] = -0.0
+        elif args['telescope'] == 'EVLA' or args['telescope'] == 'VLA':    
+            args['robust'] = 0.0
         else:
             args['robust'] = -0.5        
 
@@ -18249,7 +18255,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '19.6.0'
+    facetselfcal_version = '19.6.1'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -18378,6 +18384,10 @@ def main():
         args['flag_antenna_list'] = None  # since we use it above set flag_antenna_list to None now
         if args['aoflagger'] and args['aoflaggerbeforeavg']:
             args['aoflagger'] = False # turn off now because we used it above    
+
+    # remove the SYSPOWER column from a measurement set (relevant for (E)VLA data)
+    # keeping this column will slow DP3 down significantly
+    remove_syspower(mslist)
 
     # flag known bad frequencies for uGMRT data
     if args['start'] == 0: flag_uGMRT_badfreqs(mslist)
