@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          PRIMARY_URL="https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif"
+          PRIMARY_URL="https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci_tmp.sif"
           FALLBACK_URL="https://nextcloud.strw.leidenuniv.nl/index.php/s/G7kZrrZ7cobt2XK/download"
 
           download_image () {
