@@ -122,6 +122,73 @@ matplotlib.use('Agg')
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
+def get_vla_maxconfiguration(mslist):
+    """
+    Extracts the VLA array configuration (A, B, C, or D) from a list of Measurement Sets. If mulitple configurations are found it returns the one with the longest baselines
+    This is useful to know in order to get the correct pixelscale, which is determined by the array with the longest baselines
+    """
+    # check that the input is a list
+    assert isinstance(mslist, list), "Input must be a list of Measurement Sets"
+    config_list = []
+    for ms in mslist:
+        config_list.append(get_vla_configuration(ms))
+    if 'A' in config_list:
+        return 'A'
+    elif 'B' in config_list:
+        return 'B'
+    elif 'C' in config_list:
+        return 'C'
+    else:
+        return 'D'
+
+def get_vla_configuration(ms):
+    """
+    Extracts the VLA array configuration (A, B, C, or D) from a Measurement Set
+    by calculating the maximum baseline length from the ANTENNA sub-table.
+    
+    Parameters:
+    -----------
+    ms : str
+        The path to the main Measurement Set directory (e.g., 'my_data.ms').
+        
+    Returns:
+    --------
+    str
+        'A', 'B', 'C', or 'D' based on the physical antenna distribution.
+    """
+    antenna_table_path = os.path.join(ms, 'ANTENNA')
+    
+    if not os.path.exists(antenna_table_path):
+        raise FileNotFoundError(f"Could not find the ANTENNA sub-table at: {antenna_table_path}")
+    
+    # Open the antenna sub-table and extract positions
+    with table(antenna_table_path, readonly=True, ack=False) as t:
+        positions = t.getcol('POSITION')  # Shape: (num_antennas, 3) or (3, num_antennas)
+    
+    # Handle both shapes just in case casacore format varies by version
+    if positions.shape[1] == 3 and positions.shape[0] != 3:
+        # If shape is (N, 3), convert to (3, N) for the loop
+        positions = positions.T
+        
+    num_ants = positions.shape[1]
+    max_baseline_km = 0.0
+    
+    # Compute the maximum physical distance between any pair of antennas
+    for i in range(num_ants):
+        for j in range(i + 1, num_ants):
+            dist_km = np.linalg.norm(positions[:, i] - positions[:, j]) / 1000.0
+            if dist_km > max_baseline_km:
+                max_baseline_km = dist_km
+                
+    # Classify based on official NRAO maximum baseline bounds
+    if max_baseline_km > 15.0:
+        return 'A'
+    elif max_baseline_km > 4.0:
+        return 'B'
+    elif max_baseline_km > 1.5:
+        return 'C'
+    else:
+        return 'D'
 
 
 def get_EVLA_IF_pair(ms):
@@ -4678,7 +4745,7 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
     logger.info('Do linear:                 ' + str(args['dolinear']))
     logger.info('Do circular:               ' + str(args['docircular']))
     if args['boxfile'] is not None:
-        logger.info('Bobxfile:                  ' + args['boxfile'])
+        logger.info('Boxfile:                   ' + args['boxfile'])
     logger.info('Mslist:                    ' + ' '.join(map(str, mslist)))
     logger.info('User specified clean mask: ' + str(fitsmask))
     logger.info('Threshold for MakeMask:    ' + str(args['maskthreshold']))
@@ -4687,6 +4754,8 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
     for ms in mslist:
         logger.info(' === ' + ms + ' ===')
         logger.info('Telescope:                 ' + args['telescope'])
+        if get_telescope_from_ms(ms) == 'EVLA' or get_telescope_from_ms(ms) == 'VLA':
+            logger.info('VLA configuration:         ' + get_vla_configuration(ms))
         with table(ms, readonly=True, ack=False) as t:            
             time = np.unique(t.getcol('TIME'))
             logger.info('Integration time [s]:      {:.2f}'.format(np.abs(time[1] - time[0])))
@@ -4697,6 +4766,7 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
             nfreq = len(t.getcol('CHAN_FREQ')[0])
             logger.info('Number of channels:        {:.2f}'.format(nfreq))
             logger.info('Bandwidth [MHz]:           {:.2f}'.format((np.max(freqs)-np.min(freqs))/1e6))
+            logger.info('Channel width [kHz]:       {:.2f}'.format(chanw/1e3))
             logger.info('Start frequnecy [MHz]:     {:.2f}'.format(np.min(freqs)/1e6))      
             logger.info('End frequency [MHz]:       {:.2f}'.format(np.max(freqs)/1e6))
         logger.info('================')
@@ -17045,6 +17115,8 @@ def basicsetup(mslist):
                     args['uvmin'] = 80.
                 if freq < 40e6:
                     args['uvmin'] = 60.
+            elif args['telescope'] == 'EVLA' or args['telescope'] == 'VLA':
+                args['uvmin'] = 1. # assume we can use all baselines
             else:
                 args['uvmin'] = 350.
 
@@ -17056,7 +17128,7 @@ def basicsetup(mslist):
                 else:
                     args['uvminim'] = 80.  # the default since a long time so keep it for now, but could be reduced for HBA in the future 
             else:
-                args['uvminim'] = 10.  # MeerKAT for example
+                args['uvminim'] = 10.  # MeerKAT/uGMRT/EVLA/ASKAP for example
 
     if args['pixelscale'] is None and args['telescope'] == 'LOFAR':
         if LBA:
@@ -17071,27 +17143,58 @@ def basicsetup(mslist):
                 args['pixelscale'] = 1.5
     elif args['pixelscale'] is None and args['telescope'] == 'MeerKAT':
         if freq < 1e9:  # UHF-band
-            args['pixelscale'] = pixelscale = 1.8
+            args['pixelscale'] = 1.8
         elif freq < 2e9:  # L-band
-            args['pixelscale'] = pixelscale = 1.
+            args['pixelscale'] = 1.
         elif freq < 4e9:  # S-band
-            args['pixelscale'] = pixelscale = 0.5
+            args['pixelscale'] = 0.5
     elif args['pixelscale'] is None and args['telescope'] == 'ASKAP':
         if freq < 1e9:  # UHF-band
-            args['pixelscale'] = pixelscale = 2.0
+            args['pixelscale'] = 2.0
         elif freq < 1.4e9:  # L-band-low
-            args['pixelscale'] = pixelscale = 1.5
+            args['pixelscale'] = 1.5
         elif freq < 2.0e9:  # L-band-high
-            args['pixelscale'] = pixelscale = 1.0
+            args['pixelscale'] = 1.0
     elif args['pixelscale'] is None and args['telescope'] == 'GMRT':
         if freq < 250e6:  # band2
-            args['pixelscale'] = pixelscale = 3.0
+            args['pixelscale'] = 3.0
         elif freq >= 250e6 and freq < 500e6:  # band3
-            args['pixelscale'] = pixelscale = 1.25
+            args['pixelscale'] = 1.25
         elif freq >= 500e6 and freq < 1e9:  # band4
-            args['pixelscale'] = pixelscale = 0.75
+            args['pixelscale']  = 0.75
         elif freq >= 1e9:  # band5
-            args['pixelscale'] = pixelscale = 0.35
+            args['pixelscale'] = 0.35
+    elif args['pixelscale'] is None and (args['telescope'] == 'EVLA' or args['telescope'] == 'VLA'):
+        # get the configuration
+        if get_vla_maxconfiguration(mslist) == 'A':
+            res_factor = 1.0
+        if get_vla_maxconfiguration(mslist) == 'B':
+            res_factor = 3.0
+        if get_vla_maxconfiguration(mslist) == 'C':
+            res_factor = 9.0
+        if get_vla_maxconfiguration(mslist) == 'D':
+            res_factor = 27.0
+        if freq > 50e6 and freq < 100e6:  # 4-band, 74 MHz centre
+            args['pixelscale'] = 6.0*res_factor
+        elif freq > 200e6 and freq < 500e6:  # P-band, 350 MHz centre
+            args['pixelscale'] = 1.3*res_factor
+        elif freq > 1e9 and freq < 2e9:  # L-band, 1.5 GHz centre
+            args['pixelscale'] = 0.3*res_factor
+        elif freq >= 2e9 and freq < 4e9:  # S-band, 3.0 GHz centre
+            args['pixelscale'] = 0.15*res_factor
+        elif freq >= 4e9 and freq < 8e9:  # C-band, 6.0 GHz centre
+            args['pixelscale'] = 0.075*res_factor
+        elif freq >= 8e9 and freq < 12e9:  # X-band, 10 GHz centre
+            args['pixelscale'] = 0.045*res_factor
+        elif freq >= 12e9 and freq < 18e9:  # Ku-band, 15 GHz centre
+            args['pixelscale'] = 0.03*res_factor
+        elif freq >= 18e9 and freq < 26e9:  # K-band, 22 GHz centre
+            args['pixelscale'] = 0.020*res_factor
+        elif freq >= 26e9 and freq < 40e9:  # Ka-band, 33 GHz centre
+            args['pixelscale'] = 0.014*res_factor
+        elif freq >= 40e9 and freq < 50e9:  # Q-band, 45 GHz centre
+            args['pixelscale'] = 0.01*res_factor
+
     elif args['pixelscale'] is None:
         print('pixelscale not set and cannot be determined for telescope', args['telescope'])
         raise Exception('pixelscale not set and cannot be determined for telescope')    
@@ -17110,8 +17213,10 @@ def basicsetup(mslist):
             args['robust'] = -0.0
         elif args['telescope'] == 'EVLA' or args['telescope'] == 'VLA':    
             args['robust'] = 0.0
+        elif args['telescope'] == 'MWA':
+            args['robust'] = -0.5 
         else:
-            args['robust'] = -0.5        
+            args['robust'] = 0.0       
 
     # if imsize is a filename (so a string) then read the imsize for there
     if isinstance(args['imsize'], str):
@@ -18255,7 +18360,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '19.6.1'
+    facetselfcal_version = '19.6.2'
     print_title(facetselfcal_version)
 
     # copy h5s locally
