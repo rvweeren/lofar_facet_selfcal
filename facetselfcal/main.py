@@ -9894,15 +9894,15 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA',
                       'RS409LBA', 'RS508LBA', 'RS509LBA',
                       'DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA',
-                      'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'ST001']
+                      'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'BG616LBA', 'ST001']
         if ctype == 'international':
             antstr = ['DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA',
-                      'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA']
+                      'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'BG616LBA']
         if ctype == 'closeinternational':
             antstr = ['DE601LBA', 'DE602LBA']
         if ctype == 'distantinternational':
             antstr = ['DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA', 'SE607LBA', 'UK608LBA',
-                      'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA']          
+                      'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'BG616LBA']          
         if ctype == 'core-remote':
             antstr1 = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
                        'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
@@ -10014,15 +10014,15 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',
                       'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA',
                       'DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA',
-                      'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'ST001']
+                      'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'BG616HBA', 'ST001']
         if ctype == 'international':
             antstr = ['DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA',
-                      'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA']
+                      'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'BG616HBA']
         if ctype == 'closeinternational':
             antstr = ['DE601HBA', 'DE602HBA']
         if ctype == 'distantinternational':
             antstr = ['DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA', 'SE607HBA', 'UK608HBA',
-                      'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA']        
+                      'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'BG616HBA']        
         if ctype == 'core-remote':
             antstr1 = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
                        'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
@@ -19133,7 +19133,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '19.6.2'
+    facetselfcal_version = '19.6.3'
     print_title(facetselfcal_version)
 
     # copy h5s locally
