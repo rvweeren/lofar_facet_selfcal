@@ -112,6 +112,7 @@ from utils.parsers import parse_history
 # Set logger
 os.makedirs('logs', exist_ok=True) 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 file_handler = logging.FileHandler('logs/selfcal.log')
 formatter = logging.Formatter('%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 file_handler.setFormatter(formatter)
@@ -144,63 +145,81 @@ def _get_ms_time_coverage(ms):
     return unique_times, full_baseline, normal_step
 
 
-def _find_ms_time_gaps(ms, timegap_threshold=1800, relative_threshold=0.5):
-    """Find significant gaps in an MS and return them in seconds."""
+def _find_ms_time_gaps(ms, timegap_threshold=1800, relative_threshold=0.5,
+                       ignore_gap=60):
+    """Find significant gaps longer than ``ignore_gap`` seconds in an MS."""
     times, full_baseline, normal_step = _get_ms_time_coverage(ms)
     if normal_step is None or times.size < 2:
         return times, full_baseline, []
 
     gaps = []
+    short_gap_duration = 0.0
+    have_plotted_gap = False
     for index, time_delta in enumerate(np.diff(times)):
         if not (full_baseline[index] and full_baseline[index + 1]):
+            short_gap_duration = 0.0
+            have_plotted_gap = False
             continue
         missing_duration = float(time_delta - normal_step)
-        if missing_duration <= 0:
+        if missing_duration < 0:
+            continue
+        if missing_duration < ignore_gap:
+            if have_plotted_gap:
+                short_gap_duration += missing_duration
             continue
 
+        missing_duration += short_gap_duration
+        short_gap_duration = 0.0
+
         left = index
-        while left >= 0 and full_baseline[left]:
+        while (left > 0 and full_baseline[left - 1] and
+               times[left] - times[left - 1] <= 1.5 * normal_step):
             left -= 1
         right = index + 1
-        while right < full_baseline.size and full_baseline[right]:
+        while (right < full_baseline.size - 1 and full_baseline[right + 1] and
+               times[right + 1] - times[right] <= 1.5 * normal_step):
             right += 1
-        left_duration = times[index] - times[left + 1] if left + 1 <= index else 0
-        right_duration = times[right - 1] - times[index + 1] if index + 1 < right else 0
-        neighboring_duration = min(left_duration, right_duration)
-        relative_limit = relative_threshold * neighboring_duration
-        exceeds_relative_limit = (neighboring_duration > 0 and
+        left_duration = times[index] - times[left] + normal_step
+        right_duration = times[right] - times[index + 1] + normal_step
+        target_duration = left_duration + right_duration
+        relative_limit = relative_threshold * target_duration
+        exceeds_relative_limit = (target_duration > 0 and
                       missing_duration >= relative_limit)
 
         if missing_duration >= timegap_threshold or exceeds_relative_limit:
             gaps.append((times[index], times[index + 1], missing_duration))
+        have_plotted_gap = True
 
     return times, full_baseline, gaps
 
 
-def check_large_timegaps_ms(ms, timegap_threshold=1200, relative_threshold=0.5):
+def check_large_timegaps_ms(ms, timegap_threshold=1200, relative_threshold=0.5,
+                            ignore_gap=60):
     """Return whether an MS contains a significant all-baseline time gap.
 
     The normal cadence is estimated from the median difference between unique
     TIME values. A gap is the excess over that cadence. It is significant when
     it exceeds ``timegap_threshold`` seconds or ``relative_threshold`` times
-    the shorter neighboring continuous observation.
+    the combined neighboring continuous observations.
     """
-    _, _, gaps = _find_ms_time_gaps(ms, timegap_threshold, relative_threshold)
+    _, _, gaps = _find_ms_time_gaps(
+        ms, timegap_threshold, relative_threshold, ignore_gap)
     ms_basename = os.path.basename(ms.rstrip(os.sep))
     plot_path = os.path.join('plots', f'{ms_basename}.time_coverage.png')
-    plot_ms_time_coverage(ms, plot_path, timegap_threshold, relative_threshold)
+    plot_ms_time_coverage(ms, plot_path, timegap_threshold, relative_threshold,
+                          ignore_gap)
     return bool(gaps)
 
 
-def plot_ms_time_coverage(ms, output_path=None, timegap_threshold=1800,
-                          relative_threshold=0.5):
+def plot_ms_time_coverage(ms, output_path=None, timegap_threshold=1200,
+                          relative_threshold=0.5, ignore_gap=60):
     """Plot MS time coverage and annotate significant gaps.
 
     Returns the output path when a file is written, otherwise returns the
     Matplotlib figure.
     """
     times, full_baseline, gaps = _find_ms_time_gaps(
-        ms, timegap_threshold, relative_threshold)
+        ms, timegap_threshold, relative_threshold, ignore_gap)
     if times.size == 0:
         raise ValueError(f'Measurement Set has no TIME rows: {ms}')
 
@@ -214,10 +233,13 @@ def plot_ms_time_coverage(ms, output_path=None, timegap_threshold=1800,
     for index, time_delta in enumerate(np.diff(times)):
         if (full_baseline[index] and full_baseline[index + 1] and
                 time_delta > 1.5 * normal_step):
+            missing_duration = time_delta - normal_step
+            if missing_duration < ignore_gap:
+                continue
             gap_key = (times[index], times[index + 1])
             if gap_key not in significant_gap_keys:
                 shorter_gaps.append((times[index], times[index + 1],
-                                     time_delta - normal_step))
+                                     missing_duration))
     axis.plot(time_hours, full_baseline.astype(int), drawstyle='steps-mid',
               color='tab:blue', linewidth=1.5)
 
@@ -19407,8 +19429,9 @@ def main():
         # only do it for the banpass calibrator for now as the issue has only been found for calibrator data so far
         fix_zero_weight_spectrum(mslist)
  
-    if args['timesplitbefore'] is None: 
-        args['timesplitbefore'] = check_large_timegaps_ms(mslist[0])  # check for large time gaps in the MS and print a warning if found
+    if args['timesplitbefore'] is None: # in this case we let facetselfcal decide by itself whether to split or not
+        os.makedirs('plots', exist_ok=True)
+        args['timesplitbefore'] = check_large_timegaps_ms(mslist[0])  # check for large time gaps
 
     if args['timesplitbefore']:
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, 
