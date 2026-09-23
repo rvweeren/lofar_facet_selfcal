@@ -1,16 +1,19 @@
 import os
-# import logging
 import pandas as pd
 import re
 
 try:
     from .selfcal_selection import get_images_solutions, main as quality_check
-    from .image_score import get_nn_model, predict_nn
+    from .image_score import predict_nn
+    from .download_neural_network import get_nn_model
 except ImportError:
     from selfcal_selection import get_images_solutions, main as quality_check
-    from image_score import get_nn_model, predict_nn
+    from image_score import predict_nn
+    from download_neural_network import get_nn_model
 
-# logger = logging.getLogger(__name__)
+
+# Initialise in this way because of global
+nn_model = None
 
 
 def _parse_source_id(inp_str: str = None):
@@ -46,9 +49,9 @@ def _initialize_nn_model(nn_model_cache: str, skip_neural_network: bool) -> None
 
 def _get_predict_score(images: dict,
                        cycle: int) -> float:
-    """Return the neural network prediction score, or 1.0 if no model is available."""
+    """Return the neural network prediction score, or 99.9 if no model is available."""
     if nn_model is None:
-        return 1.0
+        return 99.9
     score = predict_nn(images[cycle], nn_model)
     print(f"Neural network score: {score}")
     return score
@@ -66,10 +69,9 @@ def _has_converged(df: pd.DataFrame,
         (predict_score < 0.50 and phase < 0.20 and rms_ratio < 0.90 and minmax_ratio < 0.50) or
         (predict_score < 0.50 and phase < 0.30 and rms_ratio < 0.95 and minmax_ratio < 0.30) or
         (predict_score < 0.40 and phase < 0.50 and rms_ratio < 1.00 and minmax_ratio < 1.00) or
-        (predict_score < 0.30 and phase < 0.1) or
-        (phase < 0.003) or
-        (phase < 0.10 and rms_ratio < 0.50 and minmax_ratio < 0.10 and predict_score == 1.0) or
-        (phase < 0.05 and minmax_ratio < 0.10 and rms_ratio < 0.50 and predict_score == 1.0)
+        (predict_score < 0.30 and phase < 0.10) or
+        (phase < 0.002) or
+        (phase < 0.03 and minmax_ratio < 0.10 and rms_ratio < 0.20 and predict_score == 99.9)
     )
 
 
@@ -77,7 +79,7 @@ def _has_diverged(df: pd.DataFrame,
                   cycle: int,
                   rms_ratio: float,
                   minmax_ratio: float) -> bool:
-    """Return True if selfcal has started to diverge."""
+    """Return True if selfcal has diverged."""
     phase = df['phase']
     rms = df['rms']
     minmax = df['min/max']
@@ -120,7 +122,7 @@ def early_stopping(station: str = 'international',
     """
     Determine early-stopping based on Neural Network image validation and image-based metrics.
 
-    :param station: 'international' or dutch stations
+    :param station: Station groups: 'international' or dutch stations
     :param cycle: cycle number
     :param start_cycle: start cycle
     :param end_cycle: end cycle
@@ -132,11 +134,14 @@ def early_stopping(station: str = 'international',
     if cycle == start_cycle:
         _initialize_nn_model(nn_model_cache, skip_neural_network)
 
-    if cycle <= 3:
-        return False
+    # Check if first image is already clearly good according to the Neural Network
+    if cycle == 0:
+        predict_score = _get_predict_score(images, 0)
+        if predict_score < 0.4:
+            return True
 
-    if not images:
-        print("WARNING: Issues with finding images for early-stopping. Skipping and continue without...")
+    # If first cycle was not good enough, we need 3 cycles to be completed before we continue with early stopping
+    elif cycle <= 3:
         return False
 
     qualitymetrics = quality_check(mergedh5, images, station)
