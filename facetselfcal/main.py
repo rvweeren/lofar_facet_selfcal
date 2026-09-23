@@ -72,6 +72,7 @@ import losoto # type: ignore
 import losoto.lib_operations # type: ignore
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 import pyregion
@@ -111,6 +112,7 @@ from utils.parsers import parse_history
 # Set logger
 os.makedirs('logs', exist_ok=True) 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 file_handler = logging.FileHandler('logs/selfcal.log')
 formatter = logging.Formatter('%(levelname)s:%(asctime)s ---- %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 file_handler.setFormatter(formatter)
@@ -121,6 +123,197 @@ matplotlib.use('Agg')
 
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
+
+def _get_ms_time_coverage(ms):
+    """Return time slots, full-baseline slots, and the normal time step."""
+    with table(ms, readonly=True, ack=False) as ms_table:
+        if ms_table.nrows() == 0:
+            return np.array([]), np.array([], dtype=bool), None
+        times = np.asarray(ms_table.getcol('TIME'), dtype=float)
+
+    unique_times, row_counts = np.unique(times, return_counts=True)
+    if unique_times.size < 2:
+        return unique_times, np.ones(unique_times.size, dtype=bool), None
+
+    # A regular baseline grid has the same number of rows at every time.
+    # The mode is robust to a small number of incomplete edge slots.
+    normal_row_count = np.bincount(row_counts).argmax()
+    full_baseline = row_counts == normal_row_count
+    time_steps = np.diff(unique_times)
+    positive_steps = time_steps[time_steps > 0]
+    normal_step = float(np.median(positive_steps)) if positive_steps.size else None
+    return unique_times, full_baseline, normal_step
+
+
+def _find_ms_time_gaps(ms, timegap_threshold=1800, relative_threshold=0.5,
+                       ignore_gap=60):
+    """Find significant gaps longer than ``ignore_gap`` seconds in an MS."""
+    times, full_baseline, normal_step = _get_ms_time_coverage(ms)
+    if normal_step is None or times.size < 2:
+        return times, full_baseline, []
+
+    gaps = []
+    short_gap_duration = 0.0
+    have_plotted_gap = False
+    for index, time_delta in enumerate(np.diff(times)):
+        if not (full_baseline[index] and full_baseline[index + 1]):
+            short_gap_duration = 0.0
+            have_plotted_gap = False
+            continue
+        missing_duration = float(time_delta - normal_step)
+        if missing_duration < 0:
+            continue
+        if missing_duration < ignore_gap:
+            if have_plotted_gap:
+                short_gap_duration += missing_duration
+            continue
+
+        missing_duration += short_gap_duration
+        short_gap_duration = 0.0
+
+        left = index
+        while (left > 0 and full_baseline[left - 1] and
+               times[left] - times[left - 1] <= 1.5 * normal_step):
+            left -= 1
+        right = index + 1
+        while (right < full_baseline.size - 1 and full_baseline[right + 1] and
+               times[right + 1] - times[right] <= 1.5 * normal_step):
+            right += 1
+        left_duration = times[index] - times[left] + normal_step
+        right_duration = times[right] - times[index + 1] + normal_step
+        target_duration = left_duration + right_duration
+        relative_limit = relative_threshold * target_duration
+        exceeds_relative_limit = (target_duration > 0 and
+                      missing_duration >= relative_limit)
+
+        if missing_duration >= timegap_threshold or exceeds_relative_limit:
+            gaps.append((times[index], times[index + 1], missing_duration))
+        have_plotted_gap = True
+
+    return times, full_baseline, gaps
+
+
+def check_large_timegaps_ms(ms, timegap_threshold=1200, relative_threshold=0.5,
+                            ignore_gap=60):
+    """Return whether an MS contains a significant all-baseline time gap.
+
+    The normal cadence is estimated from the median difference between unique
+    TIME values. A gap is the excess over that cadence. It is significant when
+    it exceeds ``timegap_threshold`` seconds or ``relative_threshold`` times
+    the combined neighboring continuous observations.
+    """
+    _, _, gaps = _find_ms_time_gaps(
+        ms, timegap_threshold, relative_threshold, ignore_gap)
+    ms_basename = os.path.basename(ms.rstrip(os.sep))
+    plot_path = os.path.join('plots', f'{ms_basename}.time_coverage.png')
+    plot_ms_time_coverage(ms, plot_path, timegap_threshold, relative_threshold,
+                          ignore_gap)
+    return bool(gaps)
+
+
+def plot_ms_time_coverage(ms, output_path=None, timegap_threshold=1200,
+                          relative_threshold=0.5, ignore_gap=60):
+    """Plot MS time coverage and annotate significant gaps.
+
+    Returns the output path when a file is written, otherwise returns the
+    Matplotlib figure.
+    """
+    times, full_baseline, gaps = _find_ms_time_gaps(
+        ms, timegap_threshold, relative_threshold, ignore_gap)
+    if times.size == 0:
+        raise ValueError(f'Measurement Set has no TIME rows: {ms}')
+
+    figure, axis = plt.subplots(figsize=(14, 4.5))
+    time_hours = (times - times[0]) / 3600.0
+    positive_steps = np.diff(times)
+    positive_steps = positive_steps[positive_steps > 0]
+    normal_step = float(np.median(positive_steps)) if positive_steps.size else 0.0
+    significant_gap_keys = {(gap_start, gap_end) for gap_start, gap_end, _ in gaps}
+    shorter_gaps = []
+    for index, time_delta in enumerate(np.diff(times)):
+        if (full_baseline[index] and full_baseline[index + 1] and
+                time_delta > 1.5 * normal_step):
+            missing_duration = time_delta - normal_step
+            if missing_duration < ignore_gap:
+                continue
+            gap_key = (times[index], times[index + 1])
+            if gap_key not in significant_gap_keys:
+                shorter_gaps.append((times[index], times[index + 1],
+                                     missing_duration))
+    axis.plot(time_hours, full_baseline.astype(int), drawstyle='steps-mid',
+              color='tab:blue', linewidth=1.5)
+
+    # Label each continuous coverage segment so the relative threshold can be
+    # compared directly with the duration of the adjacent observations.
+    segment_start = 0
+    for index, time_delta in enumerate(np.diff(times)):
+        if (not full_baseline[index] or not full_baseline[index + 1] or
+                time_delta > 1.5 * normal_step):
+            segment_end = index
+            segment_duration = times[segment_end] - times[segment_start] + normal_step
+            segment_middle = (times[segment_start] + times[segment_end]) / 2
+            axis.text((segment_middle - times[0]) / 3600.0, 1.04,
+                      f'{segment_duration / 60:.1f} min',
+                      ha='center', va='bottom', color='black', fontsize=7,
+                      rotation=90,
+                      bbox=dict(facecolor='white', alpha=0.75,
+                                edgecolor='none', pad=1))
+            segment_start = index + 1
+
+    segment_end = len(times) - 1
+    segment_duration = times[segment_end] - times[segment_start] + normal_step
+    segment_middle = (times[segment_start] + times[segment_end]) / 2
+    axis.text((segment_middle - times[0]) / 3600.0, 1.04,
+              f'{segment_duration / 60:.1f} min',
+              ha='center', va='bottom', color='black', fontsize=7,
+              rotation=90,
+              bbox=dict(facecolor='white', alpha=0.75,
+                        edgecolor='none', pad=1))
+
+    for gap_start, gap_end, missing_duration in shorter_gaps:
+        start_hours = (gap_start - times[0]) / 3600.0
+        end_hours = (gap_end - times[0]) / 3600.0
+        axis.axvspan(start_hours, end_hours, color='orange', alpha=0.25)
+        axis.annotate(f'{missing_duration / 60:.1f} min',
+                      xy=((start_hours + end_hours) / 2, 0.5),
+                      ha='center', va='center', color='darkorange',
+                      rotation=90, fontsize=7,
+                      bbox=dict(facecolor='white', alpha=0.75,
+                                edgecolor='none', pad=1))
+
+    for gap_start, gap_end, missing_duration in gaps:
+        start_hours = (gap_start - times[0]) / 3600.0
+        end_hours = (gap_end - times[0]) / 3600.0
+        axis.axvspan(start_hours, end_hours, color='tab:red', alpha=0.2)
+        axis.annotate(f'{missing_duration / 60:.1f} min',
+                      xy=((start_hours + end_hours) / 2, 0.5),
+                      ha='center', va='center', color='tab:red',
+                      rotation=90, fontsize=7,
+                      bbox=dict(facecolor='white', alpha=0.75,
+                                edgecolor='none', pad=1))
+
+    axis.set_xlabel('Time since start (hours)')
+    axis.set_ylabel('Complete baseline slot')
+    axis.set_yticks([0, 1])
+    axis.set_yticklabels(['incomplete', 'complete'])
+    axis.set_ylim(-0.05, 1.2)
+    axis.set_title(f'MS time coverage: {os.path.basename(ms.rstrip(os.sep))}')
+    axis.legend(handles=[
+        Patch(facecolor='tab:red', alpha=0.2,
+              label='No visibility data (significant gap)'),
+        Patch(facecolor='orange', alpha=0.25,
+              label='No visibility data (shorter gap)')
+    ], loc='upper left', bbox_to_anchor=(1.01, 1.0), fontsize=8,
+        frameon=True)
+    figure.tight_layout(rect=(0, 0, 0.8, 1))
+
+    if output_path is not None:
+        figure.savefig(output_path, dpi=150)
+        plt.close(figure)
+        return output_path
+    return figure
+
+
 
 def get_vla_maxconfiguration(mslist):
     """
@@ -9894,15 +10087,15 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA',
                       'RS409LBA', 'RS508LBA', 'RS509LBA',
                       'DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA',
-                      'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'ST001']
+                      'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'BG616LBA', 'ST001']
         if ctype == 'international':
             antstr = ['DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA',
-                      'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA']
+                      'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'BG616LBA']
         if ctype == 'closeinternational':
             antstr = ['DE601LBA', 'DE602LBA']
         if ctype == 'distantinternational':
             antstr = ['DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA', 'SE607LBA', 'UK608LBA',
-                      'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA']          
+                      'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'BG616LBA']          
         if ctype == 'core-remote':
             antstr1 = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
                        'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
@@ -10014,15 +10207,15 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',
                       'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA',
                       'DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA',
-                      'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'ST001']
+                      'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'BG616HBA', 'ST001']
         if ctype == 'international':
             antstr = ['DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA',
-                      'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA']
+                      'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'BG616HBA']
         if ctype == 'closeinternational':
             antstr = ['DE601HBA', 'DE602HBA']
         if ctype == 'distantinternational':
             antstr = ['DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA', 'SE607HBA', 'UK608HBA',
-                      'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA']        
+                      'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'BG616HBA']        
         if ctype == 'core-remote':
             antstr1 = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
                        'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
@@ -19133,7 +19326,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '19.6.2'
+    facetselfcal_version = '19.6.3'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -19235,6 +19428,10 @@ def main():
         # some old MeerKAT data has zero WEIGHT_SPECTRUM values which need to be fixed first
         # only do it for the banpass calibrator for now as the issue has only been found for calibrator data so far
         fix_zero_weight_spectrum(mslist)
+ 
+    if args['timesplitbefore'] is None: # in this case we let facetselfcal decide by itself whether to split or not
+        os.makedirs('plots', exist_ok=True)
+        args['timesplitbefore'] = check_large_timegaps_ms(mslist[0])  # check for large time gaps
 
     if args['timesplitbefore']:
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, 

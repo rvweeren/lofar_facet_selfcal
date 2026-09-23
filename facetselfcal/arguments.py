@@ -693,10 +693,8 @@ def option_parser():
                         action='store_true')
     parser.add_argument('--bandpass-stop',
                         help='Selfcalcycle after which to stop if --bandpass is used (default 0)', default=0, type=int)
-    
-    parser.add_argument('--timesplitbefore',
-                        help='Try to split the MS in time if the time axis is not contigeous',
-                        action='store_true')
+    add_bool_arg(parser, 'timesplitbefore', default=None,
+                 help='Split the MS in time when the time axis is not contiguous. If this option is not set, facetselfcal automatically splits the MS only when the time gaps are large. This is mainly useful for MeerKAT, uGMRT, and (E)VLA observations.')
     parser.add_argument('--noarchive',
                         help='Do not archive the data.',
                         action='store_true')
