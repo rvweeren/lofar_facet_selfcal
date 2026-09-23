@@ -206,8 +206,9 @@ def check_large_timegaps_ms(ms, timegap_threshold=1200, relative_threshold=0.5,
         ms, timegap_threshold, relative_threshold, ignore_gap)
     ms_basename = os.path.basename(ms.rstrip(os.sep))
     plot_path = os.path.join('plots', f'{ms_basename}.time_coverage.png')
-    plot_ms_time_coverage(ms, plot_path, timegap_threshold, relative_threshold,
-                          ignore_gap)
+    if not args['skip_time_coverage_plotting']:
+        plot_ms_time_coverage(ms, plot_path, timegap_threshold, relative_threshold,
+                              ignore_gap)
     return bool(gaps)
 
 
@@ -4990,7 +4991,8 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True, met
 
     This function groups measurement sets by observation ID and concatenates them into
     single output measurement sets with regular frequency grids. Missing frequency blocks
-    are filled with dummy measurement sets to maintain grid regularity.
+    are filled with dummy measurement sets to maintain grid regularity. It is important the the input mslist in in the asceding order of frequency. 
+    The function uses DP3 (DPPP) for the concatenation process.
 
     Parameters
     ----------
@@ -9987,7 +9989,7 @@ def print_title(version):
                               Starting.........
           """)
 
-    print('\n\nVERSION: ' + version + '\n\n')
+    print('\n                              VERSION: ' + version + '\n\n')
     logger.info('VERSION: ' + version)
     return
 
@@ -12678,22 +12680,23 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     f.write('pol = [XX,YY]\n')
     f.write('soltab = [sol000/*]\n\n\n')
 
-    f.write('[plotphase]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/phase000]\n')
-    f.write('axesInPlot = [time,freq]\n')
-    f.write('axisInTable = ant\n')
-    f.write('minmax = [-0.5,0.5]\n')
-    f.write('prefix = solution_plots_%s/phases_beam\n' % os.path.basename(ms))
-    f.write('refAnt = %s\n\n\n' % refant)
+    if not args['skip_solution_plotting']:
+        f.write('[plotphase]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = [sol000/phase000]\n')
+        f.write('axesInPlot = [time,freq]\n')
+        f.write('axisInTable = ant\n')
+        f.write('minmax = [-0.5,0.5]\n')
+        f.write('prefix = solution_plots_%s/phases_beam\n' % os.path.basename(ms))
+        f.write('refAnt = %s\n\n\n' % refant)
 
-    f.write('[plotamp]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/amplitude000]\n')
-    f.write('axesInPlot = [time,freq]\n')
-    f.write('axisInTable = ant\n')
-    f.write('minmax = [0.2,1]\n')
-    f.write('prefix = solution_plots_%s/amplitudes_beam\n' % os.path.basename(ms))
+        f.write('[plotamp]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = [sol000/amplitude000]\n')
+        f.write('axesInPlot = [time,freq]\n')
+        f.write('axisInTable = ant\n')
+        f.write('minmax = [0.2,1]\n')
+        f.write('prefix = solution_plots_%s/amplitudes_beam\n' % os.path.basename(ms))
 
     f.close()
     return parset
@@ -12707,17 +12710,18 @@ def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttec
     f.write('pol = []\n')
     f.write('Ncpu = 0\n\n\n')
 
-    f.write('[plottecandphase]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/phase000]\n')
-    f.write('axesInPlot = [time]\n')
-    f.write('axisInTable = ant\n')
-    f.write('minmax = [-3.14,3.14]\n')
-    f.write('soltabToAdd = tec000\n')
-    f.write('figSize=[120,20]\n')
-    f.write('markerSize=%s\n' % int(markersize))
-    f.write('prefix = solution_plots_%s/fasttecandphase\n' % os.path.basename(ms))
-    f.write('refAnt = %s\n' % refant)
+    if not args['skip_solution_plotting']:
+        f.write('[plottecandphase]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = [sol000/phase000]\n')
+        f.write('axesInPlot = [time]\n')
+        f.write('axisInTable = ant\n')
+        f.write('minmax = [-3.14,3.14]\n')
+        f.write('soltabToAdd = tec000\n')
+        f.write('figSize=[120,20]\n')
+        f.write('markerSize=%s\n' % int(markersize))
+        f.write('prefix = solution_plots_%s/fasttecandphase\n' % os.path.basename(ms))
+        f.write('refAnt = %s\n' % refant)
 
     f.close()
     return parset
@@ -12730,16 +12734,17 @@ def create_losoto_delayparset(ms, refant='CS003HBA0', outplotname='fastdelay', m
     f.write('pol = []\n')
     f.write('Ncpu = 0\n\n\n')
 
-    f.write('[plotdelay]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/delay000]\n')
-    f.write('axesInPlot = [time]\n')
-    f.write('axisInTable = ant\n')
-    f.write('minmax = [-0.2,0.2]\n')
-    f.write('figSize=[120,20]\n')
-    f.write('markerSize=%s\n' % int(markersize))
-    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-    f.write('refAnt = %s\n' % refant)
+    if not args['skip_solution_plotting']:    
+        f.write('[plotdelay]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = [sol000/delay000]\n')
+        f.write('axesInPlot = [time]\n')
+        f.write('axisInTable = ant\n')
+        f.write('minmax = [-0.2,0.2]\n')
+        f.write('figSize=[120,20]\n')
+        f.write('markerSize=%s\n' % int(markersize))
+        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+        f.write('refAnt = %s\n' % refant)
 
     f.close()
     return parset
@@ -12752,16 +12757,17 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', marke
     f.write('pol = []\n')
     f.write('Ncpu = 0\n\n\n')
 
-    f.write('[plottec]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/tec000]\n')
-    f.write('axesInPlot = [time]\n')
-    f.write('axisInTable = ant\n')
-    f.write('minmax = [-0.2,0.2]\n')
-    f.write('figSize=[120,20]\n')
-    f.write('markerSize=%s\n' % int(markersize))
-    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-    f.write('refAnt = %s\n' % refant)
+    if not args['skip_solution_plotting']:
+        f.write('[plottec]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = [sol000/tec000]\n')
+        f.write('axesInPlot = [time]\n')
+        f.write('axisInTable = ant\n')
+        f.write('minmax = [-0.2,0.2]\n')
+        f.write('figSize=[120,20]\n')
+        f.write('markerSize=%s\n' % int(markersize))
+        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+        f.write('refAnt = %s\n' % refant)
 
     f.close()
     return parset
@@ -12776,19 +12782,21 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
     f.write('soltab = [sol000/*]\n')
     f.write('Ncpu = 0\n\n\n')
 
-    f.write('[plotrotation]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/rotation000]\n')
-    f.write('markerSize=%s\n' % int(markersize))
-    if onechannel:
-        f.write('axesInPlot = [time]\n')
-    else:
-        f.write('axesInPlot = [time,freq]\n')
-    f.write('axisInTable = ant\n')
-    f.write('minmax = [-1.57,1.57]\n')  # rotation needs to be plotted from -pi/2 to pi/2
-    f.write('figSize=[120,20]\n')
-    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-    f.write('refAnt = %s\n' % refant)
+    if not args['skip_solution_plotting']:
+        f.write('[plotrotation]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = [sol000/rotation000]\n')
+        f.write('markerSize=%s\n' % int(markersize))
+        if onechannel:
+            f.write('axesInPlot = [time]\n')
+        else:
+            f.write('axesInPlot = [time,freq]\n')
+        f.write('axisInTable = ant\n')
+        f.write('minmax = [-1.57,1.57]\n')  # rotation needs to be plotted from -pi/2 to pi/2
+        f.write('figSize=[120,20]\n')
+        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+        f.write('refAnt = %s\n' % refant)
+
     f.close()
     return parset
 
@@ -12802,45 +12810,46 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
     f.write('soltab = [sol000/*]\n')
     f.write('Ncpu = 0\n\n\n')
 
-    f.write('[plotphase]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/phase000]\n')
-    if onechannel:
-        f.write('axesInPlot = [time]\n')
-        if not onepol:
-            f.write('axisInCol = pol\n')
-    if onetime:
-        f.write('axesInPlot = [freq]\n')
-        if not onepol:
-            f.write('axisInCol = pol\n')
-    if onechannel or onetime: 
-            f.write('markerSize=%s\n' % int(markersize)) 
-    if not onechannel and not onetime:
-        f.write('axesInPlot = [time,freq]\n')
-    f.write('axisInTable = ant\n')
-    f.write('minmax = [-3.14,3.14]\n')
-    f.write('figSize=[120,20]\n')
-    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-    f.write('refAnt = %s\n' % refant)
-
-    if not onepol:
-        f.write('[plotphasediff]\n')
+    if not args['skip_solution_plotting']:
+        f.write('[plotphase]\n')
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/phase000]\n')
         if onechannel:
             f.write('axesInPlot = [time]\n')
+            if not onepol:
+                f.write('axisInCol = pol\n')
         if onetime:
             f.write('axesInPlot = [freq]\n')
+            if not onepol:
+                f.write('axisInCol = pol\n')
         if onechannel or onetime: 
-            f.write('markerSize=%s\n' % int(markersize))   
+                f.write('markerSize=%s\n' % int(markersize)) 
         if not onechannel and not onetime:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
         f.write('minmax = [-3.14,3.14]\n')
         f.write('figSize=[120,20]\n')
-        f.write('prefix = solution_plots_%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
         f.write('refAnt = %s\n' % refant)
-        f.write('axisDiff=pol\n')
+
+        if not onepol:
+            f.write('[plotphasediff]\n')
+            f.write('operation = PLOT\n')
+            f.write('soltab = [sol000/phase000]\n')
+            if onechannel:
+                f.write('axesInPlot = [time]\n')
+            if onetime:
+                f.write('axesInPlot = [freq]\n')
+            if onechannel or onetime: 
+                f.write('markerSize=%s\n' % int(markersize))   
+            if not onechannel and not onetime:
+                f.write('axesInPlot = [time,freq]\n')
+            f.write('axisInTable = ant\n')
+            f.write('minmax = [-3.14,3.14]\n')
+            f.write('figSize=[120,20]\n')
+            f.write('prefix = solution_plots_%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+            f.write('refAnt = %s\n' % refant)
+            f.write('axisDiff=pol\n')
 
     f.close()
     return parset
@@ -12857,50 +12866,10 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
     f.write('soltab = [sol000/*]\n')
     f.write('Ncpu = 0\n\n\n')
 
-    f.write('[plotamp]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/amplitude000]\n')
-    if onechannel:
-        f.write('axesInPlot = [time]\n')
-        if not onepol:
-            f.write('axisInCol = pol\n')
-    if onetime:
-        f.write('axesInPlot = [freq]\n')
-        if not onepol:
-            f.write('axisInCol = pol\n')
-    if onechannel or onetime: 
-            f.write('markerSize=%s\n' % int(markersize)) 
-    if not onechannel and not onetime:
-        f.write('axesInPlot = [time,freq]\n')
-    f.write('axisInTable = ant\n')
-    # if longbaseline:
-    #  f.write('minmax = [0,2.5]\n')
-    # else:
-    f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
-    # f.write('minmax = [0,2.5]\n')
-    f.write('prefix = solution_plots_%s/%samp\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-
-    if fulljones:
-        f.write('[plotampXYYX]\n')
+    if not args['skip_solution_plotting']:
+        f.write('[plotamp]\n')
         f.write('operation = PLOT\n')
         f.write('soltab = [sol000/amplitude000]\n')
-        f.write('pol = [XY, YX]\n')
-        if onechannel:
-            f.write('axesInPlot = [time]\n')
-        if onetime:
-            f.write('axesInPlot = [freq]\n')   
-        if onechannel or onetime: 
-            f.write('markerSize=%s\n' % int(markersize)) 
-        if not onetime and not onechannel:
-            f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [%s,%s]\n' % (str(0.0), str(0.5)))
-        f.write('prefix = solution_plots_%s/%sampXYYX\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-
-    if includesphase:
-        f.write('[plotphase]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
         if onechannel:
             f.write('axesInPlot = [time]\n')
             if not onepol:
@@ -12910,32 +12879,73 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             if not onepol:
                 f.write('axisInCol = pol\n')
         if onechannel or onetime: 
-            f.write('markerSize=%s\n' % int(markersize)) 
-        if not onetime and not onechannel:
+                f.write('markerSize=%s\n' % int(markersize)) 
+        if not onechannel and not onetime:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
-        f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = solution_plots_%s/%sphase\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-        f.write('refAnt = %s\n\n\n' % refant)
+        # if longbaseline:
+        #  f.write('minmax = [0,2.5]\n')
+        # else:
+        f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
+        # f.write('minmax = [0,2.5]\n')
+        f.write('prefix = solution_plots_%s/%samp\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
 
-        if not onepol and not fulljones:
-            f.write('[plotphasediff]\n')
+        if fulljones:
+            f.write('[plotampXYYX]\n')
+            f.write('operation = PLOT\n')
+            f.write('soltab = [sol000/amplitude000]\n')
+            f.write('pol = [XY, YX]\n')
+            if onechannel:
+                f.write('axesInPlot = [time]\n')
+            if onetime:
+                f.write('axesInPlot = [freq]\n')   
+            if onechannel or onetime: 
+                f.write('markerSize=%s\n' % int(markersize)) 
+            if not onetime and not onechannel:
+                f.write('axesInPlot = [time,freq]\n')
+            f.write('axisInTable = ant\n')
+            f.write('minmax = [%s,%s]\n' % (str(0.0), str(0.5)))
+            f.write('prefix = solution_plots_%s/%sampXYYX\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+
+        if includesphase:
+            f.write('[plotphase]\n')
             f.write('operation = PLOT\n')
             f.write('soltab = [sol000/phase000]\n')
             if onechannel:
                 f.write('axesInPlot = [time]\n')
+                if not onepol:
+                    f.write('axisInCol = pol\n')
             if onetime:
-                f.write('axesInPlot = [freq]\n')  
+                f.write('axesInPlot = [freq]\n')
+                if not onepol:
+                    f.write('axisInCol = pol\n')
             if onechannel or onetime: 
                 f.write('markerSize=%s\n' % int(markersize)) 
             if not onetime and not onechannel:
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
             f.write('minmax = [-3.14,3.14]\n')
-            f.write('figSize=[120,20]\n')
-            f.write('prefix = solution_plots_%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-            f.write('refAnt = %s\n' % refant)
-            f.write('axisDiff=pol\n\n\n')
+            f.write('prefix = solution_plots_%s/%sphase\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+            f.write('refAnt = %s\n\n\n' % refant)
+
+            if not onepol and not fulljones:
+                f.write('[plotphasediff]\n')
+                f.write('operation = PLOT\n')
+                f.write('soltab = [sol000/phase000]\n')
+                if onechannel:
+                    f.write('axesInPlot = [time]\n')
+                if onetime:
+                    f.write('axesInPlot = [freq]\n')  
+                if onechannel or onetime: 
+                    f.write('markerSize=%s\n' % int(markersize)) 
+                if not onetime and not onechannel:
+                    f.write('axesInPlot = [time,freq]\n')
+                f.write('axisInTable = ant\n')
+                f.write('minmax = [-3.14,3.14]\n')
+                f.write('figSize=[120,20]\n')
+                f.write('prefix = solution_plots_%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+                f.write('refAnt = %s\n' % refant)
+                f.write('axisDiff=pol\n\n\n')
 
     if flagging:
         f.write('[flagamp]\n')
@@ -12979,30 +12989,10 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             if not onetime and not onechannel:
                 f.write('order  = [5,5]\n\n\n')
 
-        f.write('[plotampafter]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/amplitude000]\n')
-        if onechannel:
-            f.write('axesInPlot = [time]\n')
-            if not onepol:
-                f.write('axisInCol = pol\n')
-        if onetime:
-            f.write('axesInPlot = [freq]\n')
-            if not onepol:
-                f.write('axisInCol = pol\n')
-        if onechannel or onetime: 
-            f.write('markerSize=%s\n' % int(markersize)) 
-        if not onetime and not onechannel:
-            f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        # f.write('minmax = [0,2.5]\n')
-        f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
-        f.write('prefix = solution_plots_%s/%sampfl\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-
-        if includesphase and flagphases:
-            f.write('[plotphase_after]\n')
+        if not args['skip_solution_plotting']:
+            f.write('[plotampafter]\n')
             f.write('operation = PLOT\n')
-            f.write('soltab = [sol000/phase000]\n')
+            f.write('soltab = [sol000/amplitude000]\n')
             if onechannel:
                 f.write('axesInPlot = [time]\n')
                 if not onepol:
@@ -13016,9 +13006,30 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
             if not onetime and not onechannel:
                 f.write('axesInPlot = [time,freq]\n')
             f.write('axisInTable = ant\n')
-            f.write('minmax = [-3.14,3.14]\n')
-            f.write('prefix = solution_plots_%s/%sphasefl\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-            f.write('refAnt = %s\n' % refant)
+            # f.write('minmax = [0,2.5]\n')
+            f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
+            f.write('prefix = solution_plots_%s/%sampfl\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+
+            if includesphase and flagphases:
+                f.write('[plotphase_after]\n')
+                f.write('operation = PLOT\n')
+                f.write('soltab = [sol000/phase000]\n')
+                if onechannel:
+                    f.write('axesInPlot = [time]\n')
+                    if not onepol:
+                        f.write('axisInCol = pol\n')
+                if onetime:
+                    f.write('axesInPlot = [freq]\n')
+                    if not onepol:
+                        f.write('axisInCol = pol\n')
+                if onechannel or onetime: 
+                    f.write('markerSize=%s\n' % int(markersize)) 
+                if not onetime and not onechannel:
+                    f.write('axesInPlot = [time,freq]\n')
+                f.write('axisInTable = ant\n')
+                f.write('minmax = [-3.14,3.14]\n')
+                f.write('prefix = solution_plots_%s/%sphasefl\n' % (os.path.basename(ms), os.path.basename(outplotname)))
+                f.write('refAnt = %s\n' % refant)
 
     f.close()
     return parset
@@ -13106,13 +13117,14 @@ def create_losoto_bandpassparset(intype, ms, h5):
         f.write('replace = False\n')
         f.write('log = True\n')
 
-        f.write('\n[plotamp]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/amplitude000]\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [0,%s]\n' % str(medamp*2.5))
-        f.write('prefix = solution_plots_%s/bandpass_amps\n\n\n' % os.path.basename(ms))
+        if not args['skip_solution_plotting']:
+            f.write('\n[plotamp]\n')
+            f.write('operation = PLOT\n')
+            f.write('soltab = [sol000/amplitude000]\n')
+            f.write('axesInPlot = [time,freq]\n')
+            f.write('axisInTable = ant\n')
+            f.write('minmax = [0,%s]\n' % str(medamp*2.5))
+            f.write('prefix = solution_plots_%s/bandpass_amps\n\n\n' % os.path.basename(ms))
 
     if intype == 'phase' or intype == 'a&p':
         f.write('[bandpassphase]\n')
@@ -13123,13 +13135,14 @@ def create_losoto_bandpassparset(intype, ms, h5):
         f.write('replace = False\n')
         f.write('log = False\n')
 
-        f.write('\n[plotphase]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = solution_plots_%s/bandpass_phases\n\n\n' % os.path.basename(ms))
+        if not args['skip_solution_plotting']:
+            f.write('\n[plotphase]\n')
+            f.write('operation = PLOT\n')
+            f.write('soltab = [sol000/phase000]\n')
+            f.write('axesInPlot = [time,freq]\n')
+            f.write('axisInTable = ant\n')
+            f.write('minmax = [-3.14,3.14]\n')
+            f.write('prefix = solution_plots_%s/bandpass_phases\n\n\n' % os.path.basename(ms))
 
     f.close()
     return parset    
@@ -13170,44 +13183,45 @@ def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=Tr
         f.write('size = [%s,%s]\n' % (boxsize, boxsize))
     f.write('mode = runningmedian\n\n\n')
 
-    f.write('[plotamp_after]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/amplitude000]\n')
-    if onechannel:
-        f.write('axesInPlot = [time]\n')
-    else:
-        f.write('axesInPlot = [time,freq]\n')
-    f.write('axisInTable = ant\n')
-    if longbaseline:
-        f.write('minmax = [0,2.5]\n')
-    else:
-        f.write('minmax = [0,2.5]\n')
-    f.write('prefix = solution_plots_%s/amps_smoothed\n\n\n' % os.path.basename(ms))
-
-    if includesphase:
-        f.write('[plotphase_after]\n')
+    if not args['skip_solution_plotting']:
+        f.write('[plotamp_after]\n')
         f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
+        f.write('soltab = [sol000/amplitude000]\n')
         if onechannel:
             f.write('axesInPlot = [time]\n')
         else:
             f.write('axesInPlot = [time,freq]\n')
         f.write('axisInTable = ant\n')
-        f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = solution_plots_%s/phases_smoothed\n\n\n' % os.path.basename(ms))
-        f.write('refAnt = %s\n' % refant)
-
-        f.write('[plotphase_after1rad]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
-        if onechannel:
-            f.write('axesInPlot = [time]\n')
+        if longbaseline:
+            f.write('minmax = [0,2.5]\n')
         else:
-            f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-1,1]\n')
-        f.write('prefix = solution_plots_%s/phases_smoothed1rad\n' % os.path.basename(ms))
-        f.write('refAnt = %s\n' % refant)
+            f.write('minmax = [0,2.5]\n')
+        f.write('prefix = solution_plots_%s/amps_smoothed\n\n\n' % os.path.basename(ms))
+
+        if includesphase:
+            f.write('[plotphase_after]\n')
+            f.write('operation = PLOT\n')
+            f.write('soltab = [sol000/phase000]\n')
+            if onechannel:
+                f.write('axesInPlot = [time]\n')
+            else:
+                f.write('axesInPlot = [time,freq]\n')
+            f.write('axisInTable = ant\n')
+            f.write('minmax = [-3.14,3.14]\n')
+            f.write('prefix = solution_plots_%s/phases_smoothed\n\n\n' % os.path.basename(ms))
+            f.write('refAnt = %s\n' % refant)
+
+            f.write('[plotphase_after1rad]\n')
+            f.write('operation = PLOT\n')
+            f.write('soltab = [sol000/phase000]\n')
+            if onechannel:
+                f.write('axesInPlot = [time]\n')
+            else:
+                f.write('axesInPlot = [time,freq]\n')
+            f.write('axisInTable = ant\n')
+            f.write('minmax = [-1,1]\n')
+            f.write('prefix = solution_plots_%s/phases_smoothed1rad\n' % os.path.basename(ms))
+            f.write('refAnt = %s\n' % refant)
 
     f.close()
     return parset
@@ -15269,7 +15283,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             logger.info(cmdlosoto)
             run(cmdlosoto)
 
-    if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay']:
+    if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay'] and not args['skip_solution_plotting']:
         tecandphaseplotter(parmdb, ms, telescope=args['telescope'],
                            outplotname=outplotname)  # use own plotter because losoto cannot add tec and phase
 
@@ -17387,16 +17401,17 @@ def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
     parset = 'losoto_parsets/losotoFR_plotresult.parset'
     Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
-
-    f.write('[plotFRresult]\n')
-    f.write('pol = [XX,YY]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/phase000]\n')
-    f.write('axesInPlot = [time,freq]\n')
-    f.write('axisInTable = ant\n')
-    f.write('minmax = [-3.14,3.14]\n')
-    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_fitFR'))
-    f.write('refAnt = %s\n\n\n' % refant)
+    
+    if not args['skip_solution_plotting']:
+        f.write('[plotFRresult]\n')
+        f.write('pol = [XX,YY]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = [sol000/phase000]\n')
+        f.write('axesInPlot = [time,freq]\n')
+        f.write('axisInTable = ant\n')
+        f.write('minmax = [-3.14,3.14]\n')
+        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_fitFR'))
+        f.write('refAnt = %s\n\n\n' % refant)
     f.close()
     return parset
 
@@ -17422,15 +17437,16 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('pol = YY\n')
     f.write('dataVal = 0.0\n\n\n')
 
-    f.write('[plotphase]\n')
-    f.write('pol = [XX,YY]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = [sol000/phase000]\n')
-    f.write('axesInPlot = [time,freq]\n')
-    f.write('axisInTable = ant\n')
-    f.write('minmax = [-3.14,3.14]\n')
-    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_beforeFR'))
-    f.write('refAnt = %s\n\n\n' % refant)
+    if not args['skip_solution_plotting']:
+        f.write('[plotphase]\n')
+        f.write('pol = [XX,YY]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = [sol000/phase000]\n')
+        f.write('axesInPlot = [time,freq]\n')
+        f.write('axisInTable = ant\n')
+        f.write('minmax = [-3.14,3.14]\n')
+        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_beforeFR'))
+        f.write('refAnt = %s\n\n\n' % refant)
 
     f.write('[faraday]\n')
     f.write('operation = FARADAY\n')
@@ -17440,12 +17456,13 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     f.write('freq.minmaxstep = [%s,1e9]\n' % str(freqminfitFR))
     f.write('soltabOut = rotationmeasure000\n\n\n')
 
-    f.write('[plotFR]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = sol000/rotationmeasure000\n')
-    f.write('axesInPlot = [time]\n')
-    f.write('axisInTable = ant\n')
-    f.write('prefix = solution_plots_%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FR'))
+    if not args['skip_solution_plotting']:
+        f.write('[plotFR]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = sol000/rotationmeasure000\n')
+        f.write('axesInPlot = [time]\n')
+        f.write('axisInTable = ant\n')
+        f.write('prefix = solution_plots_%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FR'))
 
     if dejump:
         f.write('[frdejump]\n')
@@ -17454,12 +17471,13 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
         f.write('soltabOut = rotationmeasure001\n')
         f.write('clipping = [%s,1e9]\n\n\n' % str(freqminfitFR))
 
-        f.write('[plotFR_dejump]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = sol000/rotationmeasure001\n')
-        f.write('axesInPlot = [time]\n')
-        f.write('axisInTable = ant\n')
-        f.write('prefix = solution_plots_%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FRdejumped'))
+        if not args['skip_solution_plotting']:
+            f.write('[plotFR_dejump]\n')
+            f.write('operation = PLOT\n')
+            f.write('soltab = sol000/rotationmeasure001\n')
+            f.write('axesInPlot = [time]\n')
+            f.write('axisInTable = ant\n')
+            f.write('prefix = solution_plots_%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FRdejumped'))
 
     f.write('[residuals]\n')
     f.write('operation = RESIDUALS\n')
@@ -17469,16 +17487,17 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
     else:
         f.write('soltabsToSub = rotationmeasure000\n\n\n')
 
-    f.write('[plotRES]\n')
-    f.write('operation = PLOT\n')
-    f.write('soltab = sol000/phase000\n')
-    f.write('axesInPlot = [time,freq]\n')
-    f.write('AxisInTable = ant\n')
-    f.write('AxisDiff = pol\n')
-    f.write('plotFlag = True\n')
-    f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'residualphases_afterFR'))
-    f.write('refAnt = %s\n' % refant)
-    f.write('minmax = [-3.14,3.14]\n\n\n')
+    if not args['skip_solution_plotting']:
+        f.write('[plotRES]\n')
+        f.write('operation = PLOT\n')
+        f.write('soltab = sol000/phase000\n')
+        f.write('axesInPlot = [time,freq]\n')
+        f.write('AxisInTable = ant\n')
+        f.write('AxisDiff = pol\n')
+        f.write('plotFlag = True\n')
+        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'residualphases_afterFR'))
+        f.write('refAnt = %s\n' % refant)
+        f.write('minmax = [-3.14,3.14]\n\n\n')
 
     f.close()
     return parset
@@ -19326,7 +19345,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '19.6.3'
+    facetselfcal_version = '19.7.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -19479,7 +19498,7 @@ def main():
         clip_DATA(mslist, clipvalue=args['data_clipvalue'])
 
     # create Ateam plots
-    if not args['phasediff_only']:
+    if not args['phasediff_only'] and not args['skip_Ateam_plotting']:
         create_Ateam_seperation_plots(mslist, start=args['start'])
 
     # flag shadowed antennas for MeerKAT, VLA, EVLA, ATCA, GMRT, WSRT, ASKAP
