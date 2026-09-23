@@ -701,6 +701,12 @@ def option_parser():
     parser.add_argument('--skipbackup',
                         help='Leave the original MS intact and work always work on a DP3 copied dataset.',
                         action='store_true')
+    parser.add_argument('--skip-solution-plotting', action='store_true',
+                 help='Skip creating solution plots of the solutions with losoto')
+    parser.add_argument('--skip-Ateam-plotting', action='store_true', 
+                    help='Skip creating A-team distance plots')
+    parser.add_argument('--skip-time-coverage-plotting', action='store_true',
+                    help='Skip creating time coverage plots')
     parser.add_argument('--keepmodelcolumns',
                         help='Leave the MODEL_DATA-type columns in the MS. By default these are removed to save disk space.',
                         action='store_true')
