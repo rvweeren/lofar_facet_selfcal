@@ -1,6 +1,6 @@
-#  facet self-calibration
+# facet self-calibration
 
-`lofar_facet_selfcal`, or `facetselfcal` in short is a command-line toolkit for direction-independent and direction-dependent (self-)calibration of radio-interferometric data. It supports calibration refinement of extracted datasets, full-field self-calibration, and extraction of regions of interest.
+`lofar_facet_selfcal`, or `facetselfcal` for short, is a command-line toolkit for direction-independent and direction-dependent (self-)calibration of radio-interferometric data. It supports calibration refinement of extracted datasets, full-field self-calibration, and extraction of regions of interest.
 
 The workflows are used with data from LOFAR, MeerKAT, ASKAP, uGMRT, (E)VLA, and MWA observations. Processing details can vary by instrument and observing mode, so the instrument-specific notes below are a useful starting point.
 
@@ -33,7 +33,7 @@ Alternatively, install it without cloning the repository:
 python -m pip install git+https://github.com/rvweeren/lofar_facet_selfcal.git
 ```
 
-The software also requires the surrounding radio-astronomy software stack used for LOFAR processing. A container with the standard LOFAR software is available from [FLoCs](https://tikk3r.github.io/flocs/). The container includes `facetselfcal`, so a local Python installation can be skipped when using that environment. This is highly recommended as it avoids the complicated installation of a large number of software packages.
+The software also requires the surrounding radio astronomy software stack used for LOFAR processing. A container with the standard LOFAR software is available from [FLoCs](https://tikk3r.github.io/flocs/). The container includes `facetselfcal`, so a local Python installation can be skipped when using that environment. This is highly recommended because it avoids the complicated installation of a large number of software packages.
 
 Check the installation with:
 
@@ -99,7 +99,7 @@ Installing the package provides these commands:
 | `facetselfcal` | Run the main self-calibration workflow |
 | `h5_merger` | Merge calibration HDF5 files |
 | `ds9facetgenerator` | Generate facet regions for DS9 |
-| `sub_sources_outside_region` | Extract a region from the LoTSS survey data|
+| `sub_sources_outside_region` | Extract a region from the LoTSS survey data |
 
 
 ## Citation
