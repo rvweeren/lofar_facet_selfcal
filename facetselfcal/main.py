@@ -19158,6 +19158,7 @@ def set_modelstoragemanager(telescope):
     elif args['modelstoragemanager'] == 'stokes_i':
         if is_stokesi_modeltype_allowed(args, telescope):
             print('Using stokes_i model compression')
+            modelstoragemanager = 'stokes_i'
         elif 'sisco' in wsclean_help:
             print('Cannot use stokes_i model compression, using sisco instead')
             modelstoragemanager = 'sisco'
@@ -19167,6 +19168,7 @@ def set_modelstoragemanager(telescope):
     elif args['modelstoragemanager'] == 'sisco':
         if 'sisco' in wsclean_help:
             print('Using sisco model compression')
+            modelstoragemanager = 'sisco'
         else:
             print('No sisco model compression possible, disabling model storage manager')
             modelstoragemanager = None  # we are here because wsclean does not support sisco compression
