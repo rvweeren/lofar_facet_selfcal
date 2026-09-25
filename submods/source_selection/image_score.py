@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument('images', nargs='+', help='Images', default=None)
     parser.add_argument('--cache', help='Cache folder with model', default='.cache/cortexchange')
     parser.add_argument('--device', help='CPU or GPU', default='cpu')
-    parser.add_argument('--model', help='Model name', default='surf/dino_big_lora_tune_posclsreg_may_O2_aug_099')
+    parser.add_argument('--model', help='Model name', default='surf/dinov2_vitb14_lora_O2_aug_0984')
 
     return parser.parse_args()
 
