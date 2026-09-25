@@ -1,3 +1,5 @@
+"""Command-line argument definitions and value conversion helpers."""
+
 import ast
 import argparse
 import numpy as np
@@ -5,6 +7,14 @@ import re
 
 
 def option_parser():
+    """
+    Create the command-line parser and parse the supplied arguments.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(description='Self-Calibrate a facet from a LOFAR observation')
 
     imagingparser = parser.add_argument_group("-------------------------Imaging Settings-------------------------")
@@ -32,9 +42,6 @@ def option_parser():
                                help="WSClean automask thresholds for each selfcal cycle. This is by default [2.5, 2.5, 2.5, 2.5, 2.5, ...]. If maskthreshold is lower than this value for a selfcal cycle, the maskthreshold value is used instead. A value of <0.5 turns off automasking.",
                                default=[2.5, 2.5, 2.5, 2.5, 2.5],
                                type=arg_as_list)
-    #imagingparser.add_argument('--mask-extended',
-    #                           help='Add an extra masking step for very extended emission. For LOFAR-NL and MeerKAT only. Image size needs to be at least 1600x1600 pixels',
-    #                           action='store_true')
     add_bool_arg(imagingparser, 'mask-extended', help='Add an extra masking step for very extended emission. For LOFAR-NL and MeerKAT only. Image size needs to be at least 1600x1600 pixels', default=None)                           
     imagingparser.add_argument('--mask-extended-start',
                                help='Start --mask-extended emission at this selfcal cycle. Default 2.',
@@ -65,7 +72,7 @@ def option_parser():
                                help='A DS9 region file (with WCS coordinates) that will exclude this region end up in the clean mask (i.e., to ensure that artefacts are not cleaned). Only works if the cleaning is employing a fitsmask, by default this is the case as we use breizorro to make masks automatically.',
                                type=str)                           
     imagingparser.add_argument('--robust',
-                               help='Briggs robust parameter for imagaging. The default is -0.5. Also allowed are the strings uniform or naturual which will override Briggs weighting.',
+                               help='Briggs robust parameter for imaging. The default is -0.5. Also allowed are the strings uniform or natural which will override Briggs weighting.',
                                default=None,
                                type=str_or_float)
     imagingparser.add_argument('--multiscale-start',
@@ -81,10 +88,10 @@ def option_parser():
                                default=None,
                                type=floatlist_or_float)
     imagingparser.add_argument('--pixelscale', '--pixelsize',
-                               help='Pixels size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations \
+                               help='Pixel size in arcsec. Typically, 3.0 for LBA and 1.5 for HBA for the Dutch stations \
                                (these are also the default values). For LOFAR ILT the defaults are 0.04 and 0.08 for \
-                               HBA and LBA, repspectively. For MeerKAT the defaults are 1.8, 1.0, and 0.5 for UHF, L, \
-                               and S-band, repspectively. For ASKAP the defaults are 1.5 and 1.0 for the lower and upper \
+                               HBA and LBA, respectively. For MeerKAT the defaults are 1.8, 1.0, and 0.5 for UHF, L, \
+                               and S-band, respectively. For ASKAP the defaults are 1.5 and 1.0 for the lower and upper \
                                parts of the band, respectively. For the GMRT the defaults are 3, 1.25, 0.75, 0.35, for \
                                band2, 3, 4, and 5, respectively.',
                                type=float)
@@ -102,9 +109,6 @@ def option_parser():
                                help='Deconvolution --nmiter setting for WSCLean, see WSClean documentation. The default value is 12',
                                default=12,
                                type=int)    
-    #imagingparser.add_argument('--multiscale',
-    #                           help='Use multiscale deconvolution (see WSClean documentation).',
-    #                           action='store_true')
     add_bool_arg(imagingparser, 'multiscale', help='Use multiscale deconvolution (see WSClean documentation; default=None).', default=None)                           
     imagingparser.add_argument('--multiscalescalebias',
                                help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.75.',
@@ -141,7 +145,7 @@ def option_parser():
                                help='Use the -gap-channel-division option in wsclean imaging and predicts (default is not to use it)',
                                action='store_true')
     imagingparser.add_argument('--taperinnertukey',
-                               help="Value for taper-inner-tukey in WSClean (see WSClean documentation), useful to supress negative bowls when using --uvminim. Typically values between 1.5 and 4.0 give good results. The default is None.",
+                               help="Value for taper-inner-tukey in WSClean (see WSClean documentation), useful to suppress negative bowls when using --uvminim. Typically values between 1.5 and 4.0 give good results. The default is None.",
                                default=None,
                                type=float)
     imagingparser.add_argument('--makeimage-ILTlowres-HBA',
@@ -273,12 +277,12 @@ def option_parser():
     calibrationparser.add_argument("--smoothnessrefdistance-list",
                                    type=arg_as_list,
                                    default=[0., 0., 0.],
-                                   help="If smoothnessrefdistance is not equal to zero then this parameter determines the freqeuency smoothness reference distance in units of km, with the smoothness scaling with distance. See DP3 documentation. The default is a list of zeros")
+                                   help="If smoothnessrefdistance is not equal to zero then this parameter determines the frequency smoothness reference distance in units of km, with the smoothness scaling with distance. See DP3 documentation. The default is a list of zeros")
     
     calibrationparser.add_argument("--antenna-averaging-factors-list",
                                    type=arg_as_list,
                                    default=[None, None, None],
-                                   help="Averaging factors per antenna to allow antenna-dependent solution intervals. One list entry per soltype. A list entry can contain mulitple antenna groups. Example is ['core:6,remote:3', None,'closeinternational:10']. The default is [None,None,None]. Groups are superterp, corebutsuperterp, firstremotes,midremotes,distantremotes,closeinternational,distantinternational, superstation")   
+                                   help="Averaging factors per antenna to allow antenna-dependent solution intervals. One list entry per soltype. A list entry can contain multiple antenna groups. Example is ['core:6,remote:3', None,'closeinternational:10']. The default is [None,None,None]. Groups are superterp, corebutsuperterp, firstremotes,midremotes,distantremotes,closeinternational,distantinternational, superstation")   
     calibrationparser.add_argument("--antenna-smoothness-factors-list",
                                    type=arg_as_list,
                                    default=[None, None, None],
@@ -290,11 +294,11 @@ def option_parser():
     calibrationparser.add_argument("--resetsols-list",
                                    type=arg_as_list,
                                    default=[None, None, None],
-                                   help="Values of these stations will be rest to 0.0 (phases), or 1.0 (amplitudes), default None, possible settings are the same as for antennaconstraint-list (alldutch, core, etc)). The default is [None,None,None].")
+                                   help="Values of these stations will be reset to 0.0 (phases), or 1.0 (amplitudes), default None, possible settings are the same as for antennaconstraint-list (alldutch, core, etc.). The default is [None,None,None].")
     calibrationparser.add_argument("--resetdir-list",
                                    type=arg_as_list,
                                    default=[None, None, None],
-                                   help="Values of these directions will be rest to 0.0 (phases), or 1.0 (amplitudes) for DDE solves. The default is [None,None,None]. It requires --facetdirections being set a user defined direction list so the directions are known. An example would be '[None,[1,4],None]', meaning that directions 1 and 4 are being reset, counting starts at zero in the second solve in the pertubation list.")
+                                   help="Values of these directions will be reset to 0.0 (phases), or 1.0 (amplitudes) for DDE solves. The default is [None,None,None]. It requires --facetdirections to be set to a user-defined direction list so the directions are known. An example would be '[None,[1,4],None]', meaning that directions 1 and 4 are being reset; counting starts at zero in the second solve in the perturbation list.")
     calibrationparser.add_argument("--soltypecycles-list",
                                    type=arg_as_list,
                                    default=[0, 999, 3],
@@ -317,7 +321,7 @@ def option_parser():
     calibrationparser.add_argument("--preapplybandpassH5-list",
                                    type=arg_as_list,
                                    default=[None],
-                                   help="List of possible h5parm files to preapply. For each MS, the closest h5parm in time in the list will be the one that preapplied. Times do not have to overlap between the h5parm and the MS. It is assumed (and not checked) that there is 'perfect' frequency ovelap and the solutions are constant along the time-axis of the h5parm. Note that DATA will be overwritten via a correct step, and these h5parms are not merged in the merged output solutions files. A list of length 1 with a glob-like string containing * or ? is also allowed, e.g. ['mybandpass*.h5']")
+                                   help="List of possible h5parm files to preapply. For each MS, the closest h5parm in time in the list will be the one that is preapplied. Times do not have to overlap between the h5parm and the MS. It is assumed (and not checked) that there is 'perfect' frequency overlap and the solutions are constant along the time axis of the h5parm. Note that DATA will be overwritten via a correct step, and these h5parms are not merged in the merged output solution files. A list of length 1 with a glob-like string containing * or ? is also allowed, e.g. ['mybandpass*.h5']")
     calibrationparser.add_argument('--preapplybandpassH5-updateweights',
                                    help='This determines whether WEIGHT_SPECTRUM will be updated based on the amplitude values when --preapplybandpassH5-list is set. By default this is True.',type=ast.literal_eval,
                                    default=True)
@@ -415,7 +419,7 @@ def option_parser():
                                    help='For WSCLEAN imaging and predicts disable the primary beam corrections (so run with "apparent" images only)',
                                    action='store_true')
     calibrationparser.add_argument('--reduce-h5size',
-                                   help='Save h5 file at the highest time and freqeuency grid based on the solints, instead of the time and freqeuency resolution of the MS (the default). This option is ignored for tec/tecandphase solves. Enabling this option can potentially reduce the accuracy of the solutions applied. For example if solint 3min and 4min are combined, the 4min solutions cannot be sampled perfectly onto a 3min soltion grid.',
+                                   help='Save h5 file at the highest time and frequency grid based on the solints, instead of the time and frequency resolution of the MS (the default). This option is ignored for tec/tecandphase solves. Enabling this option can potentially reduce the accuracy of the solutions applied. For example if solint 3min and 4min are combined, the 4min solutions cannot be sampled perfectly onto a 3min solution grid.',
                                    action='store_true')
     
     blsmoothparser = parser.add_argument_group("-------------------------BLSmooth Settings-------------------------")
@@ -458,7 +462,7 @@ def option_parser():
                                 help='Restore flagging column after each selfcal cycle, only relevant if --doflagging=True.',
                                 action='store_true')
     flaggingparser.add_argument('--remove-flagged-from-startend',
-                                help='Remove flagged time slots at the start and end of an observations. Do not use if you want to combine DD solutions later for widefield imaging.',
+                                help='Remove flagged time slots at the start and end of an observation. Do not use if you want to combine DD solutions later for widefield imaging.',
                                 action='store_true')
     flaggingparser.add_argument('--flagslowamprms',
                                 help='RMS outlier value to flag on slow amplitudes. The default is 7.0.',
@@ -494,41 +498,19 @@ def option_parser():
                                 help='Run AOflagger on the RESIDUAL_DATA column.')
     add_bool_arg(flaggingparser, 'aoflagger-afterbandpassapply', default=None, second_name='useaoflagger-afterbandpassapply',
                                 help='Run AOflagger on DATA column after preapply bandpass solution.')
-
-    #flaggingparser.add_argument('--useaoflagger',
-    #                            help='Run AOflagger on input data.',
-    #                            action='store_true')
-
     flaggingparser.add_argument('--aoflagger-strategy', 
                                 help='Use this strategy for AOflagger on DATA, default=None (means flag without a custom strategy). For custom-made strategies see: https://github.com/rvweeren/lofar_facet_selfcal/tree/main/facetselfcal/flagging_strategies',
                                 default=None, type=str)
-    #flaggingparser.add_argument('--useaoflaggerbeforeavg',
-    #                            help='Flag with AOflagger before (True) or after averaging (False). The default is True.',
-    #                            type=ast.literal_eval,
-    #                            default=True)
-    #flaggingparser.add_argument('--useaoflagger-correcteddata',
-    #                            help='Run AOflagger on the CORRECTED_DATA column after calibration.',
-    #                            action='store_true')
     flaggingparser.add_argument('--aoflagger-strategy-correcteddata',
                                 help='Use this strategy for AOflagger on CORRECTED_DATA, default=None (means flag without a custom strategy). For custom-made strategies see: https://github.com/rvweeren/lofar_facet_selfcal/tree/main/facetselfcal/flagging_strategies',type=str)
     flaggingparser.add_argument("--aoflagger-correcteddata-selfcalcycle-list",
                                 type=arg_as_list, default=[1], help="Select list of  selfcalcycle where --aoflagger-correcteddata is used. Only values larger than 1 are allowed in the list. The default is [1].")
-    #flaggingparser.add_argument('--useaoflagger-residualdata',
-    #                            help='Run AOflagger on the RESIDUAL_DATA column.',
-    #                            action='store_true')
     flaggingparser.add_argument('--aoflagger-strategy-residualdata',
                                 help='Use this strategy for AOflagger on RESIDUAL_DATA, default=None (means flag without a custom strategy). For custom-made strategies see: https://github.com/rvweeren/lofar_facet_selfcal/tree/main/facetselfcal/flagging_strategies',type=str)
     flaggingparser.add_argument("--aoflagger-residualdata-selfcalcycle-list",
                                 type=arg_as_list, default=[2], help="Select list of  selfcalcycle where --aoflagger-residualdata is used. Only values larger than 1 are allowed in the list. The default is [2].")
-    #flaggingparser.add_argument('--useaoflagger-afterbandpassapply',
-    #                            help='Run AOflagger DATA column after preapply bandpass solution.',
-    #                            action='store_true')
     flaggingparser.add_argument('--aoflagger-strategy-afterbandpassapply',
                                 help='Use this strategy for AOflagger after applying the bandpass solutions, default=None (means flag without a custom strategy). For custom-made strategies see: https://github.com/rvweeren/lofar_facet_selfcal/tree/main/facetselfcal/flagging_strategies',type=str)
-    #flaggingparser.add_argument("--auto-flag-antennas", 
-    #                            help='Automatically flag antennas that show deviating amplitude solutions (for MeerKAT only).',
-    #                            action='store_true')                        
-
     add_bool_arg(flaggingparser, 'auto-flag-antennas', default=None,
                                 help='Automatically flag antennas that show deviating amplitude solutions (for MeerKAT only; default=None).') 
     add_bool_arg(flaggingparser, 'flagtimesmeared', default=False,
@@ -536,18 +518,7 @@ def option_parser():
     add_bool_arg(flaggingparser, 'removeinternational', default=False,
                                 help='Remove the international stations if present (default=False).')
     add_bool_arg(flaggingparser, 'removemostlyflaggedstations', default=None,
-                                help='Remove the staions that have a flaging percentage above --removemostlyflaggedstations-percentage (default=None).')
-
-    #flaggingparser.add_argument('--flagtimesmeared',
-    #                             help='Flag data that is severely time smeared. Warning: expert only',
-    #                            action='store_true')
-
-    #flaggingparser.add_argument('--removeinternational',
-    #                            help='Remove the international stations if present',
-    #                            action='store_true')
-    #flaggingparser.add_argument('--removemostlyflaggedstations',
-    #                            help='Remove the staions that have a flaging percentage above --removemostlyflaggedstations-percentage',
-    #                            action='store_true')
+                                   help='Remove the stations that have a flagging percentage above --removemostlyflaggedstations-percentage (default=None).')
     flaggingparser.add_argument('--removemostlyflaggedstations-percentage',
                                 help='If --removemostlyflaggedstations is set this determines the percentage above which stations are removed, default=85', type=float, default=85)
 
@@ -572,10 +543,10 @@ def option_parser():
                                   help='3C48, 3C147, 3C138, 3C286 skymodels are computed via CASA setjy. For 3C286 polarization information is also included using the model from B. Hugo & R. Perley 2024. Skymodel is automatically selected based on the pointing center of the MS',
                                   action='store_true')
     startmodelparser.add_argument('--keepusingstartingskymodel',
-                                  help='Keep use initial skymlodel for each selfcalcycle. Can be useful for bandpass calibration where some extra flagging rounds on CORRECTED_DATA are done. Relevant for --wscleanskymodel, --skymodelsetjy, --skymodel, --skymodelpointsource, --startfromtgss, --startfromgsm, --startfromimage, --startfromvlass', action='store_true')
+                                  help='Keep using the initial skymodel for each selfcalcycle. Can be useful for bandpass calibration where some extra flagging rounds on CORRECTED_DATA are done. Relevant for --wscleanskymodel, --skymodelsetjy, --skymodel, --skymodelpointsource, --startfromtgss, --startfromgsm, --startfromimage, --startfromvlass', action='store_true')
     
     startmodelparser.add_argument('--fix-model-frequencies',
-                                  help='Force predict and imaging wsclean commands to divide on freqencies set by wsclean skymodel',
+                                  help='Force predict and imaging WSClean commands to divide on frequencies set by the WSClean skymodel',
                                   action='store_true')
     startmodelparser.add_argument('--predictskywithbeam',
                                   help='Predict the skymodel with the beam array factor.',
@@ -602,7 +573,7 @@ def option_parser():
                         help='DS9 box file. You need to provide a boxfile to use --startfromtgss. The default is None.',
                         type=str)
     parser.add_argument('--beamcor',
-                        help='Correct the visibilities for beam in the phase center, options: yes, no, or auto. This is a LOFAR specific option. (default is auto, auto means the LOFASR beam is taken out in the curent phase center, tolerance for that is 10 arcsec)',
+                        help='Correct the visibilities for the beam at the phase center; options: yes, no, or auto. This is a LOFAR-specific option. (Default is auto; auto means the LOFAR beam is taken out at the current phase center, with a tolerance of 10 arcsec.)',
                         type=str,
                         default='auto')
     parser.add_argument('--losotobeamcor-beamlib',
@@ -619,7 +590,7 @@ def option_parser():
                         help='Keep solutions such that they can be used for widefield imaging/screens.',
                         action='store_true')
     parser.add_argument('--remove-outside-center',
-                        help='Subtract sources that are outside the central parts of the FoV, square box is used in the phase center with sizes of 3.0, 2.0, 1.5 degr for MeerKAT UHF, L, and S-band, repspectively. In case you want something else set --remove-outside-center-box. In case of a --DDE solve the solution closest to the box center is applied.',
+                        help='Subtract sources that are outside the central parts of the FoV. A square box is used at the phase center with sizes of 3.0, 2.0, and 1.5 deg for MeerKAT UHF, L, and S-band, respectively. To use a different size, set --remove-outside-center-box. In case of a --DDE solve, the solution closest to the box center is applied.',
                         action='store_true')
     parser.add_argument('--remove-outside-center-box', '--remove-outside-center-region',
                         help='User defined DS9 region file to subtract sources that are outside \
@@ -656,7 +627,7 @@ def option_parser():
                         type=ast.literal_eval,
                         default=True)
     parser.add_argument('--split-fieldname',
-                        help='The FIELD name to split on. Default is so not split at all, but if you have multiple fields in your MS and want to split on those, you can set this to the name of the FIELD column entry that you want to split on. This is useful for example for MeerKAT L-band calibrator observations where there are often multiple fields (e.g. target, primary calibrator, and phase calibrator).',
+                        help='The FIELD name to split on. By default, the data are not split, but if you have multiple fields in your MS and want to split on those, you can set this to the name of the FIELD column entry that you want to split on. This is useful, for example, for MeerKAT L-band calibrator observations where there are often multiple fields (e.g. target, primary calibrator, and phase calibrator).',
                         type=str,
                         default=None)
     parser.add_argument('--dysco',
@@ -699,7 +670,7 @@ def option_parser():
                         help='Do not archive the data.',
                         action='store_true')
     parser.add_argument('--skipbackup',
-                        help='Leave the original MS intact and work always work on a DP3 copied dataset.',
+                        help='Leave the original MS intact and always work on a copy made by DP3.',
                         action='store_true')
     parser.add_argument('--skip-solution-plotting', action='store_true',
                  help='Skip creating solution plots of the solutions with losoto')
@@ -714,18 +685,11 @@ def option_parser():
                         help='Create a RESIDUAL_DATA column in the MS at the last selfcal cycle.',
                         action='store_true')
     parser.add_argument('--compute-weightspectrum',
-                        help='Set the WEIGHT_SPECTRUM column in the MS based on the measured variances in RESIDUAL_DATA. Mainly useful for uGMRT observations. This is done at the end of each of the selfcal cycle. Note: it is important the the visibility units are in Jy for this to work properly.',
+                        help='Set the WEIGHT_SPECTRUM column in the MS based on the measured variances in RESIDUAL_DATA. Mainly useful for uGMRT observations. This is done at the end of each selfcal cycle. Note: it is important that the visibility units are in Jy for this to work properly.',
                         action='store_true')                        
     parser.add_argument('--phasediff_only',
                         help='For finding only the phase difference, we want to stop after calibrating and before imaging',
                         action='store_true')
-    #parser.add_argument('--helperscriptspath',
-    #                    help='Path to file location pulled from https://github.com/rvweeren/lofar_facet_selfcal.',
-    #                   default='/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/', type=str)
-    #parser.add_argument('--helperscriptspathh5merge',
-    #                    help='Path to file location pulled from https://github.com/jurjen93/lofar_helpers.',
-    #                    default=None,
-    #                    type=str)
     parser.add_argument('--configpath',
                         help='Path to user config file which will overwrite command line arguments',
                         default='facetselfcal_config.txt',
@@ -755,6 +719,22 @@ def option_parser():
 
 
 def add_bool_arg(parser, name, help, default=None, second_name=None):
+    """
+    Add mutually exclusive positive and negative boolean options to a parser.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        Parser to which the options are added.
+    name : str
+        Primary option name without leading dashes.
+    help : str
+        Help text for the positive option.
+    default : bool, optional
+        Default value for the parsed option.
+    second_name : str, optional
+        Alias without leading dashes.
+    """
     group = parser.add_mutually_exclusive_group(required=False)
     if second_name is not None:
         group.add_argument('--' + name, '--' + second_name, dest=name.replace('-', '_'), action='store_true', help=help)
@@ -764,6 +744,24 @@ def add_bool_arg(parser, name, help, default=None, second_name=None):
     parser.set_defaults(**{name.replace('-', '_'):default})
 
 def arg_as_list(s):
+    """
+    Parse a string containing a Python list and reject other values.
+
+    Parameters
+    ----------
+    s : str
+        String representation of a list.
+
+    Returns
+    -------
+    list
+        Parsed list.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is not a list.
+    """
     v = ast.literal_eval(s)
     if type(v) is not list:
         raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (s))
@@ -771,6 +769,24 @@ def arg_as_list(s):
 
 
 def arg_as_str_or_list(s):
+    """
+    Parse a string as either a plain string or a list.
+
+    Parameters
+    ----------
+    s : str
+        String value or string representation of a list.
+
+    Returns
+    -------
+    str or list
+        Parsed string or list.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If a bracketed value is not a list.
+    """
     if "[" not in s and "]" not in s:
         return str(s)
 
@@ -782,6 +798,24 @@ def arg_as_str_or_list(s):
 
 
 def arg_as_float_or_list(s):
+    """
+    Parse a string as either a floating-point value or a list.
+
+    Parameters
+    ----------
+    s : str
+        String representation of a float or list.
+
+    Returns
+    -------
+    float or list
+        Parsed float or list.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is neither a float nor a list.
+    """
     try:
         return float(s)
     except ValueError:
@@ -792,6 +826,24 @@ def arg_as_float_or_list(s):
 
 
 def str_or_int(arg):
+    """
+    Parse an argument as an integer, falling back to a string.
+
+    Parameters
+    ----------
+    arg : str
+        Value to parse.
+
+    Returns
+    -------
+    int or str
+        Parsed integer or original string.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is neither an integer nor a string.
+    """
     try:
         return int(arg)  # try convert to int
     except ValueError:
@@ -802,16 +854,52 @@ def str_or_int(arg):
 
 
 def str_or_float(arg):
+    """
+    Parse an argument as a float, falling back to a string.
+
+    Parameters
+    ----------
+    arg : str
+        Value to parse.
+
+    Returns
+    -------
+    float or str
+        Parsed float or original string.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is neither a float nor a string.
+    """
     try:
         return float(arg)  # try convert to float
     except ValueError:
         pass
     if isinstance(arg, str):
         return arg
-    raise argparse.ArgumentTypeError("Input must be an float or string")
+    raise argparse.ArgumentTypeError("Input must be a float or string")
 
 
 def floatlist_or_float(argin):
+    """
+    Parse an argument as a float or a list of numeric values.
+
+    Parameters
+    ----------
+    argin : str or None
+        String representation of a float or numeric list.
+
+    Returns
+    -------
+    float, list, or None
+        Parsed value.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is not a float or numeric list.
+    """
     if argin is None:
         return argin
     try:
@@ -832,18 +920,31 @@ def floatlist_or_float(argin):
 
 
 def check_strlist_or_intlist(argin):
-    """ Check if the argument is a list of integers or a list of strings with correct formatting.
+    """
+    Check a list of positive integers or formatted time strings.
 
-    Args:
-        argin (str): input string to check.
-    Returns:
-        arg (list): properly formatted list extracted from the output.
+    Parameters
+    ----------
+    argin : str
+        String representation of the list to check.
+
+    Returns
+    -------
+    list
+        Parsed list of positive integers or formatted time strings.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is not a valid list.
     """
 
     # check if input is a list and make proper list format
     arg = ast.literal_eval(argin)
     if type(arg) is not list:
         raise argparse.ArgumentTypeError("Argument \"%s\" is not a list" % (argin))
+    if not arg:
+        raise argparse.ArgumentTypeError("solint_list cannot be empty")
 
     # check for integer list
     if all([isinstance(item, int) for item in arg]):
@@ -855,7 +956,6 @@ def check_strlist_or_intlist(argin):
     if all([isinstance(item, str) for item in arg]):
         # check if string contains numbers
         for item2 in arg:
-            # print(item2)
             if not any([ch.isdigit() for ch in item2]):
                 raise argparse.ArgumentTypeError("solint_list needs to contain some number characters, not only units")
             # check in the number in there is smaller than 1
