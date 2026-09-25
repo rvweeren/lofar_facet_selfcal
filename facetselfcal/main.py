@@ -17368,11 +17368,12 @@ def findrefant_core(H5file, telescope='LOFAR'):
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
 
     if telescope == 'MWA':
-        possible_refants = ["tile012", "tile013", "tile014", "tile015", "tile017", "tile024", "tile025", "tile026", "tile027", "tile032",
-                            "tile033", "tile034", "tile035", "tile036", "tile037", "tile038", "tile041", "tile042", "tile043", "tile044",
-                            "tile045", "tile046", "tile047", "tile048", "tile063", "tile064", "tile065", "tile066", "tile067", "tile068",
-                            "tile083", "tile084", "tile094", "tile095"]
+        possible_refants = ["Tile012", "Tile013", "Tile014", "Tile015", "Tile017", "Tile024", "Tile025", "Tile026", "Tile027", "Tile032",
+                            "Tile033", "Tile034", "Tile035", "Tile036", "Tile037", "Tile038", "Tile041", "Tile042", "Tile043", "Tile044",
+                            "Tile045", "Tile046", "Tile047", "Tile048", "Tile063", "Tile064", "Tile065", "Tile066", "Tile067", "Tile068",
+                            "Tile083", "Tile084", "Tile094", "Tile095"]
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
+        
 
     if len(cs_indices) == 0 and telescope == 'LOFAR':
         # print in red
