@@ -125,7 +125,19 @@ matplotlib.use('Agg')
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 def _get_ms_time_coverage(ms):
-    """Return time slots, full-baseline slots, and the normal time step."""
+    """
+    Return time slots, full-baseline slots, and the normal time step.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+
+    Returns
+    -------
+    tuple
+        Unique time slots, boolean mask of full-baseline slots, and normal step.
+    """
     with table(ms, readonly=True, ack=False) as ms_table:
         if ms_table.nrows() == 0:
             return np.array([]), np.array([], dtype=bool), None
@@ -147,7 +159,25 @@ def _get_ms_time_coverage(ms):
 
 def _find_ms_time_gaps(ms, timegap_threshold=1800, relative_threshold=0.5,
                        ignore_gap=60):
-    """Find significant gaps longer than ``ignore_gap`` seconds in an MS."""
+    """
+    Find significant gaps longer than ``ignore_gap`` seconds in an MS.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    timegap_threshold : float, optional
+        Threshold in seconds for significant gaps.
+    relative_threshold : float, optional
+        Relative threshold against neighboring observations.
+    ignore_gap : float, optional
+        Ignore gaps shorter than this value in seconds.
+
+    Returns
+    -------
+    tuple
+        Unique times, full-baseline mask, and list of significant gaps.
+    """
     times, full_baseline, normal_step = _get_ms_time_coverage(ms)
     if normal_step is None or times.size < 2:
         return times, full_baseline, []
@@ -195,12 +225,29 @@ def _find_ms_time_gaps(ms, timegap_threshold=1800, relative_threshold=0.5,
 
 def check_large_timegaps_ms(ms, timegap_threshold=1200, relative_threshold=0.5,
                             ignore_gap=60):
-    """Return whether an MS contains a significant all-baseline time gap.
+    """
+    Return whether an MS contains a significant all-baseline time gap.
 
     The normal cadence is estimated from the median difference between unique
     TIME values. A gap is the excess over that cadence. It is significant when
     it exceeds ``timegap_threshold`` seconds or ``relative_threshold`` times
     the combined neighboring continuous observations.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    timegap_threshold : float, optional
+        Threshold in seconds for significant gaps.
+    relative_threshold : float, optional
+        Relative threshold against neighboring observations.
+    ignore_gap : float, optional
+        Ignore gaps shorter than this value in seconds.
+
+    Returns
+    -------
+    bool
+        True if significant gaps exist, False otherwise.
     """
     _, _, gaps = _find_ms_time_gaps(
         ms, timegap_threshold, relative_threshold, ignore_gap)
@@ -214,10 +261,26 @@ def check_large_timegaps_ms(ms, timegap_threshold=1200, relative_threshold=0.5,
 
 def plot_ms_time_coverage(ms, output_path=None, timegap_threshold=1200,
                           relative_threshold=0.5, ignore_gap=60):
-    """Plot MS time coverage and annotate significant gaps.
+    """
+    Plot MS time coverage and annotate significant gaps.
 
-    Returns the output path when a file is written, otherwise returns the
-    Matplotlib figure.
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    output_path : str, optional
+        Output path for the plot.
+    timegap_threshold : float, optional
+        Threshold in seconds for significant gaps.
+    relative_threshold : float, optional
+        Relative threshold against neighboring observations.
+    ignore_gap : float, optional
+        Ignore gaps shorter than this value in seconds.
+
+    Returns
+    -------
+    str or matplotlib.figure.Figure
+        The output path when saved to disk, otherwise the Matplotlib figure.
     """
     times, full_baseline, gaps = _find_ms_time_gaps(
         ms, timegap_threshold, relative_threshold, ignore_gap)
@@ -318,8 +381,20 @@ def plot_ms_time_coverage(ms, output_path=None, timegap_threshold=1200,
 
 def get_vla_maxconfiguration(mslist):
     """
-    Extracts the VLA array configuration (A, B, C, or D) from a list of Measurement Sets. If mulitple configurations are found it returns the one with the longest baselines
-    This is useful to know in order to get the correct pixelscale, which is determined by the array with the longest baselines
+    Extract the VLA array configuration (A, B, C, or D) from a list of Measurement Sets.
+
+    If multiple configurations are found, returns the one with the longest baselines.
+    This determines the pixel scale for imaging.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Set paths.
+
+    Returns
+    -------
+    str
+        The VLA configuration with the longest baselines ('A', 'B', 'C', or 'D').
     """
     # check that the input is a list
     assert isinstance(mslist, list), "Input must be a list of Measurement Sets"
@@ -337,18 +412,24 @@ def get_vla_maxconfiguration(mslist):
 
 def get_vla_configuration(ms):
     """
-    Extracts the VLA array configuration (A, B, C, or D) from a Measurement Set
-    by calculating the maximum baseline length from the ANTENNA sub-table.
-    
-    Parameters:
-    -----------
+    Extract the VLA array configuration (A, B, C, or D) from a Measurement Set.
+
+    Calculates the maximum baseline length from the ANTENNA sub-table.
+
+    Parameters
+    ----------
     ms : str
-        The path to the main Measurement Set directory (e.g., 'my_data.ms').
-        
-    Returns:
-    --------
+    The path to the main Measurement Set directory (e.g., 'my_data.ms').
+
+    Returns
+    -------
     str
-        'A', 'B', 'C', or 'D' based on the physical antenna distribution.
+    'A', 'B', 'C', or 'D' based on the physical antenna distribution.
+
+    Raises
+    ------
+    FileNotFoundError
+    If the ANTENNA sub-table cannot be found at the expected path.
     """
     antenna_table_path = os.path.join(ms, 'ANTENNA')
     
@@ -386,7 +467,8 @@ def get_vla_configuration(ms):
 
 
 def get_EVLA_IF_pair(ms):
-    """Return the EVLA IF pair encoded in a single-SPW measurement set.
+    """
+    Return the EVLA IF pair encoded in a single-SPW measurement set.
 
     EVLA has two independent data streams, represented by the A/C and B/D
     IF pairs. The pair is read from the first spectral-window ``NAME`` and is
@@ -396,17 +478,17 @@ def get_EVLA_IF_pair(ms):
     Parameters
     ----------
     ms : str
-        Path to the measurement set.
+    Path to the measurement set.
 
     Returns
     -------
     str
-        The detected IF pair, either ``"AC"`` or ``"BD"``.
+    The detected IF pair, either ``"AC"`` or ``"BD"``.
 
     Raises
     ------
     ValueError
-        If the spectral-window name does not identify an A/C or B/D pair.
+    If the spectral-window name does not identify an A/C or B/D pair.
     """
     # check telescope is EVLA
     if get_telescope_from_ms(ms) != 'EVLA':
@@ -430,11 +512,16 @@ def get_EVLA_IF_pair(ms):
 
 
 def remove_syspower(mslist):
-    """Remove the SYSPOWER column from a measurement set, if it exists.
-    This is necessary because the SYSPOWER column, if it is large, makes DP3 slow. 
-    Only remove the SYSPOWER column if it exists, otherwise do nothing for EVLA and VLA
-    Input:
+    """
+    Remove the SYSPOWER column from a measurement set, if it exists.
+
+    This is necessary because the SYSPOWER column, if it is large, makes DP3 slow.
+    Only remove the SYSPOWER column if it exists, otherwise do nothing for EVLA and VLA.
+
+    Parameters
+    ----------
     mslist : list of str
+        List of Measurement Set paths.
     """
     if isinstance(mslist, str):        
         mslist = [mslist]
@@ -449,7 +536,8 @@ def remove_syspower(mslist):
                 shutil.rmtree(ms + '/SYSPOWER')        
 
 def split_ms_spws(ms, dysco=True):
-    """Split a measurement set into one output measurement set per SPW.
+    """
+    Split a measurement set into one output measurement set per SPW.
 
     The input measurement set is inspected to determine its number of spectral
     windows. Each resulting file is named ``<input>_spwNNN.ms`` (or, for an
@@ -459,14 +547,14 @@ def split_ms_spws(ms, dysco=True):
     Parameters
     ----------
     ms : str
-        Path to the input measurement set.
+    Path to the input measurement set.
     dysco : bool, optional
-        Whether to use the dysco storage manager for the output measurement sets.    
+    Whether to use the dysco storage manager for the output measurement sets.    
 
     Returns
     -------
     None
-        The split measurement sets are written to disk.
+    The split measurement sets are written to disk.
     """
 
     # get SPWids from the MS
@@ -536,7 +624,17 @@ def split_ms_spws(ms, dysco=True):
 
 def collect_all_frequencies(mslist):
     """
-    Collects all unique frequencies from a list of Measurement Sets (MS) and returns them as a sorted numpy array.
+    Collect all unique frequencies from a list of Measurement Sets.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Set paths.
+
+    Returns
+    -------
+    numpy.ndarray
+        Sorted array of unique channel frequencies in Hz.
     """
     frequencies = set()
     for ms in mslist:
@@ -549,12 +647,16 @@ def collect_all_frequencies(mslist):
 def is_ms_regularized(ms_path: str) -> bool:
     """
     Checks if a Measurement Set has a perfectly regularized time-baseline grid structure.
-    
-    Parameters:
-        ms_path (str): Path to the Measurement Set directory.
-        
-    Returns:
-        bool: True if the MS is perfectly regularized, False otherwise.
+
+    Parameters
+    ----------
+    ms_path : str
+        Path to the Measurement Set directory.
+
+    Returns
+    -------
+    bool
+        True if the MS is perfectly regularized, False otherwise.
     """
     try:
         # Open the main table; read-only mode is safer and faster
@@ -579,6 +681,21 @@ def is_ms_regularized(ms_path: str) -> bool:
 
 
 def create_homogenized_facetdirections(facetdirections, separateradius=5.0):
+    """
+    Create direction files with a common set of nearby unique directions.
+
+    Parameters
+    ----------
+    facetdirections : list of str
+        Input facet-direction file paths.
+    separateradius : float, optional
+        Matching radius in arcminutes.
+
+    Returns
+    -------
+    None
+        Homogenized files are written to the current directory.
+    """
     # check that facetdirections is a list of strings, otherwise this function cannot be used
     if isinstance(facetdirections, list) and all(isinstance(facetdirections, str) for facetdirections in facetdirections):
        print('Creating homogenized facetdirections file with all unique directions from the provided facetdirections files')
@@ -682,6 +799,19 @@ def create_homogenized_facetdirections(facetdirections, separateradius=5.0):
 
 
 def fix_GMRT_weights(mslist):
+    """
+    Copy parallel-hand weights into the cross-hand GMRT weight columns.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Measurement Set paths to update.
+
+    Returns
+    -------
+    None
+        Measurement Sets are modified in place.
+    """
     if args['telescope'] != 'GMRT':
         return
     
@@ -693,20 +823,20 @@ def fix_GMRT_weights(mslist):
 
 
 def updateCrosshand(ms, variance, chunk_size=10000):
-    '''
+    """
     Fill the XY/RL and YX/LR cross-hand polarizations with complex Gaussian random noise
     based on the provided variance.
 
     Parameters
     ----------
     ms : str
-        Path to the Measurement Set.
+    Path to the Measurement Set.
     variance : float or tuple/list of (float, float)
-        The noise variance in Jy^2. If a tuple (var_RR, var_LL) is provided,
-        the geometric mean sqrt(var_RR * var_LL) is used for the cross-hands.
+    The noise variance in Jy^2. If a tuple (var_RR, var_LL) is provided,
+    the geometric mean sqrt(var_RR * var_LL) is used for the cross-hands.
     chunk_size : int, default=1000
-        Number of rows to process at once.
-    '''
+    Number of rows to process at once.
+    """
     logging.info("- Adaptation of cross-hand polarisation visibility data -")
     logging.info("Filling crosshand polarizations with random noise in MS %s", ms)
     with table(ms, readonly=False, ack=False) as t:
@@ -753,20 +883,39 @@ def updateCrosshand(ms, variance, chunk_size=10000):
             gc.collect()
 
 def parse_bad_freq_ranges(bad_freq_ranges):
-    '''
+    """
     Parse bad frequency range specifications into a list of (f_min, f_max) tuples in Hz.
 
-    Supported inputs:
-      - string in DP3/preflagger format:
-        "99MHz..128MHz,167MHz..188MHz,243MHz..301MHz,347MHz..349.7MHz,355MHz..380MHz,390MHz..391MHz,750MHz..850MHz"
-        or "[99MHz..128MHz, ...]"
-      - list/tuple of strings: ["99MHz..128MHz", "167MHz..188MHz"]
-      - list/tuple of frequency tuples/lists: [(99e6, 128e6), ...]
-    '''
+    Parameters
+    ----------
+    bad_freq_ranges : str, list, or tuple
+        Bad frequency range specifications. Supported inputs:
+        - string in DP3/preflagger format (e.g., "99MHz..128MHz,167MHz..188MHz")
+        - list/tuple of strings: ["99MHz..128MHz", "167MHz..188MHz"]
+        - list/tuple of frequency tuples/lists: [(99e6, 128e6), ...]
+
+    Returns
+    -------
+    list of tuple
+        List of (f_min, f_max) tuples in Hz.
+    """
     if not bad_freq_ranges:
         return []
 
     def _to_hz(val):
+        """
+        Convert a frequency value to Hz.
+
+        Parameters
+        ----------
+        val : float or str
+            Frequency value, optionally with a unit suffix.
+
+        Returns
+        -------
+        float
+            Frequency in Hz.
+        """
         if isinstance(val, (int, float)):
             return float(val)
         s = str(val).strip()
@@ -808,62 +957,62 @@ def getVarianceRRLL(ms, data_column="DATA", num_baselines=6, candidate_pool_size
                     top_quantile=0.85, max_flag_fraction=0.50, min_unflagged_samples=500,
                     bad_freq_ranges="99MHz..128MHz,167MHz..188MHz,243MHz..301MHz,347MHz..349.7MHz,355MHz..380MHz,390MHz..391MHz,750MHz..850MHz",
                     random_seed=42):
-    '''
+    """
     Determine the robust noise variance of the RR and LL visibility columns using the longest baselines.
 
     This method estimates the thermal noise variance per visibility sample for the RR and LL
     (or XX and YY) correlations. It selects the longest physical baselines in the array where
     extended sky emission is heavily resolved out. To be robust against RFI and systematic
     imperfections:
-        1. Known bad frequency ranges (e.g. persistent RFI bands) are masked and excluded from
-            the calculation.
-        2. Consecutive frequency-channel differences (ΔV = V_{chan+1} - V_{chan}) are used to
-            subtract out residual continuum sky flux, bandpass ripples, and fringe patterns.
-        3. The Median Absolute Deviation (MAD) is computed separately on the real and imaginary parts
-            to eliminate transient RFI spikes without being skewed by outliers.
-        4. Multiple diverse antenna pairs are randomly sampled across the top baseline-length quantile
-            to avoid bias if the antennas on the absolute longest baseline are malfunctioning or noisy.
-        5. Baselines with excessive flagging or near-zero variance (dead antennas) are rejected.
-        6. A cross-baseline consensus filter (MAD-based) discards outlier baseline variances.
+    1. Known bad frequency ranges (e.g. persistent RFI bands) are masked and excluded from
+    the calculation.
+    2. Consecutive frequency-channel differences (ΔV = V_{chan+1} - V_{chan}) are used to
+    subtract out residual continuum sky flux, bandpass ripples, and fringe patterns.
+    3. The Median Absolute Deviation (MAD) is computed separately on the real and imaginary parts
+    to eliminate transient RFI spikes without being skewed by outliers.
+    4. Multiple diverse antenna pairs are randomly sampled across the top baseline-length quantile
+    to avoid bias if the antennas on the absolute longest baseline are malfunctioning or noisy.
+    5. Baselines with excessive flagging or near-zero variance (dead antennas) are rejected.
+    6. A cross-baseline consensus filter (MAD-based) discards outlier baseline variances.
 
     Parameters
     ----------
     ms : str
-        Path to the Measurement Set.
+    Path to the Measurement Set.
     data_column : str, default="DATA"
-        Name of the visibility data column in the Measurement Set to analyze
-        (e.g., "DATA", "CORRECTED_DATA", "RESIDUAL_DATA").
+    Name of the visibility data column in the Measurement Set to analyze
+    (e.g., "DATA", "CORRECTED_DATA", "RESIDUAL_DATA").
     num_baselines : int, default=6
-        Target number of healthy, independent long baselines to evaluate and include
-        in the consensus variance calculation.
+    Target number of healthy, independent long baselines to evaluate and include
+    in the consensus variance calculation.
     candidate_pool_size : int, default=25
-        Maximum number of candidate long baselines to draw from the top-length pool.
-        Larger values provide more candidates for antenna diversity and backup if
-        several baselines are flagged or dead.
+    Maximum number of candidate long baselines to draw from the top-length pool.
+    Larger values provide more candidates for antenna diversity and backup if
+    several baselines are flagged or dead.
     top_quantile : float, default=0.85
-        Quantile cutoff (between 0.0 and 1.0) defining the threshold for "long baselines"
-        based on 3D physical antenna separation in the ANTENNA subtable.
-        Default 0.85 selects baselines in the top 15% longest baseline lengths.
+    Quantile cutoff (between 0.0 and 1.0) defining the threshold for "long baselines"
+    based on 3D physical antenna separation in the ANTENNA subtable.
+    Default 0.85 selects baselines in the top 15% longest baseline lengths.
     max_flag_fraction : float, default=0.50
-        Maximum allowed fraction of flagged samples (0.0 to 1.0) on a candidate baseline.
-        Baselines exceeding this flag threshold are skipped.
+    Maximum allowed fraction of flagged samples (0.0 to 1.0) on a candidate baseline.
+    Baselines exceeding this flag threshold are skipped.
     min_unflagged_samples : int, default=500
-        Minimum number of valid, unflagged adjacent-channel difference pairs required
-        on a baseline. Baselines with fewer unflagged samples are discarded.
+    Minimum number of valid, unflagged adjacent-channel difference pairs required
+    on a baseline. Baselines with fewer unflagged samples are discarded.
     bad_freq_ranges : str, list of str, list of tuples, or None, default="99MHz..128MHz,..."
-        Frequency ranges with bad data/known RFI to ignore during variance calculation.
-        Can be given as a comma/space-separated string (e.g. "99MHz..128MHz,167MHz..188MHz"),
-        a bracketed string ("[99MHz..128MHz, ...]"), or a list of range strings / (fmin, fmax) tuples.
+    Frequency ranges with bad data/known RFI to ignore during variance calculation.
+    Can be given as a comma/space-separated string (e.g. "99MHz..128MHz,167MHz..188MHz"),
+    a bracketed string ("[99MHz..128MHz, ...]"), or a list of range strings / (fmin, fmax) tuples.
     random_seed : int or None, default=42
-        Random seed used to shuffle candidate long baselines to ensure reproducible,
-        diverse baseline selection across runs.
+    Random seed used to shuffle candidate long baselines to ensure reproducible,
+    diverse baseline selection across runs.
 
     Returns
     -------
     tuple of (float, float)
-        A 2-tuple (var_RR, var_LL) containing the estimated thermal noise variance in Jy^2
-        for the RR and LL polarizations (or XX and YY if linear).
-    '''
+    A 2-tuple (var_RR, var_LL) containing the estimated thermal noise variance in Jy^2
+    for the RR and LL polarizations (or XX and YY if linear).
+    """
     logging.info("- Estimating robust visibility variance for RR and LL from long baselines -")
     
     rng = np.random.default_rng(random_seed)
@@ -941,6 +1090,21 @@ def getVarianceRRLL(ms, data_column="DATA", num_baselines=6, candidate_pool_size
 
     # 4. Robust variance estimator using channel differencing + MAD
     def robust_variance_from_visibilities(vis, flags):
+        """
+        Estimate visibility variance while excluding flagged samples.
+
+        Parameters
+        ----------
+        vis : numpy.ndarray
+            Visibility values.
+        flags : numpy.ndarray
+            Boolean flag mask.
+
+        Returns
+        -------
+        float
+            Robust variance estimate.
+        """
         flags_eff = flags | bad_freq_mask[np.newaxis, :]
         diff = vis[:, 1:] - vis[:, :-1]
         valid_diff = (~flags_eff[:, 1:]) & (~flags_eff[:, :-1])
@@ -1067,7 +1231,7 @@ def fix_time_axis_gmrt(mslist):
     Parameters
     ----------
     mslist : list of str
-        List of paths to Measurement Sets (MS) to process.
+    List of paths to Measurement Sets (MS) to process.
     Notes
     -----
     This function modifies the MS files in place.
@@ -1098,21 +1262,31 @@ def aoflagger_column(mslist, aoflagger_strategy=None, column='CORRECTED_DATA'):
     flagging of circular polarisation data (RR, RL, LR, LL) and the MS contains such data, it temporarily replaces
     these polarisations with linear equivalents (XX, XY, YX, YY) in a copy of the strategy file, as AOFlagger cannot
     flag circular polarisations in DP3. The function then runs DP3 with AOFlagger on each MS in the list.
-    Args:
-        mslist (list of str): List of Measurement Set paths to process.
-        aoflagger_strategy (str, optional): Path or name of the AOFlagger strategy file to use. If not provided,
-            the default strategy is used. If a name is given and not a file path, it is assumed to be in the
-            'flagging_strategies' directory under 'datapath'.
-        column (str, optional): Name of the data column in the MS to flag. Defaults to 'CORRECTED_DATA'.
-    Warnings:
-        - If the strategy file requests RR/RL/LR/LL flagging and the MS contains circular polarisation data,
-          a warning is printed and the strategy file is temporarily modified to use XX/XY/YX/YY instead.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Set paths to process.
+    aoflagger_strategy : str, optional
+        Path or name of the AOFlagger strategy file to use. If not provided,
+        the default strategy is used. If a name is given and not a file path, it is assumed to be in the
+        'flagging_strategies' directory under 'datapath'.
+    column : str, optional
+        Name of the data column in the MS to flag. Defaults to 'CORRECTED_DATA'.
+
+    Warnings
+    --------
+    - If the strategy file requests RR/RL/LR/LL flagging and the MS contains circular polarisation data,
+    a warning is printed and the strategy file is temporarily modified to use XX/XY/YX/YY instead.
+
+    Notes
+    -----
     Side Effects:
-        - May create and remove temporary strategy files in the current working directory.
-        - Executes system commands for file manipulation and running DP3.
+    - May create and remove temporary strategy files in the current working directory.
+    - Executes system commands for file manipulation and running DP3.
     Prints:
-        - Warnings about unsupported polarisation flagging.
-        - The command being executed for AOFlagger.
+    - Warnings about unsupported polarisation flagging.
+    - The command being executed for AOFlagger.
     """
 
     if aoflagger_strategy is not None and not os.path.isfile(aoflagger_strategy):
@@ -1169,11 +1343,11 @@ def setjy_casa(ms):
     Parameters
     ----------
     ms : str
-        Path to the Measurement Set (MS) directory.
+    Path to the Measurement Set (MS) directory.
     Raises
     ------
     Exception
-        If no known calibrator is found in the MS field coordinates.
+    If no known calibrator is found in the MS field coordinates.
     Notes
     -----
     - Assumes the MS contains only a single source (fieldid=0).
@@ -1250,8 +1424,7 @@ def flag_shadowed_antenna(mslist):
     Parameters
     ----------
     mslist : list of str
-        List of Measurement Sets to process.
-    -----
+    List of Measurement Sets to process.
     This function constructs and runs a command to execute the casapy flagdata task via a helper script.
     """
     # for standalone running
@@ -1275,11 +1448,11 @@ def gmrt_uvfits2ms(uvfits, msout, flagfile=''):
     Parameters
     ----------
     uvfits : str
-        Path to the input GMRT uvfits file.
+    Path to the input GMRT uvfits file.
     msout : str
-        Path to the output Measurement Set.
+    Path to the output Measurement Set.
     flagfile : str, optional
-        Path to the flag file (default is an empty string). If provided, this file will be used during the import process.
+    Path to the flag file (default is an empty string). If provided, this file will be used during the import process.
     Notes
     -----
     This function constructs and runs a command to execute the casapy importgmrt task via a helper script.
@@ -1298,20 +1471,33 @@ def gmrt_uvfits2ms(uvfits, msout, flagfile=''):
     run(cmdcasa)
 
 def parse_input_args(namespace):
+    """
+    Serialize an argument namespace as ``name=value`` strings.
+
+    Parameters
+    ----------
+    namespace : argparse.Namespace
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    list of str
+        Serialized namespace entries.
+    """
     return [f"{k}={repr(v)}" for k, v in vars(namespace).items()]
 
 def insert_history_ms(ms_path, parameters=[], message='parameters', app='facetselfcal', appver='1.0.0', origin='facetselfcal (https://github.com/rvweeren/lofar_facet_selfcal)'):
     """
     Insert history in MeasurementSet
-    
-    Args:
-        ms_path: Path to MeasurementSet
+
+    Parameters
+    ----------
+    ms_path : Path to MeasurementSet
         parameters: Parameters
         message: Message
         app: Application
         appver: Application ersion
         origin: Software origin
-
     """
     history_table_path = ms_path.rstrip('/') + '/HISTORY'
     with table(history_table_path, readonly=False, ack=False) as t:
@@ -1345,16 +1531,19 @@ def fix_antenna_info_gmrt(mslist):
     """
     Removes specific antennas from a Measurement Set if the telescope is GMRT.
 
-    Parameters:
-        mslist (list): List of input Measurement Sets.
+    Parameters
+    ----------
+    mslist : list
+        List of input Measurement Sets.
 
+    Notes
+    -----
     Behavior:
-        - Checks the 'TELESCOPE_NAME' in the OBSERVATION table of the Measurement Set.
-        - If the telescope is 'GMRT', removes antennas 'C07', 'S05', and 'E01' by calling remove_antennas.
-
+    - Checks the 'TELESCOPE_NAME' in the OBSERVATION table of the Measurement Set.
+    - If the telescope is 'GMRT', removes antennas 'C07', 'S05', and 'E01' by calling remove_antennas.
     Requires:
-        - The 'table' context manager for reading Measurement Set tables.
-        - The 'remove_antennas' function to perform the actual removal.
+    - The 'table' context manager for reading Measurement Set tables.
+    - The 'remove_antennas' function to perform the actual removal.
     """
     for ms in mslist:
         if args['telescope'] == 'GMRT':    
@@ -1370,16 +1559,23 @@ def remove_antennas(ms_path, antennas_to_remove):
     It is useful for fixing inconsistencies where the ANTENNA table contains antennas not present
     in the POINTING table.
 
-    Args:
-        ms_path (str): Path to the Measurement Set directory.
-        antennas_to_remove (list of str): List of antenna names to be removed from the tables.
+    Parameters
+    ----------
+    ms_path : str
+        Path to the Measurement Set directory.
+    antennas_to_remove : list of str
+        List of antenna names to be removed from the tables.
 
-    Raises:
-        Exception: If there is an error accessing or modifying the Measurement Set tables.
+    Raises
+    ------
+    Exception
+        If there is an error accessing or modifying the Measurement Set tables.
 
+    Notes
+    -----
     Side Effects:
-        Modifies the POINTING and ANTENNA tables in-place by removing specified antennas.
-        Prints information about removed rows or errors encountered.
+    Modifies the POINTING and ANTENNA tables in-place by removing specified antennas.
+    Prints information about removed rows or errors encountered.
     """
     
     with table(f"{ms_path}/POINTING", readonly=False) as pointing_table:
@@ -1401,10 +1597,15 @@ def fix_twopol_ms(mslist):
     This function checks each Measurement Set in the provided list to determine if it is a 2-polarisation MS.
     If so, it runs a helper script to create fake cross-hand correlations, effectively converting
     the MS to a 4-polarisation format.
-    Parameters:
-        mslist (list of str): List of paths to Measurement Sets (MS) to process.
-    Notes:
-        - The function assumes the existence of a helper script 'fix_twopol_ms.py' located in the 'submodpath' directory.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to Measurement Sets (MS) to process.
+
+    Notes
+    -----
+    - The function assumes the existence of a helper script 'fix_twopol_ms.py' located in the 'submodpath' directory.
     """
     # for standalone running
     datapathc = os.path.dirname(os.path.abspath(__file__))
@@ -1424,15 +1625,25 @@ def fix_twopol_ms(mslist):
 def split_columns(ms, outms, column='CORRECTED_DATA'):
     """
     Split a column from a Measurement Set (MS), mimickiqng CASA split.
-    Parameters:
-        ms (str): Path to the Measurement Set to split.
-        outms (str): Path to the output Measurement Set.
-        column (str): Name of the column to split. Default is 'CORRECTED_DATA'.
-    Returns:
-        str: Path to the newly created Measurement Set containing only the specified column.
-    Notes:
-        - The output MS will contain only the specified column, with other data columns removed.
-        - Existing output MS directories will be removed before new ones are created.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set to split.
+    outms : str
+        Path to the output Measurement Set.
+    column : str
+        Name of the column to split. Default is 'CORRECTED_DATA'.
+
+    Returns
+    -------
+    str
+        Path to the newly created Measurement Set containing only the specified column.
+
+    Notes
+    -----
+    - The output MS will contain only the specified column, with other data columns removed.
+    - Existing output MS directories will be removed before new ones are created.
     """ 
     # Remove  MS if it exists
     if os.path.isdir(outms):
@@ -1449,20 +1660,33 @@ def split_columns(ms, outms, column='CORRECTED_DATA'):
 def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, compress_target_only=True, fix_uvw_coordinates=True):
     """
     Splits a multisource Measurement Set (MS) into separate single-source MS files.
-    Parameters:
-        ms (str, or list of str): Path to the multisource Measurement Set to be split.
-        field_names (list of str, optional): List of source names corresponding to source names for each FIELD_ID.
-        dryrun (bool, optional): If True, the function will not exceute the TaQl commands. Default is False.
-        compressed (bool, optional): If True, the output MS will be compressed. Default is False.
-        compress_target_only (bool, optional): If True, only the target MS will be compressed. The target source MS is assumed to be the one with the most time integration. Default is True.
-        fix_uvw_coordinates (bool, optional): If True, the UVW coordinates will be fixed. Default is True.
-    Returns:
-        list of str: List of paths to the newly created single-source Measurement Sets. 
-                     If the input MS contains only a single source, returns a list containing the original MS path.
-    Notes:
-        - If the input MS is already a single-source MS, no splitting is performed.
-        - Each output MS will contain data for only one source, with FIELD_ID and SOURCE_ID reset to 0.
-        - Existing output MS directories will be removed before new ones are created.
+
+    Parameters
+    ----------
+    ms : str, or list of str
+        Path to the multisource Measurement Set to be split.
+    field_names : list of str, optional
+        List of source names corresponding to source names for each FIELD_ID.
+    dryrun : bool, optional
+        If True, the function will not exceute the TaQl commands. Default is False.
+    compressed : bool, optional
+        If True, the output MS will be compressed. Default is False.
+    compress_target_only : bool, optional
+        If True, only the target MS will be compressed. The target source MS is assumed to be the one with the most time integration. Default is True.
+    fix_uvw_coordinates : bool, optional
+        If True, the UVW coordinates will be fixed. Default is True.
+
+    Returns
+    -------
+    list of str
+        List of paths to the newly created single-source Measurement Sets.
+        If the input MS contains only a single source, returns a list containing the original MS path.
+
+    Notes
+    -----
+    - If the input MS is already a single-source MS, no splitting is performed.
+    - Each output MS will contain data for only one source, with FIELD_ID and SOURCE_ID reset to 0.
+    - Existing output MS directories will be removed before new ones are created.
     """
     # in case ms is a list, we loop over the list and call this function for each ms in the list, and then we return a list of lists of ms, we flatten this list of lists to a single list of ms
     
@@ -1596,18 +1820,24 @@ def check_pointing_centers(mslist):
     """
     Checks whether the pointing centers of the provided measurement sets (MS) are aligned within a specified tolerance.
 
-    Parameters:
-        mslist (list of str): List of paths to measurement sets (MS) to check.
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to measurement sets (MS) to check.
 
-    Returns:
-        bool: True if all MS pointing centers are aligned within 0.025 arcseconds, False otherwise.
+    Returns
+    -------
+    bool
+        True if all MS pointing centers are aligned within 0.025 arcseconds, False otherwise.
 
-    Warnings:
-        Prints a warning message and logs a warning if any MS pointing center differs from the first MS by more than 0.025 arcseconds.
+    Warnings
+    --------
+    Prints a warning message and logs a warning if any MS pointing center differs from the first MS by more than 0.025 arcseconds.
 
-    Notes:
-        - If only one MS is provided, the function returns True without performing any checks.
-        - Requires the 'table', 'SkyCoord', and 'units' objects to be available in the scope.
+    Notes
+    -----
+    - If only one MS is provided, the function returns True without performing any checks.
+    - Requires the 'table', 'SkyCoord', and 'units' objects to be available in the scope.
     """
     
     if len(mslist) == 1 or args['stack']:
@@ -1637,15 +1867,20 @@ def write_processing_history(cmd, version, imagebasename):
     primary header of each FITS file whose name matches the provided image basename pattern.
     It also adds citation information as comments in the header.
 
-    Args:
-        cmd (str): The command used for processing, typically the command-line invocation.
-        version (str): The version string of facetselfcal.
-        imagebasename (str): The base name pattern to match FITS image files.
+    Parameters
+    ----------
+    cmd : str
+        The command used for processing, typically the command-line invocation.
+    version : str
+        The version string of facetselfcal.
+    imagebasename : str
+        The base name pattern to match FITS image files.
 
-    Notes:
-        - Only the portion of the command after 'facetselfcal.py' is recorded, if present.
-        - FITS files are identified using glob with the pattern '{imagebasename}*image*.fits'.
-        - The function modifies FITS files in place.
+    Notes
+    -----
+    - Only the portion of the command after 'facetselfcal.py' is recorded, if present.
+    - FITS files are identified using glob with the pattern '{imagebasename}*image*.fits'.
+    - The function modifies FITS files in place.
     """
     # strip everyting before the facetselcal.py string in cmd
     cmd = cmd.strip() 
@@ -1671,15 +1906,19 @@ def write_primarybeam_info(cmd, imagebasename, telescope=None):
     For each matching file, it updates the primary header's COMMENT field(s) to indicate whether a full
     primary beam correction has been applied, based on the provided command-line arguments.
 
-    Parameters:
-        cmd (str): The command-line string used to run the imaging process. Determines which comments are added.
-        imagebasename (str): The base name of the image files to search for and update.
+    Parameters
+    ----------
+    cmd : str
+        The command-line string used to run the imaging process. Determines which comments are added.
+    imagebasename : str
+        The base name of the image files to search for and update.
 
-    Notes:
-        - If '-apply-facet-beam' or '-apply-primary-beam' is present in `cmd`, the header will indicate that
-          the full primary beam correction has been applied.
-        - If '-apply-facet-beam' is not present but '-apply-facet-solutions' is, the header will indicate that
-          the primary beam correction has not been applied and manual correction may be necessary.
+    Notes
+    -----
+    - If '-apply-facet-beam' or '-apply-primary-beam' is present in `cmd`, the header will indicate that
+    the full primary beam correction has been applied.
+    - If '-apply-facet-beam' is not present but '-apply-facet-solutions' is, the header will indicate that
+    the primary beam correction has not been applied and manual correction may be necessary.
     """
     imagelist = glob.glob( imagebasename + '*image-pb.fits')
     for image in imagelist:
@@ -1705,22 +1944,33 @@ def write_primarybeam_info(cmd, imagebasename, telescope=None):
 def check_applyfacetbeam(mslist, imsize, pixsize, telescope, enlarge_safe_FoV_diameter=1.0):
     """
     Checks whether the image field of view (FoV) for MeerKAT/GMRT data is too large to safely use the -apply-facet-beam/-apply-primary-beam option in WSClean, and enforces the --disable-primary-beam option if necessary.
-    Parameters:
-        mslist (list of str): List of measurement set (MS) file paths to check.
-        imsize (float): Image size in pixels.
-        pixsize (float): Pixel size in arcseconds.
-        telescope (str): Name of the telescope. Function only applies checks if this is 'MeerKAT' or 'GMRT'.
-        enlarge_safe_FoV_diameter (float, optional): Factor to enlarge the safe FoV diameter. Default is 1.0 (no enlargement).
-    Returns:
-        None
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of measurement set (MS) file paths to check.
+    imsize : float
+        Image size in pixels.
+    pixsize : float
+        Pixel size in arcseconds.
+    telescope : str
+        Name of the telescope. Function only applies checks if this is 'MeerKAT' or 'GMRT'.
+    enlarge_safe_FoV_diameter : float, optional
+        Factor to enlarge the safe FoV diameter. Default is 1.0 (no enlargement).
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
     Side Effects:
-        - If the image FoV is too large for any MS in mslist, sets args['disable_primary_beam'] = True.
-        - Prints warnings to the console and logs a warning message.
-        - Exits after the first MS that violates the safe FoV criterion.
-    Notes:
-        - The safe diameter is calculated based on the maximum frequency in the SPECTRAL_WINDOW table of each MS.
-        - The function assumes the existence of a global 'args' dictionary and a 'logger' object.
-        - The function also assumes the presence of 'compute_distance_to_pointingcenter' and 'table' utilities.
+    - If the image FoV is too large for any MS in mslist, sets args['disable_primary_beam'] = True.
+    - Prints warnings to the console and logs a warning message.
+    - Exits after the first MS that violates the safe FoV criterion.
+    - The safe diameter is calculated based on the maximum frequency in the SPECTRAL_WINDOW table of each MS.
+    - The function assumes the existence of a global 'args' dictionary and a 'logger' object.
+    - The function also assumes the presence of 'compute_distance_to_pointingcenter' and 'table' utilities.
     """
     if telescope not in ['GMRT', 'MeerKAT', 'VLA', 'EVLA']:
         return
@@ -1769,13 +2019,21 @@ def check_applyfacetbeam(mslist, imsize, pixsize, telescope, enlarge_safe_FoV_di
 def is_two_pol_ms(ms):
     """
     Determines if a Measurement Set (MS) contains only two polarisation correlations
-    Parameters:
-        ms (str): Path to the Measurement Set.
-    Returns:
-        bool: True if the MS contains only two polarisation correlations, False otherwise.
-    Notes:
-        - The function reads the 'CORR_TYPE' column from the POLARIZATION table of the MS.
-        - It checks if the correlation types correspond to two polarisation correlations.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+
+    Returns
+    -------
+    bool
+        True if the MS contains only two polarisation correlations, False otherwise.
+
+    Notes
+    -----
+    - The function reads the 'CORR_TYPE' column from the POLARIZATION table of the MS.
+    - It checks if the correlation types correspond to two polarisation correlations.
     """
     with table(ms + '/POLARIZATION', ack=False, readonly=True) as t:
         corr_type = t.getcol('CORR_TYPE')
@@ -1788,15 +2046,17 @@ def set_metadata_compression(mslist):
     """
     Sets the metadata compression flag based on the telescope name in the provided Measurement Set list.
 
-    Parameters:
-        mslist (list of str): List of paths to Measurement Sets. The function inspects the first set in the list.
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to Measurement Sets. The function inspects the first set in the list.
 
+    Notes
+    -----
     Side Effects:
-        If the telescope name in the first Measurement Set is not 'LOFAR', sets the global 'args["metadata_compression"]' to False and prints a message.
-
-    Notes:
-        - Assumes that 'args' is a global variable accessible within the function's scope.
-        - Requires the 'table' class/function to be imported and available.
+    If the telescope name in the first Measurement Set is not 'LOFAR', sets the global 'args["metadata_compression"]' to False and prints a message.
+    - Assumes that 'args' is a global variable accessible within the function's scope.
+    - Requires the 'table' class/function to be imported and available.
     """
  
     if args['telescope'] != 'LOFAR':
@@ -1807,26 +2067,34 @@ def set_polarised_model_3C286(ms, chunksize=1000):
     """
     Calculates and inserts a polarised model for the 3C286 calibrator source into a Measurement Set (MS).
     This function performs the following steps:
-        1. Obtains channel frequency data in GHz from the MS.
-        2. Identifies the field ID corresponding to the 3C286 source (J1331+3030).
-        3. Calculates the polarisation fraction and electric vector position angle (EVPA) for each frequency channel.
-        4. Computes the Stokes IQUV values based on the initial Stokes I image, assuming Stokes V = 0.
-        5. Converts the Stokes IQUV values to the XX, XY, YX, YY correlation model.
-        6. Updates the MODEL_DATA column in the MS with the computed polarised model, processing the data in chunks.
+    1. Obtains channel frequency data in GHz from the MS.
+    2. Identifies the field ID corresponding to the 3C286 source (J1331+3030).
+    3. Calculates the polarisation fraction and electric vector position angle (EVPA) for each frequency channel.
+    4. Computes the Stokes IQUV values based on the initial Stokes I image, assuming Stokes V = 0.
+    5. Converts the Stokes IQUV values to the XX, XY, YX, YY correlation model.
+    6. Updates the MODEL_DATA column in the MS with the computed polarised model, processing the data in chunks.
     The polarisation model is computed as:
-        Q = I * pfrac * cos(2 * EVPA)
-        U = I * pfrac * sin(2 * EVPA)
-        XY = U + iV (with V assumed to be 0)
-        YX = U - iV (with V assumed to be 0)
-    Args:
-        ms (str): Path to the Measurement Set.
-        chunksize (int, optional): Number of rows to process per chunk. Default is 1000.
-    Returns:
-        None
-    Notes:
-        - Assumes the presence of helper functions `calculate_evpa_3C286` and `calculate_pfrac_3C286`.
-        - Requires the `tqdm`, `numpy`, and `casacore.tables` libraries.
-        - Only updates the model for the 3C286 source (J1331+3030).
+    Q = I * pfrac * cos(2 * EVPA)
+    U = I * pfrac * sin(2 * EVPA)
+    XY = U + iV (with V assumed to be 0)
+    YX = U - iV (with V assumed to be 0)
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    chunksize : int, optional
+        Number of rows to process per chunk. Default is 1000.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    - Assumes the presence of helper functions `calculate_evpa_3C286` and `calculate_pfrac_3C286`.
+    - Requires the `tqdm`, `numpy`, and `casacore.tables` libraries.
+    - Only updates the model for the 3C286 source (J1331+3030).
     """
     #obtain channel frequency data in GHz
     from tqdm import tqdm
@@ -1908,11 +2176,11 @@ def calculate_pfrac_3C286(nu):
     Parameters
     ----------
     nu : np.ndarray
-        Array of frequencies in GHz.
+    Array of frequencies in GHz.
     Returns
     -------
     pfrac : np.ndarray
-        Array of polarization fractions corresponding to the input frequencies.
+    Array of polarization fractions corresponding to the input frequencies.
     Notes
     -----
     - The model uses different coefficients for frequency ranges above and below 1.1 GHz.
@@ -1957,11 +2225,11 @@ def calculate_evpa_3C286(nu):
     Parameters
     ----------
     nu : np.ndarray
-        Array of frequencies in GHz.
+    Array of frequencies in GHz.
     Returns
     -------
     EVPA : np.ndarray
-        Array of model EVPAs in radians, corresponding to the input frequencies.
+    Array of model EVPAs in radians, corresponding to the input frequencies.
     Notes
     -----
     - For frequencies >= 1.7 GHz, a quadratic model in wavelength squared is used.
@@ -2003,19 +2271,18 @@ def applycal_restart_di(mslist, selfcalcycle):
     """
     Apply merged selfcal solution files from a previous cycle in case of a restart for DI mode
     This makes CORRECTED_DATA from the previous selfcal cycle merged h5 solutions
-    
+
     Parameters
     ----------
     mslist : list
-        List of MS
-    
+    List of MS
+
     selfcalcycle : int
-        selfcal cycle number
-    
+    selfcal cycle number
+
     Returns
     -------
     None
-
     """
     for ms in mslist:
         parmdbmergename = 'h5_solutions/merged_selfcalcycle' + str(selfcalcycle-1).zfill(3) + '_' + os.path.basename(ms) + '.h5'
@@ -2030,58 +2297,56 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
     Parameters
     ----------
     fitsimage : str
-        Path to the input FITS image that needs to be corrected.
-    
+    Path to the input FITS image that needs to be corrected.
+
     outfile : str
-        Path where the primary-beam-corrected FITS image will be saved.
-    
+    Path where the primary-beam-corrected FITS image will be saved.
+
     freq : float, optional
-        Observing frequency in GHz. If not provided, the function will attempt to
-        read the frequency from the FITS header (CRVAL3 keyword, assumed to be in Hz).
-    
+    Observing frequency in GHz. If not provided, the function will attempt to
+    read the frequency from the FITS header (CRVAL3 keyword, assumed to be in Hz).
+
     ms : str, optional
-        Path to the Measurement Set (MS). If provided, the pointing center will be
-        read from the 'REFERENCE_DIR' column of the MS. If not provided, the center 
-        of the image will be assumed to be the pointing center.
+    Path to the Measurement Set (MS). If provided, the pointing center will be
+    read from the 'REFERENCE_DIR' column of the MS. If not provided, the center 
+    of the image will be assumed to be the pointing center.
 
     pblimit : float, optional
-        Primary beam limit (in fraction of the peak) to apply the correction. Pixels with
-        primary beam response below this limit will not be corrected. Default is 0.15 (zero means no limit).    
+    Primary beam limit (in fraction of the peak) to apply the correction. Pixels with
+    primary beam response below this limit will not be corrected. Default is 0.15 (zero means no limit).    
 
     Returns
     -------
     outfile : str
-        Path to the corrected FITS image written to disk.
+    Path to the corrected FITS image written to disk.
 
     Notes
     -----
     - This function applies a primary beam correction for MeerKAT L-band observations
-      using the polynomial model published by T. Mauch et al. (2020, ApJ, 888, 61).
+    using the polynomial model published by T. Mauch et al. (2020, ApJ, 888, 61).
     - The correction is based on the distance from the pointing center and observing
-      frequency, using a 10th-order polynomial model with coefficients:
+    frequency, using a 10th-order polynomial model with coefficients:
 
-        G1 = -0.3514e-3
-        G2 =  0.5600e-7
-        G3 = -0.0474e-10
-        G4 =  0.00078e-13
-        G5 =  0.00019e-16
+    G1 = -0.3514e-3
+    G2 =  0.5600e-7
+    G3 = -0.0474e-10
+    G4 =  0.00078e-13
+    G5 =  0.00019e-16
 
     - For UHF and S-band frequencies, different coefficients are used as specified in the code.
-      These were derived from fitting the katbeam model (average of 13 frequencies) with the given polynomial form.
-        
+    These were derived from fitting the katbeam model (average of 13 frequencies) with the given polynomial form.
+
     - The beam correction formula follows the AIPS PBCOR convention.
 
     References
-    ----------
     - T. Mauch et al. 2020, "The 1.28 GHz MeerKAT DEEP2 Image," ApJ, 888, 61.
     - AIPS PBCOR: http://www.aips.nrao.edu/cgi-bin/ZXHLP2.PL?PBCOR
 
     Warnings
     --------
     - If the image center is not the actual pointing center and no MS is provided,
-      the beam correction may be incorrectly applied. Ensure correct pointing 
-      information is used when available.
-
+    the beam correction may be incorrectly applied. Ensure correct pointing 
+    information is used when available.
     """
 
 
@@ -2443,29 +2708,29 @@ def VLA_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15, telescope=No
     Parameters
     ----------
     fitsimage : str
-        Path to the input FITS image that needs to be corrected.
+    Path to the input FITS image that needs to be corrected.
 
     outfile : str
-        Path where the primary-beam-corrected FITS image will be saved.
+    Path where the primary-beam-corrected FITS image will be saved.
 
     freq : float, optional
-        Observing frequency in GHz. If not provided, the function reads CRVAL3
-        from the FITS header, assuming it is in Hz.
+    Observing frequency in GHz. If not provided, the function reads CRVAL3
+    from the FITS header, assuming it is in Hz.
 
     ms : str, optional
-        Path to the Measurement Set. If provided, the pointing center is read
-        from its FIELD/REFERENCE_DIR column. Otherwise, the image center is used as the pointing center.
+    Path to the Measurement Set. If provided, the pointing center is read
+    from its FIELD/REFERENCE_DIR column. Otherwise, the image center is used as the pointing center.
 
     pblimit : float, optional
-        Primary beam limit in fraction of the peak. Pixels outside the first radial crossing of this limit are set to NaN. Default is 0.15 (zero means no limit).
+    Primary beam limit in fraction of the peak. Pixels outside the first radial crossing of this limit are set to NaN. Default is 0.15 (zero means no limit).
 
     telescope : str, optional
-        Specify the telescope type: 'VLA' or 'EVLA'. Default is None.
+    Specify the telescope type: 'VLA' or 'EVLA'. Default is None.
 
     Returns
     -------
     outfile : str
-        Path to the corrected FITS image written to disk.
+    Path to the corrected FITS image written to disk.
 
     Notes
     -----
@@ -2786,6 +3051,23 @@ def VLA_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15, telescope=No
     separation = center.separation(coordinates).arcmin.reshape(img.shape)
 
     def _eval_poly(r_arcmin, f_ghz, coeffs):
+        """
+        Evaluate a fitted radial-frequency polynomial.
+
+        Parameters
+        ----------
+        r_arcmin : float
+            Radius in arcminutes.
+        f_ghz : float
+            Frequency in GHz.
+        coeffs : iterable
+            Polynomial coefficients.
+
+        Returns
+        -------
+        float
+            Evaluated polynomial value.
+        """
         x = (r_arcmin * f_ghz) ** 2
         pb = np.zeros_like(x, dtype=float)
         x_power = np.ones_like(x, dtype=float)
@@ -2899,34 +3181,34 @@ def uGMRT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
     Parameters
     ----------
     fitsimage : str
-        Path to the input FITS image that needs to be corrected.
+    Path to the input FITS image that needs to be corrected.
 
     outfile : str
-        Path where the primary-beam-corrected FITS image will be saved.
+    Path where the primary-beam-corrected FITS image will be saved.
 
     freq : float, optional
-        Observing frequency in GHz. If not provided, the function reads CRVAL3
-        from the FITS header, assuming it is in Hz.
+    Observing frequency in GHz. If not provided, the function reads CRVAL3
+    from the FITS header, assuming it is in Hz.
 
     ms : str, optional
-        Path to the Measurement Set. If provided, the pointing center is read
-        from its FIELD/REFERENCE_DIR column. Otherwise, the image center is
-        used as the pointing center.
+    Path to the Measurement Set. If provided, the pointing center is read
+    from its FIELD/REFERENCE_DIR column. Otherwise, the image center is
+    used as the pointing center.
 
     pblimit : float, optional
-        Primary beam limit in fraction of the peak. Pixels outside the first
-        radial crossing of this limit are set to NaN. Default is 0.15 (zero means no limit).
+    Primary beam limit in fraction of the peak. Pixels outside the first
+    radial crossing of this limit are set to NaN. Default is 0.15 (zero means no limit).
 
     Returns
     -------
     outfile : str
-        Path to the corrected FITS image written to disk.
+    Path to the corrected FITS image written to disk.
 
     Notes
     -----
     The correction follows the AIPS PBCOR polynomial convention:
 
-        F(x) = 1 + a*x/10**3 + b*x**2/10**7 + c*x**3/10**10 + d*x**4/10**13
+    F(x) = 1 + a*x/10**3 + b*x**2/10**7 + c*x**3/10**10 + d*x**4/10**13
 
     where x is the squared distance from the pointing center in
     (arcmin * frequency_GHz)**2. The coefficients are from the GMRT primary
@@ -3006,19 +3288,19 @@ def uGMRT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
 
 def frequencies_from_models(model_basename):
     """
-    This function takes a wsclean model basename string and returns the 
+    This function takes a wsclean model basename string and returns the
     frequency list string wsclean should use for -channel-division-frequencies and the same as a np array
-    
-    Parameters:
-    -----------
-    model_basename: str
+
+    Parameters
+    ----------
+    model_basename : str
         wsclean model basename to search for
 
-    Returns:
-    --------
-    freq_string: str
+    Returns
+    -------
+    freq_string : str
         String of frequency breaks to pass into wsclean
-    freqs: np.array
+    freqs : np.array
         Array of frequencies needed for further checking
     """
     nonpblist = sorted(glob.glob(model_basename + '-????-model.fits'))
@@ -3046,18 +3328,18 @@ def modify_freqs_from_ms(mslist, freqs):
     """
     This function takes a frequency array and trims it according to the frequencies available within an ms
 
-    Parameters:
-    -----------
-    mslist: [str]
+    Parameters
+    ----------
+    mslist : [str]
         Paths to MSs to get frequency limits
-    freqs: np.array
+    freqs : np.array
         Array containing frequency breaks for wsclean
 
-    Returns:
-    --------
-    mod_freq_string: str
+    Returns
+    -------
+    mod_freq_string : str
         String for wsclean with frequency cuts corrected by ms
-    mod_freqs: np.array
+    mod_freqs : np.array
         Array with modified frequencies matching string
     """
     ms_chan_freqs = []
@@ -3095,12 +3377,11 @@ def rename_models(model_basename, rename_no, model_prefix = "tmp_"):
     Function renames args['wscleanskymodel'] based on the integer number that need to be renamed and a new prefix to append.
     Update argument parameter at the end
 
-
-    Parameters:
-    -----------
-    rename_no: int
+    Parameters
+    ----------
+    rename_no : int
         Number of models that need to be renamed (2 -> Shift all basename models down 2)
-    model_prefix: str
+    model_prefix : str
         Prefix to apppend to the new model names
     """
 
@@ -3145,22 +3426,22 @@ def MeerKAT_antconstraint(antfile=None, ctype='all'):
     Parameters
     ----------
     antfile : str, optional
-        Path to the CSV file containing MeerKAT antenna layout. If None, a default path is used.
+    Path to the CSV file containing MeerKAT antenna layout. If None, a default path is used.
     ctype : {'core', 'remote', 'all'}, optional
-        Type of antennas to select:
-            - 'core': Antennas within 1000 meters from the center.
-            - 'remote': Antennas farther than 1000 meters from the center.
-            - 'all': All antennas.
+    Type of antennas to select:
+    - 'core': Antennas within 1000 meters from the center.
+    - 'remote': Antennas farther than 1000 meters from the center.
+    - 'all': All antennas.
 
     Returns
     -------
     list of str
-        List of selected antenna names.
+    List of selected antenna names.
 
     Raises
     ------
     SystemExit
-        If `ctype` is not one of 'core', 'remote', or 'all'.
+    If `ctype` is not one of 'core', 'remote', or 'all'.
 
     Notes
     -----
@@ -3188,7 +3469,17 @@ def MeerKAT_antconstraint(antfile=None, ctype='all'):
 
 def round_up_to_even(number):
     """
-    Round up to even number
+    Round up to the nearest even number.
+
+    Parameters
+    ----------
+    number : int or float
+        Input number.
+
+    Returns
+    -------
+    int
+        Next even integer greater than or equal to `number`.
     """
     return int(np.ceil(number / 2.) * 2)
 
@@ -3197,17 +3488,23 @@ def set_channelsout(mslist, factor=1):
     """
     Determines the number of output channels (`channelsout`) for a list of measurement sets (MS) based on the telescope type and fractional bandwidth.
 
-    Parameters:
-        mslist (list of str): List of paths to measurement sets (MS). The first MS in the list is used to determine the telescope type.
-        factor (int or float, optional): Multiplicative factor to adjust the number of output channels. Default is 1.
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to measurement sets (MS). The first MS in the list is used to determine the telescope type.
+    factor : int or float, optional
+        Multiplicative factor to adjust the number of output channels. Default is 1.
 
-    Returns:
-        int: The computed number of output channels, rounded up to the nearest even integer.
+    Returns
+    -------
+    int
+        The computed number of output channels, rounded up to the nearest even integer.
 
-    Notes:
-        - For LOFAR and unknown telescopes, `channelsout` is calculated as `round_up_to_even(f_bw * 12 * factor)`.
-        - For MeerKAT, `channelsout` is calculated as `round_up_to_even(f_bw * 13 * factor)`.
-        - The function assumes the existence of `get_fractional_bandwidth` and `round_up_to_even` helper functions.
+    Notes
+    -----
+    - For LOFAR and unknown telescopes, `channelsout` is calculated as `round_up_to_even(f_bw * 12 * factor)`.
+    - For MeerKAT, `channelsout` is calculated as `round_up_to_even(f_bw * 13 * factor)`.
+    - The function assumes the existence of `get_fractional_bandwidth` and `round_up_to_even` helper functions.
     """
     
     # get median frequency of the first MS
@@ -3235,9 +3532,9 @@ def set_channelsout(mslist, factor=1):
 def clean_up_images(imagename, model=False):
     """
     Remeoves psf, residual, beam, and dirty channel images after a WSClean run to save disk space
-    
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     ms : str
         The image basename used in the WSClean run
     """
@@ -3255,26 +3552,28 @@ def flag_antenna_taql(ms, antennaname):
     """
     Flags all data in a Measurement Set (MS) corresponding to a specific antenna, identified by its name, using TaQL (Table Query Language).
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     ms : str
         The path to the Measurement Set (MS) to be modified. This should include the full directory name of the MS.
     antennaname : str or list
         The name of the antenna(s) to flag. This name should match exactly with the entry in the ANTENNA table of the MS.
 
+    Returns
+    -------
+    None
+
+    Notes
+    -----
     Functionality:
-    --------------
     - Constructs a TaQL query to update the `FLAG` column in the MS's `MAIN` table.
     - Flags all rows where `ANTENNA1` or `ANTENNA2` corresponds to the antenna with the specified name.
     - Executes the constructed TaQL query using the `run` function (assumes `run` is defined elsewhere in your codebase to execute shell commands).
-
-    Notes:
-    ------
     - This function modifies the MS in-place; ensure you have a backup if needed.
     - The `run` function must be defined and capable of executing the constructed TaQL command in the appropriate environment.
     - Requires that the specified `antennaname` exists in the MS's ANTENNA table; otherwise, no rows will be flagged.
 
-    Example:
+    Examples
     --------
     Suppose you have a Measurement Set `observation.ms` and want to flag an antenna named `DE601HBA`:
 
@@ -3285,9 +3584,6 @@ def flag_antenna_taql(ms, antennaname):
 
     This will flag all rows in `observation.ms` where either `ANTENNA1` or `ANTENNA2` corresponds to the antenna named `DE601`.
 
-    Returns:
-    --------
-    None
     """
     # check is input is string or list, if string convert to list
     if isinstance(antennaname, str):
@@ -3304,7 +3600,7 @@ def flag_antenna_taql(ms, antennaname):
 
 def update_fitspectralpol():
     """
-    Update fit spectral pol in arguments
+    Update fit spectral polynomial order in command-line arguments.
     """
 
     if args['update_fitspectralpol']:
@@ -3312,12 +3608,18 @@ def update_fitspectralpol():
     return args['fitspectralpol']
 
 def get_image_size(fitsimage):
-    """ 
+    """
     Find the dimensions of a FITS image.
-    Args:
-        fitsimage (str): path to the FITS file.
-    Returns:
-        imsize (tuple): dimensions of the 2D image
+
+    Parameters
+    ----------
+    fitsimage : str
+        path to the FITS file.
+
+    Returns
+    -------
+    imsize : tuple
+        dimensions of the 2D image
     """
     hdulist = fits.open(fitsimage)
     shape = hdulist[0].data.squeeze().shape # squeeze out dimensions of 1
@@ -3329,8 +3631,11 @@ def fix_uvw(mslist):
     The MeerKAT definition of UVW differs by a minus sign, but not always for some reason
     This leads to a mix of definitions inside a MS which causes problems when time averaging
     This function fixes that issue
-    Parameters:
-    mslist (str/list): Input Measurement Set(s) as a string or a list of strings.
+
+    Parameters
+    ----------
+    mslist : str/list
+        Input Measurement Set(s) as a string or a list of strings.
     """
     mslist = [mslist] if isinstance(mslist, str) else mslist
     if get_telescope_from_ms(mslist[0]) != 'MeerKAT':
@@ -3346,11 +3651,15 @@ def get_image_dynamicrange(image):
     """
     Get dynamic range of an image (peak over rms)
 
-    Args:
-        image (str): FITS image file name .
-     
-    Returns:
-        DR (float): Dynamic range vale.
+    Parameters
+    ----------
+    image : str
+        FITS image file name .
+
+    Returns
+    -------
+    DR : float
+        Dynamic range vale.
     """
 
     print('Compute image dynamic range (peak over rms): ', image)
@@ -3364,13 +3673,18 @@ def is_stokesdiagonal_modeltype_allowed(args, telescope):
     """
     Determine if Diagonal sisco compression is allowed for MODEL_DATA-type columns.
 
-    Args:
-        args (dict): Dictionary of arguments, including 'single_dual_speedup', 
-                     'disable_primary_beam', and 'soltype_list'.
-        telescope (str): The telescope name (e.g., 'LOFAR').
+    Parameters
+    ----------
+    args : dict
+        Dictionary of arguments, including 'single_dual_speedup',
+        'disable_primary_beam', and 'soltype_list'.
+    telescope : str
+        The telescope name (e.g., 'LOFAR').
 
-    Returns:
-        bool: True if Diagonal sisco compression is allowed, False otherwise.
+    Returns
+    -------
+    bool
+        True if Diagonal sisco compression is allowed, False otherwise.
     """
     if telescope == 'LOFAR': 
         if not args['single_dual_speedup']:
@@ -3392,13 +3706,18 @@ def is_stokesi_modeltype_allowed(args, telescope):
     """
     Determine if Stokes I compression is allowed for MODEL_DATA-type columns.
 
-    Args:
-        args (dict): Dictionary of arguments, including 'single_dual_speedup', 
-                     'disable_primary_beam', and 'soltype_list'.
-        telescope (str): The telescope name (e.g., 'LOFAR').
+    Parameters
+    ----------
+    args : dict
+        Dictionary of arguments, including 'single_dual_speedup',
+        'disable_primary_beam', and 'soltype_list'.
+    telescope : str
+        The telescope name (e.g., 'LOFAR').
 
-    Returns:
-        bool: True if Stokes I compression is allowed, False otherwise.
+    Returns
+    -------
+    bool
+        True if Stokes I compression is allowed, False otherwise.
     """
     if telescope == 'LOFAR': 
         if not args['single_dual_speedup']:
@@ -3424,20 +3743,27 @@ def update_channelsout(selfcalcycle, mslist):
     """
     Dynamically updates the 'channelsout' parameter in the global 'args' dictionary based on the image dynamic range and telescope type.
 
-    Parameters:
-        selfcalcycle (int): The current self-calibration cycle number.
-        mslist (list of str): List of Measurement Set (MS) file paths.
+    Parameters
+    ----------
+    selfcalcycle : int
+        The current self-calibration cycle number.
+    mslist : list of str
+        List of Measurement Set (MS) file paths.
 
-    Returns:
-        int or float: The updated value of 'channelsout' in the 'args' dictionary.
+    Returns
+    -------
+    int or float
+        The updated value of 'channelsout' in the 'args' dictionary.
 
+    Notes
+    -----
     Behavior:
-        - Checks if 'update_channelsout' is enabled in 'args'.
-        - Determines the telescope name from the first MS in the list.
-        - Constructs the image filename based on the imaging parameters in 'args'.
-        - Computes the dynamic range of the image.
-        - Adjusts 'channelsout' in 'args' according to the dynamic range thresholds and telescope type.
-        - Returns the updated 'channelsout' value.
+    - Checks if 'update_channelsout' is enabled in 'args'.
+    - Determines the telescope name from the first MS in the list.
+    - Constructs the image filename based on the imaging parameters in 'args'.
+    - Computes the dynamic range of the image.
+    - Adjusts 'channelsout' in 'args' according to the dynamic range thresholds and telescope type.
+    - Returns the updated 'channelsout' value.
     """
     if args['update_channelsout']:
         # set stackstr
@@ -3481,17 +3807,17 @@ def set_fitspectralpol(channelsout):
     Parameters
     ----------
     channelsout : int
-        The number of output channels.
+    The number of output channels.
 
     Returns
     -------
     fitspectralpol : int
-        The fitspectralpol value corresponding to the number of output channels.
+    The fitspectralpol value corresponding to the number of output channels.
 
     Raises
     ------
     Exception
-        If the channelsout value is invalid.
+    If the channelsout value is invalid.
     """
     if channelsout == 1:
         fitspectralpol = 1
@@ -3513,9 +3839,17 @@ def set_fitspectralpol(channelsout):
 
 def get_fractional_bandwidth(mslist):
     """
-    Compute fractional bandwidth of a list of MS
-    input mslist: list of ms
-    return fractional bandwidth
+    Compute fractional bandwidth of a list of MS.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Sets.
+
+    Returns
+    -------
+    float
+        Fractional bandwidth.
     """
     freqaxis = []
     for ms in mslist:
@@ -3537,9 +3871,12 @@ def remove_column_ms(mslist, colname):
     """
     Remove a column from a Measurement Set or a list of Measurement Sets.
 
-    Parameters:
-    mslist (str/list): Input Measurement Set(s) as a string or a list of strings.
-    colname (str): Column name to be removed.
+    Parameters
+    ----------
+    mslist : str/list
+        Input Measurement Set(s) as a string or a list of strings.
+    colname : str
+        Column name to be removed.
     """
     mslist = [mslist] if isinstance(mslist, str) else mslist
 
@@ -3552,6 +3889,25 @@ def remove_column_ms(mslist, colname):
 
 
 def merge_splitted_h5_ordered(modeldatacolumnsin, parmdb_out, clean_up=False):
+    """
+    Merge direction H5 files in the order of their sky directions.
+
+    Parameters
+    ----------
+    modeldatacolumnsin : list
+        Direction model columns used to determine
+        the input H5 file sequence.
+    parmdb_out : str
+        Output merged H5 file path.
+    clean_up : bool, optional
+        Remove the input direction H5 files after
+        merging.
+
+    Returns
+    -------
+    None
+        The merged H5 file is written to ``parmdb_out``.
+    """
     h5list_sols = []
     for colid, coln in enumerate(modeldatacolumnsin):
         h5list_sols.append('Dir' + str(colid).zfill(2) + '.h5')
@@ -3600,9 +3956,13 @@ def read_MeerKAT_wscleanmodel_5spix(filename, outfile):
     These are used by the SDP pipeline
     (code can only handle the wsclean format models provided there)
     The function reformats the file so it can be used in DP3 and/or makesourcedb
-    Parameters:
-    filename (str): input filename
-    outfile (str): ouptput filename
+
+    Parameters
+    ----------
+    filename : str
+        input filename
+    outfile : str
+        ouptput filename
     """
     assert filename !=  outfile # prevent overwriting the input
     data = ascii.read(filename, delimiter=' ')
@@ -3669,9 +4029,13 @@ def read_MeerKAT_wscleanmodel_4spix(filename, outfile):
     These are used by the SDP pipeline
     (code can only handle the wsclean format models provided there)
     The function reformats the file so it can be used in DP3 and/or makesourcedb
-    Parameters:
-    filename (str): input filename
-    outfile (str): ouptput filename
+
+    Parameters
+    ----------
+    filename : str
+        input filename
+    outfile : str
+        ouptput filename
     """
     assert filename !=  outfile # prevent overwriting the input
     data = ascii.read(filename, delimiter=' ')
@@ -3734,9 +4098,13 @@ def read_MeerKAT_wscleanmodel_3spix(filename, outfile):
     These are used by the SDP pipeline
     (code can only handle the wsclean format models provided there)
     The function reformats the file so it can be used in DP3 and/or makesourcedb
-    Parameters:
-    filename (str): input filename
-    outfile (str): ouptput filename
+
+    Parameters
+    ----------
+    filename : str
+        input filename
+    outfile : str
+        ouptput filename
     """
     assert filename !=  outfile # prevent overwriting the input
     data = ascii.read(filename, delimiter=' ')
@@ -3790,9 +4158,15 @@ def read_MeerKAT_wscleanmodel_3spix(filename, outfile):
 
 def copy_over_solutions_from_skipped_directions(modeldatacolumnsin, id_kept):
     """
-   modeldatacolumnsin: all modeldatacolumns
-   id_kept: indices of the modeldatacolumns kept in the solve id_kept
-   """
+    Copy over solutions from skipped directions.
+
+    Parameters
+    ----------
+    modeldatacolumnsin : list of str
+        All model data column names.
+    id_kept : list of int
+        Indices of the model data columns kept in the solve.
+    """
     h5list_sols = []
     h5list_empty = []
     for colid, coln in enumerate(modeldatacolumnsin):
@@ -3844,16 +4218,20 @@ def filter_baseline_str_removestations(stationlist):
     """
     Generates a baseline filter string to exclude specific stations from processing.
 
-    This function constructs a string that can be used to filter out baselines 
-    involving specific stations in a radio interferometry dataset. The filter 
-    string is formatted to exclude baselines that include any of the stations 
+    This function constructs a string that can be used to filter out baselines
+    involving specific stations in a radio interferometry dataset. The filter
+    string is formatted to exclude baselines that include any of the stations
     provided in the input list.
 
-    Args:
-        stationlist (list of str): A list of station names to be excluded.
+    Parameters
+    ----------
+    stationlist : list of str
+        A list of station names to be excluded.
 
-    Returns:
-        str: A formatted baseline filter string that excludes the specified stations.
+    Returns
+    -------
+    str
+        A formatted baseline filter string that excludes the specified stations.
     """
     fbaseline = "'"
     for station_id, station in enumerate(stationlist):
@@ -3867,24 +4245,31 @@ def return_antennas_highflaggingpercentage(ms, percentage=85):
     """
     Identifies antennas with a high percentage of flagged data in a Measurement Set (MS).
 
-    This function queries the provided Measurement Set (MS) to find antennas where the 
-    percentage of flagged data exceeds the specified threshold. It uses the TaQL (Table Query 
+    This function queries the provided Measurement Set (MS) to find antennas where the
+    percentage of flagged data exceeds the specified threshold. It uses the TaQL (Table Query
     Language) to perform the query and returns a list of antenna names that meet the criteria.
 
-    Args:
-        ms (str): The path to the Measurement Set (MS) to be analyzed.
-        percentage (float, optional): The flagging percentage threshold. Antennas with a 
-            flagging percentage greater than this value will be returned. Default is 0.85 
-            (85%).
+    Parameters
+    ----------
+    ms : str
+        The path to the Measurement Set (MS) to be analyzed.
+    percentage : float, optional
+        The flagging percentage threshold. Antennas with a
+        flagging percentage greater than this value will be returned. Default is 0.85
+        (85%).
 
-    Returns:
-        list: A list of antenna names (str) that have a flagging percentage above the specified 
+    Returns
+    -------
+    list
+        A list of antenna names (str) that have a flagging percentage above the specified
         threshold.
 
-    Example:
-        >>> flagged_antennas = return_antennas_highflaggingpercentage("path/to/ms", 0.9)
-        Finding stations with a flagging percentage above 90.0 ....
-        Found: ['ANT1', 'ANT2']
+    Examples
+    --------
+    >>> flagged_antennas = return_antennas_highflaggingpercentage("path/to/ms", 0.9)
+    Finding stations with a flagging percentage above 90.0 ....
+    Found: ['ANT1', 'ANT2']
+
     """
     print('Finding stations with a flagging percentage above ' + str(percentage) + ' ....')
     t = taql(""" SELECT antname, gsum(numflagged) AS numflagged, gsum(numvis) AS numvis,
@@ -3905,20 +4290,28 @@ def create_empty_fitsimage(ms, imsize, pixelsize, outfile):
     aligned to the phase center of the provided measurement set (MS). The FITS
     header is populated with appropriate WCS (World Coordinate System) information.
 
-    Parameters:
-        ms (str): Path to the measurement set (MS) file. Used to determine the
-                  phase center coordinates.
-        imsize (int): Size of the image in pixels (assumes a square image).
-        pixelsize (float): Pixel size in arcseconds.
-        outfile (str): Path to the output FITS file.
+    Parameters
+    ----------
+    ms : str
+        Path to the measurement set (MS) file. Used to determine the
+        phase center coordinates.
+    imsize : int
+        Size of the image in pixels (assumes a square image).
+    pixelsize : float
+        Pixel size in arcseconds.
+    outfile : str
+        Path to the output FITS file.
 
-    Returns:
-        None: The function writes the FITS file to the specified output path.
+    Returns
+    -------
+    None
+        The function writes the FITS file to the specified output path.
 
-    Notes:
-        - The WCS projection used is SIN (Sine projection).
-        - The pixel scale is set in degrees, derived from the provided pixel size
-          in arcseconds.
+    Notes
+    -----
+    - The WCS projection used is SIN (Sine projection).
+    - The pixel scale is set in degrees, derived from the provided pixel size
+    in arcseconds.
     """
     data = np.zeros((imsize, imsize))
 
@@ -3944,15 +4337,19 @@ def create_empty_fitsimage(ms, imsize, pixelsize, outfile):
 
 def set_DDE_predict_skymodel_solve(wscleanskymodel):
     """
-    Determines the tool to use for DDE (Direction Dependent Effects) prediction 
+    Determines the tool to use for DDE (Direction Dependent Effects) prediction
     and solving based on the provided sky model.
 
-    Parameters:
-        wscleanskymodel (str): The sky model string. If not None, WSCLEAN 
-                                  will be used; otherwise, DP3 will be used.
+    Parameters
+    ----------
+    wscleanskymodel : str
+        The sky model string. If not None, WSCLEAN
+        will be used; otherwise, DP3 will be used.
 
-    Returns:
-        str: 'WSCLEAN' if a sky model is provided, otherwise 'DP3'.
+    Returns
+    -------
+    str
+        'WSCLEAN' if a sky model is provided, otherwise 'DP3'.
     """
     if wscleanskymodel is not None:
         return 'WSCLEAN'
@@ -3961,13 +4358,23 @@ def set_DDE_predict_skymodel_solve(wscleanskymodel):
 
 def timebase(fov, ms, tau=0.995):
     """
-    Find DP3 timebase value for BDA
-    
-    FoV: field of view in degrees
-    ms: Measurement set
-    tau: Peak flux loss factor
+    Find DP3 timebase value for BDA.
 
-    Using formulas from Bridle & Schwab (1999)
+    Uses formulas from Bridle & Schwab (1999).
+
+    Parameters
+    ----------
+    fov : float
+        Field of view in degrees.
+    ms : str
+        Measurement Set path.
+    tau : float
+        Peak flux loss factor.
+
+    Returns
+    -------
+    float
+        DP3 timebase value for BDA.
     """
 
     with table(ms+"::SPECTRAL_WINDOW", ack=False) as t:
@@ -3983,15 +4390,25 @@ def timebase(fov, ms, tau=0.995):
 
 def bda_mslist(mslist, pixsize, imsize, dryrun=False, metadata_compression=True):
     """
-    BDA compress list of MS with DP3
-    
-    pixsize: pixel size in arcsec
-    imsize: image size in pixels
-    mslist: list of Measurement sets
-    dryrun: create the actual MS (otherwise only bda_mslist is made)
-    
-    returns
-    bda_mslist: list of BDA Measurement sets
+    BDA compress list of MS with DP3.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Sets.
+    pixsize : float
+        Pixel size in arcsec.
+    imsize : int
+        Image size in pixels.
+    dryrun : bool, optional
+        Whether to create the actual MS (otherwise only bda_mslist is made).
+    metadata_compression : bool, optional
+        Whether to use metadata compression.
+
+    Returns
+    -------
+    list of str
+        List of BDA Measurement Sets.
     """
     bda_mslist = []
     for ms in mslist:
@@ -4018,15 +4435,20 @@ def getAntennas(ms):
     """
     Retrieve a list of antenna names from a Measurement Set (MS).
 
-    Args:
-        ms (str): The path to the Measurement Set (MS) directory.
+    Parameters
+    ----------
+    ms : str
+        The path to the Measurement Set (MS) directory.
 
-    Returns:
-        list: A list of antenna names as strings.
+    Returns
+    -------
+    list
+        A list of antenna names as strings.
 
-    Notes:
-        This function accesses the 'ANTENNA' table within the provided
-        Measurement Set to extract the antenna names.
+    Notes
+    -----
+    This function accesses the 'ANTENNA' table within the provided
+    Measurement Set to extract the antenna names.
     """
     t = table(ms + "/ANTENNA", readonly=True, ack=False)
     antennas = t.getcol('NAME')
@@ -4041,12 +4463,12 @@ def grab_coord_MS(MS):
     Parameters
     ----------
     MS : str
-        Full name (with path) to one MS of the field
+    Full name (with path) to one MS of the field
 
     Returns
     -------
     RA, Dec : "tuple"
-        coordinates of the field (RA, Dec in deg , J2000)
+    coordinates of the field (RA, Dec in deg , J2000)
     """
 
     # reading the coordinates ("position") from the MS
@@ -4074,20 +4496,20 @@ def getGSM(ms_input, SkymodelPath='gsm.skymodel', Radius="5.", DoDownload="Force
     Parameters
     ----------
     ms_input : str
-        String from the list (map) of the target MSs
+    String from the list (map) of the target MSs
     SkymodelPath : str
-        Full name (with path) to the skymodel; if YES is true, the skymodel will be downloaded here
+    Full name (with path) to the skymodel; if YES is true, the skymodel will be downloaded here
     Radius : string with float (default = "5.")
-        Radius for the TGSS/GSM cone search in degrees
+    Radius for the TGSS/GSM cone search in degrees
     DoDownload : str ("Force" or "True" or "False")
-        Download or not the TGSS skymodel or GSM.
-        "Force": download skymodel from TGSS or GSM, delete existing skymodel if needed.
-        "True" or "Yes": use existing skymodel file if it exists, download skymodel from
-                         TGSS or GSM if it does not.
-        "False" or "No": Do not download skymodel, raise an exception if skymodel
-                         file does not exist.
+    Download or not the TGSS skymodel or GSM.
+    "Force": download skymodel from TGSS or GSM, delete existing skymodel if needed.
+    "True" or "Yes": use existing skymodel file if it exists, download skymodel from
+    TGSS or GSM if it does not.
+    "False" or "No": Do not download skymodel, raise an exception if skymodel
+    file does not exist.
     targetname : str
-        Give the patch a certain name, default: "pointing"
+    Give the patch a certain name, default: "pointing"
     """
     import lsmtool # type: ignore
     FileExists = os.path.isfile(SkymodelPath)
@@ -4152,7 +4574,20 @@ def getGSM(ms_input, SkymodelPath='gsm.skymodel', Radius="5.", DoDownload="Force
 
 def create_pointing_list(mslist):
     """
-    Create a list of pointing centers from a list of Measurement Sets (MS). Round pointing center to 1arcsec precision. This is used to group MSs with the same pointing center for concatenation.
+    Create a list of pointing centers from a list of Measurement Sets (MS).
+
+    Rounds pointing centers to 1 arcsecond precision to group MSs with
+    the same pointing center for concatenation.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Set paths.
+
+    Returns
+    -------
+    list of str
+        List of unique pointing centers formatted as 'RA,Dec'.
     """
     pointing_list = []
     print('Taking pointing center from the ms')
@@ -4172,11 +4607,15 @@ def get_chan_freqs(ms):
     """
     Retrieve channel frequencies from the SPECTRAL_WINDOW table of a Measurement Set (MS).
 
-    Args:
-        ms (str): Path to the Measurement Set.
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
 
-    Returns:
-        tuple: A tuple of channel frequencies rounded to 0.1 Hz.
+    Returns
+    -------
+    tuple
+        A tuple of channel frequencies rounded to 0.1 Hz.
     """
     with table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False) as t:
         chan_freqs = t.getcol('CHAN_FREQ')
@@ -4187,12 +4626,43 @@ def get_chan_freqs(ms):
     return tuple(np.round(freq_list, 1).tolist())
 
 def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
+    """
+    Group compatible Measurement Sets and prepare WSClean inputs.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Measurement Set paths to group.
+    h5list : list of str or None, optional
+        H5 solutions to match and
+        merge for each group.
+    concatms : bool, optional
+        Concatenate each group into an output MS.
+
+    Returns
+    -------
+    tuple
+        Lists of concatenated Measurement Set and H5 file paths.
+    """
     plist = create_pointing_list(mslist)
     pointing_by_ms = dict(zip(mslist, plist))
     chan_freqs_by_ms = {ms: get_chan_freqs(ms) for ms in mslist}
     antennas_by_ms = {ms: tuple(sorted(getAntennas(ms))) for ms in mslist}
 
     def keyfunct(ms):
+        """
+        Return the grouping key for a Measurement Set.
+
+        Parameters
+        ----------
+        ms : str
+            Path to the Measurement Set.
+
+        Returns
+        -------
+        str
+            Grouping key string.
+        """
         center = pointing_by_ms[ms]
         return (center.ra.deg, center.dec.deg, antennas_by_ms[ms], chan_freqs_by_ms[ms])
 
@@ -4245,12 +4715,21 @@ def max_in_str(s):
     Each entry in the input string should be in the format 'key:value', where 'value' is expected to be a positive integer.
     If any value is not a positive integer, a ValueError is raised.
     If no valid positive integer values are found, a ValueError is raised.
-    Parameters:
-        s (str): A comma-separated string of key:value pairs (e.g., "a:3,b:7,c:2").
-    Returns:
-        int: The maximum positive integer value found among the values.
-    Raises:
-        ValueError: If any entry is malformed, contains a non-positive integer value, or if no valid values are found.
+
+    Parameters
+    ----------
+    s : str
+        A comma-separated string of key:value pairs (e.g., "a:3,b:7,c:2").
+
+    Returns
+    -------
+    int
+        The maximum positive integer value found among the values.
+
+    Raises
+    ------
+    ValueError
+        If any entry is malformed, contains a non-positive integer value, or if no valid values are found.
     """
 
     values = []
@@ -4276,13 +4755,22 @@ def check_antenna_factors(antenna_averaging_factors_list, antenna_smoothness_fac
     2. For each measurement set and solution interval cycle, checks that the maximum antenna averaging factor does not exceed the maximum allowed divisor.
     3. If the maximum antenna averaging factor exceeds the allowed value, attempts to upscale the least common multiple (LCM) of solution intervals, provided it does not exceed a hard limit (4096).
     4. If any check fails, prints a warning and exits the program.
-    Args:
-        antenna_averaging_factors_list (list): Nested list containing antenna averaging factors for each solution interval cycle and measurement set.
-        antenna_smoothness_factors_list (list): Nested list containing antenna smoothness factors for each perturbation and measurement set.
-        mslist (list): List of measurement set file paths.
-        facetdirections (str or None): String specifying facet directions and related parameters, or None if not used.
-    Raises:
-        SystemExit: If any antenna smoothness factor is not in the allowed range, or if any antenna averaging factor exceeds the allowed value and cannot be upscaled within limits.
+
+    Parameters
+    ----------
+    antenna_averaging_factors_list : list
+        Nested list containing antenna averaging factors for each solution interval cycle and measurement set.
+    antenna_smoothness_factors_list : list
+        Nested list containing antenna smoothness factors for each perturbation and measurement set.
+    mslist : list
+        List of measurement set file paths.
+    facetdirections : str or None
+        String specifying facet directions and related parameters, or None if not used.
+
+    Raises
+    ------
+    SystemExit
+        If any antenna smoothness factor is not in the allowed range, or if any antenna averaging factor exceeds the allowed value and cannot be upscaled within limits.
     """
     facetdirections_list = facetdirections if isinstance(facetdirections, list) else [facetdirections]
     for fd in facetdirections_list:
@@ -4332,6 +4820,23 @@ def check_antenna_factors(antenna_averaging_factors_list, antenna_smoothness_fac
 
 # temporary function to check rounding issues with antenna averaging factors, remove later
 def test_antenna_averaging_factors(antenna_averaging_factors_list, mslist, facetdirections):
+    """
+    Inspect antenna averaging factors for compatible solution intervals.
+
+    Parameters
+    ----------
+    antenna_averaging_factors_list : list
+        Requested antenna factors.
+    mslist : list of str
+        Measurement Set paths to inspect.
+    facetdirections : str
+        Facet-direction file path.
+
+    Returns
+    -------
+    None
+        Diagnostic information is printed.
+    """
     dirs, solintslist, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)    
     solint_reformat = np.array(solintslist)
     for ms_id, ms in enumerate(mslist):
@@ -4416,6 +4921,21 @@ def test_antenna_averaging_factors(antenna_averaging_factors_list, mslist, facet
     return
 
 def check_for_highmem_longsolint(mslist, facetdirections):
+    """
+    Check whether DDE solution intervals may require excessive memory.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Measurement Set paths to inspect.
+    facetdirections : str
+        Facet-direction file path.
+
+    Returns
+    -------
+    None
+        Exits the process if a solution interval is too large.
+    """
     dirs, solints, smoothness, soltypelist_includedir = parse_facetdirections(facetdirections, 1000)
 
     if solints is None:
@@ -4453,16 +4973,20 @@ def selfcal_animatedgif(fitsstr, outname):
     """
     Generates an animated GIF from a FITS file using the DS9 visualization tool.
 
-    This function constructs a command to run DS9 with specific parameters to 
-    create an animated GIF from the provided FITS file. The GIF is saved to the 
+    This function constructs a command to run DS9 with specific parameters to
+    create an animated GIF from the provided FITS file. The GIF is saved to the
     specified output file.
 
-    Args:
-        fitsstr (str): The path to the input FITS file.
-        outname (str): The name of the output GIF file.
+    Parameters
+    ----------
+    fitsstr : str
+        The path to the input FITS file.
+    outname : str
+        The name of the output GIF file.
 
-    Returns:
-        None
+    Returns
+    -------
+    None
     """
     limit_min = -250e-6
     limit_max = 2.5e-2
@@ -4483,14 +5007,14 @@ def find_closest_ddsol(h5, ms):
     Parameters
     ----------
     h5 : str
-        Path to the H5 file containing directional solutions.
+    Path to the H5 file containing directional solutions.
     ms : str
-        Path to the Measurement Set (MS) whose phase center is used for comparison.
+    Path to the Measurement Set (MS) whose phase center is used for comparison.
 
     Returns
     -------
     str
-        The name of the closest direction in the H5 file to the phase center of the MS.
+    The name of the closest direction in the H5 file to the phase center of the MS.
 
     Notes
     -----
@@ -4520,27 +5044,32 @@ def set_beamcor(ms, beamcor_var):
     """
     Determines whether to apply beam correction for a measurement set (MS).
 
-    Parameters:
-    ms (str): The path to the measurement set (MS) file.
-    beamcor_var (str): A string indicating whether to apply beam correction. 
-                       Possible values are:
-                       - 'no': Do not apply beam correction.
-                       - 'yes': Apply beam correction.
-                       - 'auto': Automatically determine based on observation data.
+    Parameters
+    ----------
+    ms : str
+        The path to the measurement set (MS) file.
+    beamcor_var : str
+        A string indicating whether to apply beam correction.
+        Possible values are:
+        - 'no': Do not apply beam correction.
+        - 'yes': Apply beam correction.
+        - 'auto': Automatically determine based on observation data.
 
-    Returns:
-    bool: True if beam correction should be applied, False otherwise.
+    Returns
+    -------
+    bool
+        True if beam correction should be applied, False otherwise.
 
+    Notes
+    -----
     Behavior:
     - If `beamcor_var` is 'no', beam correction is not applied.
     - If `beamcor_var` is 'yes', beam correction is applied.
     - If `beamcor_var` is 'auto', the function checks:
-        - If the telescope is not LOFAR, beam correction is not applied.
-        - If the telescope is LOFAR, it calculates the angular separation between 
-          the phase center and the applied beam direction. If the separation is 
-          less than 10 arcseconds, beam correction is not applied; otherwise, it is applied.
-
-    Notes:
+    - If the telescope is not LOFAR, beam correction is not applied.
+    - If the telescope is LOFAR, it calculates the angular separation between
+    the phase center and the applied beam direction. If the separation is
+    less than 10 arcseconds, beam correction is not applied; otherwise, it is applied.
     - The function uses the `astropy.coordinates.SkyCoord` class to calculate angular separation.
     - Beam keywords are added to the MS if they are missing, using the `beam_keywords` function.
     - Logs information about the decision process and angular separation.
@@ -4596,7 +5125,19 @@ def set_beamcor(ms, beamcor_var):
 
 
 def isfloat(num):
-    """Check if a value is a float."""
+    """
+    Check if a value can be converted to a float.
+
+    Parameters
+    ----------
+    num : any
+        Value to test.
+
+    Returns
+    -------
+    bool
+        True if `num` can be converted to a float, False otherwise.
+    """
     return isinstance(num, float) or (isinstance(num, str) and num.replace('.', '', 1).isdigit())
 
 
@@ -4604,19 +5145,25 @@ def find_prime_factors(n):
     """
     Find the prime factors of a given integer.
 
-    This function computes the prime factors of the input integer `n` 
-    and returns them as a list. It first extracts all factors of 2, 
+    This function computes the prime factors of the input integer `n`
+    and returns them as a list. It first extracts all factors of 2,
     then iterates through odd numbers to find other prime factors.
 
-    Args:
-        n (int): The integer to factorize. Must be greater than 0.
+    Parameters
+    ----------
+    n : int
+        The integer to factorize. Must be greater than 0.
 
-    Returns:
-        list: A list of integers representing the prime factors of `n`.
+    Returns
+    -------
+    list
+        A list of integers representing the prime factors of `n`.
 
-    Example:
-        >>> find_prime_factors(28)
-        [2, 2, 7]
+    Examples
+    --------
+    >>> find_prime_factors(28)
+    [2, 2, 7]
+
     """
     factorlist = []
     num = n
@@ -4635,17 +5182,22 @@ def find_prime_factors(n):
 
 def tweak_solintsold(solints, solval=20):
     """
-    Adjusts a list of solution intervals by rounding up values greater than a 
+    Adjusts a list of solution intervals by rounding up values greater than a
     specified threshold to the nearest even number.
 
-    Parameters:
-    solints (list of int): A list of solution intervals to be adjusted.
-    solval (int, optional): The threshold value. Solution intervals greater 
-        than this value will be rounded up to the nearest even number. 
+    Parameters
+    ----------
+    solints : list of int
+        A list of solution intervals to be adjusted.
+    solval : int, optional
+        The threshold value. Solution intervals greater
+        than this value will be rounded up to the nearest even number.
         Defaults to 20.
 
-    Returns:
-    list of int: A list of adjusted solution intervals.
+    Returns
+    -------
+    list of int
+        A list of adjusted solution intervals.
     """
     solints_return = []
     for sol in solints:
@@ -4658,7 +5210,23 @@ def tweak_solintsold(solints, solval=20):
 
 def tweak_solints(solints, solvalthresh=11, ms_ntimes=None, verbose=False):
     """
-    Returns modified solints that can be factorized by 2 or 3 if input contains number >= solvalthresh
+    Modify solution intervals so they can be factorized by 2 or 3.
+
+    Parameters
+    ----------
+    solints : list
+        Input solution intervals.
+    solvalthresh : float
+        Threshold above which factorization is applied.
+    ms_ntimes : int, optional
+        Total number of time slots in the Measurement Set.
+    verbose : bool, optional
+        Whether to print verbose output.
+
+    Returns
+    -------
+    list
+        Modified solution intervals.
     """
     solints_return = []
 
@@ -4688,25 +5256,24 @@ def tweak_solints(solints, solvalthresh=11, ms_ntimes=None, verbose=False):
 def tweak_solints_single(solint, ms_ntimes, solvalthresh=11):
     """
     def tweak_solints_single(solint, ms_ntimes, solvalthresh=11):
-        Adjusts the given solution interval (`solint`) to avoid having a small number 
-        of leftover time slots near the end of the measurement set (ms).
+    Adjusts the given solution interval (`solint`) to avoid having a small number
+    of leftover time slots near the end of the measurement set (ms).
 
-        Parameters:
-        -----------
-        solint : int
-            The initial solution interval to be adjusted.
-        ms_ntimes : int
-            The total number of time slots in the measurement set.
-        solvalthresh : int, optional
-            Threshold value for the solution interval. If `solint` is less than this 
-            threshold, it is returned unchanged. Default is 11.
+    Parameters
+    ----------
+    solint : int
+        The initial solution interval to be adjusted.
+    ms_ntimes : int
+        The total number of time slots in the measurement set.
+    solvalthresh : int, optional
+        Threshold value for the solution interval. If `solint` is less than this
+        threshold, it is returned unchanged. Default is 11.
 
-        Returns:
-        --------
-        int
-            A modified solution interval that minimizes leftover time slots while 
-            being as close as possible to the original `solint`.
-
+    Returns
+    -------
+    int
+        A modified solution interval that minimizes leftover time slots while
+        being as close as possible to the original `solint`.
     """
     if np.max(solint) < solvalthresh:
         return solint
@@ -4719,22 +5286,29 @@ def tweak_solints_single(solint, ms_ntimes, solvalthresh=11):
 
 def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=13, fraction_lastslot=0.2):
     """
-    Filters a list of solution intervals (solints) to remove those that result in 
-    significant rounding errors when dividing the total number of timeslots (ms_ntimes) 
-    by the solution interval. Additionally, excludes solution intervals smaller than 
+    Filters a list of solution intervals (solints) to remove those that result in
+    significant rounding errors when dividing the total number of timeslots (ms_ntimes)
+    by the solution interval. Additionally, excludes solution intervals smaller than
     a specified threshold.
 
-    Args:
-        solints (list of int): A list of possible solution intervals to evaluate.
-        ms_ntimes (int): The total number of timeslots in the measurement set (MS).
-        ignorelessthan (int, optional): The minimum solution interval to consider. 
-            Solution intervals smaller than this value will be excluded. Defaults to 13.
-        fraction_lastslot (float, optional): The maximum allowed fraction of leftover 
-            time slots after division. Solution intervals resulting in a leftover 
-            fraction greater than this value will be excluded. Defaults to 0.2.    
+    Parameters
+    ----------
+    solints : list of int
+        A list of possible solution intervals to evaluate.
+    ms_ntimes : int
+        The total number of timeslots in the measurement set (MS).
+    ignorelessthan : int, optional
+        The minimum solution interval to consider.
+        Solution intervals smaller than this value will be excluded. Defaults to 13.
+    fraction_lastslot : float, optional
+        The maximum allowed fraction of leftover
+        time slots after division. Solution intervals resulting in a leftover
+        fraction greater than this value will be excluded. Defaults to 0.2.
 
-    Returns:
-        list of int: A filtered list of solution intervals that meet the criteria.
+    Returns
+    -------
+    list of int
+        A filtered list of solution intervals that meet the criteria.
     """
     solints_out = []
     for solint in solints:
@@ -4746,15 +5320,20 @@ def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=13, fraction_lasts
 
 def listof2and3prime(startval=2, stopval=10000):
     """
-    Generate a list of integers between `startval` and `stopval` (exclusive) 
+    Generate a list of integers between `startval` and `stopval` (exclusive)
     whose largest prime factor is either 2 or 3.
 
-    Args:
-        startval (int, optional): The starting value of the range (inclusive). Defaults to 2.
-        stopval (int, optional): The ending value of the range (exclusive). Defaults to 10000.
+    Parameters
+    ----------
+    startval : int, optional
+        The starting value of the range (inclusive). Defaults to 2.
+    stopval : int, optional
+        The ending value of the range (exclusive). Defaults to 10000.
 
-    Returns:
-        list: A list of integers satisfying the condition, including the initial value 1.
+    Returns
+    -------
+    list
+        A list of integers satisfying the condition, including the initial value 1.
     """
     solint = [1]
     for i in np.arange(startval, stopval):
@@ -4769,12 +5348,17 @@ def find_nearest(array, value):
     """
     Find the nearest value in an array to a given target value.
 
-    Parameters:
-    array (array-like): The input array to search. It will be converted to a NumPy array if not already one.
-    value (float or int): The target value to find the closest match for in the array.
+    Parameters
+    ----------
+    array : array-like
+        The input array to search. It will be converted to a NumPy array if not already one.
+    value : float or int
+        The target value to find the closest match for in the array.
 
-    Returns:
-    float or int: The value from the array that is closest to the target value.
+    Returns
+    -------
+    float or int
+        The value from the array that is closest to the target value.
     """
     array = np.asarray(array)
     idx = (np.abs(array - value)).argmin()
@@ -4784,8 +5368,15 @@ def find_nearest(array, value):
 def get_time_preavg_factor_LTAdata(ms):
     """
     Get time pre-averaging factor (given by demixer.timestep)
-    :param ms: measurement set
-    :return: averaging integer
+
+    Parameters
+    ----------
+    ms
+        measurement set
+
+    Returns
+    -------
+    averaging integer
     """
     parse_str = "demixer.timestep="
     parsed_history = parse_history(ms, parse_str)
@@ -4814,18 +5405,18 @@ def add_dummyms(msfiles):
     Parameters
     ----------
     msfiles : list of str
-        List of paths to measurement set files to be processed.
+    List of paths to measurement set files to be processed.
     Returns
     -------
     list of str
-        Updated list of measurement set files with dummy MS entries ('dummyX.ms') 
-        inserted where needed to maintain regular frequency spacing. If only one MS
-        is provided, returns the original list unchanged.
+    Updated list of measurement set files with dummy MS entries ('dummyX.ms') 
+    inserted where needed to maintain regular frequency spacing. If only one MS
+    is provided, returns the original list unchanged.
     Notes
     -----
     - The function first checks the REF_FREQUENCY values in each MS. If these are
-      identical (which can happen after DPPP split in frequency), it falls back
-      to using CHAN_FREQ values.
+    identical (which can happen after DPPP split in frequency), it falls back
+    to using CHAN_FREQ values.
     - The input MS files are automatically sorted by increasing frequency.
     - Dummy MS filenames follow the pattern 'dummy0.ms', 'dummy1.ms', etc.
     - The function prints information about added dummy MS files and the final list.
@@ -4902,11 +5493,15 @@ def number_of_unique_obsids(msfiles):
     Basic function to get numbers of observations based on first part of ms name
     (assumes one uses "_" here)
 
-     Args:
-         msfiles (list): the list of ms
-     Returns:
-         reval (int): number of observations
+    Parameters
+    ----------
+    msfiles : list
+        the list of ms
 
+    Returns
+    -------
+    reval : int
+        number of observations
     """
     obsids = []
     for ms in msfiles:
@@ -4919,29 +5514,29 @@ def getobsmslist(msfiles, observationnumber):
     """
     Generate a list of measurement sets (MS) belonging to the same observation.
 
-    This function groups measurement sets by their observation ID, which is 
-    extracted from the filenames of the provided MS files. It then returns 
+    This function groups measurement sets by their observation ID, which is
+    extracted from the filenames of the provided MS files. It then returns
     the list of MS files corresponding to the specified observation number.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     msfiles : list of str
         A list of file paths to the measurement sets (MS).
     observationnumber : int
         The index of the observation to extract (0-based).
 
-    Returns:
-    --------
+    Returns
+    -------
     list of str
-        A list of file paths to the measurement sets belonging to the 
+        A list of file paths to the measurement sets belonging to the
         specified observation.
 
-    Notes:
-    ------
-    - The observation ID is assumed to be the first part of the filename, 
-      separated by an underscore ('_').
-    - The `observationnumber` parameter corresponds to the index of the 
-      unique observation IDs in the order they appear in the input list.
+    Notes
+    -----
+    - The observation ID is assumed to be the first part of the filename,
+    separated by an underscore ('_').
+    - The `observationnumber` parameter corresponds to the index of the
+    unique observation IDs in the order they appear in the input list.
     """
     obsids = []
     for ms in msfiles:
@@ -4962,15 +5557,22 @@ def mscolexist(ms, colname):
     measurement set directory. It returns `True` if the column exists and `False`
     otherwise.
 
-    Args:
-        ms (str): The path to the measurement set directory.
-        colname (str): The name of the column to check for existence.
+    Parameters
+    ----------
+    ms : str
+        The path to the measurement set directory.
+    colname : str
+        The name of the column to check for existence.
 
-    Returns:
-        bool: `True` if the column exists in the measurement set, `False` otherwise.
+    Returns
+    -------
+    bool
+        `True` if the column exists in the measurement set, `False` otherwise.
 
-    Raises:
-        None: This function does not raise any exceptions, but it assumes that the
+    Raises
+    ------
+    None
+        This function does not raise any exceptions, but it assumes that the
         `os` module and `table` class from `casacore.tables` are properly imported.
     """
     if os.path.isdir(ms):
@@ -4997,31 +5599,31 @@ def concat_ms_from_same_obs(mslist, outnamebase, colname='DATA', dysco=True, met
     Parameters
     ----------
     mslist : list of str
-        List of input measurement set paths to be concatenated.
+    List of input measurement set paths to be concatenated.
     outnamebase : str
-        Base name for output concatenated measurement sets. The observation number
-        will be appended (e.g., 'outnamebase_0.ms', 'outnamebase_1.ms').
+    Base name for output concatenated measurement sets. The observation number
+    will be appended (e.g., 'outnamebase_0.ms', 'outnamebase_1.ms').
     colname : str, optional
-        Name of the data column to concatenate (default: 'DATA').
+    Name of the data column to concatenate (default: 'DATA').
     dysco : bool, optional
-        If True, use Dysco storage manager for compression (default: True).
+    If True, use Dysco storage manager for compression (default: True).
     metadata_compression : bool, optional
-        If True, enable compression for UVW coordinates, antenna data, and flags
-        (default: True).
+    If True, enable compression for UVW coordinates, antenna data, and flags
+    (default: True).
 
     Returns
     -------
     None
-        The function writes concatenated measurement sets to disk but returns nothing.
+    The function writes concatenated measurement sets to disk but returns nothing.
 
     Notes
     -----
     - The function uses DP3 (DPPP) for the concatenation process.
     - Missing measurement sets or those without the specified column are replaced
-      with dummy entries labeled 'missing<number>'.
+    with dummy entries labeled 'missing<number>'.
     - Existing output measurement sets are removed before creation.
     - The function assumes `number_of_unique_obsids`, `getobsmslist`, `add_dummyms`,
-      `mscolexist`, and `run` are defined elsewhere in the codebase.
+    `mscolexist`, and `run` are defined elsewhere in the codebase.
     """
 
     for observation in range(number_of_unique_obsids(mslist)):
@@ -5068,16 +5670,22 @@ def fix_equidistant_times(mslist, dryrun, dysco=True, metadata_compression=False
     For non-LOFAR telescopes, checks if the time axis is regular; if not, regularizes and splits the MS as needed.
     For LOFAR telescopes, no changes are made.
 
-    Args:
-        mslist (list of str): List of paths to measurement sets (MS).
-        dryrun (bool): If True, performs a dry run without making changes.
-        dysco (bool, optional): If True, enables DYSCO compression during splitting. Defaults to True.
-        metadata_compression (bool, optional): If True, enables metadata compression during splitting. Defaults to False.
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to measurement sets (MS).
+    dryrun : bool
+        If True, performs a dry run without making changes.
+    dysco : bool, optional
+        If True, enables DYSCO compression during splitting. Defaults to True.
+    metadata_compression : bool, optional
+        If True, enables metadata compression during splitting. Defaults to False.
 
-    Returns:
-        tuple:
-            - sorted_mslist (list of str): Sorted list of processed MS paths.
-            - all_splitting_performed (bool): True if splitting was performed for all MS, False otherwise.
+    Returns
+    -------
+    tuple
+        - sorted_mslist (list of str): Sorted list of processed MS paths.
+        - all_splitting_performed (bool): True if splitting was performed for all MS, False otherwise.
     """
 
     mslist_return = []
@@ -5112,21 +5720,21 @@ def check_equidistant_times(mslist, stop=True, return_result=False, tolerance=0.
     Parameters
     ----------
     mslist : list of str
-        List of paths to Measurement Set files to check.
+    List of paths to Measurement Set files to check.
     stop : bool, optional
-        If True (default), the function will exit the program if non-equidistant time slots are found.
-        If False, the function will continue execution after printing warnings.
+    If True (default), the function will exit the program if non-equidistant time slots are found.
+    If False, the function will continue execution after printing warnings.
     return_result : bool, optional
-        If True, the function returns a boolean indicating whether all MS files have equidistant time axes.
-        If False (default), the function does not return anything.
+    If True, the function returns a boolean indicating whether all MS files have equidistant time axes.
+    If False (default), the function does not return anything.
     tolerance : float, optional
-        Relative tolerance (default 0.2) for detecting deviations from the median time interval.
+    Relative tolerance (default 0.2) for detecting deviations from the median time interval.
 
     Returns
     -------
     bool or None
-        If `return_result` is True, returns True if all MS files have equidistant time axes, False otherwise.
-        If `return_result` is False, returns None.
+    If `return_result` is True, returns True if all MS files have equidistant time axes, False otherwise.
+    If `return_result` is False, returns None.
 
     Notes
     -----
@@ -5176,12 +5784,12 @@ def check_equidistant_freqs(mslist):
     Parameters
     ----------
     mslist : list of str
-        List of paths to Measurement Set directories.
+    List of paths to Measurement Set directories.
 
     Raises
     ------
     Exception
-        If any MS in the list has frequency channels that are not equidistant within a tolerance of 1e-5 Hz.
+    If any MS in the list has frequency channels that are not equidistant within a tolerance of 1e-5 Hz.
 
     Notes
     -----
@@ -5205,13 +5813,18 @@ def check_equidistant_freqs(mslist):
 
 
 def run(command, log=False, taql=False):
-    """ 
+    """
     Execute a shell command through subprocess
 
-    Args:
-        command (str): the command to execute.
-    Returns:
-        retval (int): the return code of the executed process.
+    Parameters
+    ----------
+    command : str
+        the command to execute.
+
+    Returns
+    -------
+    retval : int
+        the return code of the executed process.
     """
     if log:
         print(command)
@@ -5241,14 +5854,19 @@ def run(command, log=False, taql=False):
     return retval
 
 def fix_zero_weight_spectrum(mslist):
-    """ 
+    """
     Some old MeerKAT Measurement Sets have a WEIGHT_SPECTRUM column which only contains 0.0 values which
     affect imaging and subsequent self-calibration, resulting in all data being flagged. This function sets these
     values to 1.0.
-    Args:
-        mslist (list): a list of Measurement Sets to iterate over and fix outlier values of.
-    Returns:
-        None
+
+    Parameters
+    ----------
+    mslist : list
+        a list of Measurement Sets to iterate over and fix outlier values of.
+
+    Returns
+    -------
+    None
     """
 
     # check if mslist is a string (single ms) and convert to list if needed
@@ -5270,15 +5888,21 @@ def fix_zero_weight_spectrum(mslist):
             run(cmdtaql, log=True, taql=True) 
 
 def fix_bad_weightspectrum(mslist, clipvalue, use_taql=True):
-    """ 
+    """
     Sets bad values in WEIGHT_SPECTRUM that affect imaging and subsequent self-calibration to 0.0.
 
-    Args:
-        mslist (list): a list of Measurement Sets to iterate over and fix outlier values of.
-        clipvalue (float): value above which WEIGHT_SPECTRUM will be set to 0.
-        use_taql (bool, optional): If True, uses TAQL to update the WEIGHT_SPECTRUM column. If False, uses casacore tables. Defaults to True.
-            Returns:
-        None
+    Parameters
+    ----------
+    mslist : list
+        a list of Measurement Sets to iterate over and fix outlier values of.
+    clipvalue : float
+        value above which WEIGHT_SPECTRUM will be set to 0.
+    use_taql : bool, optional
+        If True, uses TAQL to update the WEIGHT_SPECTRUM column. If False, uses casacore tables. Defaults to True.
+
+    Returns
+    -------
+    None
     """
     
     # check that clipvalue is larger than 0
@@ -5303,14 +5927,19 @@ def fix_bad_weightspectrum(mslist, clipvalue, use_taql=True):
     return
 
 def clip_DATA(mslist, clipvalue):
-    """ 
+    """
     Flags values in DATA above a certain threshold and sets corresponding WEIGHT_SPECTRUM values to 0.0.
 
-    Args:
-        mslist (list): a list of Measurement Sets to iterate over and fix outlier values of.
-        clipvalue (float): value for DATA above which WEIGHT_SPECTRUM will be set to 0.
-            Returns:
-        None
+    Parameters
+    ----------
+    mslist : list
+        a list of Measurement Sets to iterate over and fix outlier values of.
+    clipvalue : float
+        value for DATA above which WEIGHT_SPECTRUM will be set to 0.
+
+    Returns
+    -------
+    None
     """
 
     # assert that clipvalue is a float and is larger than 0
@@ -5329,13 +5958,20 @@ def clip_DATA(mslist, clipvalue):
 
 
 def format_solint(solint, ms, return_ntimes=False):
-    """ Format the solution interval for DP3 calls.
+    """
+    Format the solution interval for DP3 calls.
 
-    Args:
-        solint (int or str): input solution interval.
-        ms (str): measurement set to extract the integration time from.
-    Returns:
-        solintout (str): processed solution interval.
+    Parameters
+    ----------
+    solint : int or str
+        input solution interval.
+    ms : str
+        measurement set to extract the integration time from.
+
+    Returns
+    -------
+    solintout : str
+        processed solution interval.
     """
     if str(solint).isdigit():
         if return_ntimes:
@@ -5363,13 +5999,20 @@ def format_solint(solint, ms, return_ntimes=False):
 
 
 def format_nchan(nchan, ms):
-    """ Format the solution interval for DP3 calls.
+    """
+    Format the solution interval for DP3 calls.
 
-    Args:
-        nchan (int or str): input solution interval along the frequency axis.
-        ms (str): measurement set to extract the frequnecy resolution from.
-    Returns:
-        solintout (str): processed frequency solution interval.
+    Parameters
+    ----------
+    nchan : int or str
+        input solution interval along the frequency axis.
+    ms : str
+        measurement set to extract the frequnecy resolution from.
+
+    Returns
+    -------
+    solintout : str
+        processed frequency solution interval.
     """
     if str(nchan).isdigit():
         return str(nchan)
@@ -5388,6 +6031,21 @@ def format_nchan(nchan, ms):
 
 
 def FFTdelayfinder(h5, refant):
+    """
+    Estimate and plot antenna delays from phase solutions.
+
+    Parameters
+    ----------
+    h5 : str
+        H5 solution file containing ``sol000/phase000``.
+    refant : str
+        Reference antenna name.
+
+    Returns
+    -------
+    None
+        The delay plot is displayed and no value is returned.
+    """
     from scipy.fftpack import fft, fftfreq
     H = tables.open_file(h5)
     upsample_factor = 10
@@ -5422,13 +6080,19 @@ def FFTdelayfinder(h5, refant):
 
 
 def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA', warn=False, returnval=False, dologging=True):
-    """ Compute distance to the pointing center. This is mainly useful for international baseline observation to check of the delay calibrator is not too far away.
+    """
+    Compute distance to the pointing center. This is mainly useful for international baseline observation to check of the delay calibrator is not too far away.
 
-    Args:
-        msname (str): path to the measurement set to check.
-        HBAorLBA (str): whether the data is HBA or LBA data. Can be 'HBA' or 'LBA'.
-    Returns:
-        None
+    Parameters
+    ----------
+    msname : str
+        path to the measurement set to check.
+    HBAorLBA : str
+        whether the data is HBA or LBA data. Can be 'HBA' or 'LBA'.
+
+    Returns
+    -------
+    None
     """
     if HBAorLBA == 'HBA':
         warn_distance = 1.25
@@ -5458,12 +6122,18 @@ def compute_distance_to_pointingcenter(msname, HBAorLBA='HBA', warn=False, retur
 
 
 def remove_flagged_data_startend(mslist):
-    """ Trim flagged data at the start and end of the observation.
+    """
+    Trim flagged data at the start and end of the observation.
 
-    Args:
-        mslist (list): list of measurement sets to iterate over.
-    Returns:
-        mslistout (list): list of measurement sets with flagged data trimmed.
+    Parameters
+    ----------
+    mslist : list
+        list of measurement sets to iterate over.
+
+    Returns
+    -------
+    mslistout : list
+        list of measurement sets with flagged data trimmed.
     """
 
     taql = 'taql'
@@ -5509,12 +6179,17 @@ def remove_flagged_data_startend(mslist):
 
 
 def force_close(h5):
-    """ Close indivdual HDF5 file by force.
+    """
+    Close indivdual HDF5 file by force.
 
-    Args:
-        h5 (str): name of the h5parm to close.
-    Returns:
-        None
+    Parameters
+    ----------
+    h5 : str
+        name of the h5parm to close.
+
+    Returns
+    -------
+    None
     """
     h5s = list(tables.file._open_files._handlers)
     for h in h5s:
@@ -5528,15 +6203,24 @@ def force_close(h5):
 
 
 def create_mergeparmdbname(mslist, selfcalcycle, autofrequencyaverage_calspeedup=False, skymodelsolve=False):
-    """ Merges the h5parms for a given list of measurement sets and selfcal cycle.
+    """
+    Merges the h5parms for a given list of measurement sets and selfcal cycle.
 
-    Args:
-        mslist (list): list of measurement sets to iterate over.
-        selfcalcycle (int): the selfcal cycle for which to merge h5parms.
-        autofrequencyaverage_calspeedup (bool): add extra "avg" to h5parm name
-        skymodelsolve (bool): add extra "sky" to the name (for solves against a skymodel)
-    Returns:
-        parmdblist (list): list of names of the merged h5parms.
+    Parameters
+    ----------
+    mslist : list
+        list of measurement sets to iterate over.
+    selfcalcycle : int
+        the selfcal cycle for which to merge h5parms.
+    autofrequencyaverage_calspeedup : bool
+        add extra "avg" to h5parm name
+    skymodelsolve : bool
+        add extra "sky" to the name (for solves against a skymodel)
+
+    Returns
+    -------
+    parmdblist : list
+        list of names of the merged h5parms.
     """
     
     if autofrequencyaverage_calspeedup: 
@@ -5555,15 +6239,23 @@ def create_mergeparmdbname(mslist, selfcalcycle, autofrequencyaverage_calspeedup
 
 
 def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
-    """ Pre-apply a given set of corrections to a list of measurement sets.
+    """
+    Pre-apply a given set of corrections to a list of measurement sets.
 
-    Args:
-        H5filelist (list): list of h5parms to apply.
-        mslist (list): list of measurement set to apply corrections to.
-        updateDATA (bool): overwrite DATA with CORRECTED_DATA after solutions have been applied.
-        dysco (bool): dysco compress the CORRECTED_DATA column or not.
-    Returns:
-        None
+    Parameters
+    ----------
+    H5filelist : list
+        list of h5parms to apply.
+    mslist : list
+        list of measurement set to apply corrections to.
+    updateDATA : bool
+        overwrite DATA with CORRECTED_DATA after solutions have been applied.
+    dysco : bool
+        dysco compress the CORRECTED_DATA column or not.
+
+    Returns
+    -------
+    None
     """
     for ms in mslist:
         parmdb = time_match_mstoH5(H5filelist, ms)
@@ -5574,15 +6266,23 @@ def preapply(H5filelist, mslist, updateDATA=True, dysco=True):
 
 
 def preapply_bandpass(H5filelist, mslist, dysco=True, updateweights=True):
-    """ Pre-apply a given set of corrections to a list of measurement sets.
+    """
+    Pre-apply a given set of corrections to a list of measurement sets.
 
-    Args:
-        H5filelist (list): list of h5parms to apply.
-        mslist (list): list of measurement set to apply corrections to.
-        dysco (bool): dysco compress the CORRECTED_DATA column or not.
-        updateweights (bool): updateweights based on amplitudes in DP3
-    Returns:
-        None
+    Parameters
+    ----------
+    H5filelist : list
+        list of h5parms to apply.
+    mslist : list
+        list of measurement set to apply corrections to.
+    dysco : bool
+        dysco compress the CORRECTED_DATA column or not.
+    updateweights : bool
+        updateweights based on amplitudes in DP3
+
+    Returns
+    -------
+    None
     """
     for ms in mslist:
         parmdb = find_closest_H5time_toms(H5filelist, ms)
@@ -5591,13 +6291,20 @@ def preapply_bandpass(H5filelist, mslist, dysco=True, updateweights=True):
     return
 
 def find_closest_H5time_toms(H5filelist, ms):
-    """ Find the h5parms, from a given list, that falls closest to the time midpoint of the specified Measurement Set.
+    """
+    Find the h5parms, from a given list, that falls closest to the time midpoint of the specified Measurement Set.
 
-    Args:
-        H5filelist (list): list of h5parms to apply.
-        ms (str): Measurement Set to match h5parms to.
-    Returns:
-        H5filematch (str): h5parm that is closest in time to the measurement set.
+    Parameters
+    ----------
+    H5filelist : list
+        list of h5parms to apply.
+    ms : str
+        Measurement Set to match h5parms to.
+
+    Returns
+    -------
+    H5filematch : str
+        h5parm that is closest in time to the measurement set.
     """
     with table(ms, ack=False) as t:
         timesms = np.sort(np.unique(t.getcol('TIME')))
@@ -5629,6 +6336,21 @@ def find_closest_H5time_toms(H5filelist, ms):
     return H5filematch
 
 def closest_arrayvals(a, b):
+    """
+    Find the closest pair of values from two iterables.
+
+    Parameters
+    ----------
+    a : iterable
+        First set of values.
+    b : iterable
+        Second set of values.
+
+    Returns
+    -------
+    list or None
+        Closest pair as ``[value_from_a, value_from_b]``.
+    """
     result = None
     min_diff = float('inf')
     for x in a:
@@ -5640,13 +6362,20 @@ def closest_arrayvals(a, b):
     return result
 
 def time_match_mstoH5(H5filelist, ms):
-    """ Find the h5parms, from a given list, that overlap in time with the specified Measurement Set.
+    """
+    Find the h5parms, from a given list, that overlap in time with the specified Measurement Set.
 
-    Args:
-        H5filelist (list): list of h5parms to apply.
-        ms (str): Measurement Set to match h5parms to.
-    Returns:
-        H5filematch (list): list of h5parms matching the measurement set.
+    Parameters
+    ----------
+    H5filelist : list
+        list of h5parms to apply.
+    ms : str
+        Measurement Set to match h5parms to.
+
+    Returns
+    -------
+    H5filematch : list
+        list of h5parms matching the measurement set.
     """
     with table(ms) as t:
         timesms = np.unique(t.getcol('TIME'))
@@ -5674,12 +6403,17 @@ def time_match_mstoH5(H5filelist, ms):
 
 
 def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
-    """ Prints basic information to the screen.
+    """
+    Prints basic information to the screen.
 
-    Args:
-        args (iterable): list of input arguments.
-        fitsmask (str): name of the user-provided FITS mask.
-        mslist (list): list of input measurement sets.
+    Parameters
+    ----------
+    args : iterable
+        list of input arguments.
+    fitsmask : str
+        name of the user-provided FITS mask.
+    mslist : list
+        list of input measurement sets.
     """
     logger.info(' '.join(map(str, inputsysargs)))
 
@@ -5726,21 +6460,30 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
 
 
 def max_area_of_island(grid):
-    """ Calculate the area of an island.
+    """
+    Calculate the area of an island.
 
-    Args:
-        grid (ndarray): input image.
-    Returns:
-        None
+    Parameters
+    ----------
+    grid : ndarray
+        input image.
+
+    Returns
+    -------
+    None
     """
     rlen, clen = len(grid), len(grid[0])
 
     def neighbors(r, c):
-        """ Generate the neighbor coordinates of the given row and column that are within the bounds of the grid.
+        """
+        Generate the neighbor coordinates of the given row and column that are within the bounds of the grid.
 
-        Args:
-            r (int): row coordinate.
-            c (int): column coordinate.
+        Parameters
+        ----------
+        r : int
+            row coordinate.
+        c : int
+            column coordinate.
         """
         for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             if (0 <= r + dr < rlen) and (0 <= c + dc < clen):
@@ -5749,13 +6492,17 @@ def max_area_of_island(grid):
     visited = [[False] * clen for _ in range(rlen)]
 
     def island_size(r, c):
-        """ Find the area of the land connected to the given coordinate.
+        """
+        Find the area of the land connected to the given coordinate.
 
         Return 0 if the coordinate is water or if it has already been explored in a previous call to island_size().
 
-        Args:
-            r (int): row coordinate.
-            c (int): column coordinate.
+        Parameters
+        ----------
+        r : int
+            row coordinate.
+        c : int
+            column coordinate.
         """
         if grid[r][c] == 0 or visited[r][c]:
             return 0
@@ -5774,12 +6521,18 @@ def max_area_of_island(grid):
 
 
 def getlargestislandsize(fitsmask):
-    """ Find the largest island in a given FITS mask.
+    """
+    Find the largest island in a given FITS mask.
 
-    Args:
-        fitsmask (str): path to the FITS file.
-    Returns:
-        max_area (float): area of the largest island.
+    Parameters
+    ----------
+    fitsmask : str
+        path to the FITS file.
+
+    Returns
+    -------
+    max_area : float
+        area of the largest island.
     """
     with fits.open(fitsmask) as hdulist:
         data = hdulist[0].data
@@ -5789,16 +6542,25 @@ def getlargestislandsize(fitsmask):
 
 def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE',
                        ampnorm=False, dysco=False, testscfactor=1., crosshandtozero=True):
-    """ Creates a new column to solve for a phase slope from.
+    """
+    Creates a new column to solve for a phase slope from.
 
-    Args:
-        inmslist (list): list of input measurement sets.
-        incol (str): name of the input column to copy (meta)data from.
-        outcol (str): name of the output column that will be created.
-        ampnorm (bool): If True, only takes phases from the input visibilities and sets their amplitude to 1.
-        dysco (bool): dysco compress the output column.
-    Returns:
-        None
+    Parameters
+    ----------
+    inmslist : list
+        list of input measurement sets.
+    incol : str
+        name of the input column to copy (meta)data from.
+    outcol : str
+        name of the output column that will be created.
+    ampnorm : bool
+        If True, only takes phases from the input visibilities and sets their amplitude to 1.
+    dysco : bool
+        dysco compress the output column.
+
+    Returns
+    -------
+    None
     """
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
@@ -5843,11 +6605,12 @@ def create_phase_slope(inmslist, incol='DATA', outcol='DATA_PHASE_SLOPE',
 
 
 def stackwrapper(inmslist: list, msout_prefix: str = 'stack', column_to_normalise: str = 'DATA') -> None:
-    """ Wraps the stack
-    Arguments
-    ---------
+    """
+    Wraps the stack
+    Parameters
+    ----------
     inmslist : list
-        List of input MSes to stack
+    List of input MSes to stack
     """
     if type(inmslist) is not list:
         raise TypeError('Incorrect input type for inmslist')
@@ -5882,16 +6645,16 @@ def makemask_extended(fitsimage, outputfitsfile, kernel_size=21, rebin=None, thr
     Parameters
     ----------
     fitsimage : str
-        Path to the input FITS file containing the image data.
+    Path to the input FITS file containing the image data.
     outputfitsfile : str
-        Path to the output FITS file where the binary mask will be saved.
+    Path to the output FITS file where the binary mask will be saved.
     kernel_size : int, optional
-        Size of the square kernel used in the 2D median filter (default is 21).
+    Size of the square kernel used in the 2D median filter (default is 21).
     rebin : int or None, optional
-        Factor by which to downsample the image before filtering, to speed up processing.
-        The image is upsampled back to the original size after filtering. If `None`, no rebinning is performed.
+    Factor by which to downsample the image before filtering, to speed up processing.
+    The image is upsampled back to the original size after filtering. If `None`, no rebinning is performed.
     threshold : float, optional
-        Sigma threshold (in units of the image RMS) for generating the binary mask (default is 7.5).
+    Sigma threshold (in units of the image RMS) for generating the binary mask (default is 7.5).
 
     Notes
     -----
@@ -5903,7 +6666,7 @@ def makemask_extended(fitsimage, outputfitsfile, kernel_size=21, rebin=None, thr
     Returns
     -------
     None
-        The result is saved directly to the specified output FITS file.
+    The result is saved directly to the specified output FITS file.
     """
     from skimage.transform import rescale
     
@@ -5937,6 +6700,30 @@ def makemask_extended(fitsimage, outputfitsfile, kernel_size=21, rebin=None, thr
 
 def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=False,
                                       originalmodel='MODEL_DATA', newmodel='MODEL_DATA_PHASE_SLOPE', backup=True):
+    """
+    Create a weight column and optionally update it from model ratios.
+
+    Parameters
+    ----------
+    inmslist : str or list of str
+        Measurement Set path or paths.
+    outweightcol : str
+        Output weight-column name.
+    updateweights : bool, optional
+        Scale weights using the two model
+        columns when available.
+    originalmodel : str, optional
+        Original model-column name.
+    newmodel : str, optional
+        Replacement model-column name.
+    backup : bool, optional
+        Preserve the source weights in a backup column.
+
+    Returns
+    -------
+    None
+        Measurement Sets are modified in place.
+    """
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     stepsize = 1000000
@@ -5984,18 +6771,27 @@ def create_weight_spectrum_modelratio(inmslist, outweightcol, updateweights=Fals
 
 
 def addcol(t, incol, outcol, write_outcol=False, dysco=False):
-    """ 
+    """
     Adds a new column to a table by copying the description and data from an existing column.
     If the output column already exists, it will not be added again.
     Optionally, the data from the input column can be copied to the output column.
-    Args:
-        t (table): the table to which the column will be added.
-        incol (str): name of the input column to copy (meta)data from.
-        outcol (str): name of the output column that will be created.
-        write_outcol (bool): If True, copy the data from the input column to the output column.
-        dysco (bool): If True, use Dysco compression for the new column.
-    Returns:
-        None
+
+    Parameters
+    ----------
+    t : table
+        the table to which the column will be added.
+    incol : str
+        name of the input column to copy (meta)data from.
+    outcol : str
+        name of the output column that will be created.
+    write_outcol : bool
+        If True, copy the data from the input column to the output column.
+    dysco : bool
+        If True, use Dysco compression for the new column.
+
+    Returns
+    -------
+    None
     """
     
     if outcol not in t.colnames():
@@ -6024,15 +6820,15 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False,
     Parameters
     ----------
     inmslist : str or list of str
-        Path(s) to the input Measurement Set(s). Can be a single string or a list of strings.
+    Path(s) to the input Measurement Set(s). Can be a single string or a list of strings.
     outweightcol : str
-        Name of the output weight spectrum column to be created or updated.
+    Name of the output weight spectrum column to be created or updated.
     updateweights : bool, optional
-        If True, update the weights using the specified model data column. Default is False.
+    If True, update the weights using the specified model data column. Default is False.
     updateweights_from_thiscolumn : str, optional
-        Name of the column from which to update weights (typically 'MODEL_DATA'). Default is 'MODEL_DATA'.
+    Name of the column from which to update weights (typically 'MODEL_DATA'). Default is 'MODEL_DATA'.
     backup : bool, optional
-        If True, create a backup of the original weight spectrum column as 'WEIGHT_SPECTRUM_BACKUP'. Default is True.
+    If True, create a backup of the original weight spectrum column as 'WEIGHT_SPECTRUM_BACKUP'. Default is True.
 
     Notes
     -----
@@ -6092,13 +6888,13 @@ def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, upd
     Parameters
     ----------
     inmslist : str or list of str
-        Path(s) to the Measurement Set(s) to process. If a single string is provided, it is converted to a list.
+    Path(s) to the Measurement Set(s) to process. If a single string is provided, it is converted to a list.
     outweightcol : str
-        Name of the output weight column to create or update in the Measurement Set(s).
+    Name of the output weight column to create or update in the Measurement Set(s).
     updateweights : bool, optional
-        If True, updates the weights using the specified column. Default is False.
+    If True, updates the weights using the specified column. Default is False.
     updateweights_from_thiscolumn : str, optional
-        Name of the column from which to update weights. Default is 'MODEL_DATA'.
+    Name of the column from which to update weights. Default is 'MODEL_DATA'.
     Notes
     -----
     - If the output weight column does not exist, it is added based on the reference weight column.
@@ -6145,36 +6941,35 @@ def calibration_error_map(fitsimage, outputfitsfile, kernelsize=31, rebin=None):
     Parameters
     ----------
     fitsimage : str
-        Path to the input FITS image file. The file must be a 2D or 4D FITS cube 
-        with dimensions compatible with [1,1,NAXIS1,NAXIS2].
-    
+    Path to the input FITS image file. The file must be a 2D or 4D FITS cube 
+    with dimensions compatible with [1,1,NAXIS1,NAXIS2].
+
     outputfitsfile : str
-        Path where the resulting calibration error map (as a FITS file) will be saved.
-    
+    Path where the resulting calibration error map (as a FITS file) will be saved.
+
     kernelsize : int, optional
-        Size of the filtering kernel (in pixels) used to compute the morphological
-        opening (default is 31). This determines the spatial scale of the filtering.
-    
+    Size of the filtering kernel (in pixels) used to compute the morphological
+    opening (default is 31). This determines the spatial scale of the filtering.
+
     rebin : int or None, optional
-        If specified, the output image will be rebinned by this factor to reduce 
-        resolution and file size. If None, the original resolution is preserved.
+    If specified, the output image will be rebinned by this factor to reduce 
+    resolution and file size. If None, the original resolution is preserved.
 
     Notes
     -----
     - The algorithm applies a minimum filter followed by a maximum filter to the 
-      input image data, effectively performing a morphological opening.
+    input image data, effectively performing a morphological opening.
     - The resulting "Open map" is then inverted to emphasize negative features 
-      (i.e., residual calibration errors).
+    (i.e., residual calibration errors).
     - If rebinning is applied, the header's WCS information is appropriately updated.
-    
+
     References
-    ----------
     Rudnick, L. (2002). "Diffuse radio emission in and around clusters." PASP, 114, 427.
 
     Returns
     -------
     None
-        The output is written directly to a FITS file specified by `outputfitsfile`.
+    The output is written directly to a FITS file specified by `outputfitsfile`.
     """
 
     hdulist = fits.open(fitsimage) 
@@ -6214,14 +7009,20 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5, thresh_i
     """
     Creates a calibration error catalog from a given image file using the PyBDSF library.
 
-    Parameters:
-        filename (str): Path to the input image file to be processed.
-        outfile (str): Path to the output file where the catalog will be saved in FITS format.
-        thresh_pix (float, optional): Pixel threshold for source detection. Default is 7.5.
-        thresh_isl (float, optional): Island threshold for source detection. Default is 7.5.
+    Parameters
+    ----------
+    filename : str
+        Path to the input image file to be processed.
+    outfile : str
+        Path to the output file where the catalog will be saved in FITS format.
+    thresh_pix : float, optional
+        Pixel threshold for source detection. Default is 7.5.
+    thresh_isl : float, optional
+        Island threshold for source detection. Default is 7.5.
 
-    Returns:
-        None
+    Returns
+    -------
+    None
     """
     if os.path.isfile(outfile):
         Path(outfile).unlink(missing_ok=True)
@@ -6249,13 +7050,15 @@ def create_calibration_error_catalog(filename, outfile, thresh_pix=7.5, thresh_i
 
 def get_number_of_sources_in_catalog(catalogfile):
     """
-    Returns the number of sources in a given FITS catalog file. 
-    Parameters:
-    -----------
+    Returns the number of sources in a given FITS catalog file.
+
+    Parameters
+    ----------
     catalogfile : str
         Path to the input catalog file in FITS format.
-    Returns:
-    --------
+
+    Returns
+    -------
     int
         Number of sources in the catalog.
     """
@@ -6267,8 +7070,9 @@ def get_number_of_sources_in_catalog(catalogfile):
 def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., keep_N_brightest=20, previous_catalog=None, N_dir_max=45, interleave_sorting=True):
     """
     Updates a calibration error catalog by filtering, merging, and removing nearby sources.
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     catalogfile : str
         Path to the input catalog file in FITS format.
     outcatalogfile : str
@@ -6281,12 +7085,14 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
         Path to a previous catalog file in FITS format to merge with the current catalog. Default is None.
     N_dir_max : int, optional
         Maximum number of directions (sources) to retain in the final catalog. Default is 45.
-    Returns:
-    --------
+
+    Returns
+    -------
     None
         The updated catalog is written to the specified output file.
-    Notes:
-    ------
+
+    Notes
+    -----
     - The function sorts the catalog by peak flux and retains the brightest sources.
     - If a previous catalog is provided, it merges the two catalogs, ensuring that entries from the previous catalog are prioritized.
     - Sources that are too close to each other (based on the `distance` parameter) are removed to avoid duplicates or closely separated directions.
@@ -6374,39 +7180,42 @@ def update_calibration_error_catalog(catalogfile, outcatalogfile, distance=20., 
 def write_facet_directions(catalogfile, freq, facetdirections = 'directions.txt', ds9_region='directions.reg', telescope = 'LOFAR'):
     """
     Writes facet directions to a text file and generates a DS9 region file.
-    This function processes a FITS catalog file to extract source information 
-    (RA and DEC) and writes it to a specified text file in a format suitable 
+    This function processes a FITS catalog file to extract source information
+    (RA and DEC) and writes it to a specified text file in a format suitable
     for self-calibration. It also generates a DS9 region file for visualization.
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     catalogfile : str
         Path to the FITS catalog file containing source information.
     freq : float
-        Frequency in Hz.    
+        Frequency in Hz.
     facetdirections : str, optional
-        Name of the output text file containing facet directions. 
+        Name of the output text file containing facet directions.
         Default is 'directions.txt'.
     ds9_region : str, optional
         Name of the output DS9 region file. Default is 'directions.reg'.
     telescope : str, optional
-        Name of the telescope (e.g., 'LOFAR', 'MeerKAT'). Default is 'LOFAR'.    
+        Name of the telescope (e.g., 'LOFAR', 'MeerKAT'). Default is 'LOFAR'.
+
+    Notes
+    -----
     Outputs:
-    --------
-    - A text file (`facetdirections`) containing RA, DEC, self-calibration 
-        cycle, solution intervals, smoothness values, inclusion flags, and 
-        direction labels for each source.
+    - A text file (`facetdirections`) containing RA, DEC, self-calibration
+    cycle, solution intervals, smoothness values, inclusion flags, and
+    direction labels for each source.
     - A DS9 region file (`ds9_region`) for visualizing the source positions.
-    Notes:
-    ------
-    - The function uses hardcoded values for self-calibration cycles, solution 
-        intervals, smoothness values, and inclusion flags.
-    - The first `N_bright` sources are treated with different solution intervals 
-        and smoothness values compared to the rest.
+    - The function uses hardcoded values for self-calibration cycles, solution
+    intervals, smoothness values, and inclusion flags.
+    - The first `N_bright` sources are treated with different solution intervals
+    and smoothness values compared to the rest.
     - Beyond `N_normal` sources, a different set of inclusion flags is applied.
     - The function assumes the FITS catalog contains columns 'RA' and 'DEC'.
-    Example:
+
+    Examples
     --------
     write_facet_directions('source_catalog.fits', freq, 'output_directions.txt', 'output_regions.reg')
+
     """
     hdu_list = fits.open(catalogfile)
     catalog = Table(hdu_list[1].data)
@@ -6518,20 +7327,23 @@ def write_facet_directions(catalogfile, freq, facetdirections = 'directions.txt'
 def add_peak_total_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.5):
     """
     Adds peak and total flux values from a flux catalog to an existing catalog based on positional matching.
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     catalogfile : str
         Path to the input catalog file in FITS format where peak flux values will be added.
     fluxcatalogfile : str
         Path to the flux catalog file in FITS format containing peak flux values.
     match_radius : float, optional
         Maximum separation distance (in arcminutes) for matching sources between the two catalogs. Default is 1.5 arcminutes.
-    Returns:
-    --------
+
+    Returns
+    -------
     None
         The updated catalog is saved back to the original `catalogfile`.
-    Notes:
-    ------
+
+    Notes
+    -----
     - The function reads both catalogs and checks for the presence of the 'AFLUX' or 'TFLUX' column in the input catalog.
     - If 'AFLUX' or 'TFLUX' is not present, they are added and initialized to zero.
     - For each source in the input catalog, the function searches for sources in the flux catalog within the specified `match_radius`.
@@ -6600,10 +7412,11 @@ def add_peak_total_flux_to_catalog(catalogfile, fluxcatalogfile, match_radius=1.
 def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, telescope=None, imagename=None, idg=None, channelsout=None):
     """
     Automatically determines and processes calibration directions for self-calibration cycles.
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     selfcalcycle : int, optional
-        The self-calibration cycle number (default is 0). Determines the parameters for 
+        The self-calibration cycle number (default is 0). Determines the parameters for
         artifact catalog creation and filtering.
     freq : float, optional
         The frequency in Hz (default is 150e6 Hz). Used for solution setting purposes.
@@ -6612,7 +7425,7 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     imsize : int, optional
         The image size in pixels (default is None). If provided, it overrides the global `args` dictionary for standalone usage. Default is None.
     telescope : str, optional
-        The name of the telescope (not used in current implementation). Default is None.   
+        The name of the telescope (not used in current implementation). Default is None.
     imagename : str, optional
         The base name of the image file (without cycle number and suffix). If provided,
         it overrides the global `args` dictionary for standalone usage. Default is None.
@@ -6621,31 +7434,31 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
         it overrides the global `args` dictionary for standalone usage.
     channelsout : int, optional
         The number of output channels (default is None). If provided, it overrides
-        the global `args` dictionary for standalone usage. Default is None.    
-    Returns:
-    --------
+        the global `args` dictionary for standalone usage. Default is None.
+
+    Returns
+    -------
     str
         The filename of the facet directions text file generated for the given self-calibration cycle.
-    Description:
-    ------------
-    This function performs the following steps:
-    1. Sets parameters (`keep_N_brightest`, `distance`, `N_dir_max`) based on the self-calibration cycle.
-    2. Constructs filenames for input and output files, including error maps, catalogs, and plots.
-    3. Generates an error map from the input image.
-    4. Creates an artifact sources catalog from the error map.
-    5. Updates the artifact catalog by filtering sources based on brightness, distance, and merging with 
-       the previous catalog.
-    6. Writes facet direction files for self-calibration and visualization.
-    7. Plots the error map with overlaid artifact directions.
-    Notes:
-    ------
+        Description:
+        This function performs the following steps:
+        1. Sets parameters (`keep_N_brightest`, `distance`, `N_dir_max`) based on the self-calibration cycle.
+        2. Constructs filenames for input and output files, including error maps, catalogs, and plots.
+        3. Generates an error map from the input image.
+        4. Creates an artifact sources catalog from the error map.
+        5. Updates the artifact catalog by filtering sources based on brightness, distance, and merging with
+        the previous catalog.
+        6. Writes facet direction files for self-calibration and visualization.
+        7. Plots the error map with overlaid artifact directions.
+
+    Notes
+    -----
     - The function uses global `args` to retrieve input parameters such as `imagename`, `idg`, and `channelsout`.
     - The error map and artifact catalog are processed using external helper functions:
-      `calibration_error_map`, `create_calibration_error_catalog`, `update_calibration_error_catalog`, 
-      `write_facet_directions`, and `plotimage_astropy`.
+    `calibration_error_map`, `create_calibration_error_catalog`, `update_calibration_error_catalog`,
+    `write_facet_directions`, and `plotimage_astropy`.
     - The plot uses the noise level from the first error map (`imagename000-errormap.fits`) for consistent scaling.
     Dependencies:
-    -------------
     - Requires the `astropy.io.fits` module for handling FITS files.
     - Assumes the presence of helper functions for error map generation, catalog creation, and plotting.
     """
@@ -6917,6 +7730,26 @@ def auto_direction(selfcalcycle=0, freq=150e6, pixelscale=None, imsize=None, tel
     return facetdirections
 
 def filter_catalog_on_flux(catalogfile, freq, telescope, min_peakflux=0.02):
+    """
+    Remove catalog sources below the frequency-scaled flux threshold.
+
+    Parameters
+    ----------
+    catalogfile : str
+        FITS catalog path.
+    freq : float
+        Frequency in Hz used for threshold scaling.
+    telescope : str
+        Telescope name controlling whether filtering applies.
+    min_peakflux : float, optional
+        Reference minimum peak flux in Jy.
+
+    Returns
+    -------
+    None
+        The catalog is filtered in memory and subsequent facet files are
+        updated by the caller.
+    """
     # use AFLUX and TFLUX columns for filtering
     
     if telescope != 'LOFAR' and telescope != 'MeerKAT':
@@ -6954,18 +7787,21 @@ def filter_catalog_on_flux(catalogfile, freq, telescope, min_peakflux=0.02):
 def add_bright_source_to_catalog(catalogfile, fluxcatalogfile, freq):
     """
     Add the brightest source from the fluxcatalogfile to the catalogfile to ensure very bright sources are included as directions
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     catalogfile : str
         Path to the input catalog file in FITS format where a new source will be added.
     fluxcatalogfile : str
         Path to the flux catalog file in FITS format containing potential new sources.
-    Returns:
-    --------
+
+    Returns
+    -------
     None
         The updated catalog is saved back to the original `catalogfile`.
-    Notes:
-    ------
+
+    Notes
+    -----
     - The function reads both catalogs and checks for the presence of very bright sources in the flux catalog.
     - All sources found that meet this criterion are added to the input catalog.
     - The updated catalog is written back to the original file, overwriting it.
@@ -7005,20 +7841,23 @@ def add_source_to_catalog(catalogfile, fluxcatalogfile, distance=20.):
     Add a source from the fluxcatalogfile to the catalogfile if no sources are found
     in the catalogfile. The new source should be at least distance arcmin away from all
     existing sources.
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     catalogfile : str
         Path to the input catalog file in FITS format where a new source will be added.
     fluxcatalogfile : str
         Path to the flux catalog file in FITS format containing potential new sources.
     distance : float, optional
         Minimum separation distance (in arcminutes) to consider the new source as distinct. Default is 20 arcminutes.
-    Returns:
-    --------
+
+    Returns
+    -------
     None
         The updated catalog is saved back to the original `catalogfile`.
-    Notes:
-    ------
+
+    Notes
+    -----
     - The function reads both catalogs and checks if the input catalog is empty.
     - It searches the flux catalog for a source that is at least `distance` arcminutes away from all existing sources.
     - The first source found that meets this criterion is added to the input catalog.
@@ -7061,8 +7900,9 @@ def convert_lta_to_uvfits(lta_file_name, uvfits_file_name=None, target_list=[],
     For more information on SPAM and LTA to UVFITS conversion, see:
     https://www.intema.nl/doku.php?id=huibintema:spam:start (Intema et al., 2009 2009, A&A, 501, 1185).
     Original code reference: https://ui.adsabs.harvard.edu/abs/2014ascl.soft08006I/abstract
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     lta_file_name : str
         Path to the input LTA file.
     uvfits_file_name : str, optional
@@ -7085,17 +7925,16 @@ def convert_lta_to_uvfits(lta_file_name, uvfits_file_name=None, target_list=[],
         List of scan numbers to flag. Default is an empty list.
     bpcal_names : list of str, optional
         List of bandpass calibrator source names. Default is an empty list.
-    Returns:
-    --------
-    source_list : list of str
+
+    Returns
+    -------
+    source_list
+        list of str
         List of source names included in the UVFITS file.
-    Notes:
-    ------
-    
 
-
+    Notes
+    -----
     Copied from SPAM Huib Intema's original code and modified for Python 3.
-   
     For listscan/gvfits versions, see
     https://ftp.strw.leidenuniv.nl/intema/spam/
     """
@@ -7407,17 +8246,23 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol=
     """
     Normalize visibility data by model data.
 
-    Args:
-        inmslist (str or list of str): List of input Measurement Set(s).
-        outcol (str, optional): Name of the output column for normalized data. Default is 'DATA_NORM'.
-        incol (str, optional): Name of the input column containing original data. Default is 'DATA'.
-        modelcol (str, optional): Name of the model column. Default is 'MODEL_DATA'.
-        stepsize (int, optional): Step size for processing rows. Default is 1000000.
+    Parameters
+    ----------
+    inmslist : str or list of str
+        List of input Measurement Set(s).
+    outcol : str, optional
+        Name of the output column for normalized data. Default is 'DATA_NORM'.
+    incol : str, optional
+        Name of the input column containing original data. Default is 'DATA'.
+    modelcol : str, optional
+        Name of the model column. Default is 'MODEL_DATA'.
+    stepsize : int, optional
+        Step size for processing rows. Default is 1000000.
 
-    Returns:
-        None
-
-   """
+    Returns
+    -------
+    None
+    """
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
@@ -7442,13 +8287,13 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol=
 
 def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM',
             outcol_weight='WEIGHT_SPECTRUM', stepsize=1000000):
-    """ Henrik Feb 2025: This function is not used currently and does not support ulti-timestack MS. Can be removed?
+    """
+    Henrik Feb 2025: This function is not used currently and does not support ulti-timestack MS. Can be removed?
     Stack a list of MSes.
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     inmslist : list
-
     """
     print(f'Using input column {incol}')
     print(f'Writing to {outputms}')
@@ -7486,24 +8331,25 @@ def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', wei
 
 def stackMS_taql(inmslist: list, outputms_prefix: str = 'stack', incol: str = 'DATA_NORM', outcol: str = 'DATA',
                  weightref: str = 'WEIGHT_SPECTRUM_PM', outcol_weight: str = 'WEIGHT_SPECTRUM'):
-    """ Stack a list of MSes - per group with same time axis, one stacked MS is created.
+    """
+    Stack a list of MSes - per group with same time axis, one stacked MS is created.
 
-    Arguments
-    ---------
+    Parameters
+    ----------
     inmslist : list
-        List of input Measurement Sets to stack.
+    List of input Measurement Sets to stack.
     outputms_prefix : str
-        Name of the output MS.
+    Name of the output MS.
     incol : str
-        Column to stack from the individual MSes.
+    Column to stack from the individual MSes.
     outcol : str
-        Name of the stacked data column in the output MS.
+    Name of the stacked data column in the output MS.
     weightref : str
-        Name of the weight column to stack from the individual files.
+    Name of the weight column to stack from the individual files.
     outcol_weight : str
-        Name of the stacked weight column in the output MS.
+    Name of the stacked weight column in the output MS.
     Returns
-    ---------
+    -------
     msout_stacked: list of stacked MS names
     mss_timestacks: list of input MS grouped in timestacks
     """
@@ -7563,14 +8409,21 @@ def stackMS_taql(inmslist: list, outputms_prefix: str = 'stack', incol: str = 'D
 
 
 def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASEDIFF', dysco=True, stepsize=1000000):
-    """ Creates a new column for the phase difference solve.
+    """
+    Creates a new column for the phase difference solve.
 
-    Args:
-        inmslist (list): list of input Measurement Sets.
-        incol (str): name of the input column to copy (meta)data from.
-        outcol (str): name of the output column that will be created.
-        dysco (bool): dysco compress the output column.
-        stepsize (int): step size for row looping in casacore tables getcol/putcol
+    Parameters
+    ----------
+    inmslist : list
+        list of input Measurement Sets.
+    incol : str
+        name of the input column to copy (meta)data from.
+    outcol : str
+        name of the output column that will be created.
+    dysco : bool
+        dysco compress the output column.
+    stepsize : int
+        step size for row looping in casacore tables getcol/putcol
     """
 
     if not isinstance(inmslist, list):
@@ -7623,13 +8476,19 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
 
 
 def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=True):
-    """ Creates a new column containging visibilities with their original phase, but unity amplitude.
+    """
+    Creates a new column containging visibilities with their original phase, but unity amplitude.
 
-    Args:
-        inmslist (list): list of input Measurement Sets.
-        incol (str): name of the input column to copy (meta)data from.
-        outcol (str): name of the output column that will be created.
-        dysco (bool): dysco compress the output column.
+    Parameters
+    ----------
+    inmslist : list
+        list of input Measurement Sets.
+    incol : str
+        name of the input column to copy (meta)data from.
+    outcol : str
+        name of the output column that will be created.
+    dysco : bool
+        dysco compress the output column.
     """
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
@@ -7655,6 +8514,32 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
 
 def tmpmakeantresidual(mslist, selfcalcycle, multiscale, fitsmask_list, restoringbeam, \
                        automaskthreshold_selfcalcycle, wsclean_h5list, facetregionfile):
+    """
+    Create an antenna-residual image for a self-calibration cycle.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Measurement Sets to image.
+    selfcalcycle : int
+        Self-calibration cycle number.
+    multiscale : bool
+        Whether to use multiscale deconvolution.
+    fitsmask_list : list
+        FITS masks used for imaging.
+        restoringbeam: Restoring-beam setting passed to the imager.
+    automaskthreshold_selfcalcycle : list
+        Per-cycle automask thresholds.
+    wsclean_h5list : list
+        H5 solutions used for prediction.
+    facetregionfile : str
+        Facet-region file for DDE imaging.
+
+    Returns
+    -------
+    None
+        Residual images are written to disk.
+    """
     #msname = '44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg'
     #cmdwsclean = 'wsclean -no-update-model-required -minuv-l 10.0 -size 5736 5736 -reorder -weight briggs 0.0 -parallel-reordering 4 -mgain 0.75 -data-column RESIDUAL_DATA  -join-channels -channels-out 8 -parallel-gridding 6 -fit-spectral-pol 5 -pol i -gridder wgridder -wgridder-accuracy 0.0001 -no-min-grid-resolution -facet-regions facet_regions/facets.reg -apply-facet-solutions merged_selfcalcycle008_44_101_23sep2023_b4_gwb.ms.hypergiant.copy.subtracted.avg.h5 amplitude000,phase000 -diagonal-visibilities -name imageDD_009 -scale 0.75arcsec -nmiter 1 -niter 1'
 
@@ -7719,19 +8604,33 @@ def tmpmakeantresidual(mslist, selfcalcycle, multiscale, fitsmask_list, restorin
 
 
 def gunzip_model_images(imagebasename, n_parallel=4):
-    """ Gunzips all model images with the given base name.
+    """
+    Gunzips all model images with the given base name.
     Parameters
     ----------
     imagebasename : str
-        The base filename for model images (e.g., 'myimage_001' if files are named  like 'myimage_001-0001-model-pb.fits').
+    The base filename for model images (e.g., 'myimage_001' if files are named  like 'myimage_001-0001-model-pb.fits').
     n_parallel : int
-        Number of gunzip processes to run in parallel.
+    Number of gunzip processes to run in parallel.
     """
     imagelist1 = glob.glob(imagebasename + '-????-model*.fits.gz') # channel maps
     imagelist2 = glob.glob(imagebasename + '-???-model*.fits.gz') # MFS maps
     imagelist = sorted(imagelist1) + sorted(imagelist2)
 
     def _gunzip(image):
+        """
+        Decompress one model image in place.
+
+        Parameters
+        ----------
+        image : str
+            Compressed image path.
+
+        Returns
+        -------
+        None
+            The image is decompressed on disk.
+        """
         print('Now gunzip ' + image)
         subprocess.run(['gunzip', '-f', image], check=True)
 
@@ -7743,14 +8642,15 @@ def gunzip_model_images(imagebasename, n_parallel=4):
 
 
 def gzip_model_images(imagebasename, n_parallel=4):
-    """ Gzips all model images with the given base name.
+    """
+    Gzips all model images with the given base name.
     Parameters
     ----------
     imagebasename : str
-        The base filename for model images (e.g., 'myimage_001' if files are named  like
-        'myimage_001-0001-model-pb.fits').
+    The base filename for model images (e.g., 'myimage_001' if files are named  like
+    'myimage_001-0001-model-pb.fits').
     n_parallel : int
-        Number of gzip processes to run in parallel.
+    Number of gzip processes to run in parallel.
     """
 
     imagelist1gz = glob.glob(imagebasename + '-????-model*.fits.gz') # gzip channel maps
@@ -7766,6 +8666,19 @@ def gzip_model_images(imagebasename, n_parallel=4):
     imagelist = sorted(imagelist1) + sorted(imagelist2)
 
     def _gzip(image):
+        """
+        Compress one model image in place.
+
+        Parameters
+        ----------
+        image : str
+            Image path to compress.
+
+        Returns
+        -------
+        None
+            The image is compressed on disk.
+        """
         print('Now gzip ' + image)
         subprocess.run(['gzip', '-f', image], check=True)
 
@@ -7783,16 +8696,15 @@ def fix_fpb_images(modelimagebasename):
     Parameters
     ----------
     modelimagebasename : str
-        The base filename for model images (e.g., 'myimage' if files are named like
-        'myimage-0001-model-pb.fits').
+    The base filename for model images (e.g., 'myimage' if files are named like
+    'myimage-0001-model-pb.fits').
 
     Behavior
-    --------
     - Scans for all filenames matching '<basename>-????-model-pb.fits' and
-      '<basename>-????-model-fpb.fits'.
+    '<basename>-????-model-fpb.fits'.
     - If the number of pb and fpb images is equal, nothing is done.
     - If no fpb images exist, each pb image is copied to an fpb file by replacing
-      the '-model-pb.fits' suffix with '-model-fpb.fits'.
+    the '-model-pb.fits' suffix with '-model-fpb.fits'.
     - If some but not all fpb images exist, an assertion error is raised.
 
     Notes
@@ -7810,10 +8722,13 @@ def fix_fpb_images(modelimagebasename):
 
 
 def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
-    """ Creates the MODEL_DATA_PDIFF column.
+    """
+    Creates the MODEL_DATA_PDIFF column.
 
-    Args:
-      inmslist (list): list of input Measurement Sets.
+    Parameters
+    ----------
+    inmslist : list
+        list of input Measurement Sets.
     """
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
@@ -7850,12 +8765,18 @@ def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
         
 
 def amplitude_leakage_paramdb(h5):
-    """ Checks if a given h5parm has amplitude leakage solutions in sol000.
+    """
+    Checks if a given h5parm has amplitude leakage solutions in sol000.
 
-    Args:
-        h5 (str): path to the h5parm.
-    Returns:
-        amplitudeleakage (bool): whether the sol000 contains amplitude leakage solutions.
+    Parameters
+    ----------
+    h5 : str
+        path to the h5parm.
+
+    Returns
+    -------
+    amplitudeleakage : bool
+        whether the sol000 contains amplitude leakage solutions.
     """
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay = check_soltabs(h5)
     if hasphase:
@@ -7874,12 +8795,18 @@ def amplitude_leakage_paramdb(h5):
     return amplitudeleakage
 
 def fulljonesparmdb(h5):
-    """ Checks if a given h5parm has a fulljones solution table as sol000.
+    """
+    Checks if a given h5parm has a fulljones solution table as sol000.
 
-    Args:
-        h5 (str): path to the h5parm.
-    Returns:
-        fulljones (bool): whether the sol000 contains fulljones solutions.
+    Parameters
+    ----------
+    h5 : str
+        path to the h5parm.
+
+    Returns
+    -------
+    fulljones : bool
+        whether the sol000 contains fulljones solutions.
     """
     H = tables.open_file(h5)
     try:
@@ -7896,13 +8823,19 @@ def fulljonesparmdb(h5):
 
 
 def reset_gains_noncore(h5parm, keepanntennastr='CS'):
-    """ Resets the gain of non-CS stations to unity amplitude and zero phase.
+    """
+    Resets the gain of non-CS stations to unity amplitude and zero phase.
 
-    Args:
-        h5parm (str): path to the H5parm to reset gains of.
-        keepantennastr (str): string containing antennas to keep.
-    Returns:
-      None
+    Parameters
+    ----------
+    h5parm : str
+        path to the H5parm to reset gains of.
+    keepantennastr : str
+        string containing antennas to keep.
+
+    Returns
+    -------
+    None
     """
     fulljones = fulljonesparmdb(h5parm)  # True/False
     hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay = check_soltabs(h5parm)
@@ -8049,16 +8982,26 @@ def reset_gains_noncore(h5parm, keepanntennastr='CS'):
 
 
 def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=True, metadata_compression=True):
-    """ Phase up stations into a superstation.
+    """
+    Phase up stations into a superstation.
 
-    Args:
-        msinlist (list): list of input Measurement Sets to iterate over.
-        datacolumn (str): the input data column to phase up data from.
-        superstation (str): stations to phase up. Can be 'core' or 'superterp'.
-        start (int): selfcal cylce that is being started from. Phaseup will only occur if start == 0.
-        dysco (bool): dysco compress the output dataset.
-    Returns:
-        msoutlist (list): list of output Measurement Sets.
+    Parameters
+    ----------
+    msinlist : list
+        list of input Measurement Sets to iterate over.
+    datacolumn : str
+        the input data column to phase up data from.
+    superstation : str
+        stations to phase up. Can be 'core' or 'superterp'.
+    start : int
+        selfcal cylce that is being started from. Phaseup will only occur if start == 0.
+    dysco : bool
+        dysco compress the output dataset.
+
+    Returns
+    -------
+    msoutlist : list
+        list of output Measurement Sets.
     """
     msoutlist = []
     for ms in msinlist:
@@ -8093,14 +9036,22 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
 
 
 def findfreqavg(ms, imsize, bwsmearlimit=1.0, msinnchan=None):
-    """ Find the frequency averaging factor for a Measurement Set given a bandwidth smearing constraint.
+    """
+    Find the frequency averaging factor for a Measurement Set given a bandwidth smearing constraint.
 
-    Args:
-        ms (str): path to the Measurement Set.
-        imsize (float): size of the image in pixels.
-        bwsmearlimit (float): the fractional acceptable bandwidth smearing.
-    Returns:
-        avgfactor (int): the frequency averaging factor for the Measurement Set.
+    Parameters
+    ----------
+    ms : str
+        path to the Measurement Set.
+    imsize : float
+        size of the image in pixels.
+    bwsmearlimit : float
+        the fractional acceptable bandwidth smearing.
+
+    Returns
+    -------
+    avgfactor : int
+        the frequency averaging factor for the Measurement Set.
     """
     with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
         bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), float(imsize), verbose=False)
@@ -8118,12 +9069,18 @@ def findfreqavg(ms, imsize, bwsmearlimit=1.0, msinnchan=None):
 
 
 def compute_markersize(H5file):
-    """ Computes matplotlib markersize for an H5parm.
+    """
+    Computes matplotlib markersize for an H5parm.
 
-    Args:
-        H5file (str): path to an H5parm.
-    Returns:
-        markersize (int): marker size.
+    Parameters
+    ----------
+    H5file : str
+        path to an H5parm.
+
+    Returns
+    -------
+    markersize : int
+        marker size.
     """
     ntimes = ntimesH5(H5file)
     markersize = 2
@@ -8148,12 +9105,18 @@ def compute_markersize(H5file):
 
 
 def ntimesH5(H5file):
-    """ Returns the number of timeslots in an H5parm.
+    """
+    Returns the number of timeslots in an H5parm.
 
-    Args:
-        H5file (str): path to H5parm.
-    Returns:
-        times (int): length of the time axis.
+    Parameters
+    ----------
+    H5file : str
+        path to H5parm.
+
+    Returns
+    -------
+    times : int
+        length of the time axis.
     """
 
     sol_types = ['amplitude000', 'phase000', 'tec000', 'rotationmeasure000', 'rotation000', 'delay000']
@@ -8170,13 +9133,19 @@ def ntimesH5(H5file):
 
 
 def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
-    """ Creates a backup of the FLAG column.
+    """
+    Creates a backup of the FLAG column.
 
-    Args:
-        ms (str): path to the Measurement Set.
-        flagcolname (str): name of the output column.
-    Returns:
-        None
+    Parameters
+    ----------
+    ms : str
+        path to the Measurement Set.
+    flagcolname : str
+        name of the output column.
+
+    Returns
+    -------
+    None
     """
     cname = 'FLAG'
     flags = []
@@ -8195,12 +9164,17 @@ def create_backup_flag_col(ms, flagcolname='FLAG_BACKUP'):
 
 
 def check_phaseup_station(ms):
-    """ Check if the Measurement Set contains a superstation.
+    """
+    Check if the Measurement Set contains a superstation.
 
-    Args:
-        ms (str): path to the Measurement Set.
-    Returns:
-        None
+    Parameters
+    ----------
+    ms : str
+        path to the Measurement Set.
+
+    Returns
+    -------
+    None
     """
     with table(ms + '/ANTENNA', ack=False) as t:
         antennasms = list(t.getcol('NAME'))
@@ -8211,12 +9185,17 @@ def check_phaseup_station(ms):
 
 
 def checklongbaseline(ms):
-    """ Check if the Measurement Set contains international stations.
+    """
+    Check if the Measurement Set contains international stations.
 
-    Args:
-        ms (str): path to the Measurement Set.
-    Returns:
-        None
+    Parameters
+    ----------
+    ms : str
+        path to the Measurement Set.
+
+    Returns
+    -------
+    None
     """
     with table(ms + '/ANTENNA', ack=False) as t:
         antennasms = list(t.getcol('NAME'))
@@ -8235,34 +9214,65 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
             metadata_compression=True, flag_antennas=None):
     """
     Averages Measurement Sets (MS) in frequency and/or time using DP3, with options for filtering, flagging, and phase shifting.
-    Parameters:
-        mslist (list of str): List of input Measurement Set filenames.
-        freqstep (list): List of frequency averaging steps or resolutions for each MS. Can be integer (number of channels) or string with units (e.g., '195.3125kHz').
-        timestep (int or str, optional): Time averaging step. Integer (number of time slots) or string with units (e.g., '10s'). Default is None (no time averaging).
-        start (int, optional): Start index for self-calibration cycle. Default is 0.
-        msinnchan (int, optional): Number of input channels to use from each MS. Default is None (use all).
-        msinstartchan (int or float, optional): Starting channel index for input MS. Default is 0.
-        phaseshiftbox (str or None, optional): Region or reference for phase shifting. If 'align', aligns to the first MS's phase center. Default is None.
-        msinntimes (int, optional): Number of input time slots to use from each MS. Default is None (use all).
-        msinstarttimeslot (int, optional): Starting time slot index for input MS. Default is None.
-        makecopy (bool, optional): If True, output MS will have '.copy' suffix. Default is False.
-        make_extract (bool, optional): If True, output MS will have '.extracted' suffix. Default is False.
-        delaycal (bool, optional): If True, perform delay calibration. Default is False.
-        freqresolution (str, optional): Frequency resolution for averaging (e.g., '195.3125kHz'). Default is '195.3125kHz'.
-        dysco (bool, optional): If True, use Dysco storage manager for output MS. Default is True.
-        cmakephasediffstat (bool, optional): If True, output MS will have '.avgphasediffstat' suffix. Default is False.
-        dataincolumn (str, optional): Name of the data column to use in input MS. Default is 'DATA'.
-        removeinternational (bool, optional): If True, remove international stations from MS. Default is False.
-        removemostlyflaggedstations (bool, optional): If True, remove stations with high flagging percentage. Default is False.
-        aoflagger (bool, optional): If True, apply AOFlagger for RFI flagging. Default is False.
-        aoflaggerbeforeavg (bool, optional): If True, run AOFlagger before averaging. Default is True.
-        aoflagger_strategy (str or None, optional): AOFlagger strategy file or name. Default is None.
-        metadata_compression (bool, optional): If True, enable metadata compression in output MS. Default is True.
-        flag_antennas (list or None, optional): List of antennas to flag/remove. Default is None.
-    Returns:
-        list of str: List of output Measurement Set filenames (averaged or original, depending on options).
-    Raises:
-        Exception: If input parameters are inconsistent or unsupported units are provided.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of input Measurement Set filenames.
+    freqstep : list
+        List of frequency averaging steps or resolutions for each MS. Can be integer (number of channels) or string with units (e.g., '195.3125kHz').
+    timestep : int or str, optional
+        Time averaging step. Integer (number of time slots) or string with units (e.g., '10s'). Default is None (no time averaging).
+    start : int, optional
+        Start index for self-calibration cycle. Default is 0.
+    msinnchan : int, optional
+        Number of input channels to use from each MS. Default is None (use all).
+    msinstartchan : int or float, optional
+        Starting channel index for input MS. Default is 0.
+    phaseshiftbox : str or None, optional
+        Region or reference for phase shifting. If 'align', aligns to the first MS's phase center. Default is None.
+    msinntimes : int, optional
+        Number of input time slots to use from each MS. Default is None (use all).
+    msinstarttimeslot : int, optional
+        Starting time slot index for input MS. Default is None.
+    makecopy : bool, optional
+        If True, output MS will have '.copy' suffix. Default is False.
+    make_extract : bool, optional
+        If True, output MS will have '.extracted' suffix. Default is False.
+    delaycal : bool, optional
+        If True, perform delay calibration. Default is False.
+    freqresolution : str, optional
+        Frequency resolution for averaging (e.g., '195.3125kHz'). Default is '195.3125kHz'.
+    dysco : bool, optional
+        If True, use Dysco storage manager for output MS. Default is True.
+    cmakephasediffstat : bool, optional
+        If True, output MS will have '.avgphasediffstat' suffix. Default is False.
+    dataincolumn : str, optional
+        Name of the data column to use in input MS. Default is 'DATA'.
+    removeinternational : bool, optional
+        If True, remove international stations from MS. Default is False.
+    removemostlyflaggedstations : bool, optional
+        If True, remove stations with high flagging percentage. Default is False.
+    aoflagger : bool, optional
+        If True, apply AOFlagger for RFI flagging. Default is False.
+    aoflaggerbeforeavg : bool, optional
+        If True, run AOFlagger before averaging. Default is True.
+    aoflagger_strategy : str or None, optional
+        AOFlagger strategy file or name. Default is None.
+    metadata_compression : bool, optional
+        If True, enable metadata compression in output MS. Default is True.
+    flag_antennas : list or None, optional
+        List of antennas to flag/remove. Default is None.
+
+    Returns
+    -------
+    list of str
+        List of output Measurement Set filenames (averaged or original, depending on options).
+
+    Raises
+    ------
+    Exception
+        If input parameters are inconsistent or unsupported units are provided.
     """    
     # sanity check
     if len(mslist) != len(freqstep):
@@ -8497,15 +9507,21 @@ def uvmaxflag(msin, uvmax):
     """
     Flags visibilities in a Measurement Set (MS) with UV distances greater than a specified maximum.
 
-    Parameters:
-        msin (str): Path to the input Measurement Set.
-        uvmax (float): Maximum allowed UV distance (in wavelengths). Visibilities with UV distances greater than this value will be flagged.
+    Parameters
+    ----------
+    msin : str
+        Path to the input Measurement Set.
+    uvmax : float
+        Maximum allowed UV distance (in wavelengths). Visibilities with UV distances greater than this value will be flagged.
 
-    Returns:
-        None
+    Returns
+    -------
+    None
 
+    Notes
+    -----
     Side Effects:
-        Executes a DP3 command to flag data in the input MS based on the specified UV distance threshold.
+    Executes a DP3 command to flag data in the input MS based on the specified UV distance threshold.
     """
     cmd = 'DP3 msin=' + msin + ' msout=. steps=[f] f.type=uvwflag f.uvlambdamax=' + str(uvmax)
     print(cmd)
@@ -8514,15 +9530,23 @@ def uvmaxflag(msin, uvmax):
 
 
 def tecandphaseplotter(h5, ms, telescope='LOFAR', outplotname='plot.png'):
-    """ Make TEC and phase plots.
+    """
+    Make TEC and phase plots.
 
-    Args:
-        h5 (str): path to the H5parm to plot.
-        ms (str): path to th ecorresponding Measurement Set.
-        telescope (str): telescope name.
-        outplotname (str): name of the output plot.
-    Returns:
-        None
+    Parameters
+    ----------
+    h5 : str
+        path to the H5parm to plot.
+    ms : str
+        path to th ecorresponding Measurement Set.
+    telescope : str
+        telescope name.
+    outplotname : str
+        name of the output plot.
+
+    Returns
+    -------
+    None
     """
     if not os.path.isdir('solution_plots_%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
         os.makedirs("solution_plots_%s" % os.path.basename(ms), exist_ok=True)
@@ -8534,12 +9558,17 @@ def tecandphaseplotter(h5, ms, telescope='LOFAR', outplotname='plot.png'):
 
 
 def runaoflagger(mslist, strategy=None):
-    """ Run aoglagger on a Measurement Set.
+    """
+    Run aoglagger on a Measurement Set.
 
-    Args:
-        mslist (list): list of Measurement Sets to iterate over.
-    Returns:
-        None
+    Parameters
+    ----------
+    mslist : list
+        list of Measurement Sets to iterate over.
+
+    Returns
+    -------
+    None
     """
     for ms in mslist:
         if strategy is not None:
@@ -8555,6 +9584,19 @@ def runaoflagger(mslist, strategy=None):
 
 
 def build_applycal_dde_cmd(inparmdblist):
+    """
+    Build the DP3 apply-calibration command for DDE solutions.
+
+    Parameters
+    ----------
+    inparmdblist : list
+        H5 solution files or solution specifications.
+
+    Returns
+    -------
+    str
+        Constructed DP3 command fragment.
+    """
     if not isinstance(inparmdblist, list):
         inparmdblist = [inparmdblist]
     cmd = ''  # empy string to start with
@@ -8588,14 +9630,21 @@ def build_applycal_dde_cmd(inparmdblist):
 
 
 def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None):
-    """ Ccorrupt a list of model data columns with H5parm solutions
+    """
+    Ccorrupt a list of model data columns with H5parm solutions
 
-    Args:
-        ms (str): path to a Measurement Set to apply solutions to.
-        h5parm (list/str): H5parms to apply.
-        modeldatacolumns (list): Model data columns list, there should be more than one, also these columns should alread exist. Note that input column will be overwritten.
-    Returns:
-        None
+    Parameters
+    ----------
+    ms : str
+        path to a Measurement Set to apply solutions to.
+    h5parm : list/str
+        H5parms to apply.
+    modeldatacolumns : list
+        Model data columns list, there should be more than one, also these columns should alread exist. Note that input column will be overwritten.
+
+    Returns
+    -------
+    None
     """
 
     special_DIL = False
@@ -8627,23 +9676,39 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              find_closestdir=False, updateweights=False, modelstoragemanager=None, 
              missingantennabehavior='error', metadata_compression=True, timeslotsperparmupdate=200,
              auto_update_timeslotsperparmupdate=False):
-    """ Apply an H5parm to a Measurement Set.
+    """
+    Apply an H5parm to a Measurement Set.
 
-    Args:
-        ms (str): path to a Measurement Set to apply solutions to.
-        inparmdblist (list): list of H5parms to apply.
-        msincol (str): input column to apply solutions to.
-        msoutcol (str): output column to store corrected data in.
-        msout (str): name of the output Measurement Set.
-        dysco (bool): Dysco compress the output Measurement Set.
-        modeldatacolumns (list): Model data columns list, if len(modeldatacolumns) > 1 we have a DDE solve
-        invert (bool): invert the applycal (if invert is False then = corrupt)
-        direction (str): Name of the direction in a multi-dir h5 for the applycal (find_closestdir needs to be False in this case)
-        find_closestdir (bool): find closest direction (to phasedir MS) in multi-dir h5 file to apply
-        updateweights (bool): Update WEIGHT_SPECTRUM in DP3
-        missingantennabehavior (str): for DP3, must be error or flag
-    Returns:
-        None
+    Parameters
+    ----------
+    ms : str
+        path to a Measurement Set to apply solutions to.
+    inparmdblist : list
+        list of H5parms to apply.
+    msincol : str
+        input column to apply solutions to.
+    msoutcol : str
+        output column to store corrected data in.
+    msout : str
+        name of the output Measurement Set.
+    dysco : bool
+        Dysco compress the output Measurement Set.
+    modeldatacolumns : list
+        Model data columns list, if len(modeldatacolumns) > 1 we have a DDE solve
+    invert : bool
+        invert the applycal (if invert is False then = corrupt)
+    direction : str
+        Name of the direction in a multi-dir h5 for the applycal (find_closestdir needs to be False in this case)
+    find_closestdir : bool
+        find closest direction (to phasedir MS) in multi-dir h5 file to apply
+    updateweights : bool
+        Update WEIGHT_SPECTRUM in DP3
+    missingantennabehavior : str
+        for DP3, must be error or flag
+
+    Returns
+    -------
+    None
     """
     
     sisco_modelstoragemanager_modes = ['sisco_stokes_i', 'sisco_diagonal', 'sisco']
@@ -8874,10 +9939,15 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
 
 
 def inputchecker(args, mslist):
-    """ Check input validity.
-    Args:
-        args (dict): argparse inputs.
-        mslist (str list): list of ms
+    """
+    Check input validity.
+
+    Parameters
+    ----------
+    args : dict
+        argparse inputs.
+    mslist : str list
+        list of ms
     """
 
     if args['remove_outside_center_box'] is not None:
@@ -9623,6 +10693,19 @@ def inputchecker(args, mslist):
 
 
 def get_resolution(ms):
+    """
+    Estimate angular resolution from the longest baseline and frequency.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path.
+
+    Returns
+    -------
+    float
+        Estimated resolution in arcseconds.
+    """
     uvmax = get_uvwmax(ms)
     with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
         freq = np.median(t.getcol('CHAN_FREQ'))
@@ -9632,12 +10715,17 @@ def get_resolution(ms):
 
 
 def get_uvwmax(ms):
-    """ Find the maximum squared sum of UVW coordinates.
+    """
+    Find the maximum squared sum of UVW coordinates.
 
-    Args:
-        ms (str): path to a Measurement Set.
-    Returns:
-        None
+    Parameters
+    ----------
+    ms : str
+        path to a Measurement Set.
+
+    Returns
+    -------
+    None
     """
     with table(ms, ack=False) as t:
         uvw = t.getcol('UVW')
@@ -9647,6 +10735,21 @@ def get_uvwmax(ms):
 
 
 def makeBBSmodelforFITS(filename, extrastrname=''):
+    """
+    Create a BBS sky model from a FITS image.
+
+    Parameters
+    ----------
+    filename : str
+        FITS image path.
+    extrastrname : str, optional
+        Additional output-name suffix.
+
+    Returns
+    -------
+    str
+        Generated model filename.
+    """
     img = bdsf.process_image(filename,mean_map='zero', rms_map=True, rms_box = (100,10))
     img.write_catalog(format='bbs', bbs_patches='source', \
                       outfile='source' + extrastrname + '.skymodel'  , clobber=True)
@@ -9662,6 +10765,21 @@ def makeBBSmodelforFITS(filename, extrastrname=''):
 
 
 def makeBBSmodelforVLASS(filename, extrastrname=''):
+    """
+    Create a BBS sky model from a VLASS image.
+
+    Parameters
+    ----------
+    filename : str
+        VLASS image path.
+    extrastrname : str, optional
+        Additional output-name suffix.
+
+    Returns
+    -------
+    str
+        Generated model filename.
+    """
     img = bdsf.process_image(filename, mean_map='zero', rms_map=True, rms_box=(100, 10))
     # frequency=150e6, beam=(25./3600,25./3600,0.0) )
     img.write_catalog(format='bbs', bbs_patches='source', outfile='vlass' + extrastrname + '.skymodel', clobber=True)
@@ -9679,16 +10797,26 @@ def makeBBSmodelforVLASS(filename, extrastrname=''):
 
 def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=None,
                         ms=None, extrastrname=''):
-    """ Creates a TGSS skymodel in DP3-readable format.
+    """
+    Creates a TGSS skymodel in DP3-readable format.
 
-    Args:
-        boxfile (str): path to the DS9 region to create a model for.
-        fitsimage (str): name of the FITS image the model will be created from.
-        pixelscale (float): number of arcsec per pixel.
-        imsize (int): image size in pixels.
-        ms (str): if no box file is given, use this Measurement Set to determine the sky area to make a model of.
-    Returns:
-        tgss.skymodel: name of the output skymodel (always tgss[#nr].skymodel).
+    Parameters
+    ----------
+    boxfile : str
+        path to the DS9 region to create a model for.
+    fitsimage : str
+        name of the FITS image the model will be created from.
+    pixelscale : float
+        number of arcsec per pixel.
+    imsize : int
+        image size in pixels.
+    ms : str
+        if no box file is given, use this Measurement Set to determine the sky area to make a model of.
+
+    Returns
+    -------
+    tgss.skymodel
+        name of the output skymodel (always tgss[#nr].skymodel).
     """
     tgsspixsize = 6.2
     if boxfile is None and imsize is None:
@@ -9751,7 +10879,18 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
 
 
 def getregionsize(regionfile):
-    """ Extract size of a DS9 region in degrees.
+    """
+    Extract size of a DS9 region in degrees.
+
+    Parameters
+    ----------
+    regionfile : str
+        Path to the DS9 region file.
+
+    Returns
+    -------
+    float
+        Region size in degrees.
     """
     r = pyregion.open(regionfile)
 
@@ -9781,13 +10920,20 @@ def getregionsize(regionfile):
     return max([boxsizex, boxsizey])
 
 def getregioncenter(regionfile, standardbox=True):
-    """ Extract box center of a DS9 region.
+    """
+    Extract box center of a DS9 region.
 
-    Args:
-        regionfile (str): path to the region file.
-        standardbox (bool): only allow square, non-rotated boxes.
-    Returns:
-        regioncenter (str): DP3 compatible string for phasecenter shifting.
+    Parameters
+    ----------
+    regionfile : str
+        path to the region file.
+    standardbox : bool
+        only allow square, non-rotated boxes.
+
+    Returns
+    -------
+    regioncenter : str
+        DP3 compatible string for phasecenter shifting.
     """
     r = pyregion.open(regionfile)
 
@@ -9836,12 +10982,19 @@ def getregioncenter(regionfile, standardbox=True):
 
 
 def smearing_bandwidth(r, th, nu, dnu):
-    """ Returns the left over intensity I/I0 after bandwidth smearing.
-    Args:
-        r (float or Astropy Quantity): distance from the phase center in arcsec.
-        th (float or Astropy Quantity): angular resolution in arcsec.
-        nu (float): observing frequency.
-        dnu (float): averaging frequency.
+    """
+    Returns the left over intensity I/I0 after bandwidth smearing.
+
+    Parameters
+    ----------
+    r : float or Astropy Quantity
+        distance from the phase center in arcsec.
+    th : float or Astropy Quantity
+        angular resolution in arcsec.
+    nu : float
+        observing frequency.
+    dnu : float
+        averaging frequency.
     """
     r = r + 1e-9  # Add a tiny offset to prevent division by zero.
     I = (np.sqrt(np.pi) / (2 * np.sqrt(np.log(2)))) * ((th * nu) / (r * dnu)) * scipy.special.erf(
@@ -9850,15 +11003,24 @@ def smearing_bandwidth(r, th, nu, dnu):
 
 
 def bandwidthsmearing(chanw, freq, imsize, verbose=True):
-    """ Calculate the fractional intensity loss due to bandwidth smearing.
+    """
+    Calculate the fractional intensity loss due to bandwidth smearing.
 
-    Args:
-        chanw (float): bandwidth.
-        freq (float): observing frequency.
-        imsize (int): image size in pixels.
-        verbose (bool): print information to the screen.
-    Returns:
-        R (float): fractional intensity loss.
+    Parameters
+    ----------
+    chanw : float
+        bandwidth.
+    freq : float
+        observing frequency.
+    imsize : int
+        image size in pixels.
+    verbose : bool
+        print information to the screen.
+
+    Returns
+    -------
+    R : float
+        fractional intensity loss.
     """
     R = (chanw / freq) * (imsize / 6.)  # asume we have used 3 pixels per beam
     if verbose:
@@ -9872,11 +11034,17 @@ def bandwidthsmearing(chanw, freq, imsize, verbose=True):
 
 
 def smearing_time(r, th, t):
-    """ Returns the left over intensity I/I0 after time smearing.
-    Args:
-        r (float or Astropy Quantity): distance from the phase center in arcsec.
-        th (float or Astropy Quantity): angular resolution in arcsec.
-        t (float): averaging time in seconds.
+    """
+    Returns the left over intensity I/I0 after time smearing.
+
+    Parameters
+    ----------
+    r : float or Astropy Quantity
+        distance from the phase center in arcsec.
+    th : float or Astropy Quantity
+        angular resolution in arcsec.
+    t : float
+        averaging time in seconds.
     """
     r = r + 1e-9  # Add a tiny offset to prevent division by zero.
 
@@ -9885,11 +11053,43 @@ def smearing_time(r, th, t):
 
 
 def smearing_time_ms(msin, t):
+    """
+    Calculate time-smearing loss for a Measurement Set.
+
+    Parameters
+    ----------
+    msin : str
+        Measurement Set path.
+    t : float
+        Averaging time in seconds.
+
+    Returns
+    -------
+    float
+        Estimated time-smearing factor.
+    """
     res = get_resolution(msin)
     r_dis = 3600. * compute_distance_to_pointingcenter(msin, returnval=True, dologging=False)
     return smearing_time(r_dis, res, t)
 
 def smearing_time_ms_imsize(msin, imsize, pixelscale):
+    """
+    Calculate time-smearing loss for an image size and pixel scale.
+
+    Parameters
+    ----------
+    msin : str
+        Measurement Set path.
+    imsize : int
+        Image size in pixels.
+    pixelscale : float
+        Pixel scale in arcseconds.
+
+    Returns
+    -------
+    float
+        Estimated time-smearing factor.
+    """
     with table(msin, readonly=True, ack=False) as t:
         time = np.unique(t.getcol('TIME'))
         tint = np.abs(time[1] - time[0])
@@ -9898,6 +11098,19 @@ def smearing_time_ms_imsize(msin, imsize, pixelscale):
     return smearing_time(r_dis, res, tint)
 
 def flag_smeared_data(msin):
+    """
+    Flag data affected by severe time smearing.
+
+    Parameters
+    ----------
+    msin : str
+        Measurement Set path to update.
+
+    Returns
+    -------
+    None
+        Flagging is applied to the Measurement Set in place.
+    """
     Ismear = smearing_time_ms(msin, get_time_preavg_factor_LTAdata(msin))
     if Ismear < 0.5:
         print('Smeared', Ismear)
@@ -9929,11 +11142,15 @@ def number_freqchan_h5(h5parmin):
     """
     Get the number of frequencies in an H5 solution file.
 
-    Args:
-        h5parmin (str): Path to the input H5parm file.
+    Parameters
+    ----------
+    h5parmin : str
+        Path to the input H5parm file.
 
-    Returns:
-        int: Number of frequency channels in the H5 file.
+    Returns
+    -------
+    int
+        Number of frequency channels in the H5 file.
     """
     freq = []
     solution_types = ['phase000', 'amplitude000', 'rotation000', 'tec000', 'rotationmeasure000', 'delay000']
@@ -9951,13 +11168,20 @@ def number_freqchan_h5(h5parmin):
 
 
 def calculate_restoringbeam(mslist, LBA):
-    """ Returns the restoring beam.
+    """
+    Returns the restoring beam.
 
-    Args:
-        mslist (list): currently unused.
-        LBA (bool): if data is LBA or not.
-    Returns:
-        restoringbeam (float): the restoring beam in arcsec.
+    Parameters
+    ----------
+    mslist : list
+        currently unused.
+    LBA : bool
+        if data is LBA or not.
+
+    Returns
+    -------
+    restoringbeam : float
+        the restoring beam in arcsec.
     """
     if LBA:  # so we have LBA
         restoringbeam = 15.
@@ -9968,6 +11192,19 @@ def calculate_restoringbeam(mslist, LBA):
 
 
 def print_title(version):
+    """
+    Print the facetselfcal program title and version.
+
+    Parameters
+    ----------
+    version : str
+        Version string to display.
+
+    Returns
+    -------
+    None
+        The title is printed to standard output.
+    """
     print(r"""
                _______    ___       ______  _______ .___________.
               |   ____|  /   \     /      ||   ____||           |
@@ -9994,12 +11231,17 @@ def print_title(version):
     return
 
 def makemslist(mslist):
-    """ Create the input list for e.g. ddf-pipeline.
+    """
+    Create the input list for e.g. ddf-pipeline.
 
-    Args:
-        mslist (list): list of input Measurement Sets
-    Returns:
-        None
+    Parameters
+    ----------
+    mslist : list
+        list of input Measurement Sets
+
+    Returns
+    -------
+    None
     """
     Path('mslist.txt').unlink(missing_ok=True)
     f = open('mslist.txt', 'w')
@@ -10010,16 +11252,26 @@ def makemslist(mslist):
 
 
 def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, telescope='LOFAR'):
-    """ Formats an anntena constraint string in a DP3-suitable format.
+    """
+    Formats an anntena constraint string in a DP3-suitable format.
 
-    Args:
-        ctype (str): constraint type. Can be superterp, core, coreandfirstremotes, remote, alldutch, all, international, core-remote, coreandallbutmostdistantremotes, alldutchandclosegerman or alldutchbutnoST001.
-        antennasms (list): antennas present in the Measurement Set.
-        HBAorLBA (str): indicate HBA or LBA data. Can be HBA or LBA.
-        useforresetsols (bool): whether it will be used with reset solution. Removes antennas that are not in antennasms.
-        telescope (str): telescope name, used to check if MeerKAT data is used
-    Returns:
-        antstr (str): antenna constraint string for DP3.
+    Parameters
+    ----------
+    ctype : str
+        constraint type. Can be superterp, core, coreandfirstremotes, remote, alldutch, all, international, core-remote, coreandallbutmostdistantremotes, alldutchandclosegerman or alldutchbutnoST001.
+    antennasms : list
+        antennas present in the Measurement Set.
+    HBAorLBA : str
+        indicate HBA or LBA data. Can be HBA or LBA.
+    useforresetsols : bool
+        whether it will be used with reset solution. Removes antennas that are not in antennasms.
+    telescope : str
+        telescope name, used to check if MeerKAT data is used
+
+    Returns
+    -------
+    antstr : str
+        antenna constraint string for DP3.
     """
     antennasms = list(antennasms)
     # print(antennasms)
@@ -10306,9 +11558,9 @@ def makephasediffh5(phaseh5, refant):
     Parameters
     ----------
     phaseh5 : str
-        Path to the HDF5 file containing phase calibration solutions.
+    Path to the HDF5 file containing phase calibration solutions.
     refant : str
-        Name of the reference antenna to which phases will be referenced.
+    Name of the reference antenna to which phases will be referenced.
 
     Notes
     -----
@@ -10340,6 +11592,23 @@ def makephasediffh5(phaseh5, refant):
 
 
 def makephaseCDFh5(phaseh5, backup=True, testscfactor=1.):
+    """
+    Convert phase solutions to cumulative frequency-difference values.
+
+    Parameters
+    ----------
+    phaseh5 : str
+        H5 solution file to modify.
+    backup : bool, optional
+        Create a ``.psbackup`` copy first.
+    testscfactor : float, optional
+        Scaling factor for cumulative phases.
+
+    Returns
+    -------
+    None
+        The H5 file is modified in place.
+    """
     # note for scalarphase/phaseonly solve, does not work for tecandphase as freq axis is missing there for phase000
     if backup:
         if os.path.isfile(phaseh5 + '.psbackup'):
@@ -10364,6 +11633,27 @@ def makephaseCDFh5(phaseh5, backup=True, testscfactor=1.):
 
 
 def makephaseCDFh5_h5merger(phaseh5, ms, modeldatacolumns, backup=True, testscfactor=1.):
+    """
+    Merge phase solutions and convert them to cumulative phase values.
+
+    Parameters
+    ----------
+    phaseh5 : str
+        H5 solution file to merge and modify.
+    ms : str or list of str
+        Measurement Set input for H5 merging.
+    modeldatacolumns : list
+        Model columns used to determine merge mode.
+    backup : bool, optional
+        Create a ``.psbackup`` copy first.
+    testscfactor : float, optional
+        Scaling factor for cumulative phases.
+
+    Returns
+    -------
+    None
+        The merged H5 file is modified in place.
+    """
     # note for scalarphase/phaseonly solve, does not work for tecandphase as freq axis is missing there for phase000
     # if soltypein == 'scalarphase_slope':
     #   single_pol_merge = True
@@ -10415,15 +11705,19 @@ def copyoverscalarphase(scalarh5, phasexxyyh5):
     This function is intended for use with scalar phase or phase-only solutions, and does not work
     for tecandphase solutions where the frequency axis is missing for phase000.
 
-    Args:
-        scalarh5 (str): Path to the input HDF5 file containing scalar phase solutions.
-        phasexxyyh5 (str): Path to the HDF5 file with XX and YY polarization axes to be updated.
+    Parameters
+    ----------
+    scalarh5 : str
+        Path to the input HDF5 file containing scalar phase solutions.
+    phasexxyyh5 : str
+        Path to the HDF5 file with XX and YY polarization axes to be updated.
 
-    Notes:
-        - The function assumes the input files follow the structure produced by LOFAR calibration software.
-        - The phase values from the scalar file are copied to both the XX (pol=0) and YY (pol=-1) axes
-          for each antenna and direction.
-        - The function modifies the phasexxyyh5 file in place.
+    Notes
+    -----
+    - The function assumes the input files follow the structure produced by LOFAR calibration software.
+    - The phase values from the scalar file are copied to both the XX (pol=0) and YY (pol=-1) axes
+    for each antenna and direction.
+    - The function modifies the phasexxyyh5 file in place.
     """
     # note for scalarphase/phaseonly solve, does not work for tecandphase as freq axis is missing there for phase000
     H5 = tables.open_file(scalarh5, mode='r')
@@ -10452,6 +11746,28 @@ def create_residual_data_column(mslist, imagebasename, pixsize, imsize,
                        idg=False, h5list=[], facetregionfile=None,
                        disable_primary_beam=False, ddcor=True, modelstoragemanager=None, parallelgridding=1,
                        metadata_compression=True):
+    """
+    Create residual-data products for the supplied Measurement Sets.
+
+    Parameters
+    ----------
+    mslist : list
+        Measurement Set paths.
+    imagebasename : str
+        Base name for generated images.
+    pixsize : float
+        Image pixel scale.
+    imsize : int
+        Image size in pixels.
+    channelsout : int
+        Number of output channels.
+    **kwargs : Imaging, prediction, and storage options.
+
+    Returns
+    -------
+    None
+        Results are written to disk.
+    """
     # get imageheader to check frequency
     stepsize = 100000
     if len(h5list) != 0:
@@ -10506,19 +11822,19 @@ def copyovergain(gaininh5, gainouth5, soltype):
     Parameters
     ----------
     gaininh5 : str
-        Path to the input HDF5 file containing gain solutions.
+    Path to the input HDF5 file containing gain solutions.
     gainouth5 : str
-        Path to the output HDF5 file where gain solutions will be copied.
+    Path to the output HDF5 file where gain solutions will be copied.
     soltype : str
-        Type of solution to copy. Determines whether to copy both amplitude and phase
-        ('full'), or only amplitude ('scalaramplitude' or 'amplitudeonly').
+    Type of solution to copy. Determines whether to copy both amplitude and phase
+    ('full'), or only amplitude ('scalaramplitude' or 'amplitudeonly').
 
     Notes
     -----
     - If the solution table contains a polarization axis, the amplitude and phase arrays
-      are copied directly.
+    are copied directly.
     - If there is no polarization axis, the function expands the amplitude and phase arrays
-      to fill the polarization dimension in the output file (typically for XX and YY).
+    to fill the polarization dimension in the output file (typically for XX and YY).
     - Phase values are set to zero if only amplitude solutions are requested.
     - The function uses PyTables and h5parm for HDF5 file access and manipulation.
 
@@ -10579,8 +11895,11 @@ def set_weights_h5_to_one(h5parm):
     """
     Set weights for the solutions that have valid numbers to 1.0
     This is useful for bandpass solutions because the losoto time median preserves the time depedent flagging otherwise
-    Args:
-      h5parm: h5parm file
+
+    Parameters
+    ----------
+    h5parm
+        h5parm file
     """
     with tables.open_file(h5parm) as H:
         soltabs = list(H.root.sol000._v_children.keys())
@@ -10623,10 +11942,14 @@ def set_weights_h5_to_one(h5parm):
     
     
 def fix_phasereference(h5parm, refant):
-    """ Phase reference values with respect to a reference station
-    Args:
-      h5parm: h5parm file
-      refant: reference antenna
+    """
+    Phase reference values with respect to a reference station
+
+    Parameters
+    ----------
+    h5parm
+        h5parm file
+        refant: reference antenna
     """
 
     H = tables.open_file(h5parm, mode='a')
@@ -10659,15 +11982,19 @@ def fix_phasereference(h5parm, refant):
     return
 
 def h5flags2ms(h5parm, ms, dysco=True):
-    """ Copy flags from h5parm (which means weight=0) to a ms
+    """
+    Copy flags from h5parm (which means weight=0) to a ms
     It this this by first creating a copy of the h5parm file, then resetting all the solution values to 1.0 or 0.0
     The appycal() is used to so that that flags make it to the MS
     Since this is essentially a copy, since the solutions are all 1.0 or 0.0 we do this on the DATA column
     which means DATA does not change, apart from the flags being copied over
-    Args:
-      h5parm: h5parm file
-      ms: measurement set
-      dysco: use dysco compression for the output MS, default True (should not matter since compression state cannot be altered when writing to an existing column)
+
+    Parameters
+    ----------
+    h5parm
+        h5parm file
+        ms: measurement set
+        dysco: use dysco compression for the output MS, default True (should not matter since compression state cannot be altered when writing to an existing column)
     """
     # create a copy of the h5parm file, then reset all the solution values to 1.0 or 0.0
     h5parmcopy = h5parm + '.copy'
@@ -10685,12 +12012,15 @@ def h5flags2ms(h5parm, ms, dysco=True):
             os.remove(h5parmcopy)
 
 def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
-    """ Reset solutions for stations
+    """
+    Reset solutions for stations
 
-    Args:
-      h5parm: h5parm file
-      stationlist: station name list, or 'all' to reset solutions for all stations
-      refant: reference antenna
+    Parameters
+    ----------
+    h5parm
+        h5parm file
+    stationlist : station name list, or 'all' to reset solutions for all stations
+        refant: reference antenna
     """
     print(h5parm, stationlist)
     if isinstance(stationlist, str) and stationlist.lower() == 'all':
@@ -11006,8 +12336,17 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
 
 def check_soltabs(h5parm):
     """
-    Check the presence of various solution types in an h5 file.
-    Returns if phase, amplitude, tec, and rotation are in h5.
+    Check the presence of various solution types in an H5 file.
+
+    Parameters
+    ----------
+    h5parm : str
+        Path to the H5Parm solution file.
+
+    Returns
+    -------
+    tuple of bool
+        Flags indicating whether phase, amplitude, tec, and rotation soltabs exist.
     """
     hasphase = hasamps = hasrotation = hastec = hasrotationmeasure = hasdelay = False
 
@@ -11030,9 +12369,13 @@ def check_soltabs(h5parm):
     return hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay
 
 def reset_phase000(h5parm):
-    """ Reset phase000 solutions to zero
-    Args:
-      h5parm: h5parm file
+    """
+    Reset phase000 solutions to zero
+
+    Parameters
+    ----------
+    h5parm
+        h5parm file
     """
     # check if phase000 exists
     with tables.open_file(h5parm) as Hcheck:
@@ -11050,9 +12393,17 @@ def reset_phase000(h5parm):
     return
 
 def flag_h5_phasediff(h5parm, threshold, telescope):
-    """ Flag solutions in h5parm where the phase difference between two polarizations exceeds a threshold
-    Args:      h5parm: h5parm file
-      threshold: phase difference threshold in radians
+    """
+    Flag solutions in h5parm where the phase difference between two polarizations exceeds a threshold.
+
+    Parameters
+    ----------
+    h5parm : str
+        Path to the H5Parm file.
+    threshold : float
+        Phase difference threshold in radians.
+    telescope : str
+        Telescope name.
     """
     
     if fulljonesparmdb(h5parm) or amplitude_leakage_paramdb(h5parm):
@@ -11120,12 +12471,15 @@ def flag_h5_phasediff(h5parm, threshold, telescope):
 
 
 def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
-    """ Reset solutions for directions (DDE solves only)
+    """
+    Reset solutions for directions (DDE solves only)
 
-    Args:
-      h5parm: h5parm file
-      dirlist: list of direction_id to reset
-      refant: reference antenna
+    Parameters
+    ----------
+    h5parm
+        h5parm file
+    dirlist : list of direction_id to reset
+        refant: reference antenna
     """
     print(h5parm, dirlist)
     fulljones = fulljonesparmdb(h5parm)
@@ -11429,14 +12783,22 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
 
 
 def radec_to_xyz(ra, dec, time):
-    """ Convert ra and dec coordinates to ITRS coordinates for LOFAR observations.
+    """
+    Convert ra and dec coordinates to ITRS coordinates for LOFAR observations.
 
-    Args:
-        ra (astropy Quantity): right ascension
-        dec (astropy Quantity): declination
-        time (float): MJD time in seconds
-    Returns:
-        pointing_xyz (ndarray): NumPy array containing the X, Y and Z coordinates
+    Parameters
+    ----------
+    ra : astropy Quantity
+        right ascension
+    dec : astropy Quantity
+        declination
+    time : float
+        MJD time in seconds
+
+    Returns
+    -------
+    pointing_xyz : ndarray
+        NumPy array containing the X, Y and Z coordinates
     """
     obstime = Time(time / 3600 / 24, scale='utc', format='mjd')
     loc_LOFAR = EarthLocation(lon=0.11990128407256424, lat=0.9203091252660295, height=6364618.852935438 * units.m)
@@ -11454,15 +12816,24 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
     """
     Do the beam correction via this imported losoto operation
 
-    Args:
-        parmdb (str): path to the h5parm corrections will be stored in.
-        soltabname (str): name of the soltab corrections will be stored in.
-        ms (str): path to the MS (used to determine the stations present).
-        inverse (bool): calculate the inverse beam correction (i.e. undo the beam).
-        useElementResponse (bool): correct for the "element beam" (distance to the tile beam centre).
-        useArrayFactor (bool): correct for the "array factor" (sensitivity loss as function of distance to the pointing centre).
-        useChanFreq (bool): calculate a beam correction for every channel.
-        beamlib (str): beam calculation mode. Can be 'stationresponse' to use the LOFARBeam library (deprecated) or everybeam to use the EveryBeam library.
+    Parameters
+    ----------
+    parmdb : str
+        path to the h5parm corrections will be stored in.
+    soltabname : str
+        name of the soltab corrections will be stored in.
+    ms : str
+        path to the MS (used to determine the stations present).
+    inverse : bool
+        calculate the inverse beam correction (i.e. undo the beam).
+    useElementResponse : bool
+        correct for the "element beam" (distance to the tile beam centre).
+    useArrayFactor : bool
+        correct for the "array factor" (sensitivity loss as function of distance to the pointing centre).
+    useChanFreq : bool
+        calculate a beam correction for every channel.
+    beamlib : str
+        beam calculation mode. Can be 'stationresponse' to use the LOFARBeam library (deprecated) or everybeam to use the EveryBeam library.
     """
 
     H5 = h5parm.h5parm(parmdb, readonly=False)
@@ -11561,6 +12932,31 @@ def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=Tr
 
 def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFactor, useChanFreq, ms, freqs, times, ra,
                               dec, ra_ref, dec_ref, reference_xyz, phase_xyz):
+    """
+    Calculate EveryBeam response values for one channel and station.
+
+    Parameters
+    ----------
+    ifreq : int
+        Frequency index.
+    stationnum : int
+        Station index.
+    useElementResponse : bool
+        Include element response.
+    useArrayFactor : bool
+        Include array factor.
+    useChanFreq : bool
+        Use channel frequencies.
+    ms : str
+        Measurement Set path.
+        freqs, times, ra, dec, ra_ref, dec_ref: Beam coordinate arrays.
+        reference_xyz, phase_xyz: Cartesian coordinate arrays.
+
+    Returns
+    -------
+    tuple
+        Channel index and calculated beam response.
+    """
     import everybeam # type: ignore
     if useElementResponse and useArrayFactor:
         # print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
@@ -11592,15 +12988,25 @@ def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFac
 
 def set_MeerKAT_bandpass_skymodel(ms):
     """
-    Determines and sets the appropriate MeerKAT bandpass calibrator skymodel for a given Measurement Set (MS) file.
-    The function inspects the frequency band of the MS and the field pointing direction to select a matching skymodel
-    for one of the supported calibrators (J0408-6545 or J1939-6342) in either UHF or L-band. S-band is not supported.
-    Raises an exception if no matching skymodel is found or if the band is S-band.
-        ms (str): Path to the Measurement Set (MS) file.
-    Returns:
-        str: Path to the selected skymodel file.
-    Raises:
-        Exception: If the frequency band is S-band or if no matching skymodel is found.
+    Determines and sets the appropriate MeerKAT bandpass calibrator skymodel for an MS.
+
+    The function inspects the frequency band of the MS and pointing direction to select a
+    matching skymodel for J0408-6545 or J1939-6342 in UHF or L-band. S-band is not supported.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set (MS) file.
+
+    Returns
+    -------
+    str
+        Path to the selected skymodel file.
+
+    Raises
+    ------
+    Exception
+        If the frequency band is S-band or if no matching skymodel is found.
     """
     skymodpath = '/'.join(datapath.split('/')[0:-1])+'/facetselfcal/data'
     
@@ -11639,10 +13045,12 @@ def set_MeerKAT_bandpass_skymodel(ms):
     return skymodel
 
 def cleanup(mslist):
-    """ Clean up directory
+    """
+    Clean up directory
 
-    Args:
-        mslist: list with MS files
+    Parameters
+    ----------
+    mslist : list with MS files
     """
     for ms in mslist:
         shutil.rmtree(ms, ignore_errors=True)
@@ -11659,9 +13067,10 @@ def cleanup(mslist):
 
 def flagms_startend(ms, tecsolsfile, tecsolint):
     """
-
-    Args:
-        ms: measurement set
+    Parameters
+    ----------
+    ms
+        measurement set
         tecsolsfile: solution file with TEC
         tecsolint:
         example of taql command: taql ' select from test.ms where TIME in (select distinct TIME from test.ms offset 0 limit 1798) giving test.ms.cut as plain'
@@ -11729,29 +13138,35 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True, metadata_comp
     This function creates a new MS with the specified time range removed and optionally applies
     DYSCO compression. It also creates a WEIGHT_SPECTRUM_SOLVE column based on the processed data.
 
-    Args:
-        ms (str): The path to the input Measurement Set (MS).
-        starttime (str, optional): The start time to cut from the MS in a format recognized by DP3.
-                                   If None, no start time is specified. Defaults to None.
-        endtime (str, optional): The end time to cut from the MS in a format recognized by DP3.
-                                 If None, no end time is specified. Defaults to None.
-        dysco (bool, optional): Whether to use DYSCO compression for the output MS. Defaults to True.
+    Parameters
+    ----------
+    ms : str
+        The path to the input Measurement Set (MS).
+    starttime : str, optional
+        The start time to cut from the MS in a format recognized by DP3.
+        If None, no start time is specified. Defaults to None.
+    endtime : str, optional
+        The end time to cut from the MS in a format recognized by DP3.
+        If None, no end time is specified. Defaults to None.
+    dysco : bool, optional
+        Whether to use DYSCO compression for the output MS. Defaults to True.
 
-    Returns:
-        None
+    Returns
+    -------
+    None
 
+    Notes
+    -----
     Side Effects:
-        - Creates a new MS with the '.cut' suffix.
-        - Temporarily creates a '.cuttmp' MS, which is removed after processing.
-        - Adds a new column 'WEIGHT_SPECTRUM_SOLVE' to the '.cut' MS.
-        - Prints the DP3 commands executed.
-        - Removes any pre-existing '.cut' or '.cuttmp' directories.
-
-    Notes:
-        - The function uses the DP3 tool for processing the MS.
-        - The `check_phaseup_station` function is used to determine if UVW compression should be disabled.
-        - The `run` function is used to execute the DP3 commands.
-        - The `table` function from the casacore library is used to manipulate the MS columns.
+    - Creates a new MS with the '.cut' suffix.
+    - Temporarily creates a '.cuttmp' MS, which is removed after processing.
+    - Adds a new column 'WEIGHT_SPECTRUM_SOLVE' to the '.cut' MS.
+    - Prints the DP3 commands executed.
+    - Removes any pre-existing '.cut' or '.cuttmp' directories.
+    - The function uses the DP3 tool for processing the MS.
+    - The `check_phaseup_station` function is used to determine if UVW compression should be disabled.
+    - The `run` function is used to execute the DP3 commands.
+    - The `table` function from the casacore library is used to manipulate the MS columns.
     """
     # chdeck if output is already there and remove
     if os.path.isdir(ms + '.cut'):
@@ -11818,6 +13233,19 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True, metadata_comp
 # removestartendms('P227+53_PSZ2G088.98+55.07.dysco.sub.shift.avg.weights.ms.archive',starttime='19-Feb-2015/22:40:00.0')
 
 def which(file_name):
+    """
+    Find an executable on ``PATH``.
+
+    Parameters
+    ----------
+    file_name : str
+        Executable filename to search for.
+
+    Returns
+    -------
+    str or None
+        Full executable path, or ``None`` when not found.
+    """
     for path in os.environ["PATH"].split(os.pathsep):
         full_path = os.path.join(path, file_name)
         if os.path.exists(full_path) and os.access(full_path, os.X_OK):
@@ -11833,29 +13261,43 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
     This function processes a list of measurement sets (MS), applies calibration and optional compression,
     and then archives the resulting files along with specified auxiliary files into a compressed tarball.
 
-    Args:
-        mslist (list of str): List of measurement set filenames to process and archive.
-        outtarname (str): Name of the output tarball file.
-        regionfile (str or None): Path to a region file to include in the archive, if it exists.
-        fitsmask (str or None): Path to a FITS mask file to include in the archive, if it exists.
-        imagename (str): Name of the image file to include in the archive.
-        dysco (bool, optional): Whether to use Dysco compression for output measurement sets. Defaults to True.
-        mergedh5_i (list of str or None, optional): List of merged HDF5 files to include in the archive, if provided.
-        facetregionfile (str or None, optional): Path to a facet region file to include in the archive, if it exists.
-        metadata_compression (bool, optional): Whether to enable metadata compression. Defaults to True.
+    Parameters
+    ----------
+    mslist : list of str
+        List of measurement set filenames to process and archive.
+    outtarname : str
+        Name of the output tarball file.
+    regionfile : str or None
+        Path to a region file to include in the archive, if it exists.
+    fitsmask : str or None
+        Path to a FITS mask file to include in the archive, if it exists.
+    imagename : str
+        Name of the image file to include in the archive.
+    dysco : bool, optional
+        Whether to use Dysco compression for output measurement sets. Defaults to True.
+    mergedh5_i : list of str or None, optional
+        List of merged HDF5 files to include in the archive, if provided.
+    facetregionfile : str or None, optional
+        Path to a facet region file to include in the archive, if it exists.
+    metadata_compression : bool, optional
+        Whether to enable metadata compression. Defaults to True.
 
-    Returns:
-        None
+    Returns
+    -------
+    None
 
+    Raises
+    ------
+    None explicitly, but may raise exceptions if external commands fail.
+
+    Notes
+    -----
     Side Effects:
-        - Creates calibrated copies of the input measurement sets with optional compression.
-        - Removes any existing output tarball with the same name before creating a new one.
-        - Archives specified files into a compressed tarball.
-        - Removes temporary calibrated measurement sets after archiving.
-        - Logs the creation of the tarball.
-
-    Raises:
-        None explicitly, but may raise exceptions if external commands fail.
+    - Creates calibrated copies of the input measurement sets with optional compression.
+    - Removes any existing output tarball with the same name before creating a new one.
+    - Archives specified files into a compressed tarball.
+    - Removes temporary calibrated measurement sets after archiving.
+    - Logs the creation of the tarball.
     """
     path = '/disks/ftphome/pub/vanweeren'
     for ms in mslist:
@@ -11917,8 +13359,19 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, dysco=True, mer
 
 def setinitial_solint(mslist, options):
     """
-    take user input solutions,nchan,smoothnessconstraint,antennaconstraint and expand them to all ms
-    these list can then be updated later with values from auto_determinesolints for example
+    Expand user input solution parameters to all Measurement Sets.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Sets.
+    options : dict
+        Dictionary of self-calibration options.
+
+    Returns
+    -------
+    tuple
+        Expanded lists for soltypes, solints, nchans, smoothness, and constraints.
     """
 
     nchan_list, solint_list, BLsmooth_list, smoothnessconstraint_list, smoothnessreffrequency_list, \
@@ -12187,6 +13640,25 @@ def setinitial_solint(mslist, options):
 
 
 def getms_amp_stats(ms, datacolumn='DATA', uvcutfraction=0.666, robustsigma=True):
+    """
+    Measure the logarithmic RR/LL amplitude scatter in an MS.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path.
+    datacolumn : str, optional
+        Visibility column to inspect.
+    uvcutfraction : float, optional
+        Fraction of the maximum UV distance.
+    robustsigma : bool, optional
+        Use sigma-clipped statistics.
+
+    Returns
+    -------
+    float
+        Amplitude-noise estimate in log10 units.
+    """
     uvdismod = get_uvwmax(ms) * uvcutfraction
     t = taql(
         'SELECT ' + datacolumn + ',UVW,TIME,FLAG FROM ' + ms + ' WHERE SQRT(SUMSQR(UVW[:2])) > ' + str(uvdismod))
@@ -12218,6 +13690,23 @@ def getms_amp_stats(ms, datacolumn='DATA', uvcutfraction=0.666, robustsigma=True
 
 
 def getms_phase_stats(ms, datacolumn='DATA', uvcutfraction=0.666):
+    """
+    Measure the circular RR/LL phase scatter in an MS.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path.
+    datacolumn : str, optional
+        Visibility column to inspect.
+    uvcutfraction : float, optional
+        Fraction of the maximum UV distance.
+
+    Returns
+    -------
+    float
+        Circular phase-noise estimate in radians.
+    """
     uvdismod = get_uvwmax(ms) * uvcutfraction
     t = taql(
         'SELECT ' + datacolumn + ',UVW,TIME,FLAG FROM ' + ms + ' WHERE SQRT(SUMSQR(UVW[:2])) > ' + str(uvdismod))
@@ -12247,6 +13736,25 @@ def getms_phase_stats(ms, datacolumn='DATA', uvcutfraction=0.666):
 
 
 def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
+    """
+    Measure summary statistics of a model visibility column.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path.
+    modelcolumn : str
+        Model visibility column to inspect.
+    fastrms : bool, optional
+        Use the fast RMS calculation.
+    uvcutfraction : float, optional
+        Fraction of the maximum UV distance.
+
+    Returns
+    -------
+    tuple
+        Model amplitude and phase summary values.
+    """
     t = table(ms + '/SPECTRAL_WINDOW', ack=False)
     chanw = np.median(t.getcol('CHAN_WIDTH'))
     freq = np.median(t.getcol('CHAN_FREQ'))
@@ -12312,14 +13820,21 @@ def return_soltype_index(soltype_list, soltype, occurence=1, onetectypeoccurence
     """
     Returns the index of a specified solution type in a list of solution types.
 
-    Parameters:
-        soltype_list (list of str): A list of solution types.
-        soltype (str): The solution type to search for.
-        occurence (int, optional): The occurrence of the solution type to find. Defaults to 1.
-        onetectypeoccurence (bool, optional): If True, treats 'tecandphase' and 'tec' as equivalent. Defaults to False.
+    Parameters
+    ----------
+    soltype_list : list of str
+        A list of solution types.
+    soltype : str
+        The solution type to search for.
+    occurence : int, optional
+        The occurrence of the solution type to find. Defaults to 1.
+    onetectypeoccurence : bool, optional
+        If True, treats 'tecandphase' and 'tec' as equivalent. Defaults to False.
 
-    Returns:
-        int or None: The index of the specified solution type in the list, or None if not found.
+    Returns
+    -------
+    int or None
+        The index of the specified solution type in the list, or None if not found.
     """
     if onetectypeoccurence:
         if soltype == 'tecandphase' or soltype == 'tec':
@@ -12354,7 +13869,63 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
                           insoltypecycles_list=None, tecfactorsolint=1.0, gainfactorsolint=1.0,
                           gainfactorsmoothness=1.0, phasefactorsolint=1.0, delaycal=False):
     """
-    determine the solution time and frequency intervals based on the amount of compact source flux and noise
+    Determine solution time and frequency intervals based on compact flux and noise.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Sets.
+    soltype_list : list of str
+        List of solution types.
+    longbaseline : bool
+        Whether long baselines are present.
+    LBA : bool
+        Whether data is LOFAR LBA.
+    innchan_list : list of int
+        Initial channel intervals.
+    insolint_list : list of int or str
+        Initial solution time intervals.
+    uvdismod : float
+        UV distance model limit.
+    modelcolumn : str
+        Model visibility column name.
+    redo : bool
+        Whether to redo determination.
+    inBLsmooth_list : list of bool
+        Baseline smoothing flags.
+    insmoothnessconstraint_list : list of float
+        Smoothness constraints in MHz.
+    insmoothnessreffrequency_list : list of float
+        Reference frequencies for smoothness.
+    insmoothnessspectralexponent_list : list of float
+        Spectral exponents for smoothness.
+    insmoothnessrefdistance_list : list of float
+        Reference distances for smoothness.
+    inantennaconstraint_list : list of str
+        Antenna constraint lists.
+    inresetsols_list : list of str
+        Antenna reset lists.
+    inresetdir_list : list of str
+        Direction reset lists.
+    innormamps_list : list of str
+        Amplitude normalization options.
+    insoltypecycles_list : list of int
+        Self-calibration cycles for solution types.
+    tecfactorsolint : float
+        Scaling factor for TEC solution intervals.
+    gainfactorsolint : float
+        Scaling factor for gain solution intervals.
+    gainfactorsmoothness : float
+        Scaling factor for smoothness.
+    phasefactorsolint : float
+        Scaling factor for phase solution intervals.
+    delaycal : bool
+        Delay calibration flag.
+
+    Returns
+    -------
+    tuple
+        Updated solint, nchan, smoothness, and constraint lists.
     """
     # 1 find the first tec/tecandphase in the soltype_list
     # set the solints there based on this code
@@ -12649,7 +14220,12 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
 
 def create_beamcortemplate(ms):
     """
-    create a DPPP gain H5 template solutution file that can be filled with losoto
+    Create a DP3 gain H5 template solution file to be filled with LoSoTo.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
     """
     H5name = ms + '_templatejones.h5'
 
@@ -12671,7 +14247,14 @@ def create_beamcortemplate(ms):
 
 def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
     """
-    Create a losoto parset to fill the beam correction values'.
+    Create a LoSoTo parset to fill the beam correction values.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    refant : str
+        Reference antenna name.
     """
     parset = 'losoto_parsets/losotobeam.parset'
     Path(parset).unlink(missing_ok=True)
@@ -12703,6 +14286,25 @@ def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
 
 
 def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttecandphase', markersize=2):
+    """
+    Create a LoSoTo parset for plotting TEC and phase solutions.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    refant : str, optional
+        Reference antenna name.
+    outplotname : str, optional
+        Base name for the output plot.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
     parset = 'losoto_parsets/losoto_plotfasttecandphase.parset'
     Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
@@ -12727,6 +14329,25 @@ def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttec
     return parset
 
 def create_losoto_delayparset(ms, refant='CS003HBA0', outplotname='fastdelay', markersize=2):
+    """
+    Create a LoSoTo parset for plotting delay solutions.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    refant : str, optional
+        Reference antenna name.
+    outplotname : str, optional
+        Base name for the output plot.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
     parset = 'losoto_parsets/losoto_plotfastdelay.parset'
     Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
@@ -12750,6 +14371,25 @@ def create_losoto_delayparset(ms, refant='CS003HBA0', outplotname='fastdelay', m
     return parset
 
 def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', markersize=2):
+    """
+    Create a LoSoTo parset for plotting TEC solutions.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    refant : str, optional
+        Reference antenna name.
+    outplotname : str, optional
+        Base name for the output plot.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
     parset = 'losoto_parsets/losoto_plotfasttec.parset'
     Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
@@ -12774,6 +14414,27 @@ def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', marke
 
 
 def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outplotname='rotation', markersize=2):
+    """
+    Create a LoSoTo parset for plotting rotation solutions.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    refant : str, optional
+        Reference antenna name.
+    onechannel : bool, optional
+        Plot one channel along time only.
+    outplotname : str, optional
+        Base name for the output plot.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
     parset = 'losoto_parsets/losoto_plotrotation.parset'
     Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
@@ -12802,6 +14463,31 @@ def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outpl
 
 
 def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onepol=False, outplotname='fastphase', onetime=False, markersize=2):
+    """
+    Create a LoSoTo parset for plotting fast phase solutions.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    refant : str, optional
+        Reference antenna name.
+    onechannel : bool, optional
+        Plot one channel along time only.
+    onepol : bool, optional
+        Omit polarization-specific plots.
+    outplotname : str, optional
+        Base name for the output plot.
+    onetime : bool, optional
+        Plot one time along frequency only.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
     parset = 'losoto_parsets/losoto_plotfastphase.parset'
     Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
@@ -12858,6 +14544,45 @@ def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onep
 def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
                                     refant='CS003HBA0', onechannel=False, medamp=2.5, flagphases=True,
                                     onepol=False, outplotname='slowamp', fulljones=False, onetime=False, markersize=2):
+    """
+    Create a LoSoTo parset for grid-based solution flagging.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the output context.
+    flagging : bool, optional
+        Enable flagging operations.
+    maxrms : float, optional
+        Maximum amplitude RMS.
+    maxrmsphase : float, optional
+        Maximum phase RMS.
+    includesphase : bool, optional
+        Whether phase solutions are present.
+    refant : str, optional
+        Reference antenna name.
+    onechannel : bool, optional
+        Flag one channel along time.
+    medamp : float, optional
+        Median amplitude used for plotting limits.
+    flagphases : bool, optional
+        Enable phase flagging.
+    onepol : bool, optional
+        Omit polarization-specific plots.
+    outplotname : str, optional
+        Base name for output plots.
+    fulljones : bool, optional
+        Use full-Jones solution settings.
+    onetime : bool, optional
+        Flag one time along frequency.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
     parset = 'losoto_parsets/losoto_flag_apgrid.parset'
     Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
@@ -13036,6 +14761,31 @@ def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7
 
 def create_losoto_flag_ap_only(ms, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
                                onechannel=False, flagphases=True, onetime=False):
+    """
+    Create a LoSoTo parset for amplitude and phase flagging.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the output context.
+    maxrms : float, optional
+        Maximum amplitude RMS.
+    maxrmsphase : float, optional
+        Maximum phase RMS.
+    includesphase : bool, optional
+        Whether phase solutions are present.
+    onechannel : bool, optional
+        Flag one channel along time.
+    flagphases : bool, optional
+        Enable phase flagging.
+    onetime : bool, optional
+        Flag one time along frequency.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
     parset = 'losoto_parsets/losoto_flag_ap_only.parset'
     Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
@@ -13093,8 +14843,11 @@ def create_losoto_bandpassparset(intype, ms, h5):
     """
     Create losoto parset than takes median along the time axis
     Can be used to create a bandpass
-    Parameters:
-    intype (str): set "phase" or "amplitude" or amplitude and phase ("a&p") smoothing, input should be one of these strings
+
+    Parameters
+    ----------
+    intype : str
+        set "phase" or "amplitude" or amplitude and phase ("a&p") smoothing, input should be one of these strings
     """
     assert intype == 'phase' or intype == 'amplitude' or intype == 'a&p'
     parset = 'losoto_parsets/losoto_bandpass.parset'
@@ -13152,6 +14905,31 @@ def create_losoto_bandpassparset(intype, ms, h5):
 
 def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=True, refant='CS003HBA0',
                                      onechannel=False, outplotname='runningmedian'):
+    """
+    Create a LoSoTo parset for medium-scale solution smoothing.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    boxsize : int
+        Smoothing window size.
+    longbaseline : bool
+        Whether long-baseline settings are used.
+    includesphase : bool, optional
+        Whether phase solutions are present.
+    refant : str, optional
+        Reference antenna name.
+    onechannel : bool, optional
+        Use one-channel plotting settings.
+    outplotname : str, optional
+        Base name for the output plot.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
     parset = 'losoto_parsets/losoto_mediansmooth.parset'
     Path(parset).unlink(missing_ok=True)
     f = open(parset, 'w')
@@ -13237,13 +15015,13 @@ def check_phaseup(H5name):
     Parameters
     ----------
     H5name : str
-        Path to the H5parm file to be checked.
+    Path to the H5parm file to be checked.
 
     Returns
     -------
     bool
-        True if 'ST001' is found in the antenna list, indicating phased-up stations
-        are present. False otherwise.
+    True if 'ST001' is found in the antenna list, indicating phased-up stations
+    are present. False otherwise.
 
     Notes
     -----
@@ -13275,23 +15053,23 @@ def fixbeam_ST001(H5name):
     Parameters
     ----------
     H5name : str
-        Path to the H5Parm file containing calibration solutions.
+    Path to the H5Parm file containing calibration solutions.
 
     Returns
     -------
     bool
-        True if ST001 was present in the antenna list and corrections were applied,
-        False otherwise.
+    True if ST001 was present in the antenna list and corrections were applied,
+    False otherwise.
 
     Notes
     -----
     - Opens the H5Parm file in read-write mode
     - Searches for ST001 in the antenna list of solution set 'sol000'
     - If ST001 exists:
-      - Uses the first RS* station as a reference
-      - Copies amplitude values from the reference RS station to ST001
-      - Sets phase values for ST001 to 0.0
-      - Updates both 'amplitude000' and 'phase000' solution tables
+    - Uses the first RS* station as a reference
+    - Copies amplitude values from the reference RS station to ST001
+    - Sets phase values for ST001 to 0.0
+    - Updates both 'amplitude000' and 'phase000' solution tables
     - The H5Parm file is properly closed before returning
 
     The function assumes the H5Parm structure contains:
@@ -13339,23 +15117,31 @@ def split_facetdirections(facetregionfile):
     Split a facet region file into individual region files for each facet.
 
     This function reads a region file containing multiple facet definitions and creates
-    separate region files for each individual facet. Each output file is named 
+    separate region files for each individual facet. Each output file is named
     'facet<N>.reg' where N is the facet index.
 
-    Args:
-        facetregionfile (str): Path to the input region file containing multiple facet 
-                              definitions that can be parsed by pyregion.
+    Parameters
+    ----------
+    facetregionfile : str
+        Path to the input region file containing multiple facet
+        definitions that can be parsed by pyregion.
 
-    Returns:
-        None: The function writes output files to disk but does not return a value.
+    Returns
+    -------
+    None
+        The function writes output files to disk but does not return a value.
 
+    Notes
+    -----
     Side Effects:
-        Creates multiple region files in the current working directory, one for each
-        facet found in the input file. Files are named as 'facet0.reg', 'facet1.reg', etc.
+    Creates multiple region files in the current working directory, one for each
+    facet found in the input file. Files are named as 'facet0.reg', 'facet1.reg', etc.
 
-    Example:
-        >>> split_facetdirections('all_facets.reg')
-        # Creates facet0.reg, facet1.reg, facet2.reg, etc.
+    Examples
+    --------
+    >>> split_facetdirections('all_facets.reg')
+    # Creates facet0.reg, facet1.reg, facet2.reg, etc.
+
     """
     # split of directory and filename to get the directory for the output files
     dirofinput = os.path.dirname(facetregionfile)
@@ -13382,53 +15168,53 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     Parameters
     ----------
     imagename : str
-        Base name of the input image file or path to a skymodel file.
+    Base name of the input image file or path to a skymodel file.
     selfcalcycle : int
-        Current self-calibration cycle number. Processing only occurs when cycle is 0
-        unless facetdirections is provided.
+    Current self-calibration cycle number. Processing only occurs when cycle is 0
+    unless facetdirections is provided.
     targetFlux : float, optional
-        Target flux in Jy for tessellation algorithm. Default is 1.0.
+    Target flux in Jy for tessellation algorithm. Default is 1.0.
     ms : str, optional
-        Path to the measurement set. Required for generating DS9 region files.
+    Path to the measurement set. Required for generating DS9 region files.
     imsize : int, optional
-        Image size in pixels. Required for generating DS9 region files.
+    Image size in pixels. Required for generating DS9 region files.
     pixelscale : float, optional
-        Pixel scale in arcseconds. Required for generating DS9 region files.
+    Pixel scale in arcseconds. Required for generating DS9 region files.
     numClusters : int, optional
-        Number of clusters for grouping algorithm. If 0, uses tessellation. Default is 0.
+    Number of clusters for grouping algorithm. If 0, uses tessellation. Default is 0.
     weightBySize : bool, optional
-        Whether to weight tessellation by source size. Default is False.
+    Whether to weight tessellation by source size. Default is False.
     facetdirections : str, optional
-        Path to existing facet directions file (text format or pickle). If provided,
-        skips image-based facet generation.
+    Path to existing facet directions file (text format or pickle). If provided,
+    skips image-based facet generation.
     imsizemargin : int, optional
-        Margin to add to image size (not currently used in function body). Default is 100.
+    Margin to add to image size (not currently used in function body). Default is 100.
     restart : bool, optional
-        If True, preserves existing ./facet_regions/facets.reg file when facetdirections is provided.
-        Default is False.
+    If True, preserves existing ./facet_regions/facets.reg file when facetdirections is provided.
+    Default is False.
     via_h5 : bool, optional
-        If True, uses h5 file path for quick DS9 facet generation and returns early.
-        Default is False.
+    If True, uses h5 file path for quick DS9 facet generation and returns early.
+    Default is False.
     h5 : str, optional
-        Path to h5 file when via_h5 is True.
+    Path to h5 file when via_h5 is True.
 
     Returns
     -------
     solints : int or None
-        Solution intervals parsed from facetdirections file, or None if not available.
+    Solution intervals parsed from facetdirections file, or None if not available.
     smoothness : float or None
-        Smoothness parameter parsed from facetdirections file, or None if not available.
+    Smoothness parameter parsed from facetdirections file, or None if not available.
     soltypelist_includedir : list or None
-        Solution type list parsed from facetdirections file, or None if not available.
+    Solution type list parsed from facetdirections file, or None if not available.
     None
-        Returns None when via_h5 is True (early return).
+    Returns None when via_h5 is True (early return).
 
     Notes
     -----
     - Generates './facet_regions/facetdirections.p' pickle file containing patch positions array.
     - Generates './facet_regions/facets.reg' DS9 region file when ms, imsize, and pixelscale are provided.
     - When selfcalcycle == 0 and no facetdirections file is provided, runs PyBDSF on
-      the image and uses lsmtool for source grouping.
+    the image and uses lsmtool for source grouping.
     - Patch positions are stored as [RA, Dec] in radians.
     """
 
@@ -13559,14 +15345,20 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
 
 def write_ds9_regions(ra_array, dec_array, filename="directions.reg", radius=120.0, color="red"):
     """
-    Writes DS9 region file entries for each RA, DEC pair.
+    Write DS9 region file entries for each RA, DEC pair.
 
-    Parameters:
-    - ra_array (np.ndarray): 1D array of Right Ascension values (in degrees)
-    - dec_array (np.ndarray): 1D array of Declination values (in degrees)
-    - filename (str): Output text file name
-    - radius (float): Radius of the circle in arcseconds
-    - color (str): Color to use in DS9 region entries
+    Parameters
+    ----------
+    ra_array : array-like
+        Right Ascension values in degrees.
+    dec_array : array-like
+        Declination values in degrees.
+    filename : str
+        Output DS9 region file path.
+    radius : str, optional
+        Region radius specification (default is '100arcsec').
+    color : str, optional
+        Region color (default is 'white').
     """
     with open(filename, "w") as f:
         f.write('# Region file format: DS9 version 4.1\n')
@@ -13584,40 +15376,40 @@ def parse_facetdirections(facetdirections, selfcalcycle, writeregioncircles=True
     Parameters
     ----------
     facetdirections : str
-        Path to the facet directions file. The file should be in ASCII format with a 
-        commented header line. Required columns are 'RA' and 'DEC'. Optional columns 
-        include 'start', 'solints', 'soltypelist_includedir', and 'smoothness'.
+    Path to the facet directions file. The file should be in ASCII format with a 
+    commented header line. Required columns are 'RA' and 'DEC'. Optional columns 
+    include 'start', 'solints', 'soltypelist_includedir', and 'smoothness'.
     selfcalcycle : int
-        Current self-calibration cycle number. Only directions with start <= selfcalcycle
-        will be selected.
+    Current self-calibration cycle number. Only directions with start <= selfcalcycle
+    will be selected.
     writeregioncircles : bool, optional
-        If True, write DS9 region file with facet center positions (default: True).
+    If True, write DS9 region file with facet center positions (default: True).
     return_only_selfcalcycle_sel : bool, optional
-        If True, only return directions selected for the current selfcal cycle (default: False).
+    If True, only return directions selected for the current selfcal cycle (default: False).
     Returns
     -------
     PatchPositions_array : np.ndarray
-        Array of shape (N, 2) containing RA and DEC positions in radians for selected
-        directions.
+    Array of shape (N, 2) containing RA and DEC positions in radians for selected
+    directions.
     solints : list of list or None
-        List of solution intervals for each selected direction, parsed from string 
-        representation. None if 'solints' column not present in file.
+    List of solution intervals for each selected direction, parsed from string 
+    representation. None if 'solints' column not present in file.
     smoothness : list of list or None
-        List of smoothness parameters for each selected direction, parsed from string
-        representation. None if 'smoothness' column not present in file.
+    List of smoothness parameters for each selected direction, parsed from string
+    representation. None if 'smoothness' column not present in file.
     start : np.ndarray 
-        If return_only_selfcalcycle_sel is True, returns only the 'start' values for the selected directions as a numpy array. Otherwise, this is not returned.
+    If return_only_selfcalcycle_sel is True, returns only the 'start' values for the selected directions as a numpy array. Otherwise, this is not returned.
     Raises
     ------
     ValueError
-        If the number of entries in 'solints', 'smoothness', or 'soltypelist_includedir'
-        does not match the length of args['soltype_list'].
+    If the number of entries in 'solints', 'smoothness', or 'soltypelist_includedir'
+    does not match the length of args['soltype_list'].
     Notes
     -----
     - The function strips inline comments from the input file before parsing.
     - Full-line comments (starting with '#') are skipped except for the header.
     - Requires global variable 'args' with 'soltype_list' key for validation when
-      'soltypelist_includedir' is present.
+    'soltypelist_includedir' is present.
     - Uses astropy.io.ascii for reading the table data.
     - Coordinates are converted from degrees to radians in the output array.
     """
@@ -13744,6 +15536,24 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                 DDE_predict='DP3', restart=False, disable_IDG_DDE_predict=True,
                 telescope='LOFAR', skyview=None, wscleanskymodel=None,
                 skymodel=None):
+    """
+    Prepare direction-dependent calibration and imaging inputs.
+
+    Parameters
+    ----------
+    imagebasename : str
+        Base image name.
+    selfcalcycle : int
+        Current self-calibration cycle.
+    mslist : list
+        Measurement Set paths.
+        **kwargs: DDE, telescope, restart, and sky-model options.
+
+    Returns
+    -------
+    tuple
+        Prepared calibration products and metadata.
+    """
     if telescope == 'LOFAR' and not disable_IDG_DDE_predict:
         idg = True  # predict WSCLEAN with beam using IDG (wsclean facet mode with h5 is not efficient here)
     else:
@@ -13902,20 +15712,20 @@ def is_scalar_array_for_wsclean(h5list):
     Parameters
     ----------
     h5list : list of str
-        List of paths to H5parm files containing calibration solutions.
+    List of paths to H5parm files containing calibration solutions.
 
     Returns
     -------
     bool
-        True if solutions are scalar (no polarization axis or identical across polarizations),
-        False if solutions differ between polarizations.
+    True if solutions are scalar (no polarization axis or identical across polarizations),
+    False if solutions differ between polarizations.
 
     Notes
     -----
     The function performs two checks:
     1. First checks if any solutions lack a polarization axis entirely
     2. For solutions with a polarization axis, compares values between first and last
-       polarization indices to determine if they are identical
+    polarization indices to determine if they are identical
 
     The function examines both 'phase000' and 'amplitude000' solution tables within
     the 'sol000' solution set. The polarization axis is assumed to be the last dimension
@@ -13980,6 +15790,26 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          modeldatacolumns=[], dde_skymodel=None,
                          DDE_predict='WSCLEAN', telescope='LOFAR',
                          mslist_beforeremoveinternational=None):
+    """
+    Solve and apply calibration solutions to Measurement Sets.
+
+    Parameters
+    ----------
+    mslist : list
+        Measurement Set paths.
+    selfcalcycle : int
+        Current self-calibration cycle.
+    solint_list : list
+        Solution intervals.
+    nchan_list : list
+        Solution channel counts.
+        **kwargs: Calibration, model, and solution settings.
+
+    Returns
+    -------
+    None
+        Calibration products are written to disk.
+    """
     ## --- start STACK code ---
     if args['stack']:
         # create MODEL_DATA because in case it does not exist (needed in case user gives external model(s))
@@ -14366,6 +16196,31 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
 
 
 def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None, beamproximitylimit=240.0, modelstoragemanager=None):
+    """
+    Predict a sky model into a Measurement Set model column.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path.
+    skymodel : str
+        Sky-model path.
+    modeldata : str, optional
+        Destination model column.
+    predictskywithbeam : bool, optional
+        Apply the primary beam.
+    sources : list, optional
+        Source subset to predict.
+    beamproximitylimit : float, optional
+        Beam proximity limit.
+    modelstoragemanager : object, optional
+        Model storage manager.
+
+    Returns
+    -------
+    None
+        The model column is updated on disk.
+    """
     cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msout=. '
     cmd += 'p.sourcedb=' + skymodel + ' steps=[p] p.type=predict msout.datacolumn=' + modeldata + ' '
     if sources is not None:
@@ -14404,6 +16259,28 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 normamps=True, modelstoragemanager=None, pixelscale=None, imsize=None, skymodelsetjy=False,
                 solve_msinnchan='all', solve_msinstartchan=0,
                 antenna_averaging_factors=None, antenna_smoothness_factors=None, auto_flag_antennas=False, max_tec_delay_wraps=15):
+    """
+    Run the base DP3 calibration and solution-processing workflow.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path.
+    solint : str or float
+        Solution interval.
+    nchan : int
+        Number of solution channels.
+    parmdb : str
+        Parameter database path.
+    soltype : str
+        Calibration solution type.
+        **kwargs: DP3, flagging, model, and solution options.
+
+    Returns
+    -------
+    object
+        Calibration result produced by the workflow.
+    """
     soltypein = soltype  # save the input soltype is as soltype could be modified (for example by scalarphasediff)
 
     modeldata = 'MODEL_DATA'  # the default, update if needed for scalarphasediff and phmin solves
@@ -15352,19 +17229,31 @@ def create_splitted_ms(ms, columns_to_create, solve_msinnchan, solve_msinstartch
     """
     Create a temporary Measurement Set (MS) with selected frequency channels and specified columns.
 
-    Parameters:
-        ms (str): Path to the input Measurement Set.
-        columns_to_create (list of str): List of column names to create and copy into the new MS.
-        solve_msinnchan (int): Number of frequency channels to include in the split MS.
-        solve_msinstartchan (int): Starting channel index for the split.
-        dysco (bool, optional): Whether to use DYSCO compression for the output MS. Defaults to True.
-        modelstoragemanager (str or None, optional): Storage manager to use for model columns. Defaults to None.
-        incol (str, optional): Name of the input data column. Defaults to 'DATA'.
-        metadata_compression (bool, optional): Whether to enable metadata compression. Defaults to True.
-        ncpu_max (int, optional): Maximum number of CPU threads to use. Defaults to 8.
+    Parameters
+    ----------
+    ms : str
+        Path to the input Measurement Set.
+    columns_to_create : list of str
+        List of column names to create and copy into the new MS.
+    solve_msinnchan : int
+        Number of frequency channels to include in the split MS.
+    solve_msinstartchan : int
+        Starting channel index for the split.
+    dysco : bool, optional
+        Whether to use DYSCO compression for the output MS. Defaults to True.
+    modelstoragemanager : str or None, optional
+        Storage manager to use for model columns. Defaults to None.
+    incol : str, optional
+        Name of the input data column. Defaults to 'DATA'.
+    metadata_compression : bool, optional
+        Whether to enable metadata compression. Defaults to True.
+    ncpu_max : int, optional
+        Maximum number of CPU threads to use. Defaults to 8.
 
-    Returns:
-        str: Path to the newly created temporary Measurement Set.
+    Returns
+    -------
+    str
+        Path to the newly created temporary Measurement Set.
     """
     # create a new temporary MS with the average function
     ms_tmp = average([ms], freqstep=[1], makecopy=True, msinnchan=solve_msinnchan, msinstartchan=solve_msinstartchan,
@@ -15411,13 +17300,18 @@ def mask_region_inv(infilename, ds9region, outfilename):
     """
     Applies an inverse mask to a FITS image using a DS9 region file, setting all pixels outside the specified region to zero.
 
-    Parameters:
-        infilename (str): Path to the input FITS file.
-        ds9region (str): Path to the DS9 region file defining the region to keep.
-        outfilename (str): Path to the output FITS file where the masked image will be saved.
+    Parameters
+    ----------
+    infilename : str
+        Path to the input FITS file.
+    ds9region : str
+        Path to the DS9 region file defining the region to keep.
+    outfilename : str
+        Path to the output FITS file where the masked image will be saved.
 
-    Returns:
-        None
+    Returns
+    -------
+    None
     """
     hdu = fits.open(infilename)
     hduflat = flatten(hdu)
@@ -15437,16 +17331,16 @@ def mask_region(infilename, ds9region, outfilename):
     Parameters
     ----------
     infilename : str
-        Path to the input FITS file to be masked.
+    Path to the input FITS file to be masked.
     ds9region : str
-        Path to the DS9 region file specifying the mask region.
+    Path to the DS9 region file specifying the mask region.
     outfilename : str
-        Path to the output FITS file where the masked data will be saved.
+    Path to the output FITS file where the masked data will be saved.
 
     Returns
     -------
     None
-        The function writes the masked FITS file to `outfilename` and does not return a value.
+    The function writes the masked FITS file to `outfilename` and does not return a value.
 
     Notes
     -----
@@ -15477,43 +17371,43 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     Parameters
     ----------
     mslist : list of str
-        List of measurement set file paths to process.
+    List of measurement set file paths to process.
     imagebasename : str
-        Basename for the image FITS file (expects '-MFS-image.fits' suffix).
+    Basename for the image FITS file (expects '-MFS-image.fits' suffix).
     pixsize : float
-        Pixel size for imaging (arcseconds or degrees, depending on context).
+    Pixel size for imaging (arcseconds or degrees, depending on context).
     imsize : int
-        Image size (number of pixels per side).
+    Image size (number of pixels per side).
     channelsout : int
-        Number of output channels for imaging.
+    Number of output channels for imaging.
     single_dual_speedup : bool, optional
-        If True, enables speedup for single/dual polarization (default: True).
+    If True, enables speedup for single/dual polarization (default: True).
     outcol : str, optional
-        Name of the output data column to store subtracted/extracted data (default: 'SUBTRACTED_DATA').
+    Name of the output data column to store subtracted/extracted data (default: 'SUBTRACTED_DATA').
     dysco : bool, optional
-        If True, uses DYSCO storage manager for output (default: True).
+    If True, uses DYSCO storage manager for output (default: True).
     userbox : float, str, or None, optional
-        User-specified box size in degrees, a region file, 'keepall', or None to use default (default: None).
+    User-specified box size in degrees, a region file, 'keepall', or None to use default (default: None).
     idg : bool, optional
-        If True, uses IDG for imaging (default: False).
+    If True, uses IDG for imaging (default: False).
     h5list : list of str, optional
-        List of H5 calibration tables for DDE calibration (default: []).
+    List of H5 calibration tables for DDE calibration (default: []).
     facetregionfile : str or None, optional
-        Path to facet region file for DDE calibration (default: None).
+    Path to facet region file for DDE calibration (default: None).
     disable_primary_beam : bool, optional
-        If True, disables primary beam correction during prediction (default: False).
+    If True, disables primary beam correction during prediction (default: False).
     ddcor : bool, optional
-        If True, applies direction-dependent corrections after subtraction (default: True).
+    If True, applies direction-dependent corrections after subtraction (default: True).
     modelstoragemanager : str or None, optional
-        Storage manager for model data (default: None).
+    Storage manager for model data (default: None).
     parallelgridding : int, optional
-        Number of parallel gridding threads (default: 1).
+    Number of parallel gridding threads (default: 1).
     metadata_compression : bool, optional
-        If True, enables metadata compression for output (default: True).
+    If True, enables metadata compression for output (default: True).
     avgfreqstep : int, optional
-        Step size for frequency averaging (default: 1).
+    Step size for frequency averaging (default: 1).
     avgtimestep : int, optional
-        Step size for time averaging (default: 1).
+    Step size for time averaging (default: 1).
     Returns
     -------
     None
@@ -15753,7 +17647,88 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               singlefacetpredictspeedup=True, forceimagingwithfacets=True,
               fulljones_h5_facetbeam=False, sharedfacetreads=False):
     """
-    forceimagingwithfacets (bool): force imaging with facetregionfile (facets.reg) even if len(h5list)==0, in this way we can still get a primary beam correction per facet and this image can be use for a DDE predict with the same type of beam correction (this is useful for making image000 when there are no DDE h5 corrections yet and we do not want to use IDG)
+    Image Measurement Sets using WSClean or DDFacet.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Sets to image.
+    imageout : str
+        Output image basename.
+    pixsize : float
+        Pixel size in arcseconds.
+    imsize : int or list of int
+        Image dimensions in pixels.
+    channelsout : int
+        Number of output channels.
+    niter : int
+        Number of clean iterations.
+    robust : float
+        Briggs robust weighting parameter.
+    uvtaper : float
+        Outer uv taper in arcseconds.
+    multiscale : bool
+        Use multiscale deconvolution.
+    predict : bool
+        Run predict on model.
+    onlypredict : bool
+        Only predict without imaging.
+    fitsmask : str
+        Path to FITS mask.
+    idg : bool
+        Use Image Domain Gridder.
+    uvminim : float
+        Minimum uv cut in lambda.
+    fitspectralpol : int
+        Fit spectral polynomial order.
+    restoringbeam : str
+        Restoring beam specification.
+    automask : float
+        Automask threshold.
+    removenegativecc : bool
+        Remove negative clean components.
+    usewgridder : bool
+        Use W-gridder.
+    paralleldeconvolution : int
+        Parallel deconvolution sub-image size.
+    parallelgridding : int
+        Parallel gridding setting.
+    forced_imcol : str
+        Force imaging of this data column.
+    fullpol : bool
+        Image all 4 polarizations.
+    selfcalcycle : int
+        Current self-calibration cycle number.
+    uvmaxim : float
+        Maximum uv cut in lambda.
+    h5list : list of str
+        List of H5Parm solution files.
+    facetregionfile : str
+        DS9 region file defining facets.
+    squarebox : bool
+        Use square bounding box.
+    DDE_predict : str
+        Predict method ('DP3' or 'WSCLEAN').
+    DDEimaging : bool
+        Perform DDE facet imaging.
+    nosmallinversion : bool
+        Disable small inversion in WSClean.
+    stack : bool
+        Image stacked MS.
+    disable_primarybeam_predict : bool
+        Disable primary beam in predict.
+    disable_primarybeam_image : bool
+        Disable primary beam in imaging.
+    facet_beam_update_time : float
+        Beam update interval for facet beam.
+    singlefacetpredictspeedup : bool
+        Speed up single facet predict.
+    forceimagingwithfacets : bool, optional
+        Force imaging with facetregionfile even if len(h5list) == 0.
+    fulljones_h5_facetbeam : bool, optional
+        Apply FullJones solutions in facet beam.
+    sharedfacetreads : bool, optional
+        Share facet visibility reads.
     """
     
     if args['telescope'] in ['MeerKAT', 'GMRT']:
@@ -16349,7 +18324,12 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
 def removeneNaNfrommodel(imagenames):
     """
-    replace NaN/inf pixels values in WSCLEAN model images with zeros
+    Replace NaN and Inf pixel values in WSCLEAN model images with zeros.
+
+    Parameters
+    ----------
+    imagenames : list of str
+        List of model image paths.
     """
 
     for image_id, image in enumerate(imagenames):
@@ -16364,7 +18344,12 @@ def removeneNaNfrommodel(imagenames):
 
 def removenegativefrommodel(imagenames):
     """
-    replace negative pixel values in WSCLEAN model images with zeros
+    Replace negative pixel values in WSCLEAN model images with zeros.
+
+    Parameters
+    ----------
+    imagenames : list of str
+        List of model image paths.
     """
 
     perseus = False
@@ -16398,13 +18383,17 @@ def removenegativefrommodel(imagenames):
 
 
 def checkforzerocleancomponents(imagenames):
-    """ Check if something was cleaned, if not stop de script to avoid more obscure errors later
+    """
+    Check if something was cleaned, if not stop de script to avoid more obscure errors later
 
-    Args:
-        imagenames (list): List of model images to check for clean components.
+    Parameters
+    ----------
+    imagenames : list
+        List of model images to check for clean components.
 
-    Returns:
-        True if all model images are zero, False otherwise.
+    Returns
+    -------
+    True if all model images are zero, False otherwise.
     """
 
     n_images = len(imagenames)
@@ -16424,6 +18413,27 @@ def checkforzerocleancomponents(imagenames):
 
 
 def updatemodelcols_includedir(modeldatacolumns, soltypelist_includedir, ms, dryrun=False, modelstoragemanager=None):
+    """
+    Update model columns for included calibration directions.
+
+    Parameters
+    ----------
+    modeldatacolumns : list
+        Model columns to update.
+    soltypelist_includedir : list
+        Solution types per direction.
+    ms : str
+        Measurement Set path.
+    dryrun : bool, optional
+        Only report the planned operation.
+    modelstoragemanager : object, optional
+        Model storage manager.
+
+    Returns
+    -------
+    None
+        Model columns are updated in place.
+    """
     modeldatacolumns_solve = []
     modeldatacolumns_notselected = []
     id_kept = []
@@ -16531,6 +18541,23 @@ def updatemodelcols_includedir(modeldatacolumns, soltypelist_includedir, ms, dry
     return modeldatacolumns_solve_newnames, sourcedir[id_removed][:], id_kept
 
 def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
+    """
+    Group sky-model sources according to a facet image.
+
+    Parameters
+    ----------
+    skymodelin : str
+        Input sky-model path.
+    facetfitsfile : str
+        Facet FITS image path.
+    skymodelout : str, optional
+        Output sky-model path.
+
+    Returns
+    -------
+    str
+        Output sky-model path.
+    """
     import lsmtool # type: ignore
     print('Loading:', skymodelin)
     LSM = lsmtool.load(skymodelin)
@@ -16544,7 +18571,19 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
 
 def findrms(mIn, maskSup=1e-7):
     """
-    find the rms of an array, from Cycil Tasse/kMS
+    Find the RMS of an array using the method from Cyril Tasse/kMS.
+
+    Parameters
+    ----------
+    mIn : numpy.ndarray
+        Input data array.
+    maskSup : float, optional
+        Clipping threshold for zero/masked values.
+
+    Returns
+    -------
+    float
+        Estimated RMS noise.
     """
     m = mIn[np.abs(mIn) > maskSup]
     rmsold = np.std(m)
@@ -16560,12 +18599,17 @@ def findrms(mIn, maskSup=1e-7):
 
 
 def _add_astropy_beam(fitsname):
-    """ Add beam from astropy
+    """
+    Add beam from astropy
 
-    Args:
-        fitsname: name of fits file
-    Returns:
-        ellipse
+    Parameters
+    ----------
+    fitsname
+        name of fits file
+
+    Returns
+    -------
+    ellipse
     """
 
     head = fits.getheader(fitsname)
@@ -16581,6 +18625,33 @@ def _add_astropy_beam(fitsname):
 
 def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
                       cmap='bone', regioncolor='yellow', minmax=None, regionalpha=0.6):
+    """
+    Plot a FITS image with Astropy-aware coordinates and regions.
+
+    Parameters
+    ----------
+    fitsimagename : str
+        FITS image path.
+    outplotname : str
+        Output plot path.
+    mask : str, optional
+        FITS mask path.
+    regionfile : str, optional
+        Region file to overlay.
+    cmap : str, optional
+        Matplotlib colormap.
+    regioncolor : str, optional
+        Region overlay color.
+    minmax : tuple, optional
+        Display minimum and maximum.
+    regionalpha : float, optional
+        Region overlay transparency.
+
+    Returns
+    -------
+    None
+        The plot is written to disk.
+    """
 
     # image noise info
     hdulist = fits.open(fitsimagename)
@@ -16656,12 +18727,25 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
 
 def plotimage(selfcalcycle, stackstr='', mask=None, regionfile=None):
     """
-    Tries to plot the image using astropy first, and falls back to aplpy if astropy fails.
-    Parameters:
-    selfcalcycle (int): selfcal cycle number so we can pick up the correct image
-    stackstr (str): basename string in case we are stacking (otherwise it is an empty string)
-    mask (str): fits clean mask image (will be overplot with red contours)
-    regionfile (str): DS9 facet region file for --DDE mode, facet layout will be shown in yellow
+    Plot an image using Astropy, falling back to APLpy if necessary.
+
+    The image and reference noise image are selected from the configured
+    imager and self-calibration cycle. The resulting PNG is written to the
+    ``plots`` directory.
+
+    Parameters
+    ----------
+    selfcalcycle : int
+        Self-calibration cycle number used to select the
+        image.
+    stackstr : str, optional
+        Filename suffix for stacked images.
+    mask : str or None, optional
+        FITS clean-mask image to overlay as red
+        contours.
+    regionfile : str or None, optional
+        DS9 facet-region file to overlay
+        for DDE mode.
     """
     plots_dir = 'plots'
     if args['imager'] == 'WSCLEAN':
@@ -16697,6 +18781,26 @@ def plotimage(selfcalcycle, stackstr='', mask=None, regionfile=None):
 
 
 def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
+    """
+    Plot a FITS image with APLpy and save it as a PNG.
+
+    The image RMS is estimated from ``rmsnoiseimage`` when supplied, or from
+    the plotted image otherwise. The output filename is formed by appending
+    ``.png`` to ``outplotname``.
+
+    Parameters
+    ----------
+    fitsimagename : str
+        Path to the FITS image to plot.
+    outplotname : str
+        Output filename without the ``.png`` suffix.
+    mask : str or None, optional
+        FITS clean-mask image to overlay as red
+        contours.
+    rmsnoiseimage : str or None, optional
+        FITS image from which to
+        estimate the plotting noise range.
+    """
     import aplpy
     # image noise for plotting
     if rmsnoiseimage is None:
@@ -16744,7 +18848,26 @@ def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
 
 
 def flatten(f):
-    """ Flatten a fits file so that it becomes a 2D image. Return new header and data """
+    """
+    Flatten the first FITS HDU to a two-dimensional image.
+
+    Two-dimensional input is returned with its existing header and data.
+    For higher-dimensional input, the first two axes and WCS metadata are
+    retained while index zero is selected along every additional axis.
+    Selected metadata such as beam size, observing facility, and frequency
+    are copied to the new header.
+
+    Parameters
+    ----------
+    f : astropy.io.fits.HDUList
+        FITS HDU list whose primary HDU is
+        flattened.
+
+    Returns
+    -------
+    astropy.io.fits.PrimaryHDU
+        Two-dimensional primary HDU.
+    """
 
     naxis = f[0].header['NAXIS']
     if naxis == 2:
@@ -16783,7 +18906,30 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
                          circ2lin=False, losotobeamlib='stationresponse', 
                          update_poltable=True, idg=False, metadata_compression=True):
     """
-    correct a ms for the beam in the phase center (array_factor only)
+    Correct an MS for the beam in the phase center (array factor only) and convert polarizations.
+
+    Parameters
+    ----------
+    ms : str
+        Input Measurement Set path.
+    msout : str, optional
+        Output Measurement Set path.
+    dysco : bool, optional
+        Use Dysco compression.
+    beam : str, optional
+        Beam correction option ('yes', 'no', or 'auto').
+    lin2circ : bool, optional
+        Convert linear to circular polarizations.
+    circ2lin : bool, optional
+        Convert circular to linear polarizations.
+    losotobeamlib : str, optional
+        Beam library to use.
+    update_poltable : bool, optional
+        Update POLARIZATION table.
+    idg : bool, optional
+        Image Domain Gridder flag.
+    metadata_compression : bool, optional
+        Compress MS metadata.
     """
 
     # check if there are applybeam corrections in the header
@@ -16975,8 +19121,19 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
 
 def beam_keywords(ms, add_beamkeywords=True):
     """
-    Check for beam application keywords in a measurement set (ms).
-    If add_beamkeywords True then add keywords in case they are missing
+    Check for beam application keywords in a Measurement Set (MS).
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    add_beamkeywords : bool, optional
+        Add beam keywords if missing.
+
+    Returns
+    -------
+    bool
+        True if beam keywords are present or were added.
     """
 
     applybeam_info = False
@@ -17006,7 +19163,14 @@ def beam_keywords(ms, add_beamkeywords=True):
 
 def beamcormodel(ms, dysco=True):
     """
-    create MODEL_DATA_BEAMCOR where we store beam corrupted model data
+    Create MODEL_DATA_BEAMCOR column for beam-corrupted model data.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    dysco : bool, optional
+        Use Dysco compression.
     """
     H5name = ms + '_templatejones.h5'
 
@@ -17026,6 +19190,21 @@ def beamcormodel(ms, dysco=True):
 
 
 def write_RMsynthesis_weights(fitslist, outfile):
+    """
+    Write frequency weights for RM synthesis.
+
+    Parameters
+    ----------
+    fitslist : list
+        FITS image paths containing frequency metadata.
+    outfile : str
+        Output weights filename.
+
+    Returns
+    -------
+    None
+        Weights are written to disk.
+    """
     rmslist = np.zeros(len(fitslist))
 
     for fits_id, fitsfile in enumerate(fitslist):
@@ -17045,8 +19224,18 @@ def write_RMsynthesis_weights(fitslist, outfile):
 
 def findamplitudenoise(parmdb):
     """
-      find the 'amplitude noise' in a parmdb, return non-clipped rms value
-      """
+    Find the amplitude noise in a parmdb and return the non-clipped RMS value.
+
+    Parameters
+    ----------
+    parmdb : str
+        Path to the parmdb / H5Parm.
+
+    Returns
+    -------
+    float
+        RMS amplitude noise.
+    """
     with h5parm.h5parm(parmdb, readonly=True) as H5:
         amps = H5.getSolset('sol000').getSoltab('amplitude000').getValues()[0]
         weights = H5.getSolset('sol000').getSoltab('amplitude000').getValues(weight=True)[0]
@@ -17067,8 +19256,24 @@ def findamplitudenoise(parmdb):
 
 def getimsize(boxfile, cellsize=1.5, increasefactor=1.2, DDE=None):
     """
-   find imsize need to image a DS9 boxfile region
-   """
+    Find image size needed to cover a DS9 boxfile region.
+
+    Parameters
+    ----------
+    boxfile : str
+        Path to the DS9 box file.
+    cellsize : float
+        Pixel cell size in arcseconds.
+    increasefactor : float, optional
+        Factor to expand the bounding box size.
+    DDE : bool, optional
+        Direction-dependent calibration mode flag.
+
+    Returns
+    -------
+    int
+        Computed image size in pixels.
+    """
     r = pyregion.open(boxfile)
 
     xs = np.ceil((r[0].coord_list[2]) * increasefactor * 3600. / cellsize)
@@ -17084,6 +19289,25 @@ def getimsize(boxfile, cellsize=1.5, increasefactor=1.2, DDE=None):
 
 
 def smoothsols(parmdb, ms, longbaseline, includesphase=True):
+    """
+    Smooth calibration solutions for a baseline class.
+
+    Parameters
+    ----------
+    parmdb : str
+        Parameter database path.
+    ms : str
+        Measurement Set path.
+    longbaseline : bool
+        Whether long-baseline smoothing is required.
+    includesphase : bool, optional
+        Whether phase solutions are present.
+
+    Returns
+    -------
+    str
+        Generated smoothing parset path.
+    """
     losoto = 'losoto'
 
     cmdlosoto = losoto + ' ' + parmdb + ' '
@@ -17110,7 +19334,14 @@ def smoothsols(parmdb, ms, longbaseline, includesphase=True):
 
 def change_refant(parmdb, soltab):
     """
-    Changes the reference antenna, if needed, for phase
+    Change the reference antenna, if needed, for phase solutions.
+
+    Parameters
+    ----------
+    parmdb : str
+        Path to the H5Parm / parmdb.
+    soltab : str, optional
+        Name of the solution table.
     """
     with h5parm.h5parm(parmdb, readonly=False) as H5:
         phases = H5.getSolset('sol000').getSoltab(soltab).getValues()[0]
@@ -17169,6 +19400,19 @@ def change_refant(parmdb, soltab):
 
 
 def calculate_solintnchan(compactflux):
+    """
+    Select a solution interval and channel count from compact flux.
+
+    Parameters
+    ----------
+    compactflux : float
+        Compact-source flux density.
+
+    Returns
+    -------
+    tuple
+        Selected solution interval and channel count.
+    """
     if compactflux >= 3.5:
         nchan = 5.
         solint_phase = 1.
@@ -17203,15 +19447,23 @@ def calculate_solintnchan(compactflux):
 def write_compactsource_flux(fitsimage, outputcatalog, interactive=False):
     """
     Processes a FITS image to detect compact sources and writes their flux information to an output catalog.
-    Parameters:
-        fitsimage (str): Path to the input FITS image file.
-        outputcatalog (str): Path to the output catalog file where detected source fluxes will be saved.
-    Returns:
-        None
-    Notes:
-        - The function reads the FITS header to determine beam size and pixel size, then calculates appropriate box sizes for background RMS estimation.
-        - Uses the PyBDSF (bdsf) library to process the image and extract source information.
-        - The output catalog is written in FITS format and contains a source list with flux measurements.
+
+    Parameters
+    ----------
+    fitsimage : str
+        Path to the input FITS image file.
+    outputcatalog : str
+        Path to the output catalog file where detected source fluxes will be saved.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    - The function reads the FITS header to determine beam size and pixel size, then calculates appropriate box sizes for background RMS estimation.
+    - Uses the PyBDSF (bdsf) library to process the image and extract source information.
+    - The output catalog is written in FITS format and contains a source list with flux measurements.
     """
     with fits.open(fitsimage) as hdul:
         bmaj = hdul[0].header['BMAJ']
@@ -17241,9 +19493,17 @@ def write_compactsource_flux(fitsimage, outputcatalog, interactive=False):
 
 def determine_compactsource_flux(fitsimage):
     """
-    return total flux in compect sources in the fitsimage
-    input: a fits image
-    output: flux density in Jy
+    Return total flux in compact sources in the FITS image.
+
+    Parameters
+    ----------
+    fitsimage : str
+        Path to the FITS image.
+
+    Returns
+    -------
+    float
+        Total compact source flux in Jy.
     """
 
     with fits.open(fitsimage) as hdul:
@@ -17271,9 +19531,17 @@ def determine_compactsource_flux(fitsimage):
 
 def getdeclinationms(ms):
     """
-    return approximate declination of pointing center of the ms
-    input: a ms
-    output: declination in degrees
+    Return approximate declination of the MS pointing center.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+
+    Returns
+    -------
+    float
+        Approximate declination in degrees.
     """
     t = table(ms + '/FIELD', readonly=True, ack=False)
     direction = np.squeeze(t.getcol('PHASE_DIR'))
@@ -17285,8 +19553,19 @@ def getdeclinationms(ms):
 
 def declination_sensivity_factor(declination):
     """
-    compute sensitivy factor lofar data, reduced by delclination, eq. from G. Heald.
-    input declination is units of degrees
+    Compute sensitivity factor for LOFAR data, reduced by declination.
+
+    Formula from G. Heald.
+
+    Parameters
+    ----------
+    declination : float
+        Declination in degrees.
+
+    Returns
+    -------
+    float
+        Sensitivity factor.
     """
     factor = 1. / (np.cos(2. * np.pi * (declination - 52.9) / 360.) ** 2)
 
@@ -17297,11 +19576,15 @@ def is_binary(file_name):
     """
     Check if a file is binary or text-based.
 
-    Args:
-        file_name (str): Path to the file to check.
+    Parameters
+    ----------
+    file_name : str
+        Path to the file to check.
 
-    Returns:
-        bool: True if the file is binary, False if it is text.
+    Returns
+    -------
+    bool
+        True if the file is binary, False if it is text.
     """
     try:
         import magic
@@ -17314,7 +19597,21 @@ def is_binary(file_name):
 
 def has0coordinates(h5):
     """
-    Check if the coordinates in the directions are 0, avoids being hit by this rare DP3 bug
+    Check whether any direction has zero coordinates.
+
+    This detects a rare DP3 issue in which a direction is written with both
+    coordinates set to zero.
+
+    Parameters
+    ----------
+    h5 : str or pathlib.Path
+        Path to the H5 calibration file.
+
+    Returns
+    -------
+    bool
+        ``True`` if any direction in ``sol000/source`` has both
+        coordinates equal to zero, otherwise ``False``.
     """
     h5 = tables.open_file(h5)
     for c in h5.root.sol000.source[:]:
@@ -17328,7 +19625,27 @@ def has0coordinates(h5):
 
 def findrefant_core(H5file, telescope='LOFAR'):
     """
-    Basically like the other one, but now it actually uses losoto
+    Select a reference antenna from the core or preferred antennas.
+
+    The function opens the ``sol000`` solution set, selects a suitable
+    solution table, and chooses the candidate antenna with the greatest sum
+    of unflagged weights. For LOFAR, the core stations are preferred, with
+    remote stations used as a fallback. Other supported telescopes use their
+    predefined preferred-antenna lists.
+
+    Parameters
+    ----------
+    H5file : str or pathlib.Path
+        Path to the H5 calibration file.
+    telescope : str, optional
+        Telescope whose preferred antennas should
+        be used. Supported values include ``'LOFAR'``, ``'MeerKAT'``,
+        ``'GMRT'``, ``'ASKAP'``, ``'EVLA'``, and ``'MWA'``.
+
+    Returns
+    -------
+    str
+        Name of the selected reference antenna.
     """
     H = h5parm.h5parm(H5file)
     solset = H.getSolset('sol000')
@@ -17397,7 +19714,16 @@ def findrefant_core(H5file, telescope='LOFAR'):
 
 def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
     """
-    Create a losoto parset to fit Faraday Rotation on the phase difference'.
+    Create a LoSoTo parset to fit Faraday Rotation on the phase difference.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    refant : str
+        Reference antenna name.
+    outplotname : str
+        Output plot path.
     """
     parset = 'losoto_parsets/losotoFR_plotresult.parset'
     Path(parset).unlink(missing_ok=True)
@@ -17420,7 +19746,22 @@ def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
 def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname='FR', onlyplotFRfit=False,
                            dejump=False):
     """
-    Create a losoto parset to fit Faraday Rotation on the phase difference'.
+    Create a LoSoTo parset to fit Faraday Rotation on the phase difference.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    refant : str
+        Reference antenna name.
+    freqminfitFR : float, optional
+        Minimum frequency for fit in MHz.
+    outplotname : str, optional
+        Output plot path.
+    onlyplotFRfit : bool, optional
+        Only plot the fit without applying.
+    dejump : bool, optional
+        Dejump phase solutions.
     """
     parset = 'losoto_parsets/losotoFR.parset'
     Path(parset).unlink(missing_ok=True)
@@ -17506,12 +19847,20 @@ def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname
 def check_if_ms_exists(mslist):
     """
     Check if all measurement sets in the provided list exist.
-    Args:
-        mslist (list of str): List of paths to Measurement Set directories to check.
-    Raises:
-        Exception: If any MS directory does not exist.
-    Returns:
-        None
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to Measurement Set directories to check.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    Exception
+        If any MS directory does not exist.
     """
     for ms in mslist:
         if not os.path.isdir(ms):
@@ -17522,13 +19871,16 @@ def check_if_ms_exists(mslist):
 
 # to remove H5/h5 and other files out of a wildcard selection if needed
 def removenonms(mslist):
-    """ Remove files that are not MS (ending on wrong extension)
+    """
+    Remove files that are not MS (ending on wrong extension)
 
-    Args:
-        mslist: measurement set list
+    Parameters
+    ----------
+    mslist : measurement set list
 
-    Returns:
-        New list
+    Returns
+    -------
+    New list
     """
     newmslist = []
     for ms in mslist:
@@ -17543,14 +19895,22 @@ def removenonms(mslist):
 def merge_catalogs(cataloglist, outputcatalog):
     """
     Merge multiple FITS catalogs into a single catalog.
-    Parameters:
-        cataloglist (list of str): List of paths to the input FITS catalog files.
-        outputcatalog (str): Path to the output merged catalog file.
-    Returns:
-        None
-    Notes:
-        - The function reads each input catalog, combines their data, and writes the merged data to the output catalog.
-        - The output catalog is written in FITS format.
+
+    Parameters
+    ----------
+    cataloglist : list of str
+        List of paths to the input FITS catalog files.
+    outputcatalog : str
+        Path to the output merged catalog file.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    - The function reads each input catalog, combines their data, and writes the merged data to the output catalog.
+    - The output catalog is written in FITS format.
     """
     for catalog_id, catalogfile in enumerate(cataloglist):
         with fits.open(catalogfile) as hdul:
@@ -17564,9 +19924,19 @@ def merge_catalogs(cataloglist, outputcatalog):
 
 def MeerKAT_autodetect_highDR(fitsimage):
     """
-    Determine if high dynamic range settings are needed for imaging a MeerKAT image based on the compact source fluxes within the primary beam FWHM/2.
-    Input: a fits image
-    Output: True if high dynamic range settings can be used, False if not
+    Determine if high dynamic range settings are needed for MeerKAT imaging.
+
+    Evaluation is based on compact source fluxes within primary beam FWHM / 2.
+
+    Parameters
+    ----------
+    fitsimage : str
+        Path to the FITS image.
+
+    Returns
+    -------
+    bool
+        True if high dynamic range settings should be used.
     """
     outputfluxcatalog = fitsimage.replace('.fits', '_compactsource_fluxcatalog.DRcheck.fits')
     # get image frequency
@@ -17622,11 +19992,21 @@ def MeerKAT_autodetect_highDR(fitsimage):
 
 def auto_determine_extractregion(fitsimage, min_extract_size=0.5, margin=800.):
     """
-    Determine the extract region size based on the brightest calibration artifact source in the image.
-    Input: a fits image
-    Optional: min_extract_size in degrees (default 0.5 deg)
-              margin in arcsec to add to the extract size (default 300 arcsec)
-    Output: extract size in degrees
+    Determine the extract region size based on the brightest artifact in the image.
+
+    Parameters
+    ----------
+    fitsimage : str
+        Path to the FITS image.
+    min_extract_size : float
+        Minimum extract region size in degrees.
+    margin : float
+        Margin in degrees.
+
+    Returns
+    -------
+    float
+        Determined box size in degrees.
     """
     if os.path.isdir('misc') == False:
         os.mkdir('misc')
@@ -17781,11 +20161,18 @@ def find_bad_deviating_antennas(h5, ms, threshold=0.075):
     Useful for MeerKAT observations to deal with antennas that have a bad pointing accuracy
     First compute the median amplitude solutions, by taking the median along the antenna axis of the h5
     The find antennas that deviate more than threshold (default 30%) from the median
-    Args:
-        h5 (str): Path to the H5 parmdb file.
-        threshold (float): Deviation threshold to identify bad antennas.
-    Returns:
-        list: List of bad antenna names.
+
+    Parameters
+    ----------
+    h5 : str
+        Path to the H5 parmdb file.
+    threshold : float
+        Deviation threshold to identify bad antennas.
+
+    Returns
+    -------
+    list
+        List of bad antenna names.
     """
     fulljones = fulljonesparmdb(h5)  # True/False
     amplitudeleakage = amplitude_leakage_paramdb(h5)  # True/False
@@ -17916,19 +20303,32 @@ def check_valid_ms(mslist):
     5. Checks that there is only one spectral window (SPW) in each MS.
     6. Validates that each MS has a perfectly regularized time-baseline grid structure.
     7. Checks that the MS is a directory and not some other file type.
-    Raises:
-        Exception: If any MS directory does not exist.
-        Exception: If any MS path starts with a '.' character.
-        Exception: If any MS contains 20 or fewer unique time steps.
-        Exception: If there are duplicate MS entries in the list.
-        Exception: If any MS contains more than one spectral window (SPW).
-        Exception: If any MS is not perfectly regularized.
-        Exception: If any MS path is not a directory.
-    
-    Args:
-        mslist (list of str): List of paths to Measurement Set directories to validate.
-    Returns:
-        None
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to Measurement Set directories to validate.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    Exception
+        If any MS directory does not exist.
+    Exception
+        If any MS path starts with a '.' character.
+    Exception
+        If any MS contains 20 or fewer unique time steps.
+    Exception
+        If there are duplicate MS entries in the list.
+    Exception
+        If any MS contains more than one spectral window (SPW).
+    Exception
+        If any MS is not perfectly regularized.
+    Exception
+        If any MS path is not a directory.
     """
     for ms in mslist:
         if not os.path.isdir(ms):
@@ -17979,6 +20379,21 @@ def check_valid_ms(mslist):
 
 
 def makemaskthresholdlist(maskthresholdlist, stop):
+    """
+    Create the sequence of imaging mask thresholds.
+
+    Parameters
+    ----------
+    maskthresholdlist : list
+        Initial threshold values.
+    stop : float
+        Minimum threshold at which to stop.
+
+    Returns
+    -------
+    list
+        Completed threshold sequence.
+    """
     maskthresholdselfcalcycle = []
     for mm in range(stop):
         try:
@@ -17996,22 +20411,22 @@ def niter_from_imsize(imsize, paralleldeconvolution=-1):
     Parameters
     ----------
     imsize : int or None
-        The size of the image in pixels. Must be provided (not None).
+    The size of the image in pixels. Must be provided (not None).
     paralleldeconvolution : int, optional
-        The number of parallel deconvolution processes. Default is -1.
-        If <= 0, niter is calculated based on imsize.
-        If > 0, niter is calculated as 40 * paralleldeconvolution.
+    The number of parallel deconvolution processes. Default is -1.
+    If <= 0, niter is calculated based on imsize.
+    If > 0, niter is calculated as 40 * paralleldeconvolution.
     Returns
     -------
     int
-        The number of iterations to use for deconvolution.
-        - If paralleldeconvolution <= 0 and imsize < 1024: returns 15000
-        - If paralleldeconvolution <= 0 and imsize >= 1024: returns 15000 * (imsize / 1024)
-        - If paralleldeconvolution > 0: returns 40 * paralleldeconvolution
+    The number of iterations to use for deconvolution.
+    - If paralleldeconvolution <= 0 and imsize < 1024: returns 15000
+    - If paralleldeconvolution <= 0 and imsize >= 1024: returns 15000 * (imsize / 1024)
+    - If paralleldeconvolution > 0: returns 40 * paralleldeconvolution
     Raises
     ------
     Exception
-        If imsize is None.
+    If imsize is None.
     Examples
     --------
     >>> niter_from_imsize(512)
@@ -18036,6 +20451,19 @@ def niter_from_imsize(imsize, paralleldeconvolution=-1):
 
 
 def basicsetup(mslist):
+    """
+    Perform basic setup and metadata checks for input MSs.
+
+    Parameters
+    ----------
+    mslist : list
+        Measurement Set paths.
+
+    Returns
+    -------
+    None
+        Setup state is recorded in the workflow context.
+    """
     
     # create losoto_parsets directory in the working directory if it does not exist
     os.makedirs('losoto_parsets', exist_ok=True)
@@ -18555,10 +20983,19 @@ def basicsetup(mslist):
 def get_startchan_nchan(freqs, startfreq, endfreq):
     """
     Try to automatically set arg['msinstartchan'] and arg['msinnchan']
-    :param freqs: frequency array
-    :param startfreq: start frequency
-    :param endfreq: end frequency
-    :return: msinstartchan, msinnchan
+
+    Parameters
+    ----------
+    freqs
+        frequency array
+    startfreq
+        start frequency
+    endfreq
+        end frequency
+
+    Returns
+    -------
+    msinstartchan, msinnchan
     """
     msinstartchan = (np.abs(freqs - startfreq)).argmin()
     highestchannel = (np.abs(freqs - endfreq)).argmin()
@@ -18575,12 +21012,19 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
 
     The procedure and rational is described in Section 3.3 of de Jong et al. (2024)
 
-    :param mslist: list of measurement sets
-    :param args: input arguments
-    :param nchan: n channels
-    :param solint: solution interval
 
     ISSUE?: Seems that the phasediff scores are different compared to what is generated by VLBI pipeline?
+
+    Parameters
+    ----------
+    mslist
+        list of measurement sets
+    args
+        input arguments
+    nchan
+        n channels
+    solint
+        solution interval
     """
 
     mslist_input = mslist[:]  # make a copy
@@ -18642,11 +21086,14 @@ def multiscale_trigger(fitsmask):
     (using `getlargestislandsize`). If this size exceeds 1000 pixels, multiscale cleaning is triggered by setting the `multiscale`
     flag to True. The function logs relevant information about the island size and the triggering of multiscale cleaning.
 
-    Args:
-        fitsmask: The FITS mask array to analyze for island sizes.
+    Parameters
+    ----------
+    fitsmask : The FITS mask array to analyze for island sizes.
 
-    Returns:
-        bool: The value of the `multiscale` flag, possibly updated based on the FITS mask analysis.
+    Returns
+    -------
+    bool
+        The value of the `multiscale` flag, possibly updated based on the FITS mask analysis.
     """
     # update multiscale cleaning setting if allowed/requested
     multiscale = args['multiscale']
@@ -18669,13 +21116,18 @@ def update_uvmin(fitsmask, longbaseline, LBA):
     it sets 'uvmin' in 'args' to 750 (for non-LBA) or 250 (for LBA), indicating the presence of extended emission.
     Relevant information is printed and logged.
 
-    Parameters:
-        fitsmask: The FITS mask to analyze for extended emission.
-        longbaseline (bool): Indicates whether long baselines are being used.
-        LBA (bool): Indicates whether the observation is in LBA mode.
+    Parameters
+    ----------
+    fitsmask
+        The FITS mask to analyze for extended emission.
+    longbaseline : bool
+        Indicates whether long baselines are being used.
+    LBA : bool
+        Indicates whether the observation is in LBA mode.
 
-    Returns:
-        None
+    Returns
+    -------
+    None
     """
     # update uvmin if allowed/requested
     if args['stack']:
@@ -18703,20 +21155,34 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
     extended masking for specific telescopes (LOFAR, MeerKAT). The function can merge user-supplied DS9 region
     files and use the external toool breizorro for mask generation. It returns the updated mask
     filename, a list of mask filenames for each imaging set, and the last used image filename.
-    Args:
-        fitsmask (str or None): Path to an existing FITS mask file, or None to generate a new mask.
-        maskthreshold_selfcalcycle (dict): Dictionary mapping selfcal cycle indices to mask threshold values.
-        selfcalcycle (int): Current self-calibration cycle index.
-        args (dict): Dictionary of imaging and calibration parameters, including imager type, stacking, 
-            mask options, image name, and more.
-        mslist (list): List of measurement sets to process.
-        telescope (str): Name of the telescope (e.g., 'LOFAR', 'MeerKAT').
-        longbaseline (bool): Whether long baselines are used (affects mask generation).
-    Returns:
-        tuple:
-            fitsmask (str or None): Path to the updated or generated FITS mask file, or None if not created.
-            fitsmask_list (list): List of FITS mask filenames (or None) for each imaging set.
-            imagename (str): The filename of the last processed image.
+
+    Parameters
+    ----------
+    fitsmask : str or None
+        Path to an existing FITS mask file, or None to generate a new mask.
+    maskthreshold_selfcalcycle : dict
+        Dictionary mapping selfcal cycle indices to mask threshold values.
+    selfcalcycle : int
+        Current self-calibration cycle index.
+    args : dict
+        Dictionary of imaging and calibration parameters, including imager type, stacking,
+        mask options, image name, and more.
+    mslist : list
+        List of measurement sets to process.
+    telescope : str
+        Name of the telescope (e.g., 'LOFAR', 'MeerKAT').
+    longbaseline : bool
+        Whether long baselines are used (affects mask generation).
+
+    Returns
+    -------
+    tuple
+    fitsmask : str or None
+        Path to the updated or generated FITS mask file, or None if not created.
+    fitsmask_list : list
+        List of FITS mask filenames (or None) for each imaging set.
+    imagename : str
+        The filename of the last processed image.
     """
     # MAKE MASK IF REQUESTED
     fitsmask_list = []
@@ -18786,11 +21252,14 @@ def remove_model_columns(mslist):
     This function iterates over each MS in the provided list, identifies columns whose names match the pattern 'MODEL_DATA*',
     and removes them using the `remove_column_ms` function.
 
-    Args:
-        mslist (list of str): List of paths to Measurement Set directories.
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to Measurement Set directories.
 
-    Returns:
-        None
+    Returns
+    -------
+    None
     """
     print('Clean up MODEL_DATA type columns')
     for ms in mslist:
@@ -18804,6 +21273,21 @@ def remove_model_columns(mslist):
 
 
 def set_fitsmask_restart(i, mslist):
+    """
+    Restore or prepare FITS mask state for a restart.
+
+    Parameters
+    ----------
+    i : int
+        Self-calibration cycle index.
+    mslist : list
+        Measurement Set paths.
+
+    Returns
+    -------
+    object
+        Restart mask state.
+    """
     fitsmask_list = []
     for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
         if args['stack']:
@@ -18840,8 +21324,14 @@ def set_fitsmask_restart(i, mslist):
 
 def create_Ateam_seperation_plots(mslist, start=0):
     """
-    Create Ateam and Sun, Moon, Jupiter seperation plots
-    input: mslist (list), list of MS
+    Create A-team and Sun, Moon, Jupiter separation plots.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Sets.
+    start : int, optional
+        Starting self-calibration cycle.
     """
     if start != 0:
         return
@@ -18855,6 +21345,21 @@ def create_Ateam_seperation_plots(mslist, start=0):
     return
 
 def nested_mslistforimaging(mslist, stack=False):
+    """
+    Create nested MS groups used by imaging workflows.
+
+    Parameters
+    ----------
+    mslist : list
+        Measurement Set paths.
+    stack : bool, optional
+        Group inputs for stacked imaging.
+
+    Returns
+    -------
+    list
+        Nested Measurement Set groups.
+    """
     if not stack:
         return [mslist]  # has format [[ms1.ms,ms2.ms,....]]
     else:
@@ -18882,8 +21387,12 @@ def nested_mslistforimaging(mslist, stack=False):
 
 def flag_autocorr(mslist):
     """
-    Flag autocorrelations in MS
-    input: list of MS
+    Flag autocorrelations in MS.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Sets.
     """
     for ms in mslist:
        cmd = 'DP3 msin=' + ms + ' msout=. steps=[pr] '
@@ -18898,21 +21407,24 @@ def flag_antenna_timerange_ms(ms, timerange, antenna=''):
     Parameters
     ----------
     ms : str
-        Measurement Set to flag
+    Measurement Set to flag
     timerange : str
-        Relative timerange to flag in format 'starttime..endtime'
+    Relative timerange to flag in format 'starttime..endtime'
     antenna : str
-        Antenna name to flag. Default is an empty string, which means all antennas. 
+    Antenna name to flag. Default is an empty string, which means all antennas.
     Returns
     -------
     None
     ------
     Notes
     -----
-    Example:
+
+    Examples
+    --------
     flag_antenna_timerange_ms('mydata.ms', '01:23:45..01:45:00', 'CS001HBA0')
     See https://dp3.readthedocs.io/en/latest/steps/PreFlagger.html
-    Ranges of times (using .. or +-) since the start of the observation. A time can be given like 1:30:0 or 20s.    
+    Ranges of times (using .. or +-) since the start of the observation. A time can be given like 1:30:0 or 20s.
+
     """
    
     cmd = 'DP3 msin=' + ms + ' msout=. steps=[pr] '
@@ -18926,8 +21438,12 @@ def flag_antenna_timerange_ms(ms, timerange, antenna=''):
 
 def flag_uGMRT_badfreqs(mslist):
     """
-    Flag known bad frequency ranges for uGMRT bands
-    input: list of MS
+    Flag known bad frequency ranges for uGMRT bands.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of Measurement Sets.
     """
     
     if args['telescope'] != 'GMRT':
@@ -18961,18 +21477,28 @@ def flag_uGMRT_badfreqs(mslist):
 def mslist_return_stack(mslist, stack):
     """
     Returns a modified MS list based on the stack parameter.
-    Args:
-        mslist (list): A list of measurement set (MS) file paths or identifiers.
-        stack (bool): If True, returns the entire mslist. If False, returns a list 
-                      containing only the first element of mslist.
-    Returns:
-        list: The full mslist if stack is True, otherwise a single-element list 
-              containing the first item from mslist.
-    Examples:
-        >>> mslist_return_stack(['ms1.ms', 'ms2.ms', 'ms3.ms'], True)
-        ['ms1.ms', 'ms2.ms', 'ms3.ms']
-        >>> mslist_return_stack(['ms1.ms', 'ms2.ms', 'ms3.ms'], False)
-        ['ms1.ms']
+
+    Parameters
+    ----------
+    mslist : list
+        A list of measurement set (MS) file paths or identifiers.
+    stack : bool
+        If True, returns the entire mslist. If False, returns a list
+        containing only the first element of mslist.
+
+    Returns
+    -------
+    list
+        The full mslist if stack is True, otherwise a single-element list
+        containing the first item from mslist.
+
+    Examples
+    --------
+    >>> mslist_return_stack(['ms1.ms', 'ms2.ms', 'ms3.ms'], True)
+    ['ms1.ms', 'ms2.ms', 'ms3.ms']
+    >>> mslist_return_stack(['ms1.ms', 'ms2.ms', 'ms3.ms'], False)
+    ['ms1.ms']
+
     """
     return mslist if stack else [mslist[0]]
 
@@ -18987,45 +21513,45 @@ def set_skymodels_external_surveys(args, mslist):
     Parameters
     ----------
     args : dict
-        Dictionary of arguments containing:
-        - startfromtgss : bool
-            Flag to start from TGSS survey data
-        - startfromvlass : bool
-            Flag to start from VLASS survey data
-        - startfromgsm : bool
-            Flag to start from Global Sky Model
-        - startfromimage : bool
-            Flag to start from arbitrary FITS image
-        - skymodel : str or None
-            Path to sky model file (can be FITS or other format)
-        - skymodelpointsource : str or None
-            Path to point source sky model
-        - start : int
-            Starting cycle number
-        - stack : bool
-            Whether to stack multiple measurement sets
-        - boxfile : str
-            Path to box file for region definition
-        - tgssfitsimage : str
-            Path to TGSS FITS image
-        - pixelscale : float
-            Pixel scale in arcseconds
-        - imsize : int
-            Image size in pixels
+    Dictionary of arguments containing:
+    - startfromtgss : bool
+    Flag to start from TGSS survey data
+    - startfromvlass : bool
+    Flag to start from VLASS survey data
+    - startfromgsm : bool
+    Flag to start from Global Sky Model
+    - startfromimage : bool
+    Flag to start from arbitrary FITS image
+    - skymodel : str or None
+    Path to sky model file (can be FITS or other format)
+    - skymodelpointsource : str or None
+    Path to point source sky model
+    - start : int
+    Starting cycle number
+    - stack : bool
+    Whether to stack multiple measurement sets
+    - boxfile : str
+    Path to box file for region definition
+    - tgssfitsimage : str
+    Path to TGSS FITS image
+    - pixelscale : float
+    Pixel scale in arcseconds
+    - imsize : int
+    Image size in pixels
     mslist : list of str
-        List of measurement set paths to process
+    List of measurement set paths to process
     Returns
     -------
     args : dict
-        Updated arguments dictionary with skymodel field set to generated sky model(s)
+    Updated arguments dictionary with skymodel field set to generated sky model(s)
     tgssfitsfile : str or None
-        Path to TGSS FITS file if generated, None otherwise
+    Path to TGSS FITS file if generated, None otherwise
     Raises
     ------
     Exception
-        If conflicting options are provided (e.g., manual skymodel with startfrom* flags)
-        If skymodel is not a FITS file when using --startfromimage
-        If --startfromimage is not set when providing a FITS file as skymodel
+    If conflicting options are provided (e.g., manual skymodel with startfrom* flags)
+    If skymodel is not a FITS file when using --startfromimage
+    If --startfromimage is not set when providing a FITS file as skymodel
     Notes
     -----
     - Only one external survey option should be used at a time
@@ -19109,23 +21635,28 @@ def set_modelstoragemanager(telescope):
     2. Available options supported by the installed wsclean version
     3. Telescope-specific compatibility (for stokes_i compression)
 
-    Args:
-        telescope: The telescope configuration object used to check stokes_i model type compatibility.
+    Parameters
+    ----------
+    telescope : The telescope configuration object used to check stokes_i model type compatibility.
 
-    Returns:
-        str or None: The selected model storage manager ('stokes_i', 'sisco', or None).
-            - 'stokes_i': Stokes I model compression (if supported and allowed for telescope)
-            - 'sisco': SISCO model compression (fallback option)
-            - None: No model compression (if not available or wsclean doesn't support the option)
+    Returns
+    -------
+    str or None
+        The selected model storage manager ('stokes_i', 'sisco', or None).
+        - 'stokes_i': Stokes I model compression (if supported and allowed for telescope)
+        - 'sisco': SISCO model compression (fallback option)
+        - None: No model compression (if not available or wsclean doesn't support the option)
 
-    Raises:
-        None
+    Raises
+    ------
+    None
 
-    Note:
-        - Requires args dictionary to be available in the calling scope
-        - Checks wsclean capabilities by querying its help output
-        - Falls back to 'sisco' compression if 'stokes_i' is unavailable but requested
-        - Disables model storage manager if no compression method is available
+    Notes
+    -----
+    - Requires args dictionary to be available in the calling scope
+    - Checks wsclean capabilities by querying its help output
+    - Falls back to 'sisco' compression if 'stokes_i' is unavailable but requested
+    - Disables model storage manager if no compression method is available
     """
 
     if args['modelstoragemanager'] == 'None' or args['modelstoragemanager'] == 'none':
@@ -19197,15 +21728,23 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
     """
     Automatically detect if high dynamic range (DR) settings are needed for MeerKAT data and update calibration cycles accordingly.
 
-    Parameters:
-        selfcalcycle (int): The current self-calibration cycle number.
-        mslist (list): List of measurement set file paths.
-        telescope (str): Name of the telescope (e.g., 'MeerKAT').
-        soltypecycles_list (list): Nested list of solution type cycles per MS.
-        solint_list (list): Nested list of solution intervals per MS.
+    Parameters
+    ----------
+    selfcalcycle : int
+        The current self-calibration cycle number.
+    mslist : list
+        List of measurement set file paths.
+    telescope : str
+        Name of the telescope (e.g., 'MeerKAT').
+    soltypecycles_list : list
+        Nested list of solution type cycles per MS.
+    solint_list : list
+        Nested list of solution intervals per MS.
 
-    Returns:
-        tuple: Updated (soltypecycles_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle).
+    Returns
+    -------
+    tuple
+        Updated (soltypecycles_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle).
     """
     
     # get frequency
@@ -19258,12 +21797,21 @@ def get_telescope_from_ms(mslist):
     Determine the telescope name from the first Measurement Set (MS) in the provided list.
     This function reads the 'TELESCOPE_NAME' from the 'OBSERVATION' table of the first MS
     in the given list and returns it as a string.
-    Parameters:
-    mslist (list of str): List of paths to Measurement Set directories.
-    Returns:
-    str: The name of the telescope associated with the first MS.
-    Raises:
-    Exception: If the 'TELESCOPE_NAME' cannot be found in the MS.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to Measurement Set directories.
+
+    Returns
+    -------
+    str
+        The name of the telescope associated with the first MS.
+
+    Raises
+    ------
+    Exception
+        If the 'TELESCOPE_NAME' cannot be found in the MS.
     """
     # if input is string, make it a list
     if isinstance(mslist, str):
@@ -19277,13 +21825,22 @@ def get_telescope_from_ms(mslist):
 def get_frequencies_from_ms(mslist):
     """
     Retrieve the channel frequencies of the measurement sets (MS) in the provided list.
-    Parameters:
-    mslist (list of str): List of paths to Measurement Set directories.
-    Returns:
-    list of numpy.ndarray: A list where each element is an array of channel frequencies (in Hz)
-                           for the corresponding MS in the input list.
-    Raises:
-    Exception: If the channel frequencies cannot be found in any of the MS.
+
+    Parameters
+    ----------
+    mslist : list of str
+        List of paths to Measurement Set directories.
+
+    Returns
+    -------
+    list of numpy.ndarray
+        A list where each element is an array of channel frequencies (in Hz)
+        for the corresponding MS in the input list.
+
+    Raises
+    ------
+    Exception
+        If the channel frequencies cannot be found in any of the MS.
     """
     # if input is string, make it a list
     if isinstance(mslist, str):
@@ -19298,6 +21855,14 @@ def get_frequencies_from_ms(mslist):
 ###############################
 
 def main():
+    """
+    Run the facet self-calibration command-line workflow.
+
+    Returns
+    -------
+    None
+        Processing follows the command-line arguments.
+    """
 
     options = option_parser()
 
