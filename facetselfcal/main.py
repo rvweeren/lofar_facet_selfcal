@@ -124,6 +124,79 @@ matplotlib.use('Agg')
 # For NFS mounted disks
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
+def download_MWA_beam_model(dest_dir='mwapy/data'):
+    """
+    Download and extract the MWA embedded element beam model pattern.
+
+    Downloads the MWA coefficient archive from support.astron.nl if the file
+    ``mwa_full_embedded_element_pattern.h5`` is not already present, uncompresses
+    and extracts it, and places it into the target directory (default: ``mwapy/data/``).
+
+    Parameters
+    ----------
+    dest_dir : str, optional
+        Destination directory to store the beam model HDF5 file.
+        Default is 'mwapy/data'.
+
+    Returns
+    -------
+    str
+        Path to the installed beam model file.
+    """
+    archive_bz2 = 'MWA_COEFF.tar.bz2'
+    archive_tar = 'MWA_COEFF.tar'
+    h5_name = 'mwa_full_embedded_element_pattern.h5'
+    target_h5 = os.path.join(dest_dir, h5_name)
+
+    if os.path.exists(target_h5):
+        logger.info(f"MWA beam model already exists at {target_h5}")
+        return target_h5
+
+    if os.path.exists(h5_name):
+        os.makedirs(dest_dir, exist_ok=True)
+        shutil.move(h5_name, target_h5)
+        logger.info(f"Moved existing {h5_name} to {target_h5}")
+        return target_h5
+
+    url = 'https://support.astron.nl/software/ci_data/EveryBeam/mwa_full_embedded_element_pattern.tar.bz2'
+    print(f"Downloading MWA beam model from {url}...")
+    logger.info(f"Downloading MWA beam model from {url}")
+
+    if shutil.which('wget'):
+        subprocess.run(['wget', '-q', url, '-O', archive_bz2], check=True)
+    else:
+        import urllib.request
+        urllib.request.urlretrieve(url, archive_bz2)
+
+    if shutil.which('bunzip2'):
+        subprocess.run(['bunzip2', '-f', archive_bz2], check=True)
+    else:
+        import bz2
+        with bz2.BZ2File(archive_bz2, 'rb') as f_in, open(archive_tar, 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        if os.path.exists(archive_bz2):
+            os.remove(archive_bz2)
+
+    if shutil.which('tar'):
+        subprocess.run(['tar', 'xf', archive_tar], check=True)
+    else:
+        import tarfile
+        with tarfile.open(archive_tar, 'r:') as tar:
+            tar.extractall('.')
+
+    os.makedirs(dest_dir, exist_ok=True)
+
+    if os.path.exists(h5_name):
+        shutil.move(h5_name, target_h5)
+
+    if os.path.exists(archive_tar):
+        os.remove(archive_tar)
+
+    print(f"MWA beam model installed to {target_h5}")
+    logger.info(f"MWA beam model installed to {target_h5}")
+    return target_h5
+
+
 def _get_ms_time_coverage(ms):
     """
     Return time slots, full-baseline slots, and the normal time step.
