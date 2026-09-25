@@ -90,6 +90,10 @@ See the [ASKAP processing notes](https://github.com/rvweeren/lofar_facet_selfcal
 
 See the [uGMRT processing notes](https://github.com/rvweeren/lofar_facet_selfcal/wiki/uGMRT-processing) for instrument-specific guidance.
 
+### (E)VLA
+
+See the [(E)VLA processing notes](https://github.com/rvweeren/lofar_facet_selfcal/wiki/VLA-processing) for instrument-specific guidance.
+
 ## Command-line tools
 
 Installing the package provides these commands:
