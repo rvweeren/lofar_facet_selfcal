@@ -2041,51 +2041,63 @@ def check_applyfacetbeam(mslist, imsize, pixsize, telescope, enlarge_safe_FoV_di
     - If the image FoV is too large for any MS in mslist, sets args['disable_primary_beam'] = True.
     - Prints warnings to the console and logs a warning message.
     - Exits after the first MS that violates the safe FoV criterion.
-    - The safe diameter is calculated based on the maximum frequency in the SPECTRAL_WINDOW table of each MS.
+    - The safe diameter is calculated based on the maximum frequency across all MSs in mslist.
     - The function assumes the existence of a global 'args' dictionary and a 'logger' object.
     - The function also assumes the presence of 'compute_distance_to_pointingcenter' and 'table' utilities.
     """
-    if telescope not in ['GMRT', 'MeerKAT', 'VLA', 'EVLA']:
+    if telescope not in ['GMRT', 'MeerKAT', 'VLA', 'EVLA', 'MWA']:
         return
-    
+
+    # Calculate safe diameter for each MS based on its frequency characteristics
+    safe_diameters = []
     for ms in mslist:
-        distance_pointing_center = compute_distance_to_pointingcenter(ms, HBAorLBA='other', warn=False, returnval=True, dologging=False)
-        
-        with table(ms+"::SPECTRAL_WINDOW", ack=False) as t:
-            max_freq = t.getcol("CHAN_FREQ").max()
-            freq = np.median(t.getcol("CHAN_FREQ"))
+        with table(ms + "::SPECTRAL_WINDOW", ack=False) as t:
+            chan_freqs = t.getcol("CHAN_FREQ")
+            max_freq = chan_freqs.max()
+            freq = np.median(chan_freqs)
 
         if telescope == 'MeerKAT':
-            safe_diameter = 60.*68.*(1.28e9/max_freq) # in arcsec
+            safe_diam = 60. * 68. * (1.28e9 / max_freq)  # in arcsec
 
-        if telescope == 'VLA' or telescope == 'EVLA':
-            safe_diameter = 60.*30.*(1.4e9/max_freq) # in arcsec  
+        elif telescope == 'MWA':  # FWHM is 25 degr at 150 MHz
+            safe_diam = 60. * 25. * 60. * (150e6 / max_freq)
 
-        if telescope == 'GMRT':
+        elif telescope == 'VLA' or telescope == 'EVLA':
+            safe_diam = 60. * 30. * (1.4e9 / max_freq)  # in arcsec
+
+        elif telescope == 'GMRT':
             if 0.125e9 <= freq <= 0.250e9:
-                safe_diameter = 60.*120.*(187.5e6/max_freq) # in arcsec
+                safe_diam = 60. * 120. * (187.5e6 / max_freq)  # in arcsec
             elif 0.250e9 < freq <= 0.500e9:
-                safe_diameter = 60.*75.*(375e6/max_freq) # in arcsec
+                safe_diam = 60. * 75. * (375e6 / max_freq)  # in arcsec
             elif 0.550e9 <= freq <= 0.850e9:
-                safe_diameter = 60.*38.*(700e6/max_freq) # in arcsec
+                safe_diam = 60. * 38. * (700e6 / max_freq)  # in arcsec
             elif 1.050e9 <= freq <= 1.450e9:
-                safe_diameter = 60.*23.*(1230e6/max_freq) # in arcsec
+                safe_diam = 60. * 23. * (1230e6 / max_freq)  # in arcsec
             else:
-                raise ValueError("Frequency {} GHz is outside the supported GMRT frequency ranges for primary beam checks.".format(freq))
- 
-        #  enlarge_safe_FoV_diameter: factor to enlarge the safe FoV diameter. Default is 1.0 (no enlargement).
-        # use with care as it can use unstable behaviour when the beam goes through a null which can cause nummerical issues in the primary beam correction.
-        safe_diameter *= enlarge_safe_FoV_diameter # Enlarge the safe FoV diameter by the specified factor
+                raise ValueError("Frequency {} GHz is outside the supported GMRT frequency ranges for primary beam checks.".format(freq / 1e9))
 
-        if ((imsize*pixsize) + (distance_pointing_center*3600.) ) > safe_diameter:
-            args['disable_primary_beam'] = True # set to True if one in mslist violates this criterion
+        # enlarge_safe_FoV_diameter: factor to enlarge the safe FoV diameter. Default is 1.0 (no enlargement).
+        # use with care as it can use unstable behaviour when the beam goes through a null which can cause numerical issues in the primary beam correction.
+        safe_diam *= enlarge_safe_FoV_diameter  # Enlarge the safe FoV diameter by the specified factor
+        safe_diameters.append(safe_diam)
+
+    # Use the most restrictive (lowest) safe diameter across the entire mslist
+    safe_diameter = min(safe_diameters)
+
+    for ms in mslist:
+        distance_pointing_center = compute_distance_to_pointingcenter(ms, HBAorLBA='other', warn=False, returnval=True, dologging=False)
+
+        if ((imsize * pixsize) + (distance_pointing_center * 3600.)) > safe_diameter:
+            args['disable_primary_beam'] = True  # set to True if one in mslist violates this criterion
             print("\033[33m" + "=== " + ms + " ===" + "\033[0m")
             print("\033[33m" + "Your image FoV is too large to use -apply-facet-beam/-apply-primary-beam in WSClean!" + "\033[0m")
             print("\033[33m" + "Code will run with the option --disable-primary-beam enforced" + "\033[0m")
-            print("\033[33m" + "Imaged Fov [deg]: " + str(imsize*pixsize/3600) + "\033[0m") 
-            print("\033[33m" + "Image center to telescope pointing center [deg]: " + str(distance_pointing_center) + "\033[0m")       
-            print("\033[33m" + "Save Fov [deg]: " + str(safe_diameter/3600) + "\033[0m")
+            print("\033[33m" + "Imaged FoV [deg]: " + str(imsize * pixsize / 3600.) + "\033[0m")
+            print("\033[33m" + "Image center to telescope pointing center [deg]: " + str(distance_pointing_center) + "\033[0m")
+            print("\033[33m" + "Safe FoV [deg]: " + str(safe_diameter / 3600.) + "\033[0m")
             logger.warning('Your image FoV is too large to use -apply-facet-beam/-apply-primary-beam in WSClean. The option --disable-primary-beam is automatically invoked: ' + ms)
+            break
     return    
 
 
@@ -17956,7 +17968,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 cmd += '-scalar-visibilities '  # scalar solutions
 
-        if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA']:
+        if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA']:
             if not disable_primarybeam_predict:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                 if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
@@ -18034,7 +18046,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # NEW CODE FOR SPEEDUP
             if singlefacetpredictspeedup:
                 cmd += '-facet-regions ' + dirofinput + '/facet' + str(facet_id) + '.reg' + ' '
-                if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA']:
+                if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA']:
                     if not disable_primarybeam_predict:
                         # check if -model-fpb.fits is there for image000 (in case image000 was made without facets)
                         if selfcalcycle == 0:
@@ -18202,7 +18214,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 else:
                     cmd += '-scalar-visibilities '  # scalar solutions
 
-            if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA']:
+            if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA']:
                 if not disable_primarybeam_image:
                     cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                     if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
@@ -18211,7 +18223,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 mslist_concat, h5list_concat_tmp = concat_ms_wsclean_facetimaging(mslist, concatms=selfcalcycle is not None and ((selfcalcycle+1 in args['aoflagger_correcteddata_selfcalcycle_list']) or (selfcalcycle+1 in args['aoflagger_residualdata_selfcalcycle_list'])))
             cmd += '-facet-regions ' + facetregionfile + ' '
             if sharedfacetreads: cmd += '-shared-facet-reads -shared-facet-writes '
-            if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA'] and not disable_primarybeam_image:
+            if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA'] and not disable_primarybeam_image:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                 if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
                 if not fulljones_h5_facetbeam:
@@ -18222,7 +18234,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 if not disable_primarybeam_image:
                     cmd += '-apply-primary-beam -use-differential-lofar-beam '
                     cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
-            if args['telescope'] in ['MeerKAT', 'GMRT', 'VLA', 'EVLA'] and not idg and not disable_primarybeam_image:
+            if args['telescope'] in ['MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA'] and not idg and not disable_primarybeam_image:
                 cmd += '-apply-primary-beam '
 
 
@@ -22323,6 +22335,10 @@ def main():
     check_applyfacetbeam(mslist, args['imsize'], args['pixelscale'], args['telescope'],  \
                          enlarge_safe_FoV_diameter=args['enlarge_safe_FoV_diameter'])
 
+    # download MWS primary beam model if needed
+    if args['telescope'] == 'MWA' and not args['disable_primary_beam']:
+        download_MWA_beam_model()
+    
     # Insert MS history from facetselfcal
     for ms in mslist:
         insert_history_ms(ms, parse_input_args(options), appver=facetselfcal_version)
