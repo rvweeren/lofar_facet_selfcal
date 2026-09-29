@@ -105,6 +105,7 @@ Installing the package provides these commands:
 | `ds9facetgenerator` | Generate facet regions for DS9 |
 | `sub_sources_outside_region` | Extract a region from the LoTSS survey data |
 
+Each initialized `facetselfcal` run creates a multi-page offline report in `html_overview/`, refreshes it after each completed self-calibration cycle, and records the final run status when processing ends. Starting from cycle 0 removes any existing report first; restarts keep the existing report until it is refreshed.
 
 ## Citation
 
