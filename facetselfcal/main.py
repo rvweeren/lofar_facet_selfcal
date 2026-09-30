@@ -6141,7 +6141,7 @@ def run(command, log=False, taql=False):
                                   encoding="utf-8")
     else:
         process = subprocess.run(command, shell=True,
-                                 stderr=subprocess.STDOUT, encoding="utf-8")
+                                 stderr=subprocess.STDOUT, encoding="utf-8", env=os.environ)
     retval = process.returncode
     #stdout = process.stdout
     stderr = process.stderr
@@ -22114,7 +22114,7 @@ def update_fitsmask(fitsmask, maskthreshold_selfcalcycle, selfcalcycle, args, ms
                 if fitsmask is not None:
                     if os.path.isfile('clean_masks/' + os.path.basename(imagename) + '.mask.fits'):
                         Path('clean_masks/' + os.path.basename(imagename) + '.mask.fits').unlink(missing_ok=True)  # remove previous mask if it exists
-                terminal_print('WSClean command:', cmdm)
+                terminal_print('breizorro command:', cmdm)
                 run(cmdm)
                 
                 # removed compressed version if it exists
