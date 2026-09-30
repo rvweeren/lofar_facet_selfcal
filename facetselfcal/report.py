@@ -53,120 +53,164 @@ _MS_METADATA_FIELDS = (
 _CSS = r"""
 :root {
   color-scheme: light;
-  --paper: #f3f6f4;
+  --paper: #f8fafc;
   --surface: #ffffff;
-  --ink: #192a28;
-  --muted: #60716d;
-  --line: #d5dfdb;
-  --green: #176b60;
-  --green-dark: #123e3a;
-  --green-pale: #e1f1ed;
-  --amber: #8d4f14;
-  --amber-pale: #fff1dc;
-  --red: #982f32;
-  --red-pale: #fbe8e6;
-  --code: #eff3f1;
+  --surface-alt: #f1f5f9;
+  --ink: #0f172a;
+  --ink-secondary: #334155;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --line-light: #f1f5f9;
+  --teal: #0d9488;
+  --teal-dark: #0f766e;
+  --teal-deep: #134e4a;
+  --teal-light: #f0fdfa;
+  --teal-border: #99f6e4;
+  --blue: #0284c7;
+  --blue-pale: #f0f9ff;
+  --blue-border: #bae6fd;
+  --amber: #b45309;
+  --amber-pale: #fffbeb;
+  --amber-border: #fde68a;
+  --red: #b91c1c;
+  --red-pale: #fef2f2;
+  --red-border: #fecaca;
+  --green: #15803d;
+  --green-pale: #f0fdf4;
+  --green-border: #bbf7d0;
+  --code: #f1f5f9;
 }
 * { box-sizing: border-box; }
 body {
   margin: 0;
   color: var(--ink);
   background: var(--paper);
-  font: 15px/1.55 Verdana, "DejaVu Sans", sans-serif;
+  font: 14px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
-a { color: var(--green); text-underline-offset: 3px; }
-a:hover { color: var(--green-dark); }
-.site-header { background: var(--green-dark); color: #f5fbf8; }
-.masthead, nav, main, footer { width: min(1280px, calc(100% - 40px)); margin: 0 auto; }
-.masthead { padding: 24px 0 21px; }
-.eyebrow { margin: 0 0 8px; color: #a9d1c7; font-size: 12px; font-weight: 700; text-transform: uppercase; }
-h1, h2, h3 { line-height: 1.2; }
-h1 { margin: 0; font: 36px/1.12 Georgia, "DejaVu Serif", serif; }
-.header-subtitle { max-width: 860px; margin: 10px 0 0; color: #d0e2dc; overflow-wrap: anywhere; }
-nav { display: flex; gap: 4px; overflow-x: auto; border-top: 1px solid #43635e; }
-nav a { flex: 0 0 auto; padding: 12px 14px; color: #e1efea; text-decoration: none; font-size: 13px; }
-nav a[aria-current="page"] { color: #ffffff; background: #24574f; box-shadow: inset 0 -3px #9bd2c3; }
-nav a:hover { color: white; background: #214b45; }
-main { padding: 28px 0 58px; }
-.page-intro { margin: 0 0 22px; color: var(--muted); max-width: 940px; }
+a { color: var(--teal-dark); text-underline-offset: 3px; }
+a:hover { color: var(--teal-deep); }
+.site-header { background: var(--teal-deep); color: #f8fafc; border-bottom: 1px solid #115e59; }
+.masthead, nav, main, footer { width: min(1320px, calc(100% - 40px)); margin: 0 auto; }
+.masthead { padding: 22px 0 18px; }
+.eyebrow { margin: 0 0 6px; color: #5eead4; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+h1, h2, h3 { line-height: 1.25; color: var(--ink); }
+h1 { margin: 0; font-size: 28px; font-weight: 700; color: #ffffff; }
+.header-subtitle { max-width: 900px; margin: 8px 0 0; color: #ccfbf1; font-size: 13px; overflow-wrap: anywhere; }
+nav { display: flex; gap: 4px; overflow-x: auto; border-top: 1px solid #115e59; }
+nav a { flex: 0 0 auto; padding: 11px 16px; color: #ccfbf1; text-decoration: none; font-size: 13px; font-weight: 600; border-bottom: 3px solid transparent; }
+nav a[aria-current="page"] { color: #ffffff; background: #115e59; border-bottom-color: #5eead4; }
+nav a:hover { color: #ffffff; background: #166e66; }
+main { padding: 26px 0 58px; }
+.page-intro { margin: 0 0 20px; color: var(--muted); max-width: 960px; font-size: 14px; }
 .page-intro strong { color: var(--ink); }
-h2 { margin: 0 0 14px; font: 25px/1.2 Georgia, "DejaVu Serif", serif; }
-h3 { margin: 0 0 9px; font-size: 16px; }
+h2 { margin: 0; font-size: 20px; font-weight: 700; }
+h3 { margin: 0 0 10px; font-size: 15px; font-weight: 600; color: var(--ink-secondary); }
 section { margin: 26px 0 0; }
-.section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); padding-bottom: 9px; margin-bottom: 14px; }
+.section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 14px; }
 .section-heading p { margin: 0; color: var(--muted); font-size: 13px; }
-.statusline { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
-.status { display: inline-block; border-radius: 3px; padding: 5px 10px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.status-completed { color: #14594e; background: #cde9df; }
-.status-running { color: #174c61; background: #d8edf2; }
-.status-failed { color: #81272b; background: #f4d3d1; }
-.status-interrupted, .status-stopped, .status-unknown { color: #77420e; background: #fae4bd; }
-.status-detail { color: #d0e2dc; font-size: 13px; }
-.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); background: var(--line); margin: 22px 0 30px; }
-.metric { min-width: 0; padding: 15px 17px; background: var(--surface); }
-.metric-value { display: block; font: 28px/1.1 Georgia, "DejaVu Serif", serif; color: var(--green-dark); overflow-wrap: anywhere; }
-.metric-label { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
-.notice { margin: 18px 0; border-left: 4px solid var(--amber); background: var(--amber-pale); padding: 12px 15px; color: #56360f; }
-.notice.error { border-color: var(--red); background: var(--red-pale); color: #672326; }
-.notice p { margin: 0; }
-.data-table { width: 100%; border-collapse: collapse; background: var(--surface); }
-.table-scroll { max-width: 100%; overflow-x: auto; }
-.data-table th, .data-table td { padding: 9px 11px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-.data-table th { width: 220px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.statusline { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
+.status { display: inline-block; border-radius: 4px; padding: 4px 10px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.status-completed { color: #166534; background: var(--green-pale); border: 1px solid var(--green-border); }
+.status-running { color: #075985; background: var(--blue-pale); border: 1px solid var(--blue-border); }
+.status-failed { color: #991b1b; background: var(--red-pale); border: 1px solid var(--red-border); }
+.status-interrupted, .status-stopped, .status-unknown { color: #92400e; background: var(--amber-pale); border: 1px solid var(--amber-border); }
+.status-detail { color: #ccfbf1; font-size: 13px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0 28px; }
+.metric { min-width: 0; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); border-top: 3px solid var(--teal); }
+.metric-value { display: block; font-size: 24px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; line-height: 1.1; }
+.metric-label { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.env-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin: 12px 0; }
+.env-card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; box-shadow: 0 1px 2px rgba(15,23,42,0.03); }
+.env-card strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+.env-card span { font-size: 13px; color: var(--ink); font-weight: 600; word-break: break-word; }
+.notice { margin: 16px 0; border: 1px solid var(--amber-border); border-left: 4px solid var(--amber); background: var(--amber-pale); border-radius: 6px; padding: 12px 16px; color: #78350f; }
+.notice.error { border-color: var(--red-border); border-left-color: var(--red); background: var(--red-pale); color: #7f1d1d; }
+.notice.info { border-color: var(--blue-border); border-left-color: var(--blue); background: var(--blue-pale); color: #0c4a6e; }
+.notice.success { border-color: var(--green-border); border-left-color: var(--green); background: var(--green-pale); color: #14532d; }
+.notice p { margin: 4px 0 0; }
+.data-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.table-scroll { max-width: 100%; overflow-x: auto; margin-bottom: 14px; }
+.data-table th, .data-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.data-table thead th { background: var(--surface-alt); color: var(--ink-secondary); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.data-table tbody th { width: 220px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.data-table tr:last-child th, .data-table tr:last-child td { border-bottom: none; }
+.data-table tbody tr:nth-child(even) td, .data-table tbody tr:nth-child(even) th { background: #fafcff; }
 .data-table td { overflow-wrap: anywhere; }
-code, pre, .mono { font-family: "DejaVu Sans Mono", "Courier New", monospace; }
-code { font-size: .92em; }
-pre { max-width: 100%; margin: 0; padding: 13px 15px; overflow: auto; background: var(--code); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
-.file-list { margin: 0; padding: 0; list-style: none; }
-.file-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--surface); }
-.file-list li:nth-child(even) { background: #f8faf9; }
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+code { font-size: .9em; background: var(--code); padding: 2px 5px; border-radius: 3px; }
+pre { max-width: 100%; margin: 0; padding: 12px 14px; overflow: auto; background: var(--code); border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.file-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.file-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.file-list li:last-child { border-bottom: none; }
+.file-list li:nth-child(even) { background: #fafcff; }
 .file-size { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
-.search-row { display: flex; align-items: center; gap: 12px; margin: 13px 0; }
-.search-row label { color: var(--muted); font-size: 13px; }
-.search-row input { width: min(480px, 100%); min-height: 40px; border: 1px solid #9aada6; border-radius: 3px; padding: 8px 11px; color: var(--ink); background: white; font: inherit; }
-.search-row input:focus { outline: 3px solid #a7d7ca; outline-offset: 1px; }
-.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-figure { min-width: 0; margin: 0; border: 1px solid var(--line); background: var(--surface); }
-figure a { display: block; background: #e9efec; }
-figure img { display: block; width: 100%; height: 175px; object-fit: contain; }
-figcaption { padding: 9px 11px; font-size: 12px; overflow-wrap: anywhere; }
-figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3px; }
-.blink-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 13px; }
-.blink-controls label { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: 12px; }
+.search-row { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+.search-row label { color: var(--muted); font-size: 13px; font-weight: 500; }
+.search-row input { width: min(440px, 100%); min-height: 36px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 7px 11px; color: var(--ink); background: white; font: inherit; }
+.search-row input:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
+.pill-group { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; align-items: center; }
+.pill-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-right: 4px; }
+.pill-btn { border: 1px solid #cbd5e1; background: var(--surface); color: var(--ink-secondary); padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s ease; }
+.pill-btn:hover { background: var(--surface-alt); border-color: var(--muted); }
+.pill-btn.active { background: var(--teal-dark); color: white; border-color: var(--teal-dark); }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+figure { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); overflow: hidden; box-shadow: 0 1px 2px rgba(15,23,42,0.03); }
+figure a { display: block; background: #e2e8f0; }
+figure img { display: block; width: 100%; height: 180px; object-fit: contain; background: #ffffff; }
+figcaption { padding: 8px 10px; font-size: 12px; overflow-wrap: anywhere; border-top: 1px solid var(--line); }
+figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3px; font-size: 11px; }
+.blink-tool { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 12px; margin: 14px 0; }
+.blink-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding-bottom: 12px; }
+.blink-controls label { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: 12px; font-weight: 500; }
 .blink-rate { min-width: 190px; }
 .blink-rate input { width: 150px; vertical-align: middle; }
-.blink-rate output { margin-left: 5px; color: var(--ink); }
-.blink-controls button { min-height: 40px; border: 1px solid var(--green); border-radius: 3px; padding: 7px 12px; color: white; background: var(--green); font: inherit; font-weight: 700; cursor: pointer; }
-.blink-controls button:hover { background: var(--green-dark); }
-.blink-controls button:focus-visible, .blink-rate input:focus-visible { outline: 3px solid #a7d7ca; outline-offset: 1px; }
-.blink-preview { margin: 0 13px 13px; }
-.blink-preview img { height: min(70vh, 720px); object-fit: contain; }
-details { margin: 11px 0; border: 1px solid var(--line); background: var(--surface); }
-details > summary { cursor: pointer; padding: 11px 13px; color: var(--green-dark); font-weight: 700; }
+.blink-rate output { margin-left: 5px; color: var(--ink); font-weight: 600; }
+.blink-controls button { min-height: 36px; border: 1px solid var(--teal-dark); border-radius: 4px; padding: 6px 14px; color: white; background: var(--teal-dark); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.blink-controls button:hover { background: var(--teal-deep); }
+.blink-preview { margin: 0; }
+.blink-preview img { height: min(65vh, 640px); object-fit: contain; }
+.compare-tool { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 14px; margin: 14px 0; }
+.compare-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 12px; }
+.compare-controls label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ink-secondary); }
+.compare-controls select { padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; font: inherit; font-size: 13px; min-width: 220px; }
+.compare-views { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.compare-views figure img { height: min(55vh, 520px); object-fit: contain; }
+@media (max-width: 768px) { .compare-views { grid-template-columns: 1fr; } }
+.dataset-card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; margin: 16px 0; padding: 16px; box-shadow: 0 1px 3px rgba(15,23,42,0.03); }
+.dataset-header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 12px; }
+.dataset-title { font-size: 15px; font-weight: 700; color: var(--teal-deep); margin: 0; font-family: ui-monospace, monospace; }
+.dataset-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.dataset-meta-item { font-size: 12px; }
+.dataset-meta-item strong { display: block; color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+.dataset-meta-item span { color: var(--ink); font-weight: 600; }
+.dataset-plots-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 12px; }
+.ms-quality-placeholder { box-sizing: border-box; min-height: 235px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; border: 1px dashed var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); text-align: center; font-size: 13px; }
+.ms-quality-placeholder strong { color: var(--ink-secondary); }
+.step-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; background: var(--teal-light); color: var(--teal-deep); border: 1px solid var(--teal-border); white-space: nowrap; }
+details { margin: 11px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); overflow: hidden; }
+details > summary { cursor: pointer; padding: 10px 14px; color: var(--teal-deep); font-weight: 600; font-size: 14px; background: #fafcff; }
 details[open] > summary { border-bottom: 1px solid var(--line); }
-details > :not(summary) { margin-left: 13px; margin-right: 13px; }
-details > .data-table, details > .file-list { margin-bottom: 13px; }
-.cycle-links { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 13px 13px; }
-.cycle-links a { display: inline-block; padding: 5px 8px; border: 1px solid var(--line); border-radius: 3px; background: #f6faf8; text-decoration: none; font-size: 12px; }
-.plot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); gap: 10px; padding: 12px; }
+details > :not(summary) { margin: 12px 14px; }
+details > .data-table, details > .file-list { margin: 0 0 12px; }
 .log-events { display: grid; gap: 8px; }
-.log-event { border-left: 3px solid var(--amber); padding: 8px 11px; background: var(--amber-pale); font-size: 13px; overflow-wrap: anywhere; }
-.log-event.error { border-color: var(--red); background: var(--red-pale); }
-.log-event small { display: block; color: var(--muted); margin-bottom: 3px; }
-.page-links { display: flex; flex-wrap: wrap; gap: 9px; margin: 14px 0; }
-.page-links a { padding: 8px 11px; border: 1px solid var(--line); border-radius: 3px; background: white; text-decoration: none; font-size: 13px; }
-.empty { padding: 16px; color: var(--muted); background: var(--surface); border: 1px dashed #aebdb7; }
+.log-event { border-left: 3px solid var(--amber); border: 1px solid var(--amber-border); border-left-width: 4px; border-radius: 4px; padding: 8px 12px; background: var(--amber-pale); font-size: 13px; overflow-wrap: anywhere; }
+.log-event.error { border-color: var(--red-border); border-left-color: var(--red); background: var(--red-pale); }
+.log-event small { display: block; color: var(--muted); margin-bottom: 3px; font-size: 11px; }
+.page-links { display: flex; flex-wrap: wrap; gap: 9px; margin: 16px 0; }
+.page-links a { padding: 8px 12px; border: 1px solid var(--line); border-radius: 4px; background: white; text-decoration: none; font-size: 13px; font-weight: 500; color: var(--teal-dark); box-shadow: 0 1px 2px rgba(15,23,42,0.03); }
+.page-links a:hover { background: var(--surface-alt); color: var(--teal-deep); }
+.empty { padding: 16px; color: var(--muted); background: var(--surface); border: 1px dashed #cbd5e1; border-radius: 6px; font-size: 13px; }
 [hidden] { display: none !important; }
 footer { border-top: 1px solid var(--line); padding: 18px 0 26px; color: var(--muted); font-size: 12px; }
 @media (max-width: 850px) { .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 600px) {
-  .masthead, nav, main, footer { width: min(100% - 24px, 1280px); }
+  .masthead, nav, main, footer { width: min(100% - 24px, 1320px); }
   .masthead { padding-top: 18px; }
-  h1 { font-size: 30px; }
+  h1 { font-size: 24px; }
   main { padding-top: 20px; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric { padding: 12px; }
-  .metric-value { font-size: 24px; }
+  .metric-value { font-size: 20px; }
   .data-table th, .data-table td { padding: 7px; }
   .data-table th { width: 125px; }
   .section-heading { display: block; }
@@ -230,26 +274,82 @@ document.addEventListener("DOMContentLoaded", function () {
         render();
     });
 
-  document.querySelectorAll("[data-filter-target]").forEach(function (input) {
-    var selector = input.getAttribute("data-filter-target");
-    var items = Array.from(document.querySelectorAll(selector));
-    var groups = Array.from(document.querySelectorAll("details[data-filter-group]"));
-    var update = function () {
-      var query = input.value.trim().toLowerCase();
-      items.forEach(function (item) {
-        var text = item.getAttribute("data-search") || item.textContent || "";
-        item.hidden = query.length > 0 && !text.toLowerCase().includes(query);
-      });
-      groups.forEach(function (group) {
-        var visible = Array.from(group.querySelectorAll(selector)).some(function (item) {
-          return !item.hidden;
+    document.querySelectorAll("[data-compare-tool]").forEach(function (tool) {
+        var selectA = tool.querySelector("[data-compare-select-a]");
+        var selectB = tool.querySelector("[data-compare-select-b]");
+        var imgA = tool.querySelector("[data-compare-img-a]");
+        var imgB = tool.querySelector("[data-compare-img-b]");
+        var linkA = tool.querySelector("[data-compare-link-a]");
+        var linkB = tool.querySelector("[data-compare-link-b]");
+        var capA = tool.querySelector("[data-compare-caption-a]");
+        var capB = tool.querySelector("[data-compare-caption-b]");
+        var update = function () {
+            if (selectA && imgA) {
+                var optA = selectA.options[selectA.selectedIndex];
+                if (optA) {
+                    imgA.src = optA.value;
+                    imgA.alt = optA.text;
+                    if (linkA) linkA.href = optA.value;
+                    if (capA) capA.textContent = optA.text;
+                }
+            }
+            if (selectB && imgB) {
+                var optB = selectB.options[selectB.selectedIndex];
+                if (optB) {
+                    imgB.src = optB.value;
+                    imgB.alt = optB.text;
+                    if (linkB) linkB.href = optB.value;
+                    if (capB) capB.textContent = optB.text;
+                }
+            }
+        };
+        if (selectA) selectA.addEventListener("change", update);
+        if (selectB) selectB.addEventListener("change", update);
+        update();
+    });
+
+    document.querySelectorAll("[data-pill-group]").forEach(function (group) {
+        var targetSelector = group.getAttribute("data-pill-target");
+        var items = Array.from(document.querySelectorAll(targetSelector));
+        var buttons = Array.from(group.querySelectorAll(".pill-btn"));
+        buttons.forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                buttons.forEach(function (b) { b.classList.remove("active"); });
+                btn.classList.add("active");
+                var filterVal = (btn.getAttribute("data-filter-value") || "").trim().toLowerCase();
+                items.forEach(function (item) {
+                    var search = (item.getAttribute("data-search") || item.textContent || "").toLowerCase();
+                    item.hidden = filterVal !== "" && filterVal !== "all" && !search.includes(filterVal);
+                });
+                document.querySelectorAll("details[data-filter-group]").forEach(function (g) {
+                    var visible = Array.from(g.querySelectorAll(targetSelector)).some(function (i) { return !i.hidden; });
+                    g.hidden = !visible;
+                    if (filterVal && filterVal !== "all" && visible) g.open = true;
+                });
+            });
         });
-        group.hidden = !visible;
-        if (query && visible) group.open = true;
-      });
-    };
-    input.addEventListener("input", update);
-  });
+    });
+
+    document.querySelectorAll("[data-filter-target]").forEach(function (input) {
+        var selector = input.getAttribute("data-filter-target");
+        var items = Array.from(document.querySelectorAll(selector));
+        var groups = Array.from(document.querySelectorAll("details[data-filter-group]"));
+        var update = function () {
+            var query = input.value.trim().toLowerCase();
+            items.forEach(function (item) {
+                var text = item.getAttribute("data-search") || item.textContent || "";
+                item.hidden = query.length > 0 && !text.toLowerCase().includes(query);
+            });
+            groups.forEach(function (group) {
+                var visible = Array.from(group.querySelectorAll(selector)).some(function (item) {
+                    return !item.hidden;
+                });
+                group.hidden = !visible;
+                if (query && visible) group.open = true;
+            });
+        };
+        input.addEventListener("input", update);
+    });
 });
 """
 
@@ -308,6 +408,19 @@ def _format_size(size):
             return "{:.1f} {}".format(value, unit)
         value /= 1024
     return "{:.1f} TB".format(value)
+
+
+def _format_duration(seconds):
+    if seconds is None or seconds < 0:
+        return "-"
+    sec = int(round(seconds))
+    mins, s = divmod(sec, 60)
+    hours, m = divmod(mins, 60)
+    if hours > 0:
+        return "{:d}h {:d}m {:d}s".format(hours, m, s)
+    elif m > 0:
+        return "{:d}m {:d}s".format(m, s)
+    return "{:d}s".format(s)
 
 
 def _relative_url(path, base_dir):
@@ -415,11 +528,26 @@ def _artifact_is_current(path, run_started_at):
         return True
 
 
+def _is_ms_plot(path):
+    name = path.name.lower()
+    return name.endswith(".time_coverage.png") or name.startswith("ateam_")
+
+
 def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None):
     overview_dir = run_root / "plots"
-    overview_plots = sorted(
+    raw_plots = sorted(
         (
             path for path in overview_dir.glob("*.png")
+            if path.is_file() and _artifact_is_current(path, run_started_at)
+        ),
+        key=lambda path: path.name.lower(),
+    ) if overview_dir.is_dir() else []
+
+    overview_plots = [p for p in raw_plots if not _is_ms_plot(p)]
+    ms_plot_files = [p for p in raw_plots if _is_ms_plot(p)]
+    ms_json_files = sorted(
+        (
+            path for path in overview_dir.glob("*.json")
             if path.is_file() and _artifact_is_current(path, run_started_at)
         ),
         key=lambda path: path.name.lower(),
@@ -492,6 +620,8 @@ def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None):
 
     return {
         "overview_plots": overview_plots,
+        "ms_plot_files": ms_plot_files,
+        "ms_json_files": ms_json_files,
         "calibration_sets": calibration_sets,
         "fits_files": fits_files,
         "solution_files": solution_files,
@@ -593,6 +723,16 @@ def _scan_logs(run_root):
     invocations = 0
     timestamps = []
 
+    host_info = {}
+    actionable_warnings = []
+    cycles = {}
+    current_cycle = None
+    first_ts = None
+    last_ts = None
+    cycle_start_pattern = re.compile(
+        r"Starting self-calibration cycle\s+(\d+)", re.IGNORECASE
+    )
+
     for path in candidates:
         if not path.is_file():
             continue
@@ -604,8 +744,18 @@ def _scan_logs(run_root):
                     line = raw_line.rstrip("\r\n")
                     tail.append(line)
                     level, timestamp, message = _parse_log_line(line)
+                    ts_obj = None
                     if timestamp:
                         timestamps.append(timestamp)
+                        try:
+                            ts_obj = datetime.strptime(timestamp, "%m/%d/%Y %H:%M:%S")
+                        except ValueError:
+                            pass
+                        if ts_obj:
+                            if first_ts is None:
+                                first_ts = ts_obj
+                            last_ts = ts_obj
+
                     if level == "WARNING":
                         warning_count += 1
                         warnings.append((path, line_count, timestamp, message))
@@ -614,9 +764,73 @@ def _scan_logs(run_root):
                         errors.append((path, line_count, timestamp, message))
                     if re.search(r"facetselfcal(?:\.py)?\b.*(?:\s-i(?:\s|=)|--config(?:\s|=))", line, re.IGNORECASE):
                         invocations += 1
+
+                    if path.name == "selfcal.log":
+                        if message.startswith("Run host:"):
+                            host_info["host"] = message.split(":", 1)[1].strip()
+                        elif message.startswith("Operating system:"):
+                            host_info["os"] = message.split(":", 1)[1].strip()
+                        elif message.startswith("CPU count:"):
+                            host_info["cpu"] = message.split(":", 1)[1].strip()
+                        elif message.startswith("RAM:"):
+                            host_info["ram"] = message.split(":", 1)[1].strip()
+                        elif message.startswith("Disk at run directory"):
+                            host_info["disk"] = message.split(":", 1)[1].strip()
+                        elif message.startswith("VERSION:"):
+                            host_info["version"] = message.split(":", 1)[1].strip()
+
+                        if "bandwidth smearing" in message.lower() or "try to increase your frequency resolution" in message.lower():
+                            if message not in actionable_warnings:
+                                actionable_warnings.append(message)
+
+                        cm = cycle_start_pattern.search(message)
+                        if cm:
+                            current_cycle = str(int(cm.group(1))).zfill(3)
+                            cycles[current_cycle] = {
+                                "cycle": current_cycle,
+                                "start_time": ts_obj,
+                                "start_str": timestamp or "",
+                                "end_time": None,
+                                "steps": [],
+                            }
+                            continue
+
+                        if current_cycle and ts_obj:
+                            cdata = cycles[current_cycle]
+                            if message.startswith("wsclean ") and not any(s[0] == "Imaging" for s in cdata["steps"]):
+                                cdata["steps"].append(("Imaging (wsclean)", ts_obj))
+                            elif "DP3 solve:" in message and not any(s[0] == "Calibration solve" for s in cdata["steps"]):
+                                cdata["steps"].append(("Calibration solve (DP3)", ts_obj))
+                            elif ("ac0.type=applycal" in message or "DP3 applycal:" in message or ("steps=[ac0]" in message and "applycal" in message)) and not any(s[0] == "Apply solutions" for s in cdata["steps"]):
+                                cdata["steps"].append(("Apply solutions (DP3)", ts_obj))
+
         except OSError:
             continue
         logs.append({"path": path, "lines": line_count, "tail": list(tail)})
+
+    cycle_keys = sorted(cycles.keys())
+    for i, ck in enumerate(cycle_keys):
+        cd = cycles[ck]
+        if i + 1 < len(cycle_keys):
+            cd["end_time"] = cycles[cycle_keys[i + 1]]["start_time"]
+        else:
+            cd["end_time"] = last_ts
+
+        if cd["start_time"] and cd["end_time"] and cd["end_time"] >= cd["start_time"]:
+            cd["duration_str"] = _format_duration((cd["end_time"] - cd["start_time"]).total_seconds())
+        else:
+            cd["duration_str"] = "-"
+
+        step_details = []
+        for s_idx, (s_name, s_ts) in enumerate(cd["steps"]):
+            next_ts = cd["steps"][s_idx + 1][1] if s_idx + 1 < len(cd["steps"]) else cd["end_time"]
+            s_dur = (next_ts - s_ts).total_seconds() if next_ts and next_ts >= s_ts else None
+            step_details.append((s_name, _format_duration(s_dur)))
+        cd["step_details"] = step_details
+
+    total_elapsed = None
+    if first_ts and last_ts and last_ts >= first_ts:
+        total_elapsed = _format_duration((last_ts - first_ts).total_seconds())
 
     return {
         "files": logs,
@@ -626,6 +840,35 @@ def _scan_logs(run_root):
         "error_count": error_count,
         "invocations": invocations,
         "timestamps": timestamps,
+        "host_info": host_info,
+        "actionable_warnings": actionable_warnings,
+        "cycle_timeline": [cycles[k] for k in cycle_keys],
+        "total_elapsed": total_elapsed,
+    }
+
+
+def _get_cycle_config(config, cycle_idx):
+    soltypes = _as_list(config.get("soltype_list"))
+    soltypecycles = config.get("soltypecycles_list")
+    solints = _as_list(config.get("solint_list"))
+    smoothness = _as_list(config.get("smoothnessconstraint_list"))
+
+    param_idx = 0
+    if isinstance(soltypecycles, (list, tuple)) and soltypecycles:
+        for i, bound in enumerate(soltypecycles):
+            try:
+                if int(bound) <= cycle_idx:
+                    param_idx = i
+            except (ValueError, TypeError):
+                pass
+
+    soltype = soltypes[param_idx] if param_idx < len(soltypes) else (soltypes[0] if soltypes else "-")
+    solint = solints[param_idx] if param_idx < len(solints) else (solints[0] if solints else "-")
+    smooth = smoothness[param_idx] if param_idx < len(smoothness) else (smoothness[0] if smoothness else "-")
+    return {
+        "soltype": soltype,
+        "solint": solint,
+        "smoothness": smooth,
     }
 
 
@@ -675,6 +918,23 @@ def _canonical_ms_path(path, run_root):
     return re.sub(r"(?:\.(?:copy|avg))+$", "", normalized_path, flags=re.IGNORECASE)
 
 
+def _match_ms_plots(ms_path, ms_plot_files, ms_json_files):
+    name = Path(ms_path).name
+    clean_name = re.sub(r"(?:\.(?:copy|avg))+$", "", name, flags=re.IGNORECASE)
+    matched = {"time_coverage": None, "ateam_png": None, "ateam_json": None}
+    for p in ms_plot_files:
+        p_name = p.name
+        if f"{name}.time_coverage" in p_name or f"{clean_name}.time_coverage" in p_name:
+            matched["time_coverage"] = p
+        elif f"ateam_{name.lower()}" in p_name.lower() or f"ateam_{clean_name.lower()}" in p_name.lower():
+            matched["ateam_png"] = p
+    for j in ms_json_files:
+        j_name = j.name
+        if f"ateam_{name.lower()}" in j_name.lower() or f"ateam_{clean_name.lower()}" in j_name.lower():
+            matched["ateam_json"] = j
+    return matched
+
+
 def _link(path, base_dir, label=None):
     href = _relative_url(path, base_dir)
     text = label if label is not None else path.name
@@ -703,6 +963,13 @@ def _figure(path, base_dir, caption, detail=None, extra_search="", item_class="i
     )
 
 
+def _quality_plot_placeholder(title):
+    return (
+        '<div class="ms-quality-placeholder" role="status">'
+        '<strong>{}</strong><span>Not generated for this measurement set.</span></div>'
+    ).format(_escape(title))
+
+
 def _blink_controls(paths, base_dir):
     if len(paths) < 2:
         return ""
@@ -729,6 +996,53 @@ def _blink_controls(paths, base_dir):
         _escape(first_href),
         _escape(paths[0].stem),
         _escape(paths[0].stem),
+    )
+
+
+def _compare_controls(paths, base_dir):
+    if len(paths) < 2:
+        return ""
+
+    options_a = "".join(
+        '<option value="{}">{}</option>'.format(
+            _escape(_relative_url(p, base_dir)), _escape(p.stem)
+        )
+        for p in paths
+    )
+    options_b = "".join(
+        '<option value="{}"{}>{}</option>'.format(
+            _escape(_relative_url(p, base_dir)),
+            ' selected="selected"' if idx == len(paths) - 1 else "",
+            _escape(p.stem),
+        )
+        for idx, p in enumerate(paths)
+    )
+    first_href = _relative_url(paths[0], base_dir)
+    last_href = _relative_url(paths[-1], base_dir)
+    return (
+        '<div class="compare-tool" data-compare-tool>'
+        '<div class="compare-controls">'
+        '<label><span>Reference image</span><select data-compare-select-a>{}</select></label>'
+        '<label><span>Comparison image</span><select data-compare-select-b>{}</select></label>'
+        '</div>'
+        '<div class="compare-views">'
+        '<figure><a href="{}" title="Open full size" data-compare-link-a><img data-compare-img-a src="{}" alt="{}"></a>'
+        '<figcaption><code data-compare-caption-a>{}</code></figcaption></figure>'
+        '<figure><a href="{}" title="Open full size" data-compare-link-b><img data-compare-img-b src="{}" alt="{}"></a>'
+        '<figcaption><code data-compare-caption-b>{}</code></figcaption></figure>'
+        '</div>'
+        '</div>'
+    ).format(
+        options_a,
+        options_b,
+        _escape(first_href),
+        _escape(first_href),
+        _escape(paths[0].stem),
+        _escape(paths[0].stem),
+        _escape(last_href),
+        _escape(last_href),
+        _escape(paths[-1].stem),
+        _escape(paths[-1].stem),
     )
 
 
@@ -789,12 +1103,25 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
     title = str(config.get("imagename") or run_root.name)
     status_text, status_class = _status(status)
     ms_inputs = _as_list(config.get("ms"))
+    telescope_val = config.get("telescope")
+    if not telescope_val:
+        for meta in _measurement_set_metadata(run_root).values():
+            t = meta.get("Telescope")
+            if t:
+                telescope_val = t
+                break
+    if not telescope_val:
+        telescope_val = "Unknown"
+
     metrics = [
-        (len(ms_inputs), "Configured measurement sets"),
-        (len(artifacts["cycles"]), "Solution cycles found"),
-        (len(artifacts["solution_files"]), "Solution H5 files"),
-        (logs["warning_count"] + logs["error_count"], "Warnings and errors"),
+        (len(ms_inputs), "Configured MS Datasets"),
+        (len(artifacts["cycles"]), "Solution Cycles"),
+        (len(artifacts["solution_files"]), "Solution H5 Files"),
+        (logs["warning_count"] + logs["error_count"], "Warnings and Errors"),
     ]
+    if logs.get("total_elapsed"):
+        metrics.append((logs["total_elapsed"], "Total Elapsed Time"))
+
     metric_html = "".join(
         '<div class="metric"><span class="metric-value">{}</span><span class="metric-label">{}</span></div>'.format(
             _escape(value), _escape(label)
@@ -822,6 +1149,15 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         ),
         '<div class="metrics">{}</div>'.format(metric_html),
     ]
+
+    # Actionable alerts (e.g. bandwidth smearing)
+    actionable = logs.get("actionable_warnings", [])
+    if actionable:
+        items = "".join("<p>{}</p>".format(_escape(w)) for w in actionable)
+        body_parts.append(
+            '<div class="notice"><strong>Observational / Data Quality Alert</strong>{}</div>'.format(items)
+        )
+
     if error:
         body_parts.append(
             '<div class="notice error"><strong>Run error</strong><p>{}</p></div>'.format(
@@ -830,10 +1166,72 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         )
     if logs["invocations"] > 1:
         body_parts.append(
-            '<div class="notice"><strong>Combined run history</strong><p>The saved self-calibration log contains {} command records. This report summarizes the current output directory; some products may come from different run segments.</p></div>'.format(
+            '<div class="notice info"><strong>Combined run history</strong><p>The saved self-calibration log contains {} command records. This report summarizes the current output directory; some products may come from different run segments.</p></div>'.format(
                 logs["invocations"]
             )
         )
+
+    # Host & Execution Environment card
+    host_info = logs.get("host_info", {})
+    if host_info:
+        env_cards = []
+        if "host" in host_info:
+            env_cards.append('<div class="env-card"><strong>Run Host</strong><span>{}</span></div>'.format(_escape(host_info["host"])))
+        if "cpu" in host_info:
+            env_cards.append('<div class="env-card"><strong>Processors</strong><span>{}</span></div>'.format(_escape(host_info["cpu"])))
+        if "ram" in host_info:
+            env_cards.append('<div class="env-card"><strong>RAM (Total / Avail)</strong><span>{}</span></div>'.format(_escape(host_info["ram"])))
+        if "disk" in host_info:
+            env_cards.append('<div class="env-card"><strong>Disk at Start</strong><span>{}</span></div>'.format(_escape(host_info["disk"])))
+        if "os" in host_info:
+            env_cards.append('<div class="env-card"><strong>Operating System</strong><span>{}</span></div>'.format(_escape(host_info["os"])))
+        if "version" in host_info:
+            env_cards.append('<div class="env-card"><strong>facetselfcal Version</strong><span>{}</span></div>'.format(_escape(host_info["version"])))
+        if env_cards:
+            body_parts.append(_section("Execution Environment", '<div class="env-grid">{}</div>'.format("".join(env_cards)), "Startup system snapshot from logs/selfcal.log."))
+
+    # Cycle Timeline Table
+    cycle_timeline = logs.get("cycle_timeline", [])
+    if cycle_timeline:
+        rows = []
+        for cdata in cycle_timeline:
+            c_int = int(cdata["cycle"])
+            c_cfg = _get_cycle_config(config, c_int)
+            step_badges = []
+            for s_name, s_dur in cdata.get("step_details", []):
+                step_badges.append('<span class="step-badge">{} ({})</span>'.format(_escape(s_name), _escape(s_dur)))
+            steps_html = " &rarr; ".join(step_badges) if step_badges else "-"
+            rows.append(
+                '<tr>'
+                '<th scope="row">Cycle {}</th>'
+                '<td>{}</td>'
+                '<td><strong>{}</strong></td>'
+                '<td><code>{}</code></td>'
+                '<td><code>{}</code></td>'
+                '<td><code>{}</code></td>'
+                '<td>{}</td>'
+                '</tr>'.format(
+                    _escape(cdata["cycle"]),
+                    _escape(cdata["start_str"]),
+                    _escape(cdata["duration_str"]),
+                    _escape(c_cfg["soltype"]),
+                    _escape(c_cfg["solint"]),
+                    _escape(c_cfg["smoothness"]),
+                    steps_html,
+                )
+            )
+        timeline_html = (
+            '<div class="table-scroll"><table class="data-table"><thead><tr>'
+            '<th scope="col">Cycle</th>'
+            '<th scope="col">Start Time</th>'
+            '<th scope="col">Duration</th>'
+            '<th scope="col">Solution Type</th>'
+            '<th scope="col">Interval</th>'
+            '<th scope="col">Smoothness</th>'
+            '<th scope="col">Workflow Steps</th>'
+            '</tr></thead><tbody>{}</tbody></table></div>'.format("".join(rows))
+        )
+        body_parts.append(_section("Self-Calibration Progression", timeline_html, "Timing and parameters per calibration cycle."))
 
     summary_html = _config_table(config, _SUMMARY_KEYS)
     body_parts.append(_section("Run configuration", summary_html, "Selected values from full_config.txt."))
@@ -878,12 +1276,19 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             sum(len(paths) for _, cycles in artifacts["calibration_sets"] for paths in cycles.values())
         )
     )
+
+    subtitle_parts = ["Run overview", run_root.name]
+    if telescope_val and telescope_val != "Unknown":
+        subtitle_parts.append("Telescope: {}".format(telescope_val))
+    if logs.get("total_elapsed"):
+        subtitle_parts.append("Elapsed: {}".format(logs["total_elapsed"]))
+
     _write_page(
         site_dir / "index.html",
         title,
         "index.html",
-        "".join(body_parts),
-        subtitle="Run overview / {}".format(run_root.name),
+        "\n".join(body_parts),
+        subtitle=" / ".join(subtitle_parts),
     )
 
 
@@ -919,9 +1324,20 @@ def _imaging_page(site_dir, run_root, config, artifacts):
                 for path in progression
             )
             blink_controls = _blink_controls(progression, site_dir)
+            compare_controls = _compare_controls(progression, site_dir)
             sections.append(
-                '<details data-filter-group open><summary>Image progression plots ({})</summary>{}<div class="gallery">{}</div></details>'.format(
-                    len(progression), blink_controls, figures
+                '<details data-filter-group open><summary>Side-by-side cycle comparison</summary>{}</details>'.format(
+                    compare_controls
+                )
+            )
+            sections.append(
+                '<details data-filter-group open><summary>Multi-frame image blinking</summary>{}</details>'.format(
+                    blink_controls
+                )
+            )
+            sections.append(
+                '<details data-filter-group open><summary>Image progression gallery ({})</summary><div class="gallery">{}</div></details>'.format(
+                    len(progression), figures
                 )
             )
         if diagnostics:
@@ -948,7 +1364,12 @@ def _imaging_page(site_dir, run_root, config, artifacts):
     )
     fits_groups = {category: [] for category, _ in product_categories}
     fits_groups["Other FITS products"] = []
+    fits_cycles = set()
+
     for path in artifacts["fits_files"]:
+        cm = re.search(r"_(0\d{2})(?:-|\.|$)", path.name)
+        if cm:
+            fits_cycles.add(cm.group(1))
         for category, pattern in product_categories:
             if pattern.search(path.name):
                 fits_groups[category].append(path)
@@ -959,6 +1380,17 @@ def _imaging_page(site_dir, run_root, config, artifacts):
     fit_sections = []
     if artifacts["fits_files"]:
         fit_sections.append(_filter_input(".fits-entry", "Filter FITS filenames"))
+
+        # Cycle filter pills for FITS products
+        if fits_cycles:
+            pills = ['<div class="pill-group" data-pill-group data-pill-target=".fits-entry">']
+            pills.append('<span class="pill-label">Filter by Cycle:</span>')
+            pills.append('<button type="button" class="pill-btn active" data-filter-value="all">All cycles</button>')
+            for cy in sorted(fits_cycles):
+                pills.append('<button type="button" class="pill-btn" data-filter-value="cycle-{}">Cycle {}</button>'.format(cy, cy))
+            pills.append('</div>')
+            fit_sections.append("".join(pills))
+
         category_order = [category for category, _ in product_categories]
         category_order.append("Other FITS products")
         for category in category_order:
@@ -967,9 +1399,12 @@ def _imaging_page(site_dir, run_root, config, artifacts):
                 continue
             entries = []
             for path in paths:
+                cm = re.search(r"_(0\d{2})(?:-|\.|$)", path.name)
+                cy_tag = "cycle-{}".format(cm.group(1)) if cm else ""
+                search_val = "{} {}".format(path.name, cy_tag).strip()
                 entries.append(
                     '<li class="fits-entry" data-search="{}">{}<span class="file-size">{}</span></li>'.format(
-                        _escape(path.name),
+                        _escape(search_val),
                         _link(path, site_dir),
                         _escape(_format_size(path.stat().st_size)),
                     )
@@ -986,11 +1421,11 @@ def _imaging_page(site_dir, run_root, config, artifacts):
         fit_sections.append('<p class="empty">No FITS products were found in fits_images/.</p>')
 
     body = (
-        '<p class="page-intro">PNG previews open locally at full size. FITS files are linked as products; use an astronomy FITS viewer to inspect their pixel data.</p>'
-        + _section("PNG previews", "".join(sections))
+        '<p class="page-intro">PNG previews open locally at full size. FITS files are linked as products; use an astronomy FITS viewer to inspect their pixel data.</p>\n'
+        + _section("Image Progression & Comparisons", "".join(sections)) + "\n"
         + _section("FITS products", "".join(fit_sections), "{} files found.".format(len(artifacts["fits_files"])))
     )
-    _write_page(site_dir / "imaging.html", title, "imaging.html", body)
+    _write_page(site_dir / "imaging.html", title, "imaging.html", body, subtitle="Imaging & FITS products / {}".format(run_root.name))
 
 
 def _cycle_sort_key(value):
@@ -1004,19 +1439,29 @@ def _plot_page(site_dir, run_root, title, dataset_name, dataset_slug, cycle, pat
     page_path = calibration_dir / "{}.html".format(dataset_slug)
     cycle_title = "Cycle {}".format(cycle) if cycle != "other" else "Other plots"
     figures = []
+    has_phase = False
+    has_amp = False
+    has_pol = False
+
     for path in paths:
         name = path.name
         tags = []
         lower = name.lower()
-        for token, label in (("amp", "amplitude"), ("phase", "phase"), ("poldiff", "polarization difference")):
-            if token in lower:
-                tags.append(label)
+        if "amp" in lower:
+            tags.append("amplitude")
+            has_amp = True
+        if "phase" in lower:
+            tags.append("phase")
+            has_phase = True
+        if "poldiff" in lower or "pol" in lower:
+            tags.append("polarization")
+            has_pol = True
         direction = re.search(r"(?:dir|dil)(\d+)", name, re.IGNORECASE)
         if direction:
             tags.append("direction {}".format(direction.group(1)))
         polarization = re.search(r"pol([a-z0-9]+)", name, re.IGNORECASE)
         if polarization:
-            tags.append("polarization {}".format(polarization.group(1)))
+            tags.append("pol-{}".format(polarization.group(1)))
         figures.append(
             _figure(
                 path,
@@ -1027,12 +1472,26 @@ def _plot_page(site_dir, run_root, title, dataset_name, dataset_slug, cycle, pat
                 item_class="plot-item",
             )
         )
+
+    # Filter pills for plot types
+    pills = ['<div class="pill-group" data-pill-group data-pill-target=".plot-item">']
+    pills.append('<span class="pill-label">Filter plot types:</span>')
+    pills.append('<button type="button" class="pill-btn active" data-filter-value="all">All plots ({})</button>'.format(len(paths)))
+    if has_phase:
+        pills.append('<button type="button" class="pill-btn" data-filter-value="phase">Phase</button>')
+    if has_amp:
+        pills.append('<button type="button" class="pill-btn" data-filter-value="amplitude">Amplitude</button>')
+    if has_pol:
+        pills.append('<button type="button" class="pill-btn" data-filter-value="polarization">Polarization</button>')
+    pills.append('</div>')
+
     body = (
-        '<p class="page-intro"><a href="../calibration.html">Calibration index</a> / {} / {}. '
+        '<p class="page-intro"><a href="../calibration.html">&larr; Back to Calibration index</a> / {} / {}. '
         'This page contains {} plots and loads thumbnails lazily.</p>'.format(
             _escape(dataset_name), _escape(cycle_title), len(paths)
         )
-        + _filter_input(".plot-item", "Filter plot filenames")
+        + "".join(pills)
+        + _filter_input(".plot-item", "Search plot filenames")
         + '<div class="gallery">{}</div>'.format("".join(figures))
     )
     _write_page(
@@ -1059,7 +1518,7 @@ def _calibration_page(site_dir, run_root, config, artifacts):
         return
 
     rows = []
-    cycle_headers = "".join("<th scope=\"col\">{}</th>".format(_escape(cycle)) for cycle in all_cycles)
+    cycle_headers = "".join("<th scope=\"col\">Cycle {}</th>".format(_escape(cycle)) for cycle in all_cycles)
     for index, (directory, cycles) in enumerate(calibration_sets, start=1):
         dataset_slug = "ms-{:02d}".format(index)
         dataset_name = directory.name.removeprefix("solution_plots_")
@@ -1086,19 +1545,19 @@ def _calibration_page(site_dir, run_root, config, artifacts):
                 )
             )
         rows.append(
-            '<tr class="dataset-row" data-search="{}"><th scope="row">{}</th>{}</tr>'.format(
+            '<tr class="dataset-row" data-search="{}"><th scope="row"><code>{}</code></th>{}</tr>'.format(
                 _escape(dataset_name), _escape(dataset_name), "".join(cells)
             )
         )
 
     body = (
-        '<p class="page-intro">Calibration plots are split into one local page per measurement set and solution cycle. Open a cycle page to load its thumbnails lazily.</p>'
-        + _filter_input(".dataset-row", "Filter measurement sets")
+        '<p class="page-intro">Calibration plots are split into one local page per measurement set and solution cycle. Open a cycle page to view and filter phase, amplitude, and polarization solutions.</p>\n'
+        + _filter_input(".dataset-row", "Filter measurement sets") + "\n"
         + '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Measurement set</th>{}</tr></thead><tbody>{}</tbody></table></div>'.format(
             cycle_headers, "".join(rows)
         )
     )
-    _write_page(site_dir / "calibration.html", title, "calibration.html", body)
+    _write_page(site_dir / "calibration.html", title, "calibration.html", body, subtitle="Calibration solutions / {}".format(run_root.name))
 
 
 def _datasets_page(site_dir, run_root, config, artifacts):
@@ -1107,8 +1566,14 @@ def _datasets_page(site_dir, run_root, config, artifacts):
     metadata_by_ms = _measurement_set_metadata(run_root)
     column_count = len(_MS_METADATA_FIELDS) + 1
     input_rows = []
+    ms_cards = []
+
+    ms_plot_files = artifacts.get("ms_plot_files", [])
+    ms_json_files = artifacts.get("ms_json_files", [])
+
     for path in inputs:
-        metadata = dict(metadata_by_ms.get(_canonical_ms_path(path, run_root), {}))
+        canonical = _canonical_ms_path(path, run_root)
+        metadata = dict(metadata_by_ms.get(canonical, {}))
         telescope = metadata.get("Telescope", "").strip().upper()
         if telescope and telescope not in {"VLA", "EVLA"}:
             metadata.setdefault("VLA configuration", "Not applicable")
@@ -1122,6 +1587,73 @@ def _datasets_page(site_dir, run_root, config, artifacts):
                 _escape(search_text), _escape(path), metadata_cells
             )
         )
+
+        # Build quality card per measurement set
+        matched_plots = _match_ms_plots(path, ms_plot_files, ms_json_files)
+        meta_items = []
+        for field, _ in _MS_METADATA_FIELDS:
+            if field in metadata:
+                meta_items.append(
+                    '<div class="dataset-meta-item"><strong>{}</strong><span>{}</span></div>'.format(
+                        _escape(field), _escape(metadata[field])
+                    )
+                )
+
+        plot_figures = []
+        if matched_plots["time_coverage"]:
+            plot_figures.append(
+                _figure(
+                    matched_plots["time_coverage"],
+                    site_dir,
+                    matched_plots["time_coverage"].stem,
+                    detail="Time coverage & gaps",
+                    item_class="ms-quality-plot",
+                )
+            )
+        else:
+            plot_figures.append(_quality_plot_placeholder("Time-coverage plot"))
+        if matched_plots["ateam_png"]:
+            plot_figures.append(
+                _figure(
+                    matched_plots["ateam_png"],
+                    site_dir,
+                    matched_plots["ateam_png"].stem,
+                    detail="A-team source separation & elevation",
+                    item_class="ms-quality-plot",
+                )
+            )
+        else:
+            plot_figures.append(_quality_plot_placeholder("A-team plot"))
+
+        ateam_note = ""
+        if matched_plots["ateam_json"]:
+            try:
+                ateam_data = json.loads(matched_plots["ateam_json"].read_text(encoding="utf-8", errors="replace"))
+                if not ateam_data:
+                    ateam_note = '<p class="caption-detail" style="margin-top:6px;">A-team check: No interfering A-team sources within separation threshold.</p>'
+                else:
+                    sources_str = ", ".join(str(s) for s in ateam_data)
+                    ateam_note = '<p class="caption-detail" style="margin-top:6px; color:var(--amber);">A-team check: Potentially interfering sources: {}</p>'.format(_escape(sources_str))
+            except Exception:
+                pass
+
+        plots_content = '<div class="dataset-plots-grid">{}</div>{}'.format(
+            "".join(plot_figures), ateam_note
+        )
+
+        ms_cards.append(
+            '<div class="dataset-card">'
+            '<div class="dataset-header"><h3 class="dataset-title">{}</h3></div>'
+            '<div class="dataset-meta-grid">{}</div>'
+            '<h4>Data Quality & Observation Coverage Plots</h4>'
+            '{}'
+            '</div>'.format(
+                _escape(path),
+                "".join(meta_items) if meta_items else '<p class="empty">No observational metadata parsed from log.</p>',
+                plots_content,
+            )
+        )
+
     if not input_rows:
         input_rows.append(
             '<tr><td colspan="{}">No input MS list was found in full_config.txt.</td></tr>'.format(
@@ -1130,17 +1662,21 @@ def _datasets_page(site_dir, run_root, config, artifacts):
         )
 
     body = (
-        '<p class="page-intro">Input paths come from full_config.txt. Telescope and observation metadata is read from matching entries in logs/selfcal.log; fields not recorded there are shown as Not recorded.</p>'
-        + _filter_input(".dataset-row", "Filter configured inputs")
-        + '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Measurement Set</th>{}</tr></thead><tbody>{}</tbody></table></div>'.format(
-            "".join(
-                '<th scope="col">{}</th>'.format(_escape(field))
-                for field, _ in _MS_METADATA_FIELDS
+        '<p class="page-intro">Input paths come from full_config.txt. Observation metadata is extracted from logs/selfcal.log. Time coverage and A-team elevation diagnostics are shown below each dataset.</p>\n'
+        + _section(
+            "Configured Measurement Sets Table",
+            _filter_input(".dataset-row", "Filter configured inputs")
+            + '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Measurement Set</th>{}</tr></thead><tbody>{}</tbody></table></div>'.format(
+                "".join(
+                    '<th scope="col">{}</th>'.format(_escape(field))
+                    for field, _ in _MS_METADATA_FIELDS
+                ),
+                "".join(input_rows),
             ),
-            "".join(input_rows),
-        )
+        ) + "\n"
+        + _section("Measurement Set Data Quality & Coverage", "".join(ms_cards) if ms_cards else '<p class="empty">No measurement sets configured.</p>')
     )
-    _write_page(site_dir / "datasets.html", title, "datasets.html", body)
+    _write_page(site_dir / "datasets.html", title, "datasets.html", body, subtitle="Measurement sets & coverage / {}".format(run_root.name))
 
 
 def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text, status, error):
@@ -1170,7 +1706,7 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text,
     config_table = _config_table(config, filterable=True)
     command_section = ""
     if command_text:
-        command_section = '<details><summary>Recorded command line</summary><pre>{}</pre></details>'.format(
+        command_section = '<details open><summary>Recorded command line</summary><pre>{}</pre></details>'.format(
             _escape(command_text)
         )
 
@@ -1193,20 +1729,41 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text,
     if error:
         status_block += '<div class="notice error"><strong>Run error</strong><p>{}</p></div>'.format(_escape(error))
     if logs["invocations"] > 1:
-        status_block += '<div class="notice"><strong>Combined log</strong><p>{} command-line invocation records were found. The log may span multiple processing segments.</p></div>'.format(logs["invocations"])
+        status_block += '<div class="notice info"><strong>Combined log</strong><p>{} command-line invocation records were found. The log may span multiple processing segments.</p></div>'.format(logs["invocations"])
+
+    # Execution Environment card
+    env_section = ""
+    host_info = logs.get("host_info", {})
+    if host_info:
+        env_cards = []
+        if "host" in host_info:
+            env_cards.append('<div class="env-card"><strong>Run Host</strong><span>{}</span></div>'.format(_escape(host_info["host"])))
+        if "cpu" in host_info:
+            env_cards.append('<div class="env-card"><strong>Processors</strong><span>{}</span></div>'.format(_escape(host_info["cpu"])))
+        if "ram" in host_info:
+            env_cards.append('<div class="env-card"><strong>RAM (Total / Avail)</strong><span>{}</span></div>'.format(_escape(host_info["ram"])))
+        if "disk" in host_info:
+            env_cards.append('<div class="env-card"><strong>Disk at Start</strong><span>{}</span></div>'.format(_escape(host_info["disk"])))
+        if "os" in host_info:
+            env_cards.append('<div class="env-card"><strong>Operating System</strong><span>{}</span></div>'.format(_escape(host_info["os"])))
+        if "version" in host_info:
+            env_cards.append('<div class="env-card"><strong>facetselfcal Version</strong><span>{}</span></div>'.format(_escape(host_info["version"])))
+        if env_cards:
+            env_section = _section("Execution Environment", '<div class="env-grid">{}</div>'.format("".join(env_cards)))
 
     body = (
-        '<p class="page-intro">The report references the run configuration and logs in place. Values are shown as recorded, without interpreting instrument-specific settings.</p>'
-        + status_block
-        + _section("Configuration files and logs", links_html)
-        + _section("Recorded command", command_section or '<p class="empty">No facetselfcal.txt command record was found.</p>')
-        + _section("Saved configuration", config_filter + config_table)
-        + _section("Artifact inventory", inventory)
-        + _section("Warning log records", _render_log_events(logs["warnings"], logs["warning_count"]))
-        + _section("Error log records", _render_log_events(logs["errors"], logs["error_count"], is_error=True))
+        '<p class="page-intro">The report references the run configuration and logs in place. Values are shown as recorded, without interpreting instrument-specific settings.</p>\n'
+        + status_block + "\n"
+        + env_section + "\n"
+        + _section("Configuration files and logs", links_html) + "\n"
+        + _section("Recorded command", command_section or '<p class="empty">No facetselfcal.txt command record was found.</p>') + "\n"
+        + _section("Saved configuration", config_filter + config_table) + "\n"
+        + _section("Artifact inventory", inventory) + "\n"
+        + _section("Warning log records", _render_log_events(logs["warnings"], logs["warning_count"])) + "\n"
+        + _section("Error log records", _render_log_events(logs["errors"], logs["error_count"], is_error=True)) + "\n"
         + _section("Recent log excerpts", log_tails, "At most the last 80 lines of each log are included here; the full logs are linked above.")
     )
-    _write_page(site_dir / "run-details.html", title, "run-details.html", body)
+    _write_page(site_dir / "run-details.html", title, "run-details.html", body, subtitle="Run details & logs / {}".format(run_root.name))
 
 
 def generate_html_overview(run_directory=".", status="unknown", error=None, output_directory=None):
