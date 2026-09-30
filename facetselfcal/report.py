@@ -4,6 +4,7 @@ import argparse
 import ast
 import html
 import json
+import math
 import os
 import re
 from collections import defaultdict, deque
@@ -48,6 +49,12 @@ _MS_METADATA_FIELDS = (
     ("Channel width (kHz)", ("Channel width [kHz]",)),
     ("Start frequency (MHz)", ("Start frequnecy [MHz]", "Start frequency [MHz]")),
     ("End frequency (MHz)", ("End frequency [MHz]",)),
+)
+
+_IMAGE_METRIC_FIELDS = (
+    ("max_image", "Max image"),
+    ("min_image", "Min image"),
+    ("rms_noise", "RMS noise"),
 )
 
 _CSS = r"""
@@ -114,7 +121,7 @@ section { margin: 26px 0 0; }
 .status-running { color: #075985; background: var(--blue-pale); border: 1px solid var(--blue-border); }
 .status-failed { color: #991b1b; background: var(--red-pale); border: 1px solid var(--red-border); }
 .status-interrupted, .status-stopped, .status-unknown { color: #92400e; background: var(--amber-pale); border: 1px solid var(--amber-border); }
-.status-detail { color: #ccfbf1; font-size: 13px; }
+.status-detail { color: var(--ink-secondary); font-size: 13px; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0 28px; }
 .metric { min-width: 0; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); border-top: 3px solid var(--teal); }
 .metric-value { display: block; font-size: 24px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; line-height: 1.1; }
@@ -186,6 +193,14 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .dataset-plots-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 12px; }
 .ms-quality-placeholder { box-sizing: border-box; min-height: 235px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; border: 1px dashed var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); text-align: center; font-size: 13px; }
 .ms-quality-placeholder strong { color: var(--ink-secondary); }
+.image-metrics-chart { max-width: 100%; margin: 12px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.image-metrics-chart svg { display: block; font-family: inherit; }
+.metric-chart-grid { stroke: var(--line); stroke-width: 1; }
+.metric-chart-axis { fill: var(--muted); font-size: 11px; }
+.metric-chart-title { fill: var(--ink); font-size: 13px; font-weight: 700; }
+.metric-chart-line { fill: none; stroke: var(--teal-dark); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.metric-chart-point { fill: var(--teal); stroke: var(--surface); stroke-width: 1; }
+.image-metrics-note { margin: 8px 0 12px; color: var(--muted); font-size: 12px; }
 .step-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; background: var(--teal-light); color: var(--teal-deep); border: 1px solid var(--teal-border); white-space: nowrap; }
 details { margin: 11px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); overflow: hidden; }
 details > summary { cursor: pointer; padding: 10px 14px; color: var(--teal-deep); font-weight: 600; font-size: 14px; background: #fafcff; }
@@ -732,6 +747,14 @@ def _scan_logs(run_root):
     cycle_start_pattern = re.compile(
         r"Starting self-calibration cycle\s+(\d+)", re.IGNORECASE
     )
+    image_metric_pattern = re.compile(
+        r"^(?P<image>.+?)\s+(?P<metric>Max image|Min image|RMS noise):\s*(?P<value>.+)$",
+        re.IGNORECASE,
+    )
+    image_metric_fields = {
+        label.casefold(): field for field, label in _IMAGE_METRIC_FIELDS
+    }
+    image_metric_records = {}
 
     for path in candidates:
         if not path.is_file():
@@ -795,6 +818,36 @@ def _scan_logs(run_root):
                             }
                             continue
 
+                        metric_match = image_metric_pattern.match(message)
+                        if metric_match:
+                            image_name = metric_match.group("image").strip()
+                            metric_value = metric_match.group("value").strip()
+                            try:
+                                float(metric_value)
+                            except ValueError:
+                                pass
+                            else:
+                                metric_cycle = current_cycle
+                                if metric_cycle is None:
+                                    cycle_tokens = re.findall(
+                                        r"_(\d+)(?=-|\.|$)", Path(image_name).name
+                                    )
+                                    if cycle_tokens:
+                                        metric_cycle = str(int(cycle_tokens[-1])).zfill(3)
+                                field = image_metric_fields[
+                                    metric_match.group("metric").casefold()
+                                ]
+                                record_key = (metric_cycle or "", image_name)
+                                record = image_metric_records.setdefault(
+                                    record_key,
+                                    {
+                                        "cycle": metric_cycle,
+                                        "image": image_name,
+                                    },
+                                )
+                                record[field] = metric_value
+                                record["_order"] = line_count
+
                         if current_cycle and ts_obj:
                             cdata = cycles[current_cycle]
                             if message.startswith("wsclean ") and not any(s[0] == "Imaging" for s in cdata["steps"]):
@@ -843,8 +896,92 @@ def _scan_logs(run_root):
         "host_info": host_info,
         "actionable_warnings": actionable_warnings,
         "cycle_timeline": [cycles[k] for k in cycle_keys],
+        "image_metrics": sorted(
+            image_metric_records.values(), key=lambda record: record["_order"]
+        ),
         "total_elapsed": total_elapsed,
     }
+
+
+def _clipped_image_rms(values, np):
+    pixels = values[np.abs(values) > 1e-7]
+    if not pixels.size:
+        return float("nan")
+
+    rms_old = np.std(pixels)
+    median = np.median(pixels)
+    rms = rms_old
+    for _ in range(10):
+        selected = pixels[np.abs(pixels - median) < rms_old * 3.0]
+        if not selected.size:
+            return float("nan")
+        rms = np.std(selected)
+        if rms_old != 0 and np.abs((rms - rms_old) / rms_old) < 1e-1:
+            break
+        rms_old = rms
+    return rms
+
+
+def _image_metrics_from_fits(fits_files, records):
+    primary_images = []
+    for path in fits_files:
+        name = path.name.casefold()
+        if re.search(r"-\d{4}-image\.fits(?:\.gz)?$", name):
+            continue
+        if not name.endswith((
+            "-mfs-image.fits",
+            "-mfs-image.fits.gz",
+            "-image.fits",
+            "-image.fits.gz",
+            ".app.restored.fits",
+            ".app.restored.fits.gz",
+        )):
+            continue
+        cycle_match = re.search(r"_(\d{3})(?=-|\.|$)", path.name)
+        if cycle_match:
+            primary_images.append((path, str(int(cycle_match.group(1))).zfill(3)))
+
+    if not primary_images:
+        return records
+
+    try:
+        import numpy as np
+        from astropy.io import fits
+    except ImportError:
+        return records
+
+    records_by_image = {
+        Path(record.get("image", "")).name.casefold(): record
+        for record in records
+    }
+    for path, cycle in primary_images:
+        record = records_by_image.get(path.name.casefold())
+        try:
+            with fits.open(path, memmap=False) as hdulist:
+                if hdulist[0].data is None:
+                    continue
+                values = np.asarray(hdulist[0].data).reshape(-1)
+                if not values.size:
+                    continue
+                computed = {
+                    "max_image": str(np.max(values)),
+                    "min_image": str(np.min(values)),
+                    "rms_noise": str(_clipped_image_rms(values, np)),
+                }
+        except Exception:
+            continue
+
+        if record is None:
+            record = {
+                "cycle": cycle,
+                "image": str(path),
+            }
+            records.append(record)
+            records_by_image[path.name.casefold()] = record
+        for field, value in computed.items():
+            record.setdefault(field, value)
+
+    return records
 
 
 def _get_cycle_config(config, cycle_idx):
@@ -853,23 +990,52 @@ def _get_cycle_config(config, cycle_idx):
     solints = _as_list(config.get("solint_list"))
     smoothness = _as_list(config.get("smoothnessconstraint_list"))
 
-    param_idx = 0
+    param_indices = []
     if isinstance(soltypecycles, (list, tuple)) and soltypecycles:
         for i, bound in enumerate(soltypecycles):
             try:
                 if int(bound) <= cycle_idx:
-                    param_idx = i
+                    param_indices.append(i)
             except (ValueError, TypeError):
                 pass
 
-    soltype = soltypes[param_idx] if param_idx < len(soltypes) else (soltypes[0] if soltypes else "-")
-    solint = solints[param_idx] if param_idx < len(solints) else (solints[0] if solints else "-")
-    smooth = smoothness[param_idx] if param_idx < len(smoothness) else (smoothness[0] if smoothness else "-")
+    if not param_indices:
+        param_indices = [0]
+
+    def values_for_active_types(values):
+        if not values:
+            return ["-"]
+        return [values[i] if i < len(values) else values[0] for i in param_indices]
+
     return {
-        "soltype": soltype,
-        "solint": solint,
-        "smoothness": smooth,
+        "soltype": values_for_active_types(soltypes),
+        "solint": values_for_active_types(solints),
+        "smoothness": values_for_active_types(smoothness),
     }
+
+
+def _cycle_config_values_html(values, formatter=None):
+    return "<br>".join(
+        '<code>{}</code>'.format(_escape(formatter(value) if formatter else value))
+        for value in values
+    )
+
+
+def _format_overview_interval(value):
+    if value is None:
+        return "-"
+    return re.sub(r"(?<=\d)(?=[A-Za-z])", " ", str(value).strip())
+
+
+def _format_overview_smoothness(value):
+    if value is None:
+        return "-"
+    text = str(value).strip()
+    if not text or text == "-":
+        return "-"
+    if re.search(r"\sMHz$", text, re.IGNORECASE):
+        return re.sub(r"\s*MHz$", " MHz", text, flags=re.IGNORECASE)
+    return "{} MHz".format(text)
 
 
 def _measurement_set_metadata(run_root):
@@ -1099,6 +1265,179 @@ def _write_page(path, title, active, body, nested=False, subtitle="Offline proce
     )
 
 
+def _image_metric_cycle_cell(records, field):
+    values = [
+        '<span title="{}">{}</span>'.format(
+            _escape(record["image"]), _escape(record[field])
+        )
+        for record in records
+        if record.get(field) is not None
+    ]
+    return "<td>{}</td>".format("<br>".join(values) if values else "&mdash;")
+
+
+def _image_metrics_chart(records):
+    latest_by_cycle = {}
+    for record in records:
+        cycle = record.get("cycle")
+        if cycle is not None:
+            latest_by_cycle[cycle] = record
+
+    cycles = sorted(
+        latest_by_cycle,
+        key=lambda value: (0, int(value)) if value.isdigit() else (1, value.casefold()),
+    )
+    if not cycles:
+        return '<p class="empty">No cycle numbers were found for the logged image statistics.</p>'
+
+    width = max(640, 125 + 82 * len(cycles))
+    row_height = 106
+    height = row_height * len(_IMAGE_METRIC_FIELDS) + 14
+    plot_left = 108
+    plot_right = width - 24
+    if len(cycles) == 1:
+        x_positions = {cycles[0]: (plot_left + plot_right) / 2}
+    else:
+        x_positions = {
+            cycle: plot_left + index * (plot_right - plot_left) / (len(cycles) - 1)
+            for index, cycle in enumerate(cycles)
+        }
+
+    parts = [
+        '<div class="image-metrics-chart"><svg xmlns="http://www.w3.org/2000/svg" '
+        'width="{}" height="{}" viewBox="0 0 {} {}" role="img" '
+        'aria-label="Image statistics by self-calibration cycle">'.format(
+            width, height, width, height
+        )
+    ]
+    for row_index, (field, label) in enumerate(_IMAGE_METRIC_FIELDS):
+        row_top = 8 + row_index * row_height
+        plot_top = row_top + 20
+        plot_bottom = row_top + 73
+        values = {}
+        for cycle in cycles:
+            try:
+                value = float(latest_by_cycle[cycle].get(field))
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value):
+                values[cycle] = value
+
+        parts.append(
+            '<text x="8" y="{}" class="metric-chart-title">{}</text>'.format(
+                row_top + 14, _escape(label)
+            )
+        )
+        if not values:
+            parts.append(
+                '<text x="{}" y="{}" class="metric-chart-axis">No finite values</text>'.format(
+                    plot_left, plot_top + 30
+                )
+            )
+            continue
+
+        min_value = min(values.values())
+        max_value = max(values.values())
+        value_range = max_value - min_value
+        padding = value_range * 0.08 if value_range else max(abs(min_value) * 0.05, 1e-12)
+        scale_min = min_value - padding
+        scale_max = max_value + padding
+        for grid_index in range(3):
+            fraction = grid_index / 2
+            y = plot_top + fraction * (plot_bottom - plot_top)
+            grid_value = scale_max - fraction * (scale_max - scale_min)
+            parts.append(
+                '<line x1="{:.1f}" y1="{:.1f}" x2="{:.1f}" y2="{:.1f}" class="metric-chart-grid"/>'.format(
+                    plot_left, y, plot_right, y
+                )
+            )
+            parts.append(
+                '<text x="{}" y="{:.1f}" text-anchor="end" dominant-baseline="middle" '
+                'class="metric-chart-axis">{}</text>'.format(
+                    plot_left - 8, y, _escape("{:.3g}".format(grid_value))
+                )
+            )
+
+        points = []
+        for cycle in cycles:
+            if cycle not in values:
+                continue
+            value = values[cycle]
+            x = x_positions[cycle]
+            y = plot_bottom - (value - scale_min) / (scale_max - scale_min) * (
+                plot_bottom - plot_top
+            )
+            points.append((x, y, cycle))
+
+        if len(points) > 1:
+            point_values = " ".join(
+                "{:.1f},{:.1f}".format(x, y) for x, y, _ in points
+            )
+            parts.append(
+                '<polyline points="{}" class="metric-chart-line"/>'.format(
+                    point_values
+                )
+            )
+        for x, y, cycle in points:
+            raw_value = latest_by_cycle[cycle].get(field, "")
+            parts.append(
+                '<circle cx="{:.1f}" cy="{:.1f}" r="3.5" class="metric-chart-point">'
+                '<title>Cycle {} - {}: {}</title></circle>'.format(
+                    x,
+                    y,
+                    _escape(cycle),
+                    _escape(label),
+                    _escape(raw_value),
+                )
+            )
+        for cycle in cycles:
+            parts.append(
+                '<text x="{:.1f}" y="{:.1f}" text-anchor="middle" '
+                'class="metric-chart-axis">{}</text>'.format(
+                    x_positions[cycle], plot_bottom + 18, _escape(cycle)
+                )
+            )
+
+    parts.append("</svg></div>")
+    return "".join(parts)
+
+
+def _image_metrics_content(records):
+    if not records:
+        return '<p class="empty">No image extrema or RMS statistics were found in selfcal.log or the primary cycle FITS images.</p>'
+
+    rows = []
+    for record in records:
+        cycle = record.get("cycle")
+        cycle_text = "Cycle {}".format(cycle) if cycle is not None else "Unknown"
+        image_name = record.get("image", "")
+        image_label = Path(image_name).name or image_name
+        metric_cells = "".join(
+            "<td>{}</td>".format(_escape(record.get(field, "-")))
+            for field, _ in _IMAGE_METRIC_FIELDS
+        )
+        rows.append(
+            '<tr><th scope="row">{}</th><td><code title="{}">{}</code></td>{}</tr>'.format(
+                _escape(cycle_text),
+                _escape(image_name),
+                _escape(image_label),
+                metric_cells,
+            )
+        )
+
+    headers = "".join(
+        '<th scope="col">{}</th>'.format(_escape(label))
+        for _, label in _IMAGE_METRIC_FIELDS
+    )
+    return (
+        _image_metrics_chart(records)
+        + '<p class="image-metrics-note">The chart uses the last image for each cycle; the table lists every image with metrics. Values come from selfcal.log when present, otherwise from the primary cycle FITS image.</p>'
+        + '<div class="table-scroll"><table class="data-table"><thead><tr>'
+        '<th scope="col">Cycle</th><th scope="col">Image</th>{}</tr></thead>'
+        '<tbody>{}</tbody></table></div>'.format(headers, "".join(rows))
+    )
+
+
 def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
     title = str(config.get("imagename") or run_root.name)
     status_text, status_class = _status(status)
@@ -1192,6 +1531,11 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
 
     # Cycle Timeline Table
     cycle_timeline = logs.get("cycle_timeline", [])
+    image_metrics_by_cycle = defaultdict(list)
+    for image_metric in logs.get("image_metrics", []):
+        cycle = image_metric.get("cycle")
+        if cycle is not None:
+            image_metrics_by_cycle[cycle].append(image_metric)
     if cycle_timeline:
         rows = []
         for cdata in cycle_timeline:
@@ -1201,22 +1545,29 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             for s_name, s_dur in cdata.get("step_details", []):
                 step_badges.append('<span class="step-badge">{} ({})</span>'.format(_escape(s_name), _escape(s_dur)))
             steps_html = " &rarr; ".join(step_badges) if step_badges else "-"
+            cycle_metric_records = image_metrics_by_cycle.get(cdata["cycle"], [])
+            metric_cells = "".join(
+                _image_metric_cycle_cell(cycle_metric_records, field)
+                for field, _ in _IMAGE_METRIC_FIELDS
+            )
             rows.append(
                 '<tr>'
                 '<th scope="row">Cycle {}</th>'
                 '<td>{}</td>'
                 '<td><strong>{}</strong></td>'
-                '<td><code>{}</code></td>'
-                '<td><code>{}</code></td>'
-                '<td><code>{}</code></td>'
+                '{}'
+                '<td>{}</td>'
+                '<td>{}</td>'
+                '<td>{}</td>'
                 '<td>{}</td>'
                 '</tr>'.format(
                     _escape(cdata["cycle"]),
                     _escape(cdata["start_str"]),
                     _escape(cdata["duration_str"]),
-                    _escape(c_cfg["soltype"]),
-                    _escape(c_cfg["solint"]),
-                    _escape(c_cfg["smoothness"]),
+                    metric_cells,
+                    _cycle_config_values_html(c_cfg["soltype"]),
+                    _cycle_config_values_html(c_cfg["solint"], _format_overview_interval),
+                    _cycle_config_values_html(c_cfg["smoothness"], _format_overview_smoothness),
                     steps_html,
                 )
             )
@@ -1225,13 +1576,16 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             '<th scope="col">Cycle</th>'
             '<th scope="col">Start Time</th>'
             '<th scope="col">Duration</th>'
+            '<th scope="col">Max image</th>'
+            '<th scope="col">Min image</th>'
+            '<th scope="col">RMS noise</th>'
             '<th scope="col">Solution Type</th>'
             '<th scope="col">Interval</th>'
             '<th scope="col">Smoothness</th>'
             '<th scope="col">Workflow Steps</th>'
             '</tr></thead><tbody>{}</tbody></table></div>'.format("".join(rows))
         )
-        body_parts.append(_section("Self-Calibration Progression", timeline_html, "Timing and parameters per calibration cycle."))
+        body_parts.append(_section("Self-Calibration Progression", timeline_html, "Timing, parameters, and logged image statistics per calibration cycle."))
 
     summary_html = _config_table(config, _SUMMARY_KEYS)
     body_parts.append(_section("Run configuration", summary_html, "Selected values from full_config.txt."))
@@ -1292,7 +1646,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
     )
 
 
-def _imaging_page(site_dir, run_root, config, artifacts):
+def _imaging_page(site_dir, run_root, config, artifacts, logs):
     title = str(config.get("imagename") or run_root.name)
     plots = artifacts["overview_plots"]
     numbered_series = defaultdict(list)
@@ -1423,6 +1777,11 @@ def _imaging_page(site_dir, run_root, config, artifacts):
     body = (
         '<p class="page-intro">PNG previews open locally at full size. FITS files are linked as products; use an astronomy FITS viewer to inspect their pixel data.</p>\n'
         + _section("Image Progression & Comparisons", "".join(sections)) + "\n"
+        + _section(
+            "Image Statistics & Trends",
+            _image_metrics_content(logs.get("image_metrics", [])),
+            "Maximum/minimum image values and RMS noise parsed from selfcal.log.",
+        ) + "\n"
         + _section("FITS products", "".join(fit_sections), "{} files found.".format(len(artifacts["fits_files"])))
     )
     _write_page(site_dir / "imaging.html", title, "imaging.html", body, subtitle="Imaging & FITS products / {}".format(run_root.name))
@@ -1564,7 +1923,17 @@ def _datasets_page(site_dir, run_root, config, artifacts):
     title = str(config.get("imagename") or run_root.name)
     inputs = _as_list(config.get("ms"))
     metadata_by_ms = _measurement_set_metadata(run_root)
-    column_count = len(_MS_METADATA_FIELDS) + 1
+    has_vla_dataset = any(
+        metadata_by_ms.get(_canonical_ms_path(path, run_root), {})
+        .get("Telescope", "").strip().upper() in {"VLA", "EVLA"}
+        for path in inputs
+    )
+    metadata_fields = tuple(
+        (field, labels)
+        for field, labels in _MS_METADATA_FIELDS
+        if field != "VLA configuration" or has_vla_dataset
+    )
+    column_count = len(metadata_fields) + 1
     input_rows = []
     ms_cards = []
 
@@ -1575,12 +1944,21 @@ def _datasets_page(site_dir, run_root, config, artifacts):
         canonical = _canonical_ms_path(path, run_root)
         metadata = dict(metadata_by_ms.get(canonical, {}))
         telescope = metadata.get("Telescope", "").strip().upper()
-        if telescope and telescope not in {"VLA", "EVLA"}:
-            metadata.setdefault("VLA configuration", "Not applicable")
         search_text = " ".join([path] + list(metadata.values()))
         metadata_cells = "".join(
-            "<td>{}</td>".format(_escape(metadata.get(field, "Not recorded")))
-            for field, _ in _MS_METADATA_FIELDS
+            "<td>{}</td>".format(
+                _escape(
+                    metadata.get(
+                        field,
+                        "Not applicable"
+                        if field == "VLA configuration"
+                        and has_vla_dataset
+                        and telescope not in {"VLA", "EVLA"}
+                        else "Not recorded",
+                    )
+                )
+            )
+            for field, _ in metadata_fields
         )
         input_rows.append(
             '<tr class="dataset-row" data-search="{}"><th scope="row"><code>{}</code></th>{}</tr>'.format(
@@ -1591,7 +1969,7 @@ def _datasets_page(site_dir, run_root, config, artifacts):
         # Build quality card per measurement set
         matched_plots = _match_ms_plots(path, ms_plot_files, ms_json_files)
         meta_items = []
-        for field, _ in _MS_METADATA_FIELDS:
+        for field, _ in metadata_fields:
             if field in metadata:
                 meta_items.append(
                     '<div class="dataset-meta-item"><strong>{}</strong><span>{}</span></div>'.format(
@@ -1669,7 +2047,7 @@ def _datasets_page(site_dir, run_root, config, artifacts):
             + '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Measurement Set</th>{}</tr></thead><tbody>{}</tbody></table></div>'.format(
                 "".join(
                     '<th scope="col">{}</th>'.format(_escape(field))
-                    for field, _ in _MS_METADATA_FIELDS
+                    for field, _ in metadata_fields
                 ),
                 "".join(input_rows),
             ),
@@ -1805,9 +2183,12 @@ def generate_html_overview(run_directory=".", status="unknown", error=None, outp
     run_started_at, current_run_cycles = _current_run_context(run_root)
     artifacts = _scan_artifacts(run_root, run_started_at, current_run_cycles)
     logs = _scan_logs(run_root)
+    logs["image_metrics"] = _image_metrics_from_fits(
+        artifacts["fits_files"], logs.get("image_metrics", [])
+    )
 
     _overview_page(site_dir, run_root, config, artifacts, logs, status, error)
-    _imaging_page(site_dir, run_root, config, artifacts)
+    _imaging_page(site_dir, run_root, config, artifacts, logs)
     _calibration_page(site_dir, run_root, config, artifacts)
     _datasets_page(site_dir, run_root, config, artifacts)
     _run_details_page(site_dir, run_root, config, artifacts, logs, command_text, status, error)
