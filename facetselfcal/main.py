@@ -20547,10 +20547,22 @@ def findrefant_core(H5file, telescope='LOFAR'):
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
 
     if telescope == 'MWA':
-        possible_refants = ["Tile012", "Tile013", "Tile014", "Tile015", "Tile017", "Tile024", "Tile025", "Tile026", "Tile027", "Tile032",
-                            "Tile033", "Tile034", "Tile035", "Tile036", "Tile037", "Tile038", "Tile041", "Tile042", "Tile043", "Tile044",
-                            "Tile045", "Tile046", "Tile047", "Tile048", "Tile063", "Tile064", "Tile065", "Tile066", "Tile067", "Tile068",
-                            "Tile083", "Tile084", "Tile094", "Tile095"]
+        possible_refants = [
+            "Tile012", "Tile013", "Tile014", "Tile015", "Tile017", "Tile024", "Tile025", "Tile026", "Tile027",
+            "Tile032", "Tile033", "Tile034", "Tile035", "Tile036", "Tile037", "Tile038",
+            "Tile041", "Tile042", "Tile043", "Tile044", "Tile045", "Tile046", "Tile047", "Tile048",
+            "Tile051", "Tile052", "Tile053", "Tile054", "Tile055", "Tile056", "Tile057", "Tile058",
+            "Tile063", "Tile064", "Tile065", "Tile066", "Tile067", "Tile068",
+            "Tile071", "Tile072", "Tile073", "Tile074", "Tile075", "Tile076", "Tile077", "Tile078",
+            "Tile083", "Tile084", "Tile094", "Tile095",
+            "Tile101", "Tile102", "Tile103", "Tile104", "Tile105", "Tile106", "Tile107", "Tile108",
+            "Tile111", "Tile112", "Tile113", "Tile114", "Tile115", "Tile116", "Tile117", "Tile118",
+            "Tile121", "Tile122", "Tile123", "Tile124", "Tile125", "Tile126", "Tile127", "Tile128",
+            "Tile131", "Tile132", "Tile133", "Tile134", "Tile135", "Tile136", "Tile137", "Tile138",
+            "Tile141", "Tile142", "Tile143", "Tile144", "Tile145", "Tile146", "Tile147", "Tile148",
+            "Tile151", "Tile152", "Tile153", "Tile154", "Tile155", "Tile156", "Tile157", "Tile158",
+            "Tile161", "Tile162", "Tile163", "Tile164", "Tile165", "Tile166", "Tile167", "Tile168",
+        ]
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
         
 
@@ -22908,6 +22920,8 @@ def main():
     if args['timesplitbefore'] is None: # in this case we let facetselfcal decide by itself whether to split or not
         os.makedirs('plots', exist_ok=True)
         args['timesplitbefore'] = check_large_timegaps_ms(mslist[0])  # check for large time gaps
+        for ms in mslist[1:]:
+            check_large_timegaps_ms(ms)
 
     if args['timesplitbefore']:
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, 
