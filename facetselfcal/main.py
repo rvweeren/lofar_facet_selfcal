@@ -19511,11 +19511,10 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
     imagenoiseinfo = findrms(np.ndarray.flatten(hdulist[0].data))
     
     try:
-        if minmax is None:
-            logger.info(fitsimagename + ' Max image: ' + str(np.max(np.ndarray.flatten(hdulist[0].data))))
-            logger.info(fitsimagename + ' Min image: ' + str(np.min(np.ndarray.flatten(hdulist[0].data))))
-            logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
-    except:
+        logger.info(fitsimagename + ' Max image: ' + str(np.max(np.ndarray.flatten(hdulist[0].data))))
+        logger.info(fitsimagename + ' Min image: ' + str(np.min(np.ndarray.flatten(hdulist[0].data))))
+        logger.info(fitsimagename + ' RMS noise: ' + str(imagenoiseinfo))
+    except Exception:
         pass # so we can also use the function without a logger open
 
     hdulist = flatten(fits.open(fitsimagename))
@@ -22814,7 +22813,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '19.7.0'
+    facetselfcal_version = '20.0.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -23081,6 +23080,7 @@ def main():
 
     # LOG INPUT SETTINGS
     logbasicinfo(args, fitsmask, mslist, facetselfcal_version, sys.argv)
+    _write_html_overview(Path.cwd(), status="running")
 
     # Make starting skymodel from TGSS or VLASS survey if requested
 
