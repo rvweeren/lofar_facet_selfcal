@@ -20,7 +20,11 @@ jobs:
 
       - name: Install Singularity
         run: |
-          sudo apt-get install -y singularity-container
+          sudo apt install -y software-properties-common
+          sudo add-apt-repository -y ppa:apptainer/ppa
+          sudo apt update
+          sudo apt install -y apptainer
+
 
       - name: Configure Singularity cache
         run: |
@@ -31,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          PRIMARY_URL="https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci_tmp.sif"
+          PRIMARY_URL="https://public.spider.surfsara.nl/project/lofarvwf/fsweijen/containers/flocs_ci.sif"
           FALLBACK_URL="https://nextcloud.strw.leidenuniv.nl/index.php/s/G7kZrrZ7cobt2XK/download"
 
           download_image () {
@@ -60,6 +64,9 @@ jobs:
         run: |
           singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/facetselfcal/main.py --help
+
+      - name: Locate breizorro in Singularity image
+        run: singularity exec flocs.sif which breizorro          
 
       - name: Run --help on h5_merger
         run: |
