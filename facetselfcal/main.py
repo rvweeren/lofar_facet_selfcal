@@ -6141,7 +6141,7 @@ def run(command, log=False, taql=False):
                                   encoding="utf-8")
     else:
         process = subprocess.run(command, shell=True,
-                                 stderr=subprocess.STDOUT, encoding="utf-8", env=os.environ)
+                                 stderr=subprocess.STDOUT, encoding="utf-8")
     retval = process.returncode
     #stdout = process.stdout
     stderr = process.stderr
