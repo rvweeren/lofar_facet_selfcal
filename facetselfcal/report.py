@@ -543,27 +543,84 @@ def _artifact_is_current(path, run_started_at):
         return True
 
 
+def _include_image_artifact(path, run_started_at, start_cycle):
+    cycle_match = re.search(r"_(\d+)(?:-|\.|$)", path.name)
+    if cycle_match is None or int(cycle_match.group(1)) < start_cycle:
+        return True
+    return _artifact_is_current(path, run_started_at)
+
+
+def _filter_restart_cycle_timeline(records, run_started_at, start_cycle):
+    if run_started_at is None:
+        return records
+    filtered = []
+    for record in records:
+        cycle = int(record["cycle"])
+        if cycle < start_cycle:
+            filtered.append(record)
+            continue
+        cycle_started_at = _log_timestamp_epoch(record.get("start_str", ""))
+        if cycle_started_at is not None and cycle_started_at >= run_started_at:
+            filtered.append(record)
+    return filtered
+
+
+def _filter_restart_image_metrics(records, run_started_at, start_cycle, current_image_names):
+    if run_started_at is None:
+        return records
+    filtered = []
+    for record in records:
+        cycle = record.get("cycle")
+        try:
+            cycle = int(cycle)
+        except (TypeError, ValueError):
+            cycle_match = re.search(r"_(\d+)(?:-|\.|$)", Path(record.get("image", "")).name)
+            cycle = int(cycle_match.group(1)) if cycle_match else None
+        if cycle is None or cycle < start_cycle:
+            filtered.append(record)
+            continue
+        metric_time = record.get("_timestamp")
+        image_name = Path(record.get("image", "")).name.casefold()
+        if (metric_time is not None and metric_time >= run_started_at) or image_name in current_image_names:
+            filtered.append(record)
+    return filtered
+
+
+def _is_ateam_plot(path):
+    return path.name.lower().startswith("ateam_")
+
+
 def _is_ms_plot(path):
     name = path.name.lower()
-    return name.endswith(".time_coverage.png") or name.startswith("ateam_")
+    return name.endswith(".time_coverage.png") or _is_ateam_plot(path)
 
 
-def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None):
+def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None, start_cycle=0):
     overview_dir = run_root / "plots"
-    raw_plots = sorted(
+    all_raw_plots = sorted(
         (
             path for path in overview_dir.glob("*.png")
-            if path.is_file() and _artifact_is_current(path, run_started_at)
+            if path.is_file()
         ),
         key=lambda path: path.name.lower(),
     ) if overview_dir.is_dir() else []
 
+    raw_plots = [path for path in all_raw_plots if _artifact_is_current(path, run_started_at)]
+    all_overview_plots = [
+        p for p in all_raw_plots
+        if not _is_ms_plot(p) and _include_image_artifact(p, run_started_at, start_cycle)
+    ]
     overview_plots = [p for p in raw_plots if not _is_ms_plot(p)]
-    ms_plot_files = [p for p in raw_plots if _is_ms_plot(p)]
+    ms_plot_files = [
+        p for p in all_raw_plots
+        if _is_ms_plot(p)
+        and (_is_ateam_plot(p) or _artifact_is_current(p, run_started_at))
+    ]
     ms_json_files = sorted(
         (
             path for path in overview_dir.glob("*.json")
-            if path.is_file() and _artifact_is_current(path, run_started_at)
+            if path.is_file()
+            and (_is_ateam_plot(path) or _artifact_is_current(path, run_started_at))
         ),
         key=lambda path: path.name.lower(),
     ) if overview_dir.is_dir() else []
@@ -598,15 +655,16 @@ def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None):
             calibration_sets.append((directory, dict(cycles)))
 
     fits_dir = run_root / "fits_images"
-    fits_files = sorted(
+    all_fits_files = sorted(
         (
             path for path in fits_dir.rglob("*")
             if path.is_file()
             and (path.name.lower().endswith(".fits") or path.name.lower().endswith(".fits.gz"))
-            and _artifact_is_current(path, run_started_at)
+            and _include_image_artifact(path, run_started_at, start_cycle)
         ),
         key=lambda path: path.name.lower(),
     ) if fits_dir.is_dir() else []
+    fits_files = [path for path in all_fits_files if _artifact_is_current(path, run_started_at)]
 
     solutions_dir = run_root / "h5_solutions"
     solution_files = []
@@ -635,10 +693,12 @@ def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None):
 
     return {
         "overview_plots": overview_plots,
+        "all_overview_plots": all_overview_plots,
         "ms_plot_files": ms_plot_files,
         "ms_json_files": ms_json_files,
         "calibration_sets": calibration_sets,
         "fits_files": fits_files,
+        "all_fits_files": all_fits_files,
         "solution_files": solution_files,
         "ms_directories": ms_directories,
         "cycles": sorted(cycle_names, key=lambda value: int(value) if value.isdigit() else 10**9),
@@ -846,6 +906,7 @@ def _scan_logs(run_root):
                                     },
                                 )
                                 record[field] = metric_value
+                                record["_timestamp"] = _log_timestamp_epoch(timestamp)
                                 record["_order"] = line_count
 
                         if current_cycle and ts_obj:
@@ -1590,13 +1651,11 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
     summary_html = _config_table(config, _SUMMARY_KEYS)
     body_parts.append(_section("Run configuration", summary_html, "Selected values from full_config.txt."))
 
-    if artifacts["overview_plots"]:
-        preview_paths = artifacts["overview_plots"][:]
-        selected = [p for p in preview_paths if p.name.lower().startswith("im_")]
-        if len(selected) > 4:
-            selected = selected[:2] + selected[-2:]
+    overview_plots = artifacts.get("all_overview_plots", artifacts["overview_plots"])
+    if overview_plots:
+        selected = [p for p in overview_plots if p.name.lower().startswith("im_")]
         if not selected:
-            selected = preview_paths[:4]
+            selected = overview_plots
         preview_html = '<div class="gallery">{}</div>'.format(
             "".join(
                 _figure(
@@ -1614,7 +1673,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                 "Image progression",
                 preview_html,
                 "{} overview plots are shown here; browse all imaging previews and FITS products on the Imaging page.".format(
-                    len(artifacts["overview_plots"])
+                    len(selected)
                 ),
             )
         )
@@ -1648,7 +1707,8 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
 
 def _imaging_page(site_dir, run_root, config, artifacts, logs):
     title = str(config.get("imagename") or run_root.name)
-    plots = artifacts["overview_plots"]
+    plots = artifacts.get("all_overview_plots", artifacts["overview_plots"])
+    fits_files = artifacts.get("all_fits_files", artifacts["fits_files"])
     numbered_series = defaultdict(list)
     for path in plots:
         match = re.fullmatch(r"(.+)_([0-9]+)", path.stem)
@@ -1720,7 +1780,7 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
     fits_groups["Other FITS products"] = []
     fits_cycles = set()
 
-    for path in artifacts["fits_files"]:
+    for path in fits_files:
         cm = re.search(r"_(0\d{2})(?:-|\.|$)", path.name)
         if cm:
             fits_cycles.add(cm.group(1))
@@ -1732,7 +1792,7 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
             fits_groups["Other FITS products"].append(path)
 
     fit_sections = []
-    if artifacts["fits_files"]:
+    if fits_files:
         fit_sections.append(_filter_input(".fits-entry", "Filter FITS filenames"))
 
         # Cycle filter pills for FITS products
@@ -1782,7 +1842,7 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
             _image_metrics_content(logs.get("image_metrics", [])),
             "Maximum/minimum image values and RMS noise parsed from selfcal.log.",
         ) + "\n"
-        + _section("FITS products", "".join(fit_sections), "{} files found.".format(len(artifacts["fits_files"])))
+        + _section("FITS products", "".join(fit_sections), "{} files found.".format(len(fits_files)))
     )
     _write_page(site_dir / "imaging.html", title, "imaging.html", body, subtitle="Imaging & FITS products / {}".format(run_root.name))
 
@@ -2181,10 +2241,24 @@ def generate_html_overview(run_directory=".", status="unknown", error=None, outp
         except OSError:
             pass
     run_started_at, current_run_cycles = _current_run_context(run_root)
-    artifacts = _scan_artifacts(run_root, run_started_at, current_run_cycles)
+    try:
+        start_cycle = int(config.get("start", 0))
+    except (TypeError, ValueError):
+        start_cycle = 0
+    artifacts = _scan_artifacts(
+        run_root, run_started_at, current_run_cycles, start_cycle=start_cycle
+    )
     logs = _scan_logs(run_root)
+    current_image_names = {path.name.casefold() for path in artifacts["fits_files"]}
+    logs["cycle_timeline"] = _filter_restart_cycle_timeline(
+        logs["cycle_timeline"], run_started_at, start_cycle
+    )
+    logs["image_metrics"] = _filter_restart_image_metrics(
+        logs["image_metrics"], run_started_at, start_cycle, current_image_names
+    )
     logs["image_metrics"] = _image_metrics_from_fits(
-        artifacts["fits_files"], logs.get("image_metrics", [])
+        artifacts.get("all_fits_files", artifacts["fits_files"]),
+        logs.get("image_metrics", []),
     )
 
     _overview_page(site_dir, run_root, config, artifacts, logs, status, error)
