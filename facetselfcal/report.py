@@ -1970,14 +1970,29 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
     if not telescope_val:
         telescope_val = "Unknown"
 
-    cycle_count = len(artifacts["cycles"])
-    cycle_value = str(cycle_count)
     try:
-        expected_cycles = int(config.get("stop")) - int(config.get("start", 0))
+        start_cycle = max(0, int(config.get("start", 0)))
+    except (TypeError, ValueError):
+        start_cycle = 0
+    observed_cycles = []
+    for path in artifacts.get("solution_files", ()):
+        if not path.name.lower().startswith("merged_"):
+            continue
+        match = re.search(r"selfcalcycle(\d+)", path.name, re.IGNORECASE)
+        if match:
+            observed_cycles.append(int(match.group(1)))
+    cycle_count = max(
+        [start_cycle] + [cycle + 1 for cycle in observed_cycles]
+    )
+    try:
+        expected_cycles = int(config.get("stop"))
     except (TypeError, ValueError):
         expected_cycles = 0
     if expected_cycles > 0:
+        cycle_count = min(cycle_count, expected_cycles)
         cycle_value = "{}/{}".format(cycle_count, expected_cycles)
+    else:
+        cycle_value = str(cycle_count)
 
     solve_type = (
         "Direction-dependent (DD)"
