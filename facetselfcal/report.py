@@ -2,6 +2,7 @@
 
 import argparse
 import ast
+import csv
 import html
 import json
 import math
@@ -11,6 +12,8 @@ from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
+
+from .resource_chart import generate_resource_svg
 
 
 _PAGE_NAMES = {
@@ -55,6 +58,11 @@ _IMAGE_METRIC_FIELDS = (
     ("max_image", "Max image"),
     ("min_image", "Min image"),
     ("rms_noise", "RMS noise"),
+    ("dynamic_range", "Dynamic range"),
+)
+_CYCLE_IMAGE_METRIC_FIELDS = (
+    ("rms_noise", "RMS noise"),
+    ("dynamic_range", "Dynamic range"),
 )
 
 _CSS = r"""
@@ -122,10 +130,10 @@ section { margin: 26px 0 0; }
 .status-failed { color: #991b1b; background: var(--red-pale); border: 1px solid var(--red-border); }
 .status-interrupted, .status-stopped, .status-unknown { color: #92400e; background: var(--amber-pale); border: 1px solid var(--amber-border); }
 .status-detail { color: var(--ink-secondary); font-size: 13px; }
-.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0 28px; }
-.metric { min-width: 0; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); border-top: 3px solid var(--teal); }
-.metric-value { display: block; font-size: 24px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; line-height: 1.1; }
-.metric-label { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); grid-auto-rows: 1fr; align-items: stretch; gap: 10px; margin: 16px 0 24px; }
+.metric { min-width: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); border-top: 3px solid var(--teal); }
+.metric-value { display: block; font-size: 20px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; line-height: 1.1; }
+.metric-label { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 .env-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin: 12px 0; }
 .env-card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; box-shadow: 0 1px 2px rgba(15,23,42,0.03); }
 .env-card strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
@@ -140,6 +148,9 @@ section { margin: 26px 0 0; }
 .data-table th, .data-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .data-table thead th { background: var(--surface-alt); color: var(--ink-secondary); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
 .data-table tbody th { width: 220px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.data-table tbody th code { overflow-wrap: anywhere; }
+.cycle-label { font-size: 14px; font-weight: 700; font-style: italic; }
+.cycle-duration { font-size: 14px; font-weight: 400; }
 .data-table tr:last-child th, .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr:nth-child(even) td, .data-table tbody tr:nth-child(even) th { background: #fafcff; }
 .data-table td { overflow-wrap: anywhere; }
@@ -185,11 +196,11 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 @media (max-width: 768px) { .compare-views { grid-template-columns: 1fr; } }
 .dataset-card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; margin: 16px 0; padding: 16px; box-shadow: 0 1px 3px rgba(15,23,42,0.03); }
 .dataset-header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 12px; }
-.dataset-title { font-size: 15px; font-weight: 700; color: var(--teal-deep); margin: 0; font-family: ui-monospace, monospace; }
+.dataset-title { font-size: 15px; font-weight: 700; color: var(--teal-deep); margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .dataset-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .dataset-meta-item { font-size: 12px; }
 .dataset-meta-item strong { display: block; color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
-.dataset-meta-item span { color: var(--ink); font-weight: 600; }
+.dataset-meta-item span { color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
 .dataset-plots-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 12px; }
 .ms-quality-placeholder { box-sizing: border-box; min-height: 235px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px; border: 1px dashed var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); text-align: center; font-size: 13px; }
 .ms-quality-placeholder strong { color: var(--ink-secondary); }
@@ -198,10 +209,47 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .metric-chart-grid { stroke: var(--line); stroke-width: 1; }
 .metric-chart-axis { fill: var(--muted); font-size: 11px; }
 .metric-chart-title { fill: var(--ink); font-size: 13px; font-weight: 700; }
-.metric-chart-line { fill: none; stroke: var(--teal-dark); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.metric-chart-point { fill: var(--teal); stroke: var(--surface); stroke-width: 1; }
+.metric-chart-line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.metric-chart-line-max-image { stroke: var(--teal-dark); }
+.metric-chart-line-min-image { stroke: #2563eb; stroke-dasharray: 6 3; }
+.metric-chart-line-rms-noise { stroke: #b45309; stroke-dasharray: 2 3; }
+.metric-chart-line-dynamic-range { stroke: #be123c; stroke-dasharray: 8 3 2 3; }
+.metric-chart-point { stroke: var(--surface); stroke-width: 1; }
+.metric-chart-point-max-image { fill: var(--teal); }
+.metric-chart-point-min-image { fill: #2563eb; }
+.metric-chart-point-rms-noise { fill: #b45309; }
+.metric-chart-point-dynamic-range { fill: #be123c; }
 .image-metrics-note { margin: 8px 0 12px; color: var(--muted); font-size: 12px; }
 .step-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; background: var(--teal-light); color: var(--teal-deep); border: 1px solid var(--teal-border); white-space: nowrap; }
+.workflow-step-grid { display: grid; gap: 5px; min-width: 400px; }
+.workflow-ms-row { display: grid; grid-template-columns: minmax(100px, 220px) minmax(0, 1fr); align-items: start; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line-light); }
+.workflow-ms-row:first-child { border-top: 0; padding-top: 0; }
+.workflow-ms-name { min-width: 0; overflow: hidden; color: var(--ink-secondary); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-ms-badges, .workflow-step-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; min-width: 0; }
+.workflow-step-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.workflow-step-badge { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-alt); color: var(--ink-secondary); font-size: 11px; font-weight: 600; line-height: 1.35; white-space: nowrap; }
+.workflow-step-badge-imaging { border-color: var(--blue-border); background: var(--blue-pale); color: #075985; }
+.workflow-step-badge-solve { border-color: var(--amber-border); background: var(--amber-pale); color: #92400e; }
+.workflow-step-badge-apply { border-color: var(--teal-border); background: var(--teal-light); color: var(--teal-deep); }
+.workflow-command-trigger { appearance: none; font-family: inherit; text-align: left; cursor: pointer; }
+.workflow-command-trigger:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.workflow-command-text { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); box-sizing: border-box; width: min(760px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: min(70vh, 640px); margin: 0; padding: 12px 14px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); box-shadow: 0 6px 18px rgba(15,23,42,.16); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.workflow-step-duration { color: var(--ink-secondary); font-size: 10px; font-weight: 500; }
+.workflow-step-arrow { color: var(--muted); font-size: 12px; }
+.workflow-shared-steps { display: flex; align-items: start; gap: 8px; padding-bottom: 4px; }
+.workflow-shared-label { flex: 0 0 100px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+@media (max-width: 600px) { .workflow-ms-row { grid-template-columns: minmax(85px, 140px) minmax(0, 1fr); gap: 5px; } .workflow-shared-label { flex-basis: 85px; } }
+.resource-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.resource-card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(15,23,42,0.03); }
+.resource-card strong { display: block; font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .05em; margin-bottom: 4px; }
+.resource-card span { font-size: 18px; font-weight: 700; color: var(--ink); }
+.resource-live-frame { display: block; width: 100%; height: 142px; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
+.resource-chart-live-frame { display: block; width: 100%; height: 560px; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
+.resource-chart-box { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(15,23,42,0.03); }
+.resource-chart-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; font-size: 12px; font-weight: 600; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-swatch { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+.chart-container { width: 100%; overflow-x: auto; }
 details { margin: 11px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); overflow: hidden; }
 details > summary { cursor: pointer; padding: 10px 14px; color: var(--teal-deep); font-weight: 600; font-size: 14px; background: #fafcff; }
 details[open] > summary { border-bottom: 1px solid var(--line); }
@@ -224,6 +272,8 @@ footer { border-top: 1px solid var(--line); padding: 18px 0 26px; color: var(--m
   h1 { font-size: 24px; }
   main { padding-top: 20px; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .resource-live-frame { height: 196px; }
+    .resource-chart-live-frame { height: 250px; }
   .metric { padding: 12px; }
   .metric-value { font-size: 20px; }
   .data-table th, .data-table td { padding: 7px; }
@@ -502,7 +552,22 @@ def _filter_input(target, label="Filter"):
     ).format(_escape(label), _escape(target))
 
 
-def _config_value_html(value):
+def _config_value_html(value, key=None):
+    if str(key).casefold() == "ms":
+        paths = _as_list(value)
+        items = [
+            '<code title="{}">{}</code>'.format(
+                _escape(path), _escape(Path(path).name or path)
+            )
+            for path in paths
+        ]
+        if len(paths) > 8:
+            list_items = "".join("<li>{}</li>".format(item) for item in items)
+            return "{} entries <details><summary>Show basenames</summary><ol>{}</ol></details>".format(
+                len(paths), list_items
+            )
+        if items:
+            return ", ".join(items)
     if isinstance(value, (list, tuple)) and len(value) > 8:
         items = "".join("<li><code>{}</code></li>".format(_escape(item)) for item in value)
         return "{} entries <details><summary>Show values</summary><ol>{}</ol></details>".format(
@@ -526,7 +591,7 @@ def _config_table(config, keys=None, filterable=False):
             search_attr = ' data-search="{}"'.format(_escape(key + " " + _display_value(value)))
         rows.append(
             "<tr{}{}><th scope=\"row\">{}</th><td>{}</td></tr>".format(
-                row_class, search_attr, _escape(key), _config_value_html(value)
+                row_class, search_attr, _escape(key), _config_value_html(value, key)
             )
         )
     if not rows:
@@ -632,20 +697,18 @@ def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None, star
             continue
         cycles = defaultdict(list)
         for path in directory.rglob("*"):
-            if (
-                not path.is_file()
-                or path.suffix.lower() != ".png"
-                or not _artifact_is_current(path, run_started_at)
-            ):
+            if not path.is_file() or path.suffix.lower() != ".png":
                 continue
             match = re.search(r"selfcalcycle(\d+)", path.name, re.IGNORECASE)
-            cycle = match.group(1) if match else "other"
-            if (
-                cycle != "other"
-                and current_run_cycles is not None
-                and cycle not in current_run_cycles
-            ):
-                continue
+            cycle = str(int(match.group(1))).zfill(3) if match else "other"
+            if cycle == "other":
+                if not _artifact_is_current(path, run_started_at):
+                    continue
+            elif int(cycle) >= start_cycle:
+                if not _artifact_is_current(path, run_started_at):
+                    continue
+                if current_run_cycles is not None and cycle not in current_run_cycles:
+                    continue
             cycles[cycle].append(path)
             if cycle != "other":
                 cycle_names.add(cycle)
@@ -788,6 +851,95 @@ def _current_run_context(run_root):
     return timestamp_by_line.get(start_index), current_cycles
 
 
+def _ms_path_from_command(message):
+    match = re.search(
+        r'''(?:^|\s)msin=(?:"([^"]+)"|'([^']+)'|([^\s]+))''',
+        message,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    return next((value.rstrip(",") for value in match.groups() if value), None)
+
+
+def _ms_group_key(ms_path):
+    if not ms_path:
+        return None
+    normalized = os.path.normcase(os.path.normpath(ms_path.rstrip("/")))
+    return re.sub(r"(?:\.(?:copy|avg))+$", "", normalized, flags=re.IGNORECASE)
+
+
+def _workflow_steps_html(step_details, id_prefix="segment"):
+    if not step_details:
+        return "-"
+
+    shared_steps = []
+    ms_groups = {}
+    command_index = 0
+    for step in step_details:
+        if step["kind"] == "imaging":
+            shared_steps.append(step)
+            continue
+        group = ms_groups.setdefault(
+            step.get("ms_key"),
+            {"name": step.get("ms_name") or "MS not identified", "path": step.get("ms_path"), "steps": []},
+        )
+        group["steps"].append(step)
+
+    def render_badges(steps):
+        nonlocal command_index
+        badges = []
+        for index, step in enumerate(steps):
+            label = {"imaging": "Imaging", "solve": "Solve", "apply": "Apply"}.get(
+                step["kind"], step["name"]
+            )
+            badge_class = {
+                "imaging": "workflow-step-badge-imaging",
+                "solve": "workflow-step-badge-solve",
+                "apply": "workflow-step-badge-apply",
+            }.get(step["kind"], "workflow-step-badge-other")
+            arrow = '<span class="workflow-step-arrow" aria-hidden="true">&rarr;</span>' if index + 1 < len(steps) else ""
+            command_id = "workflow-command-{}-{}".format(
+                id_prefix, command_index
+            )
+            command_index += 1
+            badges.append(
+                '<div class="workflow-step-item">'
+                '<button type="button" class="workflow-step-badge workflow-command-trigger {}" '
+                'popovertarget="{}" title="Click to view full command">{} <span class="workflow-step-duration">{}</span></button>'
+                '<pre class="workflow-command-text" id="{}" popover="auto">{}</pre>'
+                '{}'
+                '</div>'.format(
+                    badge_class,
+                    command_id,
+                    _escape(label),
+                    _escape(step.get("duration") or "-"),
+                    command_id,
+                    _escape(step.get("command") or step["name"]),
+                    arrow,
+                )
+            )
+        return "".join(badges)
+
+    rows = ['<div class="workflow-step-grid">']
+    if shared_steps:
+        rows.append(
+            '<div class="workflow-shared-steps"><span class="workflow-shared-label">Shared</span>'
+            '<div class="workflow-step-chain">{}</div></div>'.format(render_badges(shared_steps))
+        )
+    for group in ms_groups.values():
+        rows.append(
+            '<div class="workflow-ms-row"><span class="workflow-ms-name" title="{}">{}</span>'
+            '<div class="workflow-ms-badges">{}</div></div>'.format(
+                _escape(group["path"] or group["name"]),
+                _escape(group["name"]),
+                render_badges(group["steps"]),
+            )
+        )
+    rows.append("</div>")
+    return "".join(rows)
+
+
 def _scan_logs(run_root):
     candidates = [run_root / "logs" / "selfcal.log", run_root / "h5plot.log"]
     logs = []
@@ -815,6 +967,15 @@ def _scan_logs(run_root):
         label.casefold(): field for field, label in _IMAGE_METRIC_FIELDS
     }
     image_metric_records = {}
+    flagging_stats = {}
+    flagging_percentage_pattern = re.compile(
+        r"^Flagging statistics for MS (?P<ms>.+): "
+        r"(?P<percentage>\d+(?:\.\d+)?)% flagged "
+        r"\((?P<flagged>\d+)/(?P<total>\d+) samples\)\."
+    )
+    fully_flagged_antennas_pattern = re.compile(
+        r"^Fully flagged antennas for MS (?P<ms>.+): (?P<antennas>.*)$"
+    )
 
     for path in candidates:
         if not path.is_file():
@@ -861,6 +1022,34 @@ def _scan_logs(run_root):
                             host_info["disk"] = message.split(":", 1)[1].strip()
                         elif message.startswith("VERSION:"):
                             host_info["version"] = message.split(":", 1)[1].strip()
+
+                        flagging_match = flagging_percentage_pattern.match(message)
+                        if flagging_match:
+                            ms_path = flagging_match.group("ms").strip()
+                            flagging_record = flagging_stats.setdefault(
+                                _canonical_ms_path(ms_path, run_root),
+                                {"ms_path": ms_path},
+                            )
+                            flagging_record.update(
+                                {
+                                    "flagged_percentage": flagging_match.group(
+                                        "percentage"
+                                    ),
+                                    "flagged_samples": flagging_match.group("flagged"),
+                                    "total_samples": flagging_match.group("total"),
+                                }
+                            )
+
+                        antennas_match = fully_flagged_antennas_pattern.match(message)
+                        if antennas_match:
+                            ms_path = antennas_match.group("ms").strip()
+                            flagging_record = flagging_stats.setdefault(
+                                _canonical_ms_path(ms_path, run_root),
+                                {"ms_path": ms_path},
+                            )
+                            flagging_record["fully_flagged_antennas"] = (
+                                antennas_match.group("antennas").strip() or "None"
+                            )
 
                         if "bandwidth smearing" in message.lower() or "try to increase your frequency resolution" in message.lower():
                             if message not in actionable_warnings:
@@ -911,12 +1100,49 @@ def _scan_logs(run_root):
 
                         if current_cycle and ts_obj:
                             cdata = cycles[current_cycle]
-                            if message.startswith("wsclean ") and not any(s[0] == "Imaging" for s in cdata["steps"]):
-                                cdata["steps"].append(("Imaging (wsclean)", ts_obj))
-                            elif "DP3 solve:" in message and not any(s[0] == "Calibration solve" for s in cdata["steps"]):
-                                cdata["steps"].append(("Calibration solve (DP3)", ts_obj))
-                            elif ("ac0.type=applycal" in message or "DP3 applycal:" in message or ("steps=[ac0]" in message and "applycal" in message)) and not any(s[0] == "Apply solutions" for s in cdata["steps"]):
-                                cdata["steps"].append(("Apply solutions (DP3)", ts_obj))
+                            step = None
+                            if message.startswith("wsclean ") and not any(
+                                existing["kind"] == "imaging" for existing in cdata["steps"]
+                            ):
+                                step = {
+                                    "kind": "imaging",
+                                    "name": "Imaging (wsclean)",
+                                    "timestamp": ts_obj,
+                                    "ms_path": None,
+                                    "ms_key": None,
+                                    "ms_name": None,
+                                    "command": message,
+                                }
+                            elif "DP3 solve:" in message:
+                                ms_path = _ms_path_from_command(message)
+                                ms_key = _ms_group_key(ms_path)
+                                step = {
+                                    "kind": "solve",
+                                    "name": "Calibration solve (DP3)",
+                                    "timestamp": ts_obj,
+                                    "ms_path": ms_path,
+                                    "ms_key": ms_key,
+                                    "ms_name": Path(ms_key).name if ms_key else None,
+                                    "command": message,
+                                }
+                            elif (
+                                "DP3 applycal:" in message
+                                or re.search(r"(?:^|\.)type=applycal\b", message, re.IGNORECASE)
+                                or ("steps=[ac0]" in message and "applycal" in message)
+                            ):
+                                ms_path = _ms_path_from_command(message)
+                                ms_key = _ms_group_key(ms_path)
+                                step = {
+                                    "kind": "apply",
+                                    "name": "Apply solutions (DP3)",
+                                    "timestamp": ts_obj,
+                                    "ms_path": ms_path,
+                                    "ms_key": ms_key,
+                                    "ms_name": Path(ms_key).name if ms_key else None,
+                                    "command": message,
+                                }
+                            if step is not None:
+                                cdata["steps"].append(step)
 
         except OSError:
             continue
@@ -936,10 +1162,15 @@ def _scan_logs(run_root):
             cd["duration_str"] = "-"
 
         step_details = []
-        for s_idx, (s_name, s_ts) in enumerate(cd["steps"]):
-            next_ts = cd["steps"][s_idx + 1][1] if s_idx + 1 < len(cd["steps"]) else cd["end_time"]
-            s_dur = (next_ts - s_ts).total_seconds() if next_ts and next_ts >= s_ts else None
-            step_details.append((s_name, _format_duration(s_dur)))
+        for s_idx, step in enumerate(cd["steps"]):
+            step_ts = step["timestamp"]
+            next_ts = (
+                cd["steps"][s_idx + 1]["timestamp"]
+                if s_idx + 1 < len(cd["steps"])
+                else cd["end_time"]
+            )
+            s_dur = (next_ts - step_ts).total_seconds() if next_ts and next_ts >= step_ts else None
+            step_details.append({**step, "duration": _format_duration(s_dur)})
         cd["step_details"] = step_details
 
     total_elapsed = None
@@ -956,6 +1187,7 @@ def _scan_logs(run_root):
         "timestamps": timestamps,
         "host_info": host_info,
         "actionable_warnings": actionable_warnings,
+        "flagging_stats": flagging_stats,
         "cycle_timeline": [cycles[k] for k in cycle_keys],
         "image_metrics": sorted(
             image_metric_records.values(), key=lambda record: record["_order"]
@@ -1043,6 +1275,228 @@ def _image_metrics_from_fits(fits_files, records):
             record.setdefault(field, value)
 
     return records
+
+
+def _add_image_dynamic_range(records):
+    records_with_dynamic_range = []
+    for record in records:
+        updated_record = dict(record)
+        updated_record.pop("dynamic_range", None)
+        try:
+            maximum = float(updated_record["max_image"])
+            minimum = float(updated_record["min_image"])
+        except (KeyError, TypeError, ValueError):
+            pass
+        else:
+            if math.isfinite(maximum) and math.isfinite(minimum) and minimum != 0:
+                dynamic_range = maximum / abs(minimum)
+                if math.isfinite(dynamic_range):
+                    updated_record["dynamic_range"] = "{:.4g}".format(dynamic_range)
+        records_with_dynamic_range.append(updated_record)
+    return records_with_dynamic_range
+
+
+def _scan_resource_log(run_root, run_started_at=None, start_cycle=0):
+    """Scan and aggregate process-tree resource records from logs/resource_usage.csv."""
+    csv_path = run_root / "logs" / "resource_usage.csv"
+    if not csv_path.is_file():
+        return None
+
+    valid_samples = []
+    try:
+        with csv_path.open("r", encoding="utf-8", errors="replace") as stream:
+            reader = csv.DictReader(stream)
+            for row in reader:
+                try:
+                    epoch = float(row["epoch"])
+                    tree_cpu = float(row["tree_cpu_pct"])
+                    tree_rss = float(row["tree_rss_gib"])
+                    sys_cpu = float(row.get("sys_cpu_pct", 0.0))
+                    sys_ram_used = float(row.get("sys_ram_used_gib", 0.0))
+                    sys_ram_total = float(row.get("sys_ram_total_gib", 0.0))
+                except (KeyError, ValueError, TypeError):
+                    continue
+
+                cycle_raw = row.get("cycle", "").strip()
+                try:
+                    cycle_val = int(cycle_raw)
+                except ValueError:
+                    cycle_val = cycle_raw
+
+                if start_cycle > 0 and run_started_at is not None:
+                    if isinstance(cycle_val, int) and cycle_val >= start_cycle:
+                        if epoch < run_started_at:
+                            continue
+
+                valid_samples.append({
+                    "timestamp": row.get("timestamp", ""),
+                    "epoch": epoch,
+                    "cycle": cycle_val,
+                    "tree_cpu_pct": tree_cpu,
+                    "tree_rss_gib": tree_rss,
+                    "sys_cpu_pct": sys_cpu,
+                    "sys_ram_used_gib": sys_ram_used,
+                    "sys_ram_total_gib": sys_ram_total,
+                })
+    except OSError:
+        return None
+
+    if not valid_samples:
+        return None
+
+    peak_tree_rss_gib = max(s["tree_rss_gib"] for s in valid_samples)
+    peak_tree_cpu_pct = max(s["tree_cpu_pct"] for s in valid_samples)
+    avg_tree_cpu_pct = sum(s["tree_cpu_pct"] for s in valid_samples) / len(valid_samples)
+    peak_sys_ram_used_gib = max(s["sys_ram_used_gib"] for s in valid_samples)
+    sys_ram_total_gib = max(s["sys_ram_total_gib"] for s in valid_samples)
+    peak_sys_cpu_pct = max(s["sys_cpu_pct"] for s in valid_samples)
+
+    cycle_stats = {}
+    for s in valid_samples:
+        c = s["cycle"]
+        keys = [c]
+        if isinstance(c, int):
+            keys.extend([str(c), str(c).zfill(3)])
+        for k in keys:
+            if k not in cycle_stats:
+                cycle_stats[k] = {
+                    "cycle": c,
+                    "peak_tree_rss_gib": s["tree_rss_gib"],
+                    "peak_tree_cpu_pct": s["tree_cpu_pct"],
+                    "cpu_sum": s["tree_cpu_pct"],
+                    "count": 1,
+                }
+            else:
+                cs = cycle_stats[k]
+                cs["peak_tree_rss_gib"] = max(cs["peak_tree_rss_gib"], s["tree_rss_gib"])
+                cs["peak_tree_cpu_pct"] = max(cs["peak_tree_cpu_pct"], s["tree_cpu_pct"])
+                cs["cpu_sum"] += s["tree_cpu_pct"]
+                cs["count"] += 1
+
+    for cs in cycle_stats.values():
+        cs["avg_tree_cpu_pct"] = cs["cpu_sum"] / cs["count"]
+
+    if len(valid_samples) > 300:
+        step = math.ceil(len(valid_samples) / 300)
+        chart_samples = valid_samples[::step]
+        if chart_samples[-1] is not valid_samples[-1]:
+            chart_samples.append(valid_samples[-1])
+    else:
+        chart_samples = valid_samples
+
+    return {
+        "present": True,
+        "samples": chart_samples,
+        "sample_count": len(valid_samples),
+        "cycle_stats": cycle_stats,
+        "peak_tree_rss_gib": peak_tree_rss_gib,
+        "peak_tree_cpu_pct": peak_tree_cpu_pct,
+        "avg_tree_cpu_pct": avg_tree_cpu_pct,
+        "peak_sys_ram_used_gib": peak_sys_ram_used_gib,
+        "sys_ram_total_gib": sys_ram_total_gib,
+        "peak_sys_cpu_pct": peak_sys_cpu_pct,
+    }
+
+
+def _generate_resource_svg(samples):
+    return generate_resource_svg(samples)
+
+
+def _render_resource_section(resources, include_chart=True):
+    """Render summary cards, interactive chart, and cycle table for resources."""
+    if not resources or not resources.get("samples"):
+        return '<p class="empty">No resource usage samples recorded.</p>'
+
+    cards = [
+        f'<div class="resource-card"><strong>Peak Process RAM</strong><span>{resources["peak_tree_rss_gib"]:.2f} GiB</span></div>',
+        f'<div class="resource-card"><strong>Peak Process CPU</strong><span>{resources["peak_tree_cpu_pct"]:.0f}%</span></div>',
+        f'<div class="resource-card"><strong>Average Process CPU</strong><span>{resources["avg_tree_cpu_pct"]:.0f}%</span></div>',
+        f'<div class="resource-card"><strong>Peak System RAM</strong><span>{resources["peak_sys_ram_used_gib"]:.1f} / {resources["sys_ram_total_gib"]:.1f} GiB</span></div>',
+        f'<div class="resource-card"><strong>Peak System CPU</strong><span>{resources["peak_sys_cpu_pct"]:.0f}%</span></div>',
+    ]
+
+    chart_box = ""
+    if include_chart:
+        svg_chart = _generate_resource_svg(resources["samples"])
+        legend_html = (
+            '<div class="resource-chart-legend">'
+            '<span class="legend-item"><span class="legend-swatch" style="background:#0d9488;"></span> Process Tree CPU (%)</span>'
+            '<span class="legend-item"><span class="legend-swatch" style="background:#d97706;"></span> Process Tree RAM (GiB)</span>'
+            '<span class="legend-item" style="color:var(--muted);"><span class="legend-swatch" style="border-top:2px dashed #94a3b8; background:transparent;"></span> Cycle transition</span>'
+            '</div>'
+        )
+        chart_box = (
+            '<div class="resource-chart-box">'
+            f'{legend_html}'
+            f'<div class="chart-container">{svg_chart}</div>'
+            '</div>'
+        )
+
+    cycle_stats = resources.get("cycle_stats", {})
+    unique_cycles = []
+    seen = set()
+    for s in resources["samples"]:
+        c = s["cycle"]
+        if c not in seen:
+            seen.add(c)
+            unique_cycles.append(c)
+
+    cycle_table = ""
+    if len(unique_cycles) > 1 or (unique_cycles and unique_cycles[0] not in ("", "init")):
+        rows = []
+        for c in unique_cycles:
+            cs = cycle_stats.get(c)
+            if not cs:
+                continue
+            rows.append(
+                f'<tr><th scope="row">Cycle {_escape(str(c))}</th>'
+                f'<td>{cs["peak_tree_rss_gib"]:.2f} GiB</td>'
+                f'<td>{cs["peak_tree_cpu_pct"]:.0f}%</td>'
+                f'<td>{cs["avg_tree_cpu_pct"]:.0f}%</td>'
+                f'<td>{cs["count"]}</td></tr>'
+            )
+        if rows:
+            cycle_table = (
+                '<div class="table-scroll"><table class="data-table"><thead><tr>'
+                '<th scope="col">Cycle</th>'
+                '<th scope="col">Peak RAM</th>'
+                '<th scope="col">Peak CPU</th>'
+                '<th scope="col">Avg CPU</th>'
+                '<th scope="col">Samples</th>'
+                f'</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+            )
+
+    return (
+        f'<div class="resource-summary-grid">{"".join(cards)}</div>\n'
+        f'{chart_box}\n'
+        f'{cycle_table}'
+    )
+
+
+def _resource_live_frame(site_dir):
+    if not (site_dir / "resource-live.html").is_file():
+        return ""
+    return (
+        '<iframe class="resource-live-frame" src="resource-live.html" '
+        'title="Live process and system CPU and RAM usage"></iframe>'
+    )
+
+
+def _resource_chart_live_frame(site_dir):
+    chart_page = site_dir / "resource-chart-live.html"
+    if not chart_page.is_file():
+        return ""
+    try:
+        with chart_page.open(encoding="utf-8", errors="replace") as stream:
+            page_head = stream.read(2048)
+    except OSError:
+        return ""
+    if '<meta http-equiv="refresh"' not in page_head:
+        return ""
+    return (
+        '<iframe class="resource-chart-live-frame" src="resource-chart-live.html" '
+        'title="Live process tree CPU and RAM chart"></iframe>'
+    )
 
 
 def _get_cycle_config(config, cycle_idx):
@@ -1352,7 +1806,7 @@ def _image_metrics_chart(records):
         return '<p class="empty">No cycle numbers were found for the logged image statistics.</p>'
 
     width = max(640, 125 + 82 * len(cycles))
-    row_height = 106
+    row_height = 112
     height = row_height * len(_IMAGE_METRIC_FIELDS) + 14
     plot_left = 108
     plot_right = width - 24
@@ -1373,8 +1827,9 @@ def _image_metrics_chart(records):
     ]
     for row_index, (field, label) in enumerate(_IMAGE_METRIC_FIELDS):
         row_top = 8 + row_index * row_height
-        plot_top = row_top + 20
-        plot_bottom = row_top + 73
+        plot_top = row_top + 36
+        plot_bottom = row_top + 82
+        metric_class = field.replace("_", "-")
         values = {}
         for cycle in cycles:
             try:
@@ -1386,7 +1841,7 @@ def _image_metrics_chart(records):
 
         parts.append(
             '<text x="8" y="{}" class="metric-chart-title">{}</text>'.format(
-                row_top + 14, _escape(label)
+                row_top + 16, _escape(label)
             )
         )
         if not values:
@@ -1435,17 +1890,19 @@ def _image_metrics_chart(records):
                 "{:.1f},{:.1f}".format(x, y) for x, y, _ in points
             )
             parts.append(
-                '<polyline points="{}" class="metric-chart-line"/>'.format(
-                    point_values
+                '<polyline points="{}" class="metric-chart-line metric-chart-line-{}"/>'.format(
+                    point_values, metric_class
                 )
             )
         for x, y, cycle in points:
             raw_value = latest_by_cycle[cycle].get(field, "")
             parts.append(
-                '<circle cx="{:.1f}" cy="{:.1f}" r="3.5" class="metric-chart-point">'
+                '<circle cx="{:.1f}" cy="{:.1f}" r="3.5" '
+                'class="metric-chart-point metric-chart-point-{}">'
                 '<title>Cycle {} - {}: {}</title></circle>'.format(
                     x,
                     y,
+                    metric_class,
                     _escape(cycle),
                     _escape(label),
                     _escape(raw_value),
@@ -1513,14 +1970,32 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
     if not telescope_val:
         telescope_val = "Unknown"
 
+    cycle_count = len(artifacts["cycles"])
+    cycle_value = str(cycle_count)
+    try:
+        expected_cycles = int(config.get("stop")) - int(config.get("start", 0))
+    except (TypeError, ValueError):
+        expected_cycles = 0
+    if expected_cycles > 0:
+        cycle_value = "{}/{}".format(cycle_count, expected_cycles)
+
+    solve_type = (
+        "Direction-dependent (DD)"
+        if config.get("DDE") is True
+        else "Direction independent (DI)"
+    )
+    facetselfcal_version = logs.get("host_info", {}).get("version") or "Not recorded"
+
     metrics = [
+        (facetselfcal_version, "facetselfcal Version"),
         (len(ms_inputs), "Configured MS Datasets"),
-        (len(artifacts["cycles"]), "Solution Cycles"),
-        (len(artifacts["solution_files"]), "Solution H5 Files"),
+        (cycle_value, "Solution Cycles"),
+        (solve_type, "Solve Type"),
         (logs["warning_count"] + logs["error_count"], "Warnings and Errors"),
     ]
     if logs.get("total_elapsed"):
         metrics.append((logs["total_elapsed"], "Total Elapsed Time"))
+    res = logs.get("resources")
 
     metric_html = "".join(
         '<div class="metric"><span class="metric-value">{}</span><span class="metric-label">{}</span></div>'.format(
@@ -1549,6 +2024,11 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         ),
         '<div class="metrics">{}</div>'.format(metric_html),
     ]
+    live_resource_frame = _resource_live_frame(site_dir)
+    if live_resource_frame:
+        body_parts.append(
+            _section("Live Resource Usage", live_resource_frame)
+        )
 
     # Actionable alerts (e.g. bandwidth smearing)
     actionable = logs.get("actionable_warnings", [])
@@ -1585,8 +2065,10 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             env_cards.append('<div class="env-card"><strong>Disk at Start</strong><span>{}</span></div>'.format(_escape(host_info["disk"])))
         if "os" in host_info:
             env_cards.append('<div class="env-card"><strong>Operating System</strong><span>{}</span></div>'.format(_escape(host_info["os"])))
-        if "version" in host_info:
-            env_cards.append('<div class="env-card"><strong>facetselfcal Version</strong><span>{}</span></div>'.format(_escape(host_info["version"])))
+        if res and res.get("peak_tree_rss_gib") is not None:
+            env_cards.append('<div class="env-card"><strong>Peak Process RAM</strong><span>{:.1f} GiB</span></div>'.format(res["peak_tree_rss_gib"]))
+        if res and res.get("peak_tree_cpu_pct") is not None:
+            env_cards.append('<div class="env-card"><strong>Peak Process CPU</strong><span>{:.0f}%</span></div>'.format(res["peak_tree_cpu_pct"]))
         if env_cards:
             body_parts.append(_section("Execution Environment", '<div class="env-grid">{}</div>'.format("".join(env_cards)), "Startup system snapshot from logs/selfcal.log."))
 
@@ -1602,20 +2084,19 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         for cdata in cycle_timeline:
             c_int = int(cdata["cycle"])
             c_cfg = _get_cycle_config(config, c_int)
-            step_badges = []
-            for s_name, s_dur in cdata.get("step_details", []):
-                step_badges.append('<span class="step-badge">{} ({})</span>'.format(_escape(s_name), _escape(s_dur)))
-            steps_html = " &rarr; ".join(step_badges) if step_badges else "-"
+            steps_html = _workflow_steps_html(
+                cdata.get("step_details", []), "cycle-{}".format(cdata["cycle"])
+            )
             cycle_metric_records = image_metrics_by_cycle.get(cdata["cycle"], [])
             metric_cells = "".join(
                 _image_metric_cycle_cell(cycle_metric_records, field)
-                for field, _ in _IMAGE_METRIC_FIELDS
+                for field, _ in _CYCLE_IMAGE_METRIC_FIELDS
             )
             rows.append(
                 '<tr>'
-                '<th scope="row">Cycle {}</th>'
+                '<th scope="row"><span class="cycle-label">Cycle {}</span></th>'
                 '<td>{}</td>'
-                '<td><strong>{}</strong></td>'
+                '<td><span class="cycle-duration">{}</span></td>'
                 '{}'
                 '<td>{}</td>'
                 '<td>{}</td>'
@@ -1637,9 +2118,8 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             '<th scope="col">Cycle</th>'
             '<th scope="col">Start Time</th>'
             '<th scope="col">Duration</th>'
-            '<th scope="col">Max image</th>'
-            '<th scope="col">Min image</th>'
             '<th scope="col">RMS noise</th>'
+            '<th scope="col">Dynamic range</th>'
             '<th scope="col">Solution Type</th>'
             '<th scope="col">Interval</th>'
             '<th scope="col">Smoothness</th>'
@@ -1979,9 +2459,17 @@ def _calibration_page(site_dir, run_root, config, artifacts):
     _write_page(site_dir / "calibration.html", title, "calibration.html", body, subtitle="Calibration solutions / {}".format(run_root.name))
 
 
-def _datasets_page(site_dir, run_root, config, artifacts):
+def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
     title = str(config.get("imagename") or run_root.name)
     inputs = _as_list(config.get("ms"))
+    flagging_stats = (logs or {}).get("flagging_stats", {})
+    flagging_stats_by_basename = defaultdict(list)
+    for logged_path, record in flagging_stats.items():
+        logged_canonical_path = _canonical_ms_path(logged_path, run_root)
+        flagging_stats_by_basename[
+            Path(logged_canonical_path).name.casefold()
+        ].append((logged_canonical_path, record))
+
     metadata_by_ms = _measurement_set_metadata(run_root)
     has_vla_dataset = any(
         metadata_by_ms.get(_canonical_ms_path(path, run_root), {})
@@ -2002,7 +2490,15 @@ def _datasets_page(site_dir, run_root, config, artifacts):
 
     for path in inputs:
         canonical = _canonical_ms_path(path, run_root)
+        ms_display_name = Path(path).name or path
         metadata = dict(metadata_by_ms.get(canonical, {}))
+        flagging_record = flagging_stats.get(canonical)
+        if flagging_record is None:
+            basename_matches = flagging_stats_by_basename.get(
+                Path(canonical).name.casefold(), []
+            )
+            if len(basename_matches) == 1:
+                flagging_record = basename_matches[0][1]
         telescope = metadata.get("Telescope", "").strip().upper()
         search_text = " ".join([path] + list(metadata.values()))
         metadata_cells = "".join(
@@ -2021,8 +2517,11 @@ def _datasets_page(site_dir, run_root, config, artifacts):
             for field, _ in metadata_fields
         )
         input_rows.append(
-            '<tr class="dataset-row" data-search="{}"><th scope="row"><code>{}</code></th>{}</tr>'.format(
-                _escape(search_text), _escape(path), metadata_cells
+            '<tr class="dataset-row" data-search="{}"><th scope="row"><code title="{}">{}</code></th>{}</tr>'.format(
+                _escape(search_text),
+                _escape(path),
+                _escape(ms_display_name),
+                metadata_cells,
             )
         )
 
@@ -2036,6 +2535,30 @@ def _datasets_page(site_dir, run_root, config, artifacts):
                         _escape(field), _escape(metadata[field])
                     )
                 )
+        if flagging_record is not None:
+            percentage = flagging_record.get("flagged_percentage")
+            if percentage is not None:
+                percentage_value = "{}% ({} of {} samples)".format(
+                    percentage,
+                    flagging_record.get("flagged_samples", "?"),
+                    flagging_record.get("total_samples", "?"),
+                )
+            else:
+                percentage_value = "Not recorded"
+            meta_items.extend(
+                (
+                    '<div class="dataset-meta-item"><strong>Flagged visibility</strong><span>{}</span></div>'.format(
+                        _escape(percentage_value)
+                    ),
+                    '<div class="dataset-meta-item"><strong>Fully flagged antennas</strong><span>{}</span></div>'.format(
+                        _escape(
+                            flagging_record.get(
+                                "fully_flagged_antennas", "Not recorded"
+                            )
+                        )
+                    ),
+                )
+            )
 
         plot_figures = []
         if matched_plots["time_coverage"]:
@@ -2081,12 +2604,13 @@ def _datasets_page(site_dir, run_root, config, artifacts):
 
         ms_cards.append(
             '<div class="dataset-card">'
-            '<div class="dataset-header"><h3 class="dataset-title">{}</h3></div>'
+            '<div class="dataset-header"><h3 class="dataset-title" title="{}">{}</h3></div>'
             '<div class="dataset-meta-grid">{}</div>'
             '<h4>Data Quality & Observation Coverage Plots</h4>'
             '{}'
             '</div>'.format(
                 _escape(path),
+                _escape(ms_display_name),
                 "".join(meta_items) if meta_items else '<p class="empty">No observational metadata parsed from log.</p>',
                 plots_content,
             )
@@ -2120,7 +2644,7 @@ def _datasets_page(site_dir, run_root, config, artifacts):
 def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text, status, error):
     title = str(config.get("imagename") or run_root.name)
     file_links = []
-    for relative in ("full_config.txt", "facetselfcal.txt", "logs/selfcal.log", "h5plot.log"):
+    for relative in ("full_config.txt", "facetselfcal.txt", "logs/selfcal.log", "logs/resource_usage.csv", "h5plot.log"):
         path = run_root / relative
         if path.is_file():
             file_links.append(
@@ -2186,13 +2710,40 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text,
             env_cards.append('<div class="env-card"><strong>Operating System</strong><span>{}</span></div>'.format(_escape(host_info["os"])))
         if "version" in host_info:
             env_cards.append('<div class="env-card"><strong>facetselfcal Version</strong><span>{}</span></div>'.format(_escape(host_info["version"])))
+        res = logs.get("resources")
+        if res and res.get("peak_tree_rss_gib") is not None:
+            env_cards.append('<div class="env-card"><strong>Peak Process RAM</strong><span>{:.1f} GiB</span></div>'.format(res["peak_tree_rss_gib"]))
+        if res and res.get("peak_tree_cpu_pct") is not None:
+            env_cards.append('<div class="env-card"><strong>Peak Process CPU</strong><span>{:.0f}%</span></div>'.format(res["peak_tree_cpu_pct"]))
         if env_cards:
             env_section = _section("Execution Environment", '<div class="env-grid">{}</div>'.format("".join(env_cards)))
+
+    resource_section = ""
+    res = logs.get("resources")
+    resource_content = _resource_live_frame(site_dir)
+    live_chart_frame = _resource_chart_live_frame(site_dir)
+    resource_content += live_chart_frame
+    if res and res.get("samples"):
+        resource_content += _render_resource_section(
+            res, include_chart=not bool(live_chart_frame)
+        )
+    if resource_content:
+        resource_note = (
+            "Live usage and chart refresh about every 15 seconds while monitoring is active; summary statistics use logged samples."
+            if live_chart_frame
+            else "Current usage refreshes separately; the full chart summarizes logged samples."
+        )
+        resource_section = _section(
+            "Resource Utilization (CPU & RAM)",
+            resource_content,
+            resource_note,
+        )
 
     body = (
         '<p class="page-intro">The report references the run configuration and logs in place. Values are shown as recorded, without interpreting instrument-specific settings.</p>\n'
         + status_block + "\n"
         + env_section + "\n"
+        + (resource_section + "\n" if resource_section else "")
         + _section("Configuration files and logs", links_html) + "\n"
         + _section("Recorded command", command_section or '<p class="empty">No facetselfcal.txt command record was found.</p>') + "\n"
         + _section("Saved configuration", config_filter + config_table) + "\n"
@@ -2249,6 +2800,7 @@ def generate_html_overview(run_directory=".", status="unknown", error=None, outp
         run_root, run_started_at, current_run_cycles, start_cycle=start_cycle
     )
     logs = _scan_logs(run_root)
+    logs["resources"] = _scan_resource_log(run_root, run_started_at, start_cycle)
     current_image_names = {path.name.casefold() for path in artifacts["fits_files"]}
     logs["cycle_timeline"] = _filter_restart_cycle_timeline(
         logs["cycle_timeline"], run_started_at, start_cycle
@@ -2260,11 +2812,12 @@ def generate_html_overview(run_directory=".", status="unknown", error=None, outp
         artifacts.get("all_fits_files", artifacts["fits_files"]),
         logs.get("image_metrics", []),
     )
+    logs["image_metrics"] = _add_image_dynamic_range(logs["image_metrics"])
 
     _overview_page(site_dir, run_root, config, artifacts, logs, status, error)
     _imaging_page(site_dir, run_root, config, artifacts, logs)
     _calibration_page(site_dir, run_root, config, artifacts)
-    _datasets_page(site_dir, run_root, config, artifacts)
+    _datasets_page(site_dir, run_root, config, artifacts, logs)
     _run_details_page(site_dir, run_root, config, artifacts, logs, command_text, status, error)
     return site_dir / "index.html"
 
