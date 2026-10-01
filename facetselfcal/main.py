@@ -124,6 +124,15 @@ logger.addHandler(file_handler)
 logger.setLevel(logging.DEBUG)
 
 _REPORT_RUN_INITIALIZED = False
+_RESOURCE_MONITOR = None
+
+try:
+    from .monitor import ResourceMonitor
+except ImportError:
+    try:
+        from monitor import ResourceMonitor
+    except ImportError:
+        from facetselfcal.monitor import ResourceMonitor
 
 
 def _configure_selfcal_log(start):
@@ -3811,6 +3820,111 @@ def clean_up_images(imagename, model=False):
     for image in imagelist:
         Path(image).unlink(missing_ok=True)
     return
+
+
+def _remove_previous_cycle_products(start_cycle, stop_cycle, imagename,
+                                    preserved_inputs=(), remove_best_outputs=False):
+    """Remove stale generated products from cycles a restart will replace."""
+    if start_cycle <= 0 or stop_cycle is None or stop_cycle <= start_cycle:
+        return []
+
+    image_prefix = Path(imagename).name
+    image_prefixes = tuple(
+        dict.fromkeys((image_prefix, "box_" + image_prefix, "best_" + image_prefix))
+    )
+    protected_paths = set()
+    protected_prefixes = set()
+
+    def remember_input(value):
+        if value is None:
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                remember_input(item)
+            return
+        if not isinstance(value, (str, os.PathLike)):
+            return
+        input_path = Path(value).expanduser()
+        try:
+            resolved = os.path.normcase(str(input_path.resolve()))
+        except (OSError, RuntimeError):
+            return
+        protected_paths.add(resolved)
+        protected_prefixes.add(resolved.rstrip(os.sep))
+
+    for preserved_input in preserved_inputs:
+        remember_input(preserved_input)
+
+    def cycle_for_product(path, product_kind):
+        if product_kind in ("h5", "solution_plot"):
+            match = re.search(r"selfcalcycle(\d+)", path.name, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+            if (
+                product_kind == "h5"
+                and remove_best_outputs
+                and re.match(r"best_.*solutions\.h5$", path.name, re.IGNORECASE)
+            ):
+                return start_cycle
+            return None
+        if product_kind in ("directions", "facet_regions"):
+            match = re.fullmatch(r"directions_(\d+)\.(?:txt|reg)", path.name, re.IGNORECASE)
+            return int(match.group(1)) if match else None
+        for prefix in image_prefixes:
+            if not prefix:
+                continue
+            match = re.match(
+                r"^{}(\d+)(?=[-_.]|$)".format(re.escape(prefix)),
+                path.name,
+                re.IGNORECASE,
+            )
+            if match:
+                return int(match.group(1))
+        return None
+
+    product_directories = [
+        (Path("h5_solutions"), "h5"),
+        (Path("fits_images"), "image"),
+        (Path("clean_masks"), "image"),
+        (Path("plots"), "image"),
+        (Path("errormaps_dd"), "image"),
+        (Path("directions"), "directions"),
+        (Path("facet_regions"), "facet_regions"),
+    ]
+    product_directories.extend(
+        (path, "solution_plot")
+        for path in Path(".").glob("solution_plots_*")
+        if path.is_dir()
+    )
+
+    removed_products = []
+    for directory, product_kind in product_directories:
+        if not directory.is_dir():
+            continue
+        for path in directory.rglob("*"):
+            if not path.is_file():
+                continue
+            if product_kind == "image" and directory == Path("plots") and (
+                path.name.lower().startswith("ateam_")
+                or path.name.lower().endswith(".time_coverage.png")
+            ):
+                continue
+            cycle = cycle_for_product(path, product_kind)
+            if cycle is None or cycle < start_cycle:
+                continue
+            try:
+                resolved = os.path.normcase(str(path.resolve()))
+            except (OSError, RuntimeError):
+                continue
+            if resolved in protected_paths or any(
+                resolved.startswith(prefix + os.sep) for prefix in protected_prefixes
+            ):
+                continue
+            path.unlink(missing_ok=True)
+            removed_products.append(path)
+
+    return removed_products
+
 
 def flag_antenna_taql(ms, antennaname):
     """
@@ -22742,6 +22856,148 @@ def get_frequencies_from_ms(mslist):
     freqs = t.getcol('CHAN_FREQ')[0]  # in Hz
     t.close()
     return freqs
+
+def compute_flagging_statistics(mslist, chunk_size=10000):
+    """Log flagged-sample percentages and fully flagged antennas per MS.
+
+    FLAG data is read in bounded row chunks. FLAG_ROW counts every sample in
+    that row as flagged.
+    """
+    if isinstance(mslist, (str, os.PathLike)):
+        mslist = [mslist]
+    chunk_size = max(1, int(chunk_size))
+
+    for ms in mslist:
+        try:
+            with table(ms, readonly=True, ack=False) as ms_table:
+                columns = set(ms_table.colnames())
+                required_columns = {"FLAG", "ANTENNA1", "ANTENNA2"}
+                missing_columns = sorted(required_columns - columns)
+                if missing_columns:
+                    raise KeyError(
+                        "missing required columns: {}".format(", ".join(missing_columns))
+                    )
+
+                total_rows = ms_table.nrows()
+                if total_rows == 0:
+                    logger.info(
+                        "No visibility rows in MS %s; flagging statistics unavailable.",
+                        ms,
+                    )
+                    continue
+
+                with table(
+                    os.path.join(ms, "ANTENNA"), readonly=True, ack=False
+                ) as antenna_table:
+                    antenna_names = [
+                        name.decode("utf-8", errors="replace").strip()
+                        if isinstance(name, bytes)
+                        else str(name).strip()
+                        for name in antenna_table.getcol("NAME")
+                    ]
+
+                has_flag_row = "FLAG_ROW" in columns
+                total_sample_count = 0
+                flagged_sample_count = 0
+                antenna_sample_counts = np.zeros(len(antenna_names), dtype=np.int64)
+                antenna_flagged_counts = np.zeros(len(antenna_names), dtype=np.int64)
+
+                for start_row in range(0, total_rows, chunk_size):
+                    rows_in_chunk = min(chunk_size, total_rows - start_row)
+                    flags = np.asarray(
+                        ms_table.getcol(
+                            "FLAG", startrow=start_row, nrow=rows_in_chunk
+                        ),
+                        dtype=bool,
+                    )
+                    if flags.ndim < 2 or flags.shape[0] != rows_in_chunk:
+                        raise ValueError(
+                            "FLAG column returned an unexpected shape {}".format(
+                                flags.shape
+                            )
+                        )
+
+                    samples_per_row = int(np.prod(flags.shape[1:]))
+                    if samples_per_row == 0:
+                        continue
+                    flagged_per_row = np.count_nonzero(
+                        flags, axis=tuple(range(1, flags.ndim))
+                    ).astype(np.int64, copy=False)
+
+                    if has_flag_row:
+                        flag_rows = np.asarray(
+                            ms_table.getcol(
+                                "FLAG_ROW", startrow=start_row, nrow=rows_in_chunk
+                            ),
+                            dtype=bool,
+                        ).reshape(-1)
+                        if flag_rows.size != rows_in_chunk:
+                            raise ValueError("FLAG_ROW column returned an unexpected shape")
+                        flagged_per_row[flag_rows] = samples_per_row
+
+                    total_sample_count += int(flags.size)
+                    flagged_sample_count += int(flagged_per_row.sum())
+
+                    for antenna_column in ("ANTENNA1", "ANTENNA2"):
+                        antenna_ids = np.asarray(
+                            ms_table.getcol(
+                                antenna_column,
+                                startrow=start_row,
+                                nrow=rows_in_chunk,
+                            ),
+                            dtype=np.int64,
+                        ).reshape(-1)
+                        if antenna_ids.size != rows_in_chunk:
+                            raise ValueError(
+                                "{} column returned an unexpected shape".format(
+                                    antenna_column
+                                )
+                            )
+                        valid_ids = (antenna_ids >= 0) & (
+                            antenna_ids < len(antenna_names)
+                        )
+                        np.add.at(
+                            antenna_sample_counts,
+                            antenna_ids[valid_ids],
+                            samples_per_row,
+                        )
+                        np.add.at(
+                            antenna_flagged_counts,
+                            antenna_ids[valid_ids],
+                            flagged_per_row[valid_ids],
+                        )
+
+                if total_sample_count == 0:
+                    logger.info(
+                        "No FLAG samples in MS %s; flagging statistics unavailable.",
+                        ms,
+                    )
+                    continue
+
+                flagged_percentage = 100.0 * flagged_sample_count / total_sample_count
+                fully_flagged_antennas = [
+                    antenna_names[index]
+                    for index in range(len(antenna_names))
+                    if antenna_sample_counts[index] > 0
+                    and antenna_flagged_counts[index] == antenna_sample_counts[index]
+                ]
+                logger.info(
+                    "Flagging statistics for MS %s: %.2f%% flagged (%d/%d samples).",
+                    ms,
+                    flagged_percentage,
+                    flagged_sample_count,
+                    total_sample_count,
+                )
+                logger.info(
+                    "Fully flagged antennas for MS %s: %s",
+                    ms,
+                    ", ".join(fully_flagged_antennas) or "None",
+                )
+        except Exception as exc:
+            logger.warning(
+                "Could not compute flagging statistics for MS %s: %s", ms, exc
+            )
+
 ###############################
 ############## MAIN ###########
 ###############################
@@ -22793,6 +23049,14 @@ def main():
     _configure_selfcal_log(args['start'])
     _log_machine_info()
     _prepare_html_overview(args['start'])
+
+    global _RESOURCE_MONITOR
+    try:
+        _RESOURCE_MONITOR = ResourceMonitor(interval=15.0, start_cycle=args['start'])
+        _RESOURCE_MONITOR.start()
+    except Exception as exc:
+        logger.warning("Could not start resource monitor: %s", exc)
+        _RESOURCE_MONITOR = None
     
     with open("full_config.txt", "w") as file:
         for key, value in args.items():
@@ -23010,6 +23274,36 @@ def main():
     longbaseline, LBA, HBAorLBA, freq, fitsmask, maskthreshold_selfcalcycle, \
         automaskthreshold_selfcalcycle, outtarname = basicsetup(mslist)
 
+    removed_products = _remove_previous_cycle_products(
+        args['start'],
+        args['stop'],
+        args['imagename'],
+        preserved_inputs=(
+            fitsmask,
+            args.get('fitsmask'),
+            args.get('fitsmask_start'),
+            args.get('facetdirections'),
+            args.get('preapplyH5_list'),
+            args.get('preapplybandpassH5_list'),
+            args.get('skymodel'),
+            args.get('skymodelpointsource'),
+            args.get('wscleanskymodel'),
+            args.get('boxfile'),
+            args.get('DS9cleanmaskregionfile'),
+            args.get('DS9cleanmaskregionfile_exclude'),
+        ),
+        remove_best_outputs=args['early_stopping'],
+    )
+    if removed_products:
+        terminal_print(
+            'Removed', len(removed_products), 'stale products from cycles',
+            args['start'], 'and later'
+        )
+        logger.info(
+            'Removed %d stale restart products from cycles %d and later',
+            len(removed_products), args['start']
+        )
+
     # SET MODEL STORAGE MANAGER
     args['modelstoragemanager'] = set_modelstoragemanager(args['telescope'])
 
@@ -23156,7 +23450,12 @@ def main():
     # download MWS primary beam model if needed
     if args['telescope'] == 'MWA' and not args['disable_primary_beam']:
         download_MWA_beam_model()
-    
+
+    # compute flagging statistics for the MS list and log the results to selfcal.log
+    # reports the total percentage of data flagged in the MS and list the antennas that are fully flagged
+    if args['start'] == 0:
+        compute_flagging_statistics(mslist)
+
     # Insert MS history from facetselfcal
     for ms in mslist:
         insert_history_ms(ms, parse_input_args(options), appver=facetselfcal_version)
@@ -23164,6 +23463,8 @@ def main():
     # ----- START SELFCAL LOOP -----
     for i in range(args['start'], 999):  # large number, will break when i == args['stop']-1
         logger.info('Starting self-calibration cycle %d' % i)
+        if _RESOURCE_MONITOR is not None:
+            _RESOURCE_MONITOR.set_cycle(i)
         # UPDATE REMOVENEGATIVEFROMMODEL SETTING, 
         # for high dynamic range it is better to keep negative clean components (based on a very clear 3C84 test case)
         if args['autoupdate_removenegativefrommodel'] and i > 1 and not args['DDE']:
@@ -23748,7 +24049,7 @@ def _with_html_report(run_function):
         Exception
             Re-raised after recording the workflow failure.
         """
-        global _REPORT_RUN_INITIALIZED
+        global _REPORT_RUN_INITIALIZED, _RESOURCE_MONITOR
 
         _REPORT_RUN_INITIALIZED = False
         run_directory = Path.cwd()
@@ -23774,6 +24075,11 @@ def _with_html_report(run_function):
             status = "completed"
             return result
         finally:
+            if _RESOURCE_MONITOR is not None:
+                try:
+                    _RESOURCE_MONITOR.stop()
+                except Exception:
+                    pass
             if _REPORT_RUN_INITIALIZED:
                 _write_html_overview(run_directory, status=status, error=error)
 
