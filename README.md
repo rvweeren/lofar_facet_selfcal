@@ -107,11 +107,18 @@ Installing the package provides these commands:
 
 ### Offline HTML report
 
-Each initialized `facetselfcal` run creates a multi-page offline report in `html_overview/`, refreshes it after each completed self-calibration cycle, and records the final run status when processing ends. 
+Each initialized `facetselfcal` run creates a multi-page offline report in `html_overview/`, refreshes it after each completed self-calibration cycle, and records the final run status when processing ends.
 
-| Overview | Run details |
-| --- | --- |
-| ![Offline HTML report overview showing run status, solution-cycle progress, and calibration workflow](docs/screenshots/html-overview.png) | ![Offline HTML report run details showing execution environment and the full CPU and RAM utilization chart](docs/screenshots/html-run-details.png) |
+<table>
+  <tr>
+    <th width="50%">Overview</th>
+    <th width="50%">Run details</th>
+  </tr>
+  <tr>
+    <td valign="top" width="50%"><img src="docs/screenshots/html-overview.png" alt="Offline HTML report overview showing run status, solution-cycle progress, and calibration workflow" width="100%"></td>
+    <td valign="top" width="50%"><img src="docs/screenshots/html-run-details.png" alt="Offline HTML report run details showing execution environment and the full CPU and RAM utilization chart" width="100%"></td>
+  </tr>
+</table>
 
 ## Citation
 
