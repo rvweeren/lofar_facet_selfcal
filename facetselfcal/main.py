@@ -3824,8 +3824,8 @@ def clean_up_images(imagename, model=False):
 
 def _remove_previous_cycle_products(start_cycle, stop_cycle, imagename,
                                     preserved_inputs=(), remove_best_outputs=False):
-    """Remove stale generated products from cycles a restart will replace."""
-    if start_cycle <= 0 or stop_cycle is None or stop_cycle <= start_cycle:
+    """Remove stale generated products from cycles a run will replace."""
+    if start_cycle < 0 or stop_cycle is None or stop_cycle <= start_cycle:
         return []
 
     image_prefix = Path(imagename).name
@@ -3860,6 +3860,8 @@ def _remove_previous_cycle_products(start_cycle, stop_cycle, imagename,
             match = re.search(r"selfcalcycle(\d+)", path.name, re.IGNORECASE)
             if match:
                 return int(match.group(1))
+            if product_kind == "solution_plot" and start_cycle == 0:
+                return 0
             if (
                 product_kind == "h5"
                 and remove_best_outputs
@@ -23300,7 +23302,7 @@ def main():
             args['start'], 'and later'
         )
         logger.info(
-            'Removed %d stale restart products from cycles %d and later',
+            'Removed %d stale generated products from cycles %d and later',
             len(removed_products), args['start']
         )
 
