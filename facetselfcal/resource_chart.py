@@ -4,25 +4,94 @@ import html
 import math
 
 
+RESOURCE_PHASE_STYLES = {
+    "imaging": ("Imaging", "#5C7AFF"),
+    "predict": ("Predict", "#52796F"),
+    "solve": ("Solve", "#CA6702"),
+    "applycal": ("Applycal", "#EE9B00"),
+}
+_PHASE_ROW_SPACING = 20
+_MIN_PHASE_BAR_WIDTH = 2.0
+
+
 def _escape(value):
     return html.escape(str(value), quote=True)
 
 
-def generate_resource_svg(samples):
+def phase_intervals_from_events(events, end_epoch=None):
+    """Pair phase start/end events into intervals for chart rendering."""
+    intervals = []
+    active = None
+
+    def close_interval(end_epoch_value):
+        if active is None:
+            return
+        end_epoch_value = max(active["start_epoch"], end_epoch_value)
+        intervals.append({
+            "phase": active["phase"],
+            "cycle": active.get("cycle"),
+            "start_epoch": active["start_epoch"],
+            "end_epoch": end_epoch_value,
+        })
+
+    for event in sorted(events, key=lambda item: float(item["epoch"])):
+        try:
+            event_epoch = float(event["epoch"])
+            phase = str(event["phase"]).lower()
+            event_type = str(event["event"]).lower()
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        if event_type == "start":
+            if active is not None:
+                close_interval(event_epoch)
+            active = {
+                "phase": phase,
+                "cycle": event.get("cycle"),
+                "start_epoch": event_epoch,
+            }
+        elif (
+            event_type == "end"
+            and active is not None
+            and phase == active["phase"]
+            and str(event.get("cycle")) == str(active.get("cycle"))
+        ):
+            close_interval(event_epoch)
+            active = None
+
+    if active is not None and end_epoch is not None:
+        close_interval(float(end_epoch))
+
+    return intervals
+
+
+def generate_resource_svg(samples, phase_intervals=None):
     """Render an inline SVG graph of process CPU and RAM usage over time."""
     if not samples:
         return ""
     width = 960
-    height = 280
-    pad_l = 65
+    show_activity = phase_intervals is not None
+    phase_row_count = len(RESOURCE_PHASE_STYLES)
+    height = 294 + phase_row_count * _PHASE_ROW_SPACING if show_activity else 280
+    pad_l = 100 if show_activity else 65
     pad_r = 65
     pad_t = 30
-    pad_b = 40
+    pad_b = 64 + phase_row_count * _PHASE_ROW_SPACING if show_activity else 40
     plot_w = width - pad_l - pad_r
     plot_h = height - pad_t - pad_b
 
-    t_min = samples[0]["epoch"]
-    t_max = samples[-1]["epoch"]
+    plot_epochs = [float(sample["epoch"]) for sample in samples]
+    phase_intervals = phase_intervals or []
+    for interval in phase_intervals:
+        try:
+            plot_epochs.extend(
+                [float(interval["start_epoch"]), float(interval["end_epoch"])]
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    t_min = min(plot_epochs)
+    t_max = max(plot_epochs)
     if t_max <= t_min:
         t_max = t_min + 1.0
 
@@ -45,7 +114,7 @@ def generate_resource_svg(samples):
         return pad_t + plot_h - (max(0.0, val) / ram_y_max) * plot_h
 
     svg_parts = [
-        f'<svg viewBox="0 0 {width} {height}" width="100%" height="auto" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Process tree resource utilization over time">'
+        f'<svg viewBox="0 0 {width} {height}" width="100%" height="auto" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Process tree resource utilization and workflow phases over time">'
     ]
 
     for i in range(5):
@@ -65,7 +134,7 @@ def generate_resource_svg(samples):
         )
 
     svg_parts.append(
-        f'<text transform="rotate(-90)" x="-{pad_t + plot_h / 2:.1f}" y="16" text-anchor="middle" fill="var(--teal-dark)" font-weight="600" font-size="11" font-family="system-ui, sans-serif">CPU (%)</text>'
+        f'<text transform="rotate(-90)" x="-{pad_t + plot_h / 2:.1f}" y="16" text-anchor="middle" fill="var(--teal-dark)" font-weight="600" font-size="11" font-family="system-ui, sans-serif">CPU (% of one core)</text>'
     )
     svg_parts.append(
         f'<text transform="rotate(90)" x="{pad_t + plot_h / 2:.1f}" y="-{width - 16}" text-anchor="middle" fill="var(--amber)" font-weight="600" font-size="11" font-family="system-ui, sans-serif">RAM (GiB)</text>'
@@ -85,13 +154,61 @@ def generate_resource_svg(samples):
             f'<text x="{x:.1f}" y="{pad_t + plot_h + 18}" text-anchor="middle" fill="var(--muted)" font-size="11" font-family="system-ui, sans-serif">{time_lbl}</text>'
         )
 
+    activity_top = pad_t + plot_h + 38
+    activity_bottom = activity_top + phase_row_count * _PHASE_ROW_SPACING + 2
+    if show_activity:
+        phase_row_y = {
+            phase: activity_top + index * _PHASE_ROW_SPACING
+            for index, phase in enumerate(RESOURCE_PHASE_STYLES)
+        }
+        for phase, (label, color) in RESOURCE_PHASE_STYLES.items():
+            row_y = phase_row_y[phase]
+            svg_parts.append(
+                f'<text x="8" y="{row_y + 10}" fill="{color}" font-size="11" font-weight="600" font-family="system-ui, sans-serif">{label}</text>'
+            )
+
+        for interval in phase_intervals:
+            phase = str(interval.get("phase", "")).lower()
+            if phase not in RESOURCE_PHASE_STYLES:
+                continue
+            try:
+                start_epoch = float(interval["start_epoch"])
+                end_epoch = float(interval["end_epoch"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if end_epoch < t_min or start_epoch > t_max:
+                continue
+
+            label, color = RESOURCE_PHASE_STYLES[phase]
+            row_y = phase_row_y[phase]
+            bar_x = mx(max(t_min, start_epoch))
+            bar_right = mx(min(t_max, end_epoch))
+            natural_width = bar_right - bar_x
+            if natural_width < _MIN_PHASE_BAR_WIDTH:
+                continue
+            bar_width = min(plot_w - (bar_x - pad_l), natural_width)
+            duration = max(0.0, end_epoch - start_epoch)
+            if duration < 60:
+                duration_label = f"{duration:.0f}s"
+            elif duration < 3600:
+                duration_label = f"{duration / 60.0:.1f}m"
+            else:
+                duration_label = f"{duration / 3600.0:.1f}h"
+            cycle = interval.get("cycle")
+            cycle_label = f"Cycle {cycle} - " if cycle not in (None, "") else ""
+            tooltip = f"{cycle_label}{label} ({duration_label})"
+            svg_parts.append(
+                f'<rect x="{bar_x:.1f}" y="{row_y}" width="{bar_width:.1f}" height="7" rx="2" fill="{color}"><title>{_escape(tooltip)}</title></rect>'
+            )
+
     prev_cycle = None
     for sample in samples:
         cycle = sample["cycle"]
         if prev_cycle is not None and cycle != prev_cycle:
             x_line = mx(sample["epoch"])
+            separator_bottom = activity_bottom if show_activity else pad_t + plot_h
             svg_parts.append(
-                f'<line x1="{x_line:.1f}" y1="{pad_t}" x2="{x_line:.1f}" y2="{pad_t + plot_h}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,4" />'
+                f'<line x1="{x_line:.1f}" y1="{pad_t}" x2="{x_line:.1f}" y2="{separator_bottom}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,4" />'
             )
             svg_parts.append(
                 f'<text x="{x_line + 4:.1f}" y="{pad_t + 12}" fill="var(--ink-secondary)" font-size="10" font-weight="600" font-family="system-ui, sans-serif">Cycle {_escape(str(cycle))}</text>'
