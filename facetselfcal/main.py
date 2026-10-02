@@ -11542,7 +11542,7 @@ def smearing_bandwidth(r, th, nu, dnu):
     return I
 
 
-def bandwidthsmearing(chanw, freq, imsize, verbose=True):
+def bandwidthsmearing(chanw, freq, imsize, verbose=True, ms_name=None):
     """
     Calculate the fractional intensity loss due to bandwidth smearing.
 
@@ -11556,6 +11556,8 @@ def bandwidthsmearing(chanw, freq, imsize, verbose=True):
         image size in pixels.
     verbose : bool
         print information to the screen.
+    ms_name : str or None, optional
+        Measurement Set name to include in log and print messages.
 
     Returns
     -------
@@ -11564,13 +11566,32 @@ def bandwidthsmearing(chanw, freq, imsize, verbose=True):
     """
     R = (chanw / freq) * (imsize / 6.)  # asume we have used 3 pixels per beam
     if verbose:
-        terminal_print('R value for bandwidth smearing is:', R)
-        logger.info('R value for bandwidth smearing is: ' + str(R))
+        ms_context = f' in {ms_name}' if ms_name is not None else ''
+        message = f'R value for bandwidth smearing{ms_context} is: {R}'
+        terminal_print(message)
+        logger.info(message)
         if R > 1.:
-            terminal_print('Warning, try to increase your frequency resolution, or lower imsize, to reduce the R value below 1')
-            logger.warning(
-                'Warning, try to increase your frequency resolution, or lower imsize, to reduce the R value below 1')
+            warning_prefix = (
+                f'Warning, bandwidth smearing for {ms_name} exceeds R=1. Try '
+                if ms_name is not None else 'Warning, try '
+            )
+            warning = (
+                f'{warning_prefix}to increase your frequency resolution, or lower imsize, '
+                'to reduce the R value below 1'
+            )
+            terminal_print(warning)
+            logger.warning(warning)
     return R
+
+
+def report_bandwidth_smearing(mslist, imsize):
+    """Compute and report bandwidth smearing for each Measurement Set."""
+    imsize = float(imsize)
+    for ms in mslist:
+        with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+            chan_width = np.median(t.getcol('CHAN_WIDTH'))
+            min_frequency = np.min(t.getcol('CHAN_FREQ')[0])
+        bandwidthsmearing(chan_width, min_frequency, imsize, ms_name=ms)
 
 
 def smearing_time(r, th, t):
@@ -20109,13 +20130,21 @@ def beam_keywords(ms, add_beamkeywords=True):
         try:
             beammode = t.getcolkeyword('DATA', 'LOFAR_APPLIED_BEAM_MODE')
             applybeam_info = True
-            terminal_print('DP3 applybeam was used')
+            terminal_print(f'DP3 applybeam was used for MS {ms}')
         except:
             applybeam_info = False
-            terminal_print('No applybeam beam keywords were found. Possibly an old DP3 version was used in prefactor.')
-            terminal_print('Adding keywords manually assuming the beam was taken out in the pointing center')
-            logger.warning('No applybeam beam keywords were found. Possibly an old DP3 version was used in prefactor.')
-            logger.warning('Adding keywords manually assuming the beam was taken out in the pointing center')
+            message = (
+                f'No applybeam beam keywords were found in MS {ms}. '
+                'Possibly an old DP3 version was used in prefactor.'
+            )
+            terminal_print(message)
+            logger.warning(message)
+            message = (
+                f'Adding keywords manually to MS {ms}, '
+                'assuming the beam was taken out in the pointing center'
+            )
+            terminal_print(message)
+            logger.warning(message)
    
     if not applybeam_info and add_beamkeywords and args['telescope'] == 'LOFAR':
             with table(ms + '/FIELD', readonly=True, ack=False) as t:
@@ -23079,7 +23108,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '20.0.0'
+    facetselfcal_version = '20.1.0'
     print_title(facetselfcal_version)
 
     # copy h5s locally
@@ -23365,9 +23394,7 @@ def main():
     #    runaoflagger(mslist, strategy=args['aoflagger_strategy'])
 
     # compute bandwidth smearing
-    with table(mslist[0] + '/SPECTRAL_WINDOW', ack=False) as t:
-        bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]),
-                                    float(args['imsize']))
+    report_bandwidth_smearing(mslist, args['imsize'])
  
     # backup flagging column for option --restoreflags if needed
     if args['restoreflags']:
