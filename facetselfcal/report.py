@@ -13,7 +13,11 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from .resource_chart import generate_resource_svg
+from .resource_chart import (
+    RESOURCE_PHASE_STYLES,
+    generate_resource_svg,
+    phase_intervals_from_events,
+)
 
 
 _PAGE_NAMES = {
@@ -93,6 +97,19 @@ _CSS = r"""
   --green: #15803d;
   --green-pale: #f0fdf4;
   --green-border: #bbf7d0;
+    --workflow-imaging: #5C7AFF;
+    --workflow-imaging-pale: #EEF1FF;
+    --workflow-imaging-ink: #3046A9;
+    --workflow-predict: #52796F;
+    --workflow-predict-pale: #EDF4F1;
+    --workflow-predict-ink: #31564B;
+    --workflow: #CA6702;
+    --workflow-solve: #CA6702;
+    --workflow-solve-pale: #FFF1E3;
+    --workflow-solve-ink: #783C00;
+    --workflow-applycal: #EE9B00;
+    --workflow-applycal-pale: #FFF5DD;
+    --workflow-applycal-ink: #765000;
   --code: #f1f5f9;
 }
 * { box-sizing: border-box; }
@@ -132,6 +149,9 @@ section { margin: 26px 0 0; }
 .status-detail { color: var(--ink-secondary); font-size: 13px; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); grid-auto-rows: 1fr; align-items: stretch; gap: 10px; margin: 16px 0 24px; }
 .metric { min-width: 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); border-top: 3px solid var(--teal); }
+.metric-link { color: inherit; text-decoration: none; }
+.metric-link:hover { color: inherit; border-color: var(--teal-dark); }
+.metric-link:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 .metric-value { display: block; font-size: 20px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; line-height: 1.1; }
 .metric-label { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 .env-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin: 12px 0; }
@@ -228,9 +248,10 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .workflow-ms-badges, .workflow-step-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; min-width: 0; }
 .workflow-step-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
 .workflow-step-badge { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-alt); color: var(--ink-secondary); font-size: 11px; font-weight: 600; line-height: 1.35; white-space: nowrap; }
-.workflow-step-badge-imaging { border-color: var(--blue-border); background: var(--blue-pale); color: #075985; }
-.workflow-step-badge-solve { border-color: var(--amber-border); background: var(--amber-pale); color: #92400e; }
-.workflow-step-badge-apply { border-color: var(--teal-border); background: var(--teal-light); color: var(--teal-deep); }
+.workflow-step-badge-imaging { border-color: var(--workflow-imaging); background: var(--workflow-imaging-pale); color: var(--workflow-imaging-ink); }
+.workflow-step-badge-predict { border-color: var(--workflow-predict); background: var(--workflow-predict-pale); color: var(--workflow-predict-ink); }
+.workflow-step-badge-solve { border-color: var(--workflow-solve); background: var(--workflow-solve-pale); color: var(--workflow-solve-ink); }
+.workflow-step-badge-apply { border-color: var(--workflow-applycal); background: var(--workflow-applycal-pale); color: var(--workflow-applycal-ink); }
 .workflow-command-trigger { appearance: none; font-family: inherit; text-align: left; cursor: pointer; }
 .workflow-command-trigger:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .workflow-command-text { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); box-sizing: border-box; width: min(760px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: min(70vh, 640px); margin: 0; padding: 12px 14px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); box-shadow: 0 6px 18px rgba(15,23,42,.16); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -535,11 +556,12 @@ def _page_shell(title, active_page, body, nested=False, subtitle="Offline proces
     )
 
 
-def _section(title, content, note=None):
+def _section(title, content, note=None, section_id=None):
     note_html = "<p>{}</p>".format(_escape(note)) if note else ""
+    id_attr = ' id="{}"'.format(_escape(section_id)) if section_id else ""
     return (
-        '<section><div class="section-heading"><h2>{}</h2>{}</div>{}</section>'.format(
-            _escape(title), note_html, content
+        '<section{}><div class="section-heading"><h2>{}</h2>{}</div>{}</section>'.format(
+            id_attr, _escape(title), note_html, content
         )
     )
 
@@ -877,7 +899,7 @@ def _workflow_steps_html(step_details, id_prefix="segment"):
     ms_groups = {}
     command_index = 0
     for step in step_details:
-        if step["kind"] == "imaging":
+        if step["kind"] in ("imaging", "predict"):
             shared_steps.append(step)
             continue
         group = ms_groups.setdefault(
@@ -890,11 +912,15 @@ def _workflow_steps_html(step_details, id_prefix="segment"):
         nonlocal command_index
         badges = []
         for index, step in enumerate(steps):
-            label = {"imaging": "Imaging", "solve": "Solve", "apply": "Apply"}.get(
-                step["kind"], step["name"]
-            )
+            label = {
+                "imaging": "WSClean imaging",
+                "predict": "WSClean predict",
+                "solve": "Solve",
+                "apply": "Apply",
+            }.get(step["kind"], step["name"])
             badge_class = {
                 "imaging": "workflow-step-badge-imaging",
+                "predict": "workflow-step-badge-predict",
                 "solve": "workflow-step-badge-solve",
                 "apply": "workflow-step-badge-apply",
             }.get(step["kind"], "workflow-step-badge-other")
@@ -951,7 +977,6 @@ def _scan_logs(run_root):
     timestamps = []
 
     host_info = {}
-    actionable_warnings = []
     cycles = {}
     current_cycle = None
     first_ts = None
@@ -1051,10 +1076,6 @@ def _scan_logs(run_root):
                                 antennas_match.group("antennas").strip() or "None"
                             )
 
-                        if "bandwidth smearing" in message.lower() or "try to increase your frequency resolution" in message.lower():
-                            if message not in actionable_warnings:
-                                actionable_warnings.append(message)
-
                         cm = cycle_start_pattern.search(message)
                         if cm:
                             current_cycle = str(int(cm.group(1))).zfill(3)
@@ -1101,19 +1122,37 @@ def _scan_logs(run_root):
                         if current_cycle and ts_obj:
                             cdata = cycles[current_cycle]
                             step = None
-                            if message.startswith("wsclean ") and not any(
-                                existing["kind"] == "imaging" for existing in cdata["steps"]
+                            folded_message = message.casefold()
+                            if folded_message.startswith("wsclean imaging:"):
+                                kind = "imaging"
+                                command = message.partition(":")[2].strip()
+                            elif folded_message.startswith(("predict step:", "dde predict step:")):
+                                kind = "predict"
+                                command = message.partition(":")[2].strip()
+                            elif folded_message.startswith("wsclean "):
+                                command = message
+                                kind = (
+                                    "predict"
+                                    if re.search(r"(?:^|\s)-predict(?:\s|$)", message, re.IGNORECASE)
+                                    else "imaging"
+                                )
+                            else:
+                                kind = None
+                                command = message
+
+                            if kind is not None and not any(
+                                existing["kind"] == kind for existing in cdata["steps"]
                             ):
                                 step = {
-                                    "kind": "imaging",
-                                    "name": "Imaging (wsclean)",
+                                    "kind": kind,
+                                    "name": "WSClean {}".format(kind),
                                     "timestamp": ts_obj,
                                     "ms_path": None,
                                     "ms_key": None,
                                     "ms_name": None,
-                                    "command": message,
+                                    "command": command,
                                 }
-                            elif "DP3 solve:" in message:
+                            elif kind is None and "DP3 solve:" in message:
                                 ms_path = _ms_path_from_command(message)
                                 ms_key = _ms_group_key(ms_path)
                                 step = {
@@ -1125,7 +1164,7 @@ def _scan_logs(run_root):
                                     "ms_name": Path(ms_key).name if ms_key else None,
                                     "command": message,
                                 }
-                            elif (
+                            elif kind is None and (
                                 "DP3 applycal:" in message
                                 or re.search(r"(?:^|\.)type=applycal\b", message, re.IGNORECASE)
                                 or ("steps=[ac0]" in message and "applycal" in message)
@@ -1186,7 +1225,6 @@ def _scan_logs(run_root):
         "invocations": invocations,
         "timestamps": timestamps,
         "host_info": host_info,
-        "actionable_warnings": actionable_warnings,
         "flagging_stats": flagging_stats,
         "cycle_timeline": [cycles[k] for k in cycle_keys],
         "image_metrics": sorted(
@@ -1296,6 +1334,44 @@ def _add_image_dynamic_range(records):
     return records_with_dynamic_range
 
 
+def _scan_resource_phase_log(run_root, run_started_at=None, start_cycle=0):
+    """Read explicit resource phase transitions from their CSV log."""
+    csv_path = run_root / "logs" / "resource_phases.csv"
+    if not csv_path.is_file():
+        return None
+
+    events = []
+    try:
+        with csv_path.open("r", encoding="utf-8", errors="replace") as stream:
+            for row in csv.DictReader(stream):
+                try:
+                    epoch = float(row["epoch"])
+                    cycle_raw = row.get("cycle", "").strip()
+                    cycle = int(cycle_raw)
+                    phase = row.get("phase", "").strip().lower()
+                    event = row.get("event", "").strip().lower()
+                except (KeyError, ValueError, TypeError):
+                    continue
+
+                if phase not in RESOURCE_PHASE_STYLES or event not in {"start", "end"}:
+                    continue
+                if start_cycle > 0 and run_started_at is not None:
+                    if cycle >= start_cycle and epoch < run_started_at:
+                        continue
+
+                events.append({
+                    "timestamp": row.get("timestamp", ""),
+                    "epoch": epoch,
+                    "cycle": cycle,
+                    "phase": phase,
+                    "event": event,
+                })
+    except OSError:
+        return []
+
+    return events
+
+
 def _scan_resource_log(run_root, run_started_at=None, start_cycle=0):
     """Scan and aggregate process-tree resource records from logs/resource_usage.csv."""
     csv_path = run_root / "logs" / "resource_usage.csv"
@@ -1344,6 +1420,17 @@ def _scan_resource_log(run_root, run_started_at=None, start_cycle=0):
     if not valid_samples:
         return None
 
+    phase_events = _scan_resource_phase_log(run_root, run_started_at, start_cycle)
+    phase_intervals = None
+    if phase_events is not None:
+        phase_end_epoch = max(
+            valid_samples[-1]["epoch"],
+            phase_events[-1]["epoch"] if phase_events else valid_samples[-1]["epoch"],
+        )
+        phase_intervals = phase_intervals_from_events(
+            phase_events, end_epoch=phase_end_epoch
+        )
+
     peak_tree_rss_gib = max(s["tree_rss_gib"] for s in valid_samples)
     peak_tree_cpu_pct = max(s["tree_cpu_pct"] for s in valid_samples)
     avg_tree_cpu_pct = sum(s["tree_cpu_pct"] for s in valid_samples) / len(valid_samples)
@@ -1387,6 +1474,7 @@ def _scan_resource_log(run_root, run_started_at=None, start_cycle=0):
     return {
         "present": True,
         "samples": chart_samples,
+        "phase_intervals": phase_intervals,
         "sample_count": len(valid_samples),
         "cycle_stats": cycle_stats,
         "peak_tree_rss_gib": peak_tree_rss_gib,
@@ -1398,8 +1486,8 @@ def _scan_resource_log(run_root, run_started_at=None, start_cycle=0):
     }
 
 
-def _generate_resource_svg(samples):
-    return generate_resource_svg(samples)
+def _generate_resource_svg(samples, phase_intervals=None):
+    return generate_resource_svg(samples, phase_intervals)
 
 
 def _render_resource_section(resources, include_chart=True):
@@ -1417,12 +1505,22 @@ def _render_resource_section(resources, include_chart=True):
 
     chart_box = ""
     if include_chart:
-        svg_chart = _generate_resource_svg(resources["samples"])
+        phase_intervals = resources.get("phase_intervals")
+        svg_chart = _generate_resource_svg(resources["samples"], phase_intervals)
+        phase_legend = ""
+        if phase_intervals is not None:
+            phase_legend = "".join(
+                '<span class="legend-item"><span class="legend-swatch" style="background:{};"></span> {}</span>'.format(
+                    color, html.escape(label)
+                )
+                for label, color in RESOURCE_PHASE_STYLES.values()
+            )
         legend_html = (
             '<div class="resource-chart-legend">'
-            '<span class="legend-item"><span class="legend-swatch" style="background:#0d9488;"></span> Process Tree CPU (%)</span>'
+            '<span class="legend-item"><span class="legend-swatch" style="background:#0d9488;"></span> Process Tree CPU (% of one core)</span>'
             '<span class="legend-item"><span class="legend-swatch" style="background:#d97706;"></span> Process Tree RAM (GiB)</span>'
             '<span class="legend-item" style="color:var(--muted);"><span class="legend-swatch" style="border-top:2px dashed #94a3b8; background:transparent;"></span> Cycle transition</span>'
+            f'{phase_legend}'
             '</div>'
         )
         chart_box = (
@@ -2012,12 +2110,22 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         metrics.append((logs["total_elapsed"], "Total Elapsed Time"))
     res = logs.get("resources")
 
-    metric_html = "".join(
-        '<div class="metric"><span class="metric-value">{}</span><span class="metric-label">{}</span></div>'.format(
-            _escape(value), _escape(label)
-        )
-        for value, label in metrics
-    )
+    metric_html_parts = []
+    for value, label in metrics:
+        metric_content = (
+            '<span class="metric-value">{}</span><span class="metric-label">{}</span>'
+        ).format(_escape(value), _escape(label))
+        if label == "Warnings and Errors":
+            metric_html_parts.append(
+                '<a class="metric metric-link" href="#warnings">{}</a>'.format(
+                    metric_content
+                )
+            )
+        else:
+            metric_html_parts.append(
+                '<div class="metric">{}</div>'.format(metric_content)
+            )
+    metric_html = "".join(metric_html_parts)
     status_detail = ""
     if status in (None, "unknown"):
         status_detail = "This report was generated from existing files; the original process exit status was not recorded."
@@ -2043,14 +2151,6 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
     if live_resource_frame:
         body_parts.append(
             _section("Live Resource Usage", live_resource_frame)
-        )
-
-    # Actionable alerts (e.g. bandwidth smearing)
-    actionable = logs.get("actionable_warnings", [])
-    if actionable:
-        items = "".join("<p>{}</p>".format(_escape(w)) for w in actionable)
-        body_parts.append(
-            '<div class="notice"><strong>Observational / Data Quality Alert</strong>{}</div>'.format(items)
         )
 
     if error:
@@ -2176,7 +2276,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
     issues_content = _render_log_events(
         logs["warnings"], logs["warning_count"], is_error=False
     )
-    body_parts.append(_section("Recent warnings", issues_content))
+    body_parts.append(_section("Warnings", issues_content, section_id="warnings"))
     errors_content = _render_log_events(logs["errors"], logs["error_count"], is_error=True)
     body_parts.append(_section("Recent errors", errors_content))
     body_parts.append(
@@ -2659,7 +2759,7 @@ def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
 def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text, status, error):
     title = str(config.get("imagename") or run_root.name)
     file_links = []
-    for relative in ("full_config.txt", "facetselfcal.txt", "logs/selfcal.log", "logs/resource_usage.csv", "h5plot.log"):
+    for relative in ("full_config.txt", "facetselfcal.txt", "logs/selfcal.log", "logs/resource_usage.csv", "logs/resource_phases.csv", "h5plot.log"):
         path = run_root / relative
         if path.is_file():
             file_links.append(
@@ -2744,9 +2844,9 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text,
         )
     if resource_content:
         resource_note = (
-            "Live usage and chart refresh about every 15 seconds while monitoring is active; summary statistics use logged samples."
+            "Live usage and chart refresh about every 15 seconds while monitoring is active. Phase bars use explicit workflow boundaries; process-tree CPU is relative to one core and can exceed 100%."
             if live_chart_frame
-            else "Current usage refreshes separately; the full chart summarizes logged samples."
+            else "Current usage refreshes separately; phase bars use explicit workflow boundaries. Process-tree CPU is relative to one core and can exceed 100%."
         )
         resource_section = _section(
             "Resource Utilization (CPU & RAM)",
