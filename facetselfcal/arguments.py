@@ -206,10 +206,6 @@ def option_parser():
                                    help="DP3 msin.starttimeslot setting. The default is None.",
                                    type=int,
                                    default=None)                                   
-
-    calibrationparser.add_argument('--autofrequencyaverage-calspeedup',
-                                   help="Update April 24: Avoid usage because of corrupt vs correct. Try extra averaging during some selfcalcycles to speed up calibration.",
-                                   action='store_true')
     add_bool_arg(calibrationparser, 'autofrequencyaverage', help='Try frequency averaging if it does not result in bandwidth smearing', default=None)
 
     calibrationparser.add_argument('--phaseupstations',
