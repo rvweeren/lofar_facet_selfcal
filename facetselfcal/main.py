@@ -12628,8 +12628,7 @@ def create_residual_data_column(mslist, imagebasename, pixsize, imsize,
                        channelsout, single_dual_speedup=True,
                        outcol='RESIDUAL_DATA', dysco=True,
                        idg=False, h5list=[], facetregionfile=None,
-                       disable_primary_beam=False, ddcor=True, modelstoragemanager=None, parallelgridding=1,
-                       metadata_compression=True):
+                       disable_primary_beam=False, parallelgridding=1):
     """
     Create residual-data products for the supplied Measurement Sets.
 
@@ -23958,9 +23957,7 @@ def main():
                                            dysco=args['dysco'], idg=args['idg'],
                                            h5list=wsclean_h5list, facetregionfile=facetregionfile,
                                            disable_primary_beam=args['disable_primary_beam'], 
-                                           modelstoragemanager=args['modelstoragemanager'], 
-                                           parallelgridding=args['parallelgridding'], 
-                                           metadata_compression=args['metadata_compression'])
+                                           parallelgridding=args['parallelgridding'])
                     if args['compute_weightspectrum']:
                         for ms in mslist:
                             cmdw = ['python', f'{submodpath}/uGMRTSetWeights.py', '-f', '12', ms]
@@ -23972,7 +23969,7 @@ def main():
                                        dysco=args['dysco'], userbox=args['remove_outside_center_box'], idg=args['idg'],
                                        h5list=wsclean_h5list, facetregionfile=facetregionfile,
                                        disable_primary_beam=args['disable_primary_beam'], 
-                                       modelstoragemanager=args['modelstoragemanager'], parallelgridding=args['parallelgridding'],
+                                       parallelgridding=args['parallelgridding'],
                                        metadata_compression=args['metadata_compression'], 
                                        avgtimestep=args['remove_outside_center_avgtimestep'],
                                        avgfreqstep=args['remove_outside_center_avgfreqstep'],
@@ -24029,9 +24026,7 @@ def main():
                                         dysco=args['dysco'], idg=args['idg'],
                                         h5list=wsclean_h5list, facetregionfile=facetregionfile,
                                         disable_primary_beam=args['disable_primary_beam'], 
-                                        modelstoragemanager=args['modelstoragemanager'], 
-                                        parallelgridding=args['parallelgridding'], 
-                                        metadata_compression=args['metadata_compression'])
+                                        parallelgridding=args['parallelgridding'])
             
             aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_residualdata'], column='RESIDUAL_DATA')
 
@@ -24222,9 +24217,7 @@ def main():
                                         dysco=args['dysco'], idg=args['idg'],
                                         h5list=wsclean_h5list, facetregionfile=facetregionfile,
                                         disable_primary_beam=args['disable_primary_beam'], 
-                                        modelstoragemanager=args['modelstoragemanager'], 
-                                        parallelgridding=args['parallelgridding'], 
-                                        metadata_compression=args['metadata_compression'])
+                                        parallelgridding=args['parallelgridding'])
             if args['compute_weightspectrum']:
                 for ms in mslist:
                     cmdw = ['python', f'{submodpath}/uGMRTSetWeights.py', '-f', '12', ms]
@@ -24239,7 +24232,6 @@ def main():
                                userbox=args['remove_outside_center_box'], idg=args['idg'],
                                h5list=wsclean_h5list, facetregionfile=facetregionfile,
                                disable_primary_beam=args['disable_primary_beam'], 
-                               modelstoragemanager=args['modelstoragemanager'], 
                                parallelgridding=args['parallelgridding'], 
                                metadata_compression=args['metadata_compression'],
                                avgtimestep=args['remove_outside_center_avgtimestep'],
