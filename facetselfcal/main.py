@@ -7,8 +7,6 @@
 # continue splitting functions in facetselfcal in separate modules
 # time, timefreq, freq med/avg steps (via losoto)
 # BDA step DP3
-# useful? https://learning-python.com/thumbspage.html
-# add html summary overview
 # Stacking check that freq and time axes are identical
 # scalarphasediff solve WEIGHT_SPECTRUM_PM should not be dysco compressed! Or not update weights there...
 # BLsmooth cannot smooth more than bandwidth and time smearing allows, not checked now
@@ -34,6 +32,7 @@
 import ast
 import builtins
 import configparser
+import copy
 import fnmatch
 import gc
 import concurrent.futures
@@ -133,6 +132,31 @@ except ImportError:
         from monitor import ResourceMonitor
     except ImportError:
         from facetselfcal.monitor import ResourceMonitor
+
+
+def _track_resource_phase(phase):
+    """Mark a workflow function's execution as a resource-monitor phase."""
+    def decorate(function):
+        @wraps(function)
+        def wrapped(*args, **kwargs):
+            monitor = _RESOURCE_MONITOR
+            if monitor is None:
+                return function(*args, **kwargs)
+
+            previous_phase = monitor.set_phase(phase)
+            try:
+                return function(*args, **kwargs)
+            finally:
+                monitor.set_phase(previous_phase)
+
+        return wrapped
+
+    return decorate
+
+
+@_track_resource_phase("predict")
+def _run_predict_command(command):
+    return run(command)
 
 
 def _configure_selfcal_log(start):
@@ -6653,7 +6677,7 @@ def force_close(h5):
     return
 
 
-def create_mergeparmdbname(mslist, selfcalcycle, autofrequencyaverage_calspeedup=False, skymodelsolve=False):
+def create_mergeparmdbname(mslist, selfcalcycle, skymodelsolve=False):
     """
     Merges the h5parms for a given list of measurement sets and selfcal cycle.
 
@@ -6663,8 +6687,6 @@ def create_mergeparmdbname(mslist, selfcalcycle, autofrequencyaverage_calspeedup
         list of measurement sets to iterate over.
     selfcalcycle : int
         the selfcal cycle for which to merge h5parms.
-    autofrequencyaverage_calspeedup : bool
-        add extra "avg" to h5parm name
     skymodelsolve : bool
         add extra "sky" to the name (for solves against a skymodel)
 
@@ -6673,11 +6695,8 @@ def create_mergeparmdbname(mslist, selfcalcycle, autofrequencyaverage_calspeedup
     parmdblist : list
         list of names of the merged h5parms.
     """
-    
-    if autofrequencyaverage_calspeedup: 
-        tmpstr = '.avg.h5'
-    else:
-        tmpstr = '.h5'
+
+    tmpstr = '.h5'
     
     parmdblist = mslist[:]
     for ms_id, ms in enumerate(mslist):
@@ -10045,6 +10064,250 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
     return outmslist
 
 
+def check_frequency_averaging_steps(mslist, options):
+    """Plan and validate frequency averaging before any DP3 average step."""
+    global args
+
+    preview_options = copy.deepcopy(options)
+    backup_will_run = not options["skipbackup"]
+    backup_will_create_copy = backup_will_run and options["start"] == 0
+    setup_mslist = mslist
+    if options["start"] > 0 and backup_will_run:
+        setup_mslist = [os.path.basename(ms) + ".copy" for ms in mslist]
+
+    backup_nchan = options["msinnchan"] if backup_will_create_copy else None
+    backup_startchan = options["msinstartchan"] if backup_will_create_copy else 0
+    spectral_window_metadata = None
+    if backup_nchan is not None:
+        with table(mslist[0] + "/SPECTRAL_WINDOW", readonly=True, ack=False) as spw_table:
+            preview_freqs = np.asarray(spw_table.getcol("CHAN_FREQ")[0], dtype=float)
+            preview_widths = np.asarray(spw_table.getcol("CHAN_WIDTH")[0], dtype=float)
+        if (
+            backup_nchan > 0
+            and backup_startchan >= 0
+            and backup_startchan + backup_nchan <= len(preview_freqs)
+        ):
+            spectral_window_metadata = (
+                preview_freqs[backup_startchan:backup_startchan + backup_nchan],
+                preview_widths[backup_startchan:backup_startchan + backup_nchan],
+            )
+
+    if backup_will_run:
+        preview_options["msinntimes"] = None
+        preview_options["msinstarttimeslot"] = None
+        preview_options["msinnchan"] = None
+        preview_options["msinstartchan"] = 0
+        preview_options["removeinternational"] = False
+        preview_options["removemostlyflaggedstations"] = False
+        preview_options["phaseshiftbox"] = None
+        preview_options["flag_antenna_list"] = None
+        if options["aoflagger"] and options["aoflaggerbeforeavg"]:
+            preview_options["aoflagger"] = False
+
+    original_args = args
+    args = preview_options
+    try:
+        setup_result = basicsetup(
+            setup_mslist,
+            spectral_window_metadata=spectral_window_metadata,
+            create_directories=False,
+        )
+        resolved_options = copy.deepcopy(args)
+    finally:
+        args = original_args
+    lba = setup_result[1]
+
+    remove_step = options["remove_outside_center_avgfreqstep"]
+    check_remove_step = options["remove_outside_center"]
+    if check_remove_step and (
+        isinstance(remove_step, bool)
+        or not isinstance(remove_step, int)
+        or remove_step < 1
+    ):
+        raise ValueError(
+            "--remove-outside-center-avgfreqstep must be a positive integer"
+        )
+
+    requested_step = options["avgfreqstep"]
+    if isinstance(requested_step, bool):
+        raise ValueError("--avgfreqstep must be a positive integer or frequency resolution")
+    if isinstance(requested_step, int) and requested_step < 0:
+        raise ValueError("--avgfreqstep cannot be negative")
+
+    planned_steps = []
+    for ms in setup_mslist:
+        with table(ms, readonly=True, ack=False) as ms_table:
+            active_ddids = np.unique(ms_table.getcol("DATA_DESC_ID"))
+        with table(os.path.join(ms, "DATA_DESCRIPTION"), readonly=True, ack=False) as dd_table:
+            spw_ids_by_ddid = dd_table.getcol("SPECTRAL_WINDOW_ID")
+        active_spw_ids = sorted({
+            int(spw_ids_by_ddid[int(ddid)]) for ddid in active_ddids
+        })
+        with table(os.path.join(ms, "SPECTRAL_WINDOW"), readonly=True, ack=False) as spw_table:
+            channel_counts = np.asarray(spw_table.getcol("NUM_CHAN")).reshape(-1)
+            channel_freqs = spw_table.getcol("CHAN_FREQ")
+            channel_widths = spw_table.getcol("CHAN_WIDTH")
+
+        if not active_spw_ids:
+            raise ValueError("Cannot determine active spectral windows in {!r}".format(ms))
+
+        def rows(values):
+            values = np.asarray(values)
+            if values.dtype == object:
+                return [np.asarray(row, dtype=float).reshape(-1) for row in values]
+            if values.ndim == 1:
+                return [np.asarray(values, dtype=float).reshape(-1)]
+            return [np.asarray(row, dtype=float).reshape(-1) for row in values]
+
+        freqs_by_spw = rows(channel_freqs)
+        widths_by_spw = rows(channel_widths)
+        backup_freqs = {}
+        backup_widths = {}
+        if backup_will_create_copy and backup_nchan is not None:
+            for spw_id in active_spw_ids:
+                available = int(channel_counts[spw_id])
+                if (
+                    backup_nchan <= 0
+                    or backup_startchan < 0
+                    or backup_startchan + backup_nchan > available
+                ):
+                    raise ValueError(
+                        "--msinnchan={} with --msinstartchan={} exceeds the {} "
+                        "available channels in SPW {} of {!r}".format(
+                            backup_nchan, backup_startchan, available, spw_id, ms
+                        )
+                    )
+                backup_freqs[spw_id] = freqs_by_spw[spw_id][
+                    backup_startchan:backup_startchan + backup_nchan
+                ]
+                backup_widths[spw_id] = widths_by_spw[spw_id][
+                    backup_startchan:backup_startchan + backup_nchan
+                ]
+
+        requested_nchan = resolved_options["msinnchan"]
+        start_channel = resolved_options["msinstartchan"]
+        selected_metadata = {}
+
+        for spw_id in active_spw_ids:
+            available = int(channel_counts[spw_id])
+            if spw_id >= len(freqs_by_spw) or spw_id >= len(widths_by_spw):
+                raise ValueError("Missing channel metadata for SPW {} in {!r}".format(spw_id, ms))
+            frequencies = freqs_by_spw[spw_id][:available]
+            widths = widths_by_spw[spw_id][:available]
+            if len(frequencies) != available or len(widths) != available:
+                raise ValueError("Incomplete channel metadata for SPW {} in {!r}".format(spw_id, ms))
+
+            base_frequencies = backup_freqs.get(spw_id, frequencies)
+            base_widths = backup_widths.get(spw_id, widths)
+            if requested_nchan is None:
+                selected_count = len(base_frequencies)
+                selected_frequencies = base_frequencies
+                selected_widths = base_widths
+            else:
+                if (
+                    requested_nchan <= 0
+                    or start_channel < 0
+                    or start_channel + requested_nchan > len(base_frequencies)
+                ):
+                    raise ValueError(
+                        "--msinnchan={} with --msinstartchan={} exceeds the {} "
+                        "available channels in SPW {} of {!r}".format(
+                            requested_nchan, start_channel, len(base_frequencies), spw_id, ms
+                        )
+                    )
+                selected_count = requested_nchan
+                selected_frequencies = base_frequencies[
+                    start_channel:start_channel + requested_nchan
+                ]
+                selected_widths = base_widths[
+                    start_channel:start_channel + requested_nchan
+                ]
+
+            selected_metadata[spw_id] = (
+                len(base_frequencies),
+                selected_count,
+                base_frequencies,
+                base_widths,
+                selected_frequencies,
+                selected_widths,
+            )
+
+        if (
+            requested_step is None
+            and resolved_options["autofrequencyaverage"]
+            and not lba
+        ):
+            first_spw = active_spw_ids[0]
+            metadata = selected_metadata[first_spw]
+            input_count = requested_nchan or metadata[0]
+            smear = bandwidthsmearing(
+                float(np.median(metadata[3])),
+                float(np.min(metadata[2])),
+                float(resolved_options["imsize"]),
+                verbose=False,
+            )
+            step = 0
+            for factor in range(2, 21):
+                if smear < (1.0 / factor) and input_count % factor == 0:
+                    step = factor
+        elif requested_step is not None:
+            step = requested_step
+        else:
+            step = 1 if resolved_options["aoflagger"] else 0
+
+        planned_steps.append(step)
+
+        for spw_id in active_spw_ids:
+            _, input_count, _, _, _, selected_widths = selected_metadata[spw_id]
+            if isinstance(step, str) and not step.strip().isdigit():
+                match = re.fullmatch(
+                    r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(Hz|kHz|MHz)\s*",
+                    step,
+                )
+                if match is None:
+                    raise ValueError(
+                        "Cannot validate frequency resolution {!r} from --avgfreqstep".format(step)
+                    )
+                resolution = float(match.group(1)) * {
+                    "Hz": 1.0,
+                    "kHz": 1e3,
+                    "MHz": 1e6,
+                }[match.group(2)]
+                channel_width = abs(float(selected_widths[0]))
+                if channel_width == 0:
+                    raise ValueError("Zero channel width in SPW {} of {!r}".format(spw_id, ms))
+                factor = max(1, int(resolution / channel_width + 0.5))
+            else:
+                factor = int(step)
+                if factor < 0:
+                    raise ValueError("--avgfreqstep cannot be negative")
+                factor = max(1, factor)
+
+            factor = min(factor, input_count)
+            if input_count % factor != 0:
+                raise ValueError(
+                    "Frequency averaging for {!r} would leave a non-integer "
+                    "channel count: SPW {} has {} selected channels and "
+                    "--avgfreqstep={!r} resolves to a factor of {}".format(
+                        ms, spw_id, input_count, step, factor
+                    )
+                )
+
+            output_count = input_count // factor
+            if check_remove_step:
+                extraction_factor = min(remove_step, output_count)
+                if output_count % extraction_factor != 0:
+                    raise ValueError(
+                        "--remove-outside-center-avgfreqstep={} cannot evenly "
+                        "average the {} channels left in SPW {} of {!r} after "
+                        "--avgfreqstep={!r} (factor {})".format(
+                            remove_step, output_count, spw_id, ms, step, factor
+                        )
+                    )
+
+    return planned_steps
+
+
 def uvmaxflag(msin, uvmax):
     """
     Flags visibilities in a Measurement Set (MS) with UV distances greater than a specified maximum.
@@ -10217,6 +10480,7 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None)
     return
 
 
+@_track_resource_phase("applycal")
 def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
              msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
              find_closestdir=False, updateweights=False, modelstoragemanager=None, 
@@ -11599,12 +11863,10 @@ def bandwidthsmearing(chanw, freq, imsize, verbose=True, ms_name=None):
         terminal_print(message)
         logger.info(message)
         if R > 1.:
-            warning_prefix = (
-                f'Warning, bandwidth smearing for {ms_name} exceeds R=1. Try '
-                if ms_name is not None else 'Warning, try '
-            )
+            warning_context = f' for {ms_name}' if ms_name is not None else ''
             warning = (
-                f'{warning_prefix}to increase your frequency resolution, or lower imsize, '
+                f'Warning, bandwidth smearing{warning_context} exceeds R=1 (R={R:.1f}). Try '
+                'to increase your frequency resolution, or lower imsize, '
                 'to reduce the R value below 1'
             )
             terminal_print(warning)
@@ -17115,6 +17377,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
     run(cmd)
 
 
+@_track_resource_phase("solve")
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 SMconstraint=0.0, SMconstraintreffreq=0.0,
                 SMconstraintspectralexponent=-1.0, SMconstraintrefdistance=0.0, antennaconstraint=None,
@@ -18362,7 +18625,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                        channelsout, single_dual_speedup=True,
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None,
                        idg=False, h5list=[], facetregionfile=None,
-                       disable_primary_beam=False, ddcor=True, modelstoragemanager=None, parallelgridding=1,
+                       disable_primary_beam=False, ddcor=True, parallelgridding=1,
                        metadata_compression=True, avgfreqstep=1, avgtimestep=1):
     """
     Removes emission outside a specified box region from measurement sets (MS) by predicting and subtracting the model
@@ -18397,8 +18660,6 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         If True, disables primary beam correction during prediction (default: False).
     ddcor : bool, optional
         If True, applies direction-dependent corrections after subtraction (default: True).
-    modelstoragemanager : str or None, optional
-        Storage manager for model data (default: None).
     parallelgridding : int, optional
         Number of parallel gridding threads (default: 1).
     metadata_compression : bool, optional
@@ -18631,6 +18892,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     return
 
 
+@_track_resource_phase("imaging")
 def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robust=-0.5,
               uvtaper=None, multiscale=False, predict=True, onlypredict=False, fitsmask=None,
               idg=False, uvminim=80, fitspectralpol=3,
@@ -18839,7 +19101,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 cmd += '-name ' + 'fits_images/box_' + os.path.basename(imageout) + ' ' + msliststring
             terminal_print('PREDICT STEP: ', cmd)
-            run(cmd)
+            logger.info('PREDICT STEP: ' + cmd)
+            _run_predict_command(cmd)
 
             # remove box_ model files to save space
             if squarebox is not None:
@@ -18915,7 +19178,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         
         if DDE_predict == 'WSCLEAN':
             terminal_print('DDE PREDICT STEP: ', cmd)
-            run(cmd)
+            logger.info('DDE PREDICT STEP: ' + cmd)
+            _run_predict_command(cmd)
         # remove box_ model files to save space
         if squarebox != 'keepall':
             for model in sorted(glob.glob('fits_images/box_' + os.path.basename(imageout) + '-????-*model*.fits')):
@@ -18995,7 +19259,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
             if DDE_predict == 'WSCLEAN':
                 terminal_print('DDE PREDICT STEP: ', cmd)
-                run(cmd)
+                logger.info('DDE PREDICT STEP: ' + cmd)
+                _run_predict_command(cmd)
 
             # step 4 copy over to MODEL_DATA_DDX
             for ms in mslist:
@@ -19173,12 +19438,12 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec '
         if args['groupms_h5facetspeedup'] and len(mslist) > 1 and facetregionfile is not None:
             msliststring_concat = ' '.join(map(str, mslist_concat))
-            terminal_print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
-            logger.info(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
+            terminal_print('WSCLEAN IMAGING: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
+            logger.info('WSCLEAN IMAGING: ' + cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
             run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
         else:
-            terminal_print('WSCLEAN: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
-            logger.info(cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
+            terminal_print('WSCLEAN IMAGING: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
+            logger.info('WSCLEAN IMAGING: ' + cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
             #if imageout != 'imageDD_auto_003':
             run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
 
@@ -19313,7 +19578,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
                 cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec ' + msliststring
                 terminal_print('PREDICT STEP: ', cmd)
-                run(cmd)
+                logger.info('PREDICT STEP: ' + cmd)
+                _run_predict_command(cmd)
 
         if args['imager'] == 'DDFACET':
             makemslist(mslist)
@@ -21509,7 +21775,7 @@ def niter_from_imsize(imsize, paralleldeconvolution=-1):
     return niter
 
 
-def basicsetup(mslist):
+def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
     """
     Perform basic setup and metadata checks for input MSs.
 
@@ -21524,24 +21790,16 @@ def basicsetup(mslist):
         Setup state is recorded in the workflow context.
     """
     
-    # create losoto_parsets directory in the working directory if it does not exist
-    os.makedirs('losoto_parsets', exist_ok=True)
-    # create plots directory in the working directory if it does not exist
-    os.makedirs('plots', exist_ok=True)
-    # create facet_regions directory in the working directory if it does not exist
-    os.makedirs('facet_regions', exist_ok=True)
-    # create directions directory in the working directory if it does not exist
-    os.makedirs('directions', exist_ok=True)
-    # create h5_solutions directory in the working directory if it does not exist
-    os.makedirs('h5_solutions', exist_ok=True)
-    # create fits_images directory in the working directory if it does not exist
-    os.makedirs('fits_images', exist_ok=True)   
-    # create clean_masks directory in the working directory if it does not exist
-    os.makedirs('clean_masks', exist_ok=True)
-    # create errormaps_dd directory in the working directory if it does not exist
-    os.makedirs('errormaps_dd', exist_ok=True) 
-    # create misc directory in the working directory if it does not exist
-    os.makedirs('misc', exist_ok=True)  
+    if create_directories:
+        os.makedirs('losoto_parsets', exist_ok=True)
+        os.makedirs('plots', exist_ok=True)
+        os.makedirs('facet_regions', exist_ok=True)
+        os.makedirs('directions', exist_ok=True)
+        os.makedirs('h5_solutions', exist_ok=True)
+        os.makedirs('fits_images', exist_ok=True)
+        os.makedirs('clean_masks', exist_ok=True)
+        os.makedirs('errormaps_dd', exist_ok=True)
+        os.makedirs('misc', exist_ok=True)
 
     if args['compute_weightspectrum']:
         args['createresidualdatacolumn'] = True  # force creation of residual data column if weight spectrum is computed
@@ -21551,11 +21809,15 @@ def basicsetup(mslist):
         terminal_print('Forcing longbaseline to False as --removeinternational has been specified')
         longbaseline = False
         # Determine HBA or LBA
-    t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
-    freq = np.median(t.getcol('CHAN_FREQ')[0])
-    freqs = t.getcol('CHAN_FREQ')[0]
-    chan_width = np.median(t.getcol('CHAN_WIDTH')[0])
-    t.close()
+    if spectral_window_metadata is None:
+        t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
+        freqs = t.getcol('CHAN_FREQ')[0]
+        chan_width = np.median(t.getcol('CHAN_WIDTH')[0])
+        t.close()
+    else:
+        freqs, chan_widths = spectral_window_metadata
+        chan_width = np.median(chan_widths)
+    freq = np.median(freqs)
 
     if args['multiscale'] is not None:
         # do not allow update_multiscale to be set automatically further below if multiscale is specified
@@ -21734,10 +21996,6 @@ def basicsetup(mslist):
         else:
             if args['update_multiscale'] is None: # so not set by user, so we can set it to True in auto
                 args['update_multiscale'] = True  # HBA only
-            if args['autofrequencyaverage_calspeedup']:
-                args['soltypecycles_list'] = [0, 999, 2]
-                if args['start'] == 0 and args['stop'] is None:
-                    args['stop'] = 8
         if args['DDE']:
             args['usemodeldataforsolints'] = False
             if args['facetdirections'] is None: # allow auto mode with user-provided facet directions
@@ -23257,10 +23515,12 @@ def main():
         if args['removemostlyflaggedstations'] is None:  # not set by user, so we can decide based on auto settings
             args['removemostlyflaggedstations'] = True  # for MeerKAT auto remove mostly flagged stations
 
+    avgfreqstep = check_frequency_averaging_steps(mslist, args)
+
     if not args['skipbackup']:  # work on copy of input data as a backup
         terminal_print('Creating a copy of the data and work on that....')
         mslist = average(mslist, freqstep=[1] * len(mslist), timestep=1, start=args['start'], makecopy=True,
-                         dysco=args['dysco'], aoflagger=(args['aoflagger'] and args['aoflaggerbeforeavg']), 
+                         dysco=args['dysco'], aoflagger=(args['aoflagger'] and args['aoflaggerbeforeavg']),
                          aoflagger_strategy=args['aoflagger_strategy'], metadata_compression=args['metadata_compression'],
                          msinnchan=args['msinnchan'], msinstartchan=args['msinstartchan'], msinntimes=args['msinntimes'], 
                          msinstarttimeslot=args['msinstarttimeslot'],
@@ -23366,20 +23626,7 @@ def main():
     # SET MODEL STORAGE MANAGER
     args['modelstoragemanager'] = set_modelstoragemanager(args['telescope'])
 
-    # check if we could average more
-    avgfreqstep = []  # vector of len(mslist) with average values, 0 means no averaging
-    for ms in mslist:
-        if args['avgfreqstep'] is None and args['autofrequencyaverage'] and not LBA \
-                and not args['autofrequencyaverage_calspeedup']:  # autoaverage
-            avgfreqstep.append(findfreqavg(ms, float(args['imsize']), bwsmearlimit=1., msinnchan=args['msinnchan']))  # find optimal frequency average value based on bandwidth smearing limit
-        else:
-            if args['avgfreqstep'] is not None: 
-                avgfreqstep.append(args['avgfreqstep'])  # take over handpicked average value
-            else:
-                if args['aoflagger']: # so we also trigger if flagging is requested
-                    avgfreqstep.append(1) 
-                else:
-                    avgfreqstep.append(0)  # put to zero, zero means no average
+    # avgfreqstep was planned and validated before the first average() call.
 
     # COMPUTE PHASE-DIFF statistic
     if args['compute_phasediffstat']:
@@ -23554,19 +23801,6 @@ def main():
                                      circ2lin=args['dolinear'],
                                      losotobeamlib=args['losotobeamcor_beamlib'], idg=args['idg'],
                                      metadata_compression=args['metadata_compression'])
-
-        # TMP AVERAGE TO SPEED UP CALIBRATION
-        if args['autofrequencyaverage_calspeedup'] and i == 0:
-            avgfreqstep = []
-            mslist_backup = mslist[:]  # make a backup list, note copy by slicing otherwise list refers to original
-            for ms in mslist:
-                avgfreqstep.append(findfreqavg(ms, float(args['imsize']), bwsmearlimit=3.5))
-            mslist = average(mslist, freqstep=avgfreqstep, timestep=4, 
-                             dysco=args['dysco'], metadata_compression=args['metadata_compression'])
-        if args['autofrequencyaverage_calspeedup'] and i == args['stop'] - 3:
-            mslist = mslist_backup[:]  # reset back, note copy by slicing otherwise list refers to original
-            preapply(create_mergeparmdbname(mslist, i - 1, autofrequencyaverage_calspeedup=True), mslist, updateDATA=False,
-                     dysco=args['dysco'])  # do not overwrite DATA column
 
         # PHASE-UP if requested
         if args['phaseupstations'] is not None:
