@@ -11,7 +11,11 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-from .resource_chart import generate_resource_svg
+from .resource_chart import (
+    RESOURCE_PHASE_STYLES,
+    generate_resource_svg,
+    phase_intervals_from_events,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +56,7 @@ class ResourceMonitor:
         "sys_ram_used_gib",
         "sys_ram_total_gib",
     ]
+    PHASE_CSV_HEADER = ["timestamp", "epoch", "cycle", "phase", "event"]
 
     def __init__(self, log_dir="logs", filename="resource_usage.csv", interval=15.0, start_cycle=0):
         self.log_dir = Path(log_dir)
@@ -61,6 +66,12 @@ class ResourceMonitor:
 
         self._cycle = start_cycle
         self._cycle_lock = threading.Lock()
+        self._phase = None
+        self._phase_cycle = None
+        self._phase_log_path = self.log_dir / "resource_phases.csv"
+        self._phase_file = None
+        self._phase_csv_writer = None
+        self._phase_events = deque(maxlen=1000)
         self._stop_event = threading.Event()
         self._thread = None
         self._file = None
@@ -80,10 +91,12 @@ class ResourceMonitor:
         if not log_path.exists():
             return
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        archive_path = log_path.with_name(f"resource_usage_{timestamp}.csv")
+        archive_path = log_path.with_name(f"{log_path.stem}_{timestamp}{log_path.suffix}")
         archive_index = 1
         while archive_path.exists():
-            archive_path = log_path.with_name(f"resource_usage_{timestamp}_{archive_index}.csv")
+            archive_path = log_path.with_name(
+                f"{log_path.stem}_{timestamp}_{archive_index}{log_path.suffix}"
+            )
             archive_index += 1
         try:
             log_path.rename(archive_path)
@@ -108,6 +121,22 @@ class ResourceMonitor:
             self._csv_writer.writerow(self.CSV_HEADER)
             self._file.flush()
 
+    def _setup_phase_file(self):
+        """Prepare the phase-event log, archiving it for a fresh run."""
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        if self.start_cycle == 0 and self._phase_log_path.exists():
+            self._archive_existing_log(self._phase_log_path)
+
+        file_exists = self._phase_log_path.is_file() and self._phase_log_path.stat().st_size > 0
+        mode = "a" if (file_exists and self.start_cycle > 0) else "w"
+        self._phase_file = open(
+            self._phase_log_path, mode=mode, newline="", encoding="utf-8"
+        )
+        self._phase_csv_writer = csv.writer(self._phase_file)
+        if mode == "w" or not file_exists:
+            self._phase_csv_writer.writerow(self.PHASE_CSV_HEADER)
+            self._phase_file.flush()
+
     def set_cycle(self, cycle):
         """Update the active self-calibration cycle tag.
 
@@ -119,9 +148,66 @@ class ResourceMonitor:
         with self._cycle_lock:
             self._cycle = cycle
 
+    def _record_phase_event(self, epoch, cycle, phase, event):
+        timestamp = datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
+        record = {
+            "timestamp": timestamp,
+            "epoch": epoch,
+            "cycle": cycle,
+            "phase": phase,
+            "event": event,
+        }
+        self._phase_events.append(record)
+        if self._phase_csv_writer is not None:
+            try:
+                self._phase_csv_writer.writerow(
+                    [timestamp, f"{epoch:.2f}", str(cycle), phase, event]
+                )
+                self._phase_file.flush()
+            except Exception as exc:
+                logger.warning("Failed writing resource phase event: %s", exc)
+
+    def set_phase(self, phase):
+        """Record a workflow phase transition for the active cycle."""
+        if phase is not None:
+            phase = str(phase).strip().lower()
+            if phase not in RESOURCE_PHASE_STYLES:
+                raise ValueError(
+                    "phase must be 'imaging', 'predict', 'solve', 'applycal', or None"
+                )
+
+        now = time.time()
+        with self._cycle_lock:
+            previous_phase = self._phase
+            if phase == self._phase:
+                return previous_phase
+
+            if self._phase is not None:
+                self._record_phase_event(
+                    now, self._phase_cycle, self._phase, "end"
+                )
+
+            self._phase = phase
+            if phase is None:
+                self._phase_cycle = None
+            else:
+                self._phase_cycle = self._cycle
+                self._record_phase_event(
+                    now, self._phase_cycle, phase, "start"
+                )
+
+        self._write_live_page()
+        return previous_phase
+
     def _write_live_page(self, refresh=True, message=None):
         if message is not None:
             self._live_message = message
+
+        with self._cycle_lock:
+            latest_sample = self._latest_sample
+            resource_samples = list(self._resource_samples)
+            phase_events = list(self._phase_events)
+            current_phase = self._phase
 
         refresh_meta = ""
         if refresh:
@@ -130,12 +216,12 @@ class ResourceMonitor:
                 refresh_seconds
             )
 
-        if self._latest_sample is None:
+        if latest_sample is None:
             live_content = '<p class="resource-live-message">{}</p>'.format(
                 html.escape(self._live_message or "Waiting for the first resource sample.")
             )
         else:
-            sample = self._latest_sample
+            sample = latest_sample
             cards = (
                 ("Process CPU", "{:.0f}%".format(sample["tree_cpu_pct"])),
                 ("Process RAM", "{:.2f} GiB".format(sample["tree_rss_gib"])),
@@ -155,33 +241,50 @@ class ResourceMonitor:
                     for label, value in cards
                 )
             )
-            live_content += '<p class="resource-live-meta">Cycle {} - Updated {}</p>'.format(
+            phase_label = RESOURCE_PHASE_STYLES.get(current_phase, (None, None))[0]
+            phase_text = " - {}".format(html.escape(phase_label)) if phase_label else ""
+            live_content += '<p class="resource-live-meta">Cycle {}{} - Updated {}</p>'.format(
                 html.escape(str(sample["cycle"])),
+                phase_text,
                 html.escape(sample["timestamp"]),
             )
             self._live_message = None
 
-        if self._latest_sample is None:
+        if latest_sample is None:
             chart_content = '<p class="resource-live-message">{}</p>'.format(
                 html.escape(self._live_message or "Waiting for the first resource sample.")
             )
         else:
-            sample = self._latest_sample
+            sample = latest_sample
+            phase_legend = "".join(
+                '<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:{};"></span>{}</span>'.format(
+                    color, html.escape(label)
+                )
+                for label, color in RESOURCE_PHASE_STYLES.values()
+            )
             chart_legend = (
                 '<div class="resource-live-chart-legend">'
-                '<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:#0d9488;"></span>Process Tree CPU (%)</span>'
+                '<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:#0d9488;"></span>Process Tree CPU (% of one core)</span>'
                 '<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:#d97706;"></span>Process Tree RAM (GiB)</span>'
                 '<span class="resource-live-legend-item"><span class="resource-live-swatch resource-live-swatch-dashed"></span>Cycle transition</span>'
-                '</div>'
+                + phase_legend
+                + '</div>'
+            )
+            phase_intervals = phase_intervals_from_events(
+                phase_events,
+                end_epoch=max(sample["epoch"], time.time()),
             )
             chart_content = (
                 '<div class="resource-live-chart">{}<div class="resource-live-chart-plot">{}</div></div>'.format(
                     chart_legend,
-                    generate_resource_svg(list(self._resource_samples)),
+                    generate_resource_svg(resource_samples, phase_intervals),
                 )
             )
-            chart_content += '<p class="resource-live-meta">Cycle {} - Updated {}</p>'.format(
+            phase_label = RESOURCE_PHASE_STYLES.get(current_phase, (None, None))[0]
+            phase_text = " - {}".format(html.escape(phase_label)) if phase_label else ""
+            chart_content += '<p class="resource-live-meta">Cycle {}{} - Updated {}</p>'.format(
                 html.escape(str(sample["cycle"])),
+                phase_text,
                 html.escape(sample["timestamp"]),
             )
 
@@ -300,6 +403,7 @@ class ResourceMonitor:
 
         with self._cycle_lock:
             current_cycle = self._cycle
+            current_phase = self._phase
 
         total_cpu_time, total_rss = self._get_tree_cpu_time_and_rss()
 
@@ -345,17 +449,20 @@ class ResourceMonitor:
             except Exception as exc:
                 logger.warning("Failed writing resource sample: %s", exc)
 
-        self._latest_sample = {
+        latest_sample = {
             "timestamp": timestamp_str,
             "epoch": now,
             "cycle": current_cycle,
+            "phase": current_phase,
             "tree_cpu_pct": tree_cpu_pct,
             "tree_rss_gib": tree_rss_gib,
             "sys_cpu_pct": sys_cpu_pct,
             "sys_ram_used_gib": sys_ram_used_gib,
             "sys_ram_total_gib": sys_ram_total_gib,
         }
-        self._resource_samples.append(self._latest_sample)
+        with self._cycle_lock:
+            self._latest_sample = latest_sample
+            self._resource_samples.append(latest_sample)
         self._write_live_page()
 
     def _run(self):
@@ -398,6 +505,11 @@ class ResourceMonitor:
             self._write_live_page(refresh=False, message="Resource monitoring could not start.")
             return
 
+        try:
+            self._setup_phase_file()
+        except Exception as exc:
+            logger.warning("Could not setup resource phase log: %s", exc)
+
         self._write_live_page(refresh=True)
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, name="ResourceMonitor", daemon=True)
@@ -406,10 +518,16 @@ class ResourceMonitor:
 
     def stop(self):
         """Stop background monitoring and flush remaining data."""
+        self.set_phase(None)
         if self._thread is None or not self._thread.is_alive():
             if self._file is not None and not self._file.closed:
                 try:
                     self._file.close()
+                except Exception:
+                    pass
+            if self._phase_file is not None and not self._phase_file.closed:
+                try:
+                    self._phase_file.close()
                 except Exception:
                     pass
             if self._live_page_started:
@@ -428,6 +546,11 @@ class ResourceMonitor:
         if self._file is not None and not self._file.closed:
             try:
                 self._file.close()
+            except Exception:
+                pass
+        if self._phase_file is not None and not self._phase_file.closed:
+            try:
+                self._phase_file.close()
             except Exception:
                 pass
 
