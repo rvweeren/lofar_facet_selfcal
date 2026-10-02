@@ -2552,9 +2552,26 @@ def applycal_restart_di(mslist, selfcalcycle):
     -------
     None
     """
-    for ms in mslist:
-        parmdbmergename = 'h5_solutions/merged_selfcalcycle' + str(selfcalcycle-1).zfill(3) + '_' + os.path.basename(ms) + '.h5'
-        applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
+    previous_cycle = selfcalcycle - 1
+    if args['stack']:
+        for stacked_ms, ms_group in _get_stack_groups(mslist):
+            parmdbmergename = (
+                'h5_solutions/merged_selfcalcycle'
+                + str(previous_cycle).zfill(3) + '_'
+                + os.path.basename(stacked_ms) + '.h5'
+            )
+            if not os.path.isfile(parmdbmergename):
+                raise FileNotFoundError(
+                    f'Cannot restart DI self-calibration cycle {selfcalcycle}: '
+                    f'missing merged H5 for previous cycle {previous_cycle}, '
+                    f'stacked MS {stacked_ms}: {parmdbmergename}'
+                )
+            for ms in ms_group:
+                applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
+    else:
+        for ms in mslist:
+            parmdbmergename = 'h5_solutions/merged_selfcalcycle' + str(previous_cycle).zfill(3) + '_' + os.path.basename(ms) + '.h5'
+            applycal(ms, parmdbmergename, msincol='DATA', msoutcol='CORRECTED_DATA', dysco=args['dysco'])
     return
 
 
@@ -8836,6 +8853,36 @@ def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', wei
     taql('UPDATE stack.MS SET DATA=DATA/WEIGHT_SPECTRUM')
 
 
+def _get_stack_groups(inmslist, outputms_prefix='stack', verbose=False):
+    """Return ordered stacked-MS names and their input MS groups."""
+    starttimelist = []
+    mss_timestacks = []
+    for ms in inmslist:
+        with table(ms, ack=False) as t:
+            starttime = t.TIME[0]
+        try:
+            group = starttimelist.index(starttime)
+            if verbose:
+                terminal_print('group', group)
+                terminal_print(f'append {ms} to {starttime}: {mss_timestacks[group]}')
+            mss_timestacks[group].append(ms)
+        except ValueError:
+            starttimelist.append(starttime)
+            mss_timestacks.append([ms])
+        if verbose:
+            terminal_print(f'new list {ms} to {starttime}')
+
+    if verbose:
+        terminal_print('Unique Measurement Set start times:', starttimelist)
+        terminal_print(f'Found {len(starttimelist)} groups of MSs with same time axis.')
+        terminal_print(f'Groups: {mss_timestacks}.')
+
+    return [
+        (f'{outputms_prefix}_t{group_id:02d}.MS', ms_group)
+        for group_id, ms_group in enumerate(mss_timestacks)
+    ]
+
+
 def stackMS_taql(inmslist: list, outputms_prefix: str = 'stack', incol: str = 'DATA_NORM', outcol: str = 'DATA',
                  weightref: str = 'WEIGHT_SPECTRUM_PM', outcol_weight: str = 'WEIGHT_SPECTRUM'):
     """
@@ -8861,29 +8908,10 @@ def stackMS_taql(inmslist: list, outputms_prefix: str = 'stack', incol: str = 'D
         mss_timestacks: list of input MS grouped in timestacks
     """
 
-    # identify which MSs share the same time axis:
-    starttimelist = [] # list of unique timestamps
-    mss_timestacks = [] # list of MSs stacks
-    for ms in inmslist:
-        with table(ms, ack=False) as t:
-            starttime = t.TIME[0]
-            try: # check if timestamps already exist and if yes, add to this stack
-                group = starttimelist.index(starttime)
-                terminal_print('group', group)
-                terminal_print(f'append {ms} to {starttime}: {mss_timestacks[group]}')
-                mss_timestacks[group].append(ms)
-            except ValueError: # add new list of MS for this timestamps if there is none already
-                starttimelist.append(starttime)
-                mss_timestacks.append([ms])
-            terminal_print(f'new list {ms} to {starttime}')
-    terminal_print('Unique Measurement Set start times:', starttimelist)
-    terminal_print(f'Found {len(starttimelist)} groups of MSs with same time axis.')
-    terminal_print(f'Groups: {mss_timestacks}.')
-
-    msout_stacked = []
-    for timestack_id, inmslist_timestack in enumerate(mss_timestacks):
-        outputms = f'{outputms_prefix}_t{timestack_id:02d}.MS'
-        msout_stacked.append(outputms)
+    stack_groups = _get_stack_groups(inmslist, outputms_prefix, verbose=True)
+    msout_stacked = [stacked_ms for stacked_ms, _ in stack_groups]
+    mss_timestacks = [ms_group for _, ms_group in stack_groups]
+    for outputms, inmslist_timestack in stack_groups:
         terminal_print(f'Using input column {incol}')
         terminal_print(f'Writing to {outputms}')
         if not isinstance(inmslist_timestack, list):
