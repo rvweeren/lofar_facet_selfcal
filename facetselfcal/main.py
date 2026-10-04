@@ -23537,7 +23537,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '20.1.0'
+    facetselfcal_version = '20.2.0'
     print_title(facetselfcal_version)
     _write_html_overview(
         Path.cwd(), status="running", announce_browser=True
