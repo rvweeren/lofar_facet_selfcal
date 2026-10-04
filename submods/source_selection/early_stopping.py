@@ -141,7 +141,7 @@ def early_stopping(station: str = 'international',
             return True
 
     # If first cycle was not good enough, we need 3 cycles to be completed before we continue with early stopping
-    elif cycle <= 3:
+    if cycle <= 3:
         return False
 
     qualitymetrics = quality_check(mergedh5, images, station)
