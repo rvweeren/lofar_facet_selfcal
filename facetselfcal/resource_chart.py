@@ -2,13 +2,28 @@
 
 import html
 import math
+import re
 
 
 RESOURCE_PHASE_STYLES = {
+    "phaseup": ("Phaseup", "#2563EB"),
+    "average": ("Average", "#0F766E"),
+    "phaseshift": ("Phaseshift", "#7C3AED"),
+    "filter": ("Filter", "#64748B"),
+    "aoflagger": ("AOFlagger", "#BE123C"),
     "imaging": ("Imaging", "#5C7AFF"),
     "predict": ("Predict", "#52796F"),
     "solve": ("Solve", "#CA6702"),
     "applycal": ("Applycal", "#EE9B00"),
+}
+_DP3_PHASE_BY_TYPE = {
+    "stationadder": "phaseup",
+    "phaseup": "phaseup",
+    "averager": "average",
+    "phaseshifter": "phaseshift",
+    "filter": "filter",
+    "aoflag": "aoflagger",
+    "aoflagger": "aoflagger",
 }
 _PHASE_ROW_SPACING = 20
 _MIN_PHASE_BAR_WIDTH = 2.0
@@ -18,19 +33,55 @@ def _escape(value):
     return html.escape(str(value), quote=True)
 
 
+def dp3_command_phases(command):
+    """Return recognized DP3 steps in the order configured by ``steps=[...]``."""
+    command_text = str(command)
+    if not re.match(r"^\s*DP3(?:\s|$)", command_text, re.IGNORECASE):
+        return []
+
+    steps_match = re.search(
+        r"(?:^|\s)steps=\[([^\]]*)\]", command_text, re.IGNORECASE
+    )
+    if steps_match is None:
+        return []
+
+    step_types = {
+        name.casefold(): step_type.casefold()
+        for name, step_type in re.findall(
+            r"(?:^|\s)([A-Za-z0-9_]+)\.type=([^\s]+)",
+            command_text,
+            re.IGNORECASE,
+        )
+    }
+    step_names = [
+        step_name.strip().casefold()
+        for step_name in steps_match.group(1).split(",")
+    ]
+    has_phaseup = any(
+        _DP3_PHASE_BY_TYPE.get(step_types.get(step_name)) == "phaseup"
+        for step_name in step_names
+    )
+    phases = []
+    for step_name in step_names:
+        phase = _DP3_PHASE_BY_TYPE.get(step_types.get(step_name))
+        if phase == "filter" and has_phaseup:
+            continue
+        if phase is not None and phase not in phases:
+            phases.append(phase)
+    return phases
+
+
 def phase_intervals_from_events(events, end_epoch=None):
     """Pair phase start/end events into intervals for chart rendering."""
     intervals = []
-    active = None
+    active = {}
 
-    def close_interval(end_epoch_value):
-        if active is None:
-            return
-        end_epoch_value = max(active["start_epoch"], end_epoch_value)
+    def close_interval(active_interval, end_epoch_value):
+        end_epoch_value = max(active_interval["start_epoch"], end_epoch_value)
         intervals.append({
-            "phase": active["phase"],
-            "cycle": active.get("cycle"),
-            "start_epoch": active["start_epoch"],
+            "phase": active_interval["phase"],
+            "cycle": active_interval.get("cycle"),
+            "start_epoch": active_interval["start_epoch"],
             "end_epoch": end_epoch_value,
         })
 
@@ -42,27 +93,56 @@ def phase_intervals_from_events(events, end_epoch=None):
         except (KeyError, TypeError, ValueError):
             continue
 
+        cycle = event.get("cycle")
+        key = (phase, str(cycle))
         if event_type == "start":
-            if active is not None:
-                close_interval(event_epoch)
-            active = {
+            active.setdefault(key, []).append({
                 "phase": phase,
-                "cycle": event.get("cycle"),
+                "cycle": cycle,
                 "start_epoch": event_epoch,
-            }
-        elif (
-            event_type == "end"
-            and active is not None
-            and phase == active["phase"]
-            and str(event.get("cycle")) == str(active.get("cycle"))
-        ):
-            close_interval(event_epoch)
-            active = None
+            })
+        elif event_type == "end" and active.get(key):
+            active_interval = active[key].pop(0)
+            close_interval(active_interval, event_epoch)
+            if not active[key]:
+                del active[key]
 
-    if active is not None and end_epoch is not None:
-        close_interval(float(end_epoch))
+    if end_epoch is not None:
+        for active_intervals in active.values():
+            for active_interval in active_intervals:
+                close_interval(active_interval, float(end_epoch))
 
     return intervals
+
+
+def _normalized_phase_intervals(phase_intervals):
+    normalized = []
+    for interval in phase_intervals or []:
+        try:
+            phase = str(interval["phase"]).lower()
+            start_epoch = float(interval["start_epoch"])
+            end_epoch = float(interval["end_epoch"])
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if (
+            phase not in RESOURCE_PHASE_STYLES
+            or not math.isfinite(start_epoch)
+            or not math.isfinite(end_epoch)
+            or end_epoch < start_epoch
+        ):
+            continue
+        normalized.append((phase, start_epoch, end_epoch, interval))
+    return normalized
+
+
+def phase_names_from_intervals(phase_intervals):
+    """Return recognized phases with intervals, in display order."""
+    present_phases = {
+        phase
+        for phase, _start_epoch, _end_epoch, _interval in
+        _normalized_phase_intervals(phase_intervals)
+    }
+    return [phase for phase in RESOURCE_PHASE_STYLES if phase in present_phases]
 
 
 def generate_resource_svg(samples, phase_intervals=None):
@@ -70,25 +150,26 @@ def generate_resource_svg(samples, phase_intervals=None):
     if not samples:
         return ""
     width = 960
-    show_activity = phase_intervals is not None
-    phase_row_count = len(RESOURCE_PHASE_STYLES)
+    phase_intervals = _normalized_phase_intervals(phase_intervals)
+    present_phases = {
+        phase for phase, _start_epoch, _end_epoch, _interval in phase_intervals
+    }
+    visible_phases = [
+        phase for phase in RESOURCE_PHASE_STYLES if phase in present_phases
+    ]
+    show_activity = bool(visible_phases)
+    phase_row_count = len(visible_phases)
     height = 294 + phase_row_count * _PHASE_ROW_SPACING if show_activity else 280
     pad_l = 100 if show_activity else 65
-    pad_r = 65
+    pad_r = 110
     pad_t = 30
     pad_b = 64 + phase_row_count * _PHASE_ROW_SPACING if show_activity else 40
     plot_w = width - pad_l - pad_r
     plot_h = height - pad_t - pad_b
 
     plot_epochs = [float(sample["epoch"]) for sample in samples]
-    phase_intervals = phase_intervals or []
-    for interval in phase_intervals:
-        try:
-            plot_epochs.extend(
-                [float(interval["start_epoch"]), float(interval["end_epoch"])]
-            )
-        except (KeyError, TypeError, ValueError):
-            continue
+    for _phase, start_epoch, end_epoch, _interval in phase_intervals:
+        plot_epochs.extend([start_epoch, end_epoch])
 
     t_min = min(plot_epochs)
     t_max = max(plot_epochs)
@@ -113,8 +194,12 @@ def generate_resource_svg(samples, phase_intervals=None):
     def my_ram(val):
         return pad_t + plot_h - (max(0.0, val) / ram_y_max) * plot_h
 
+    aria_label = "Process tree resource utilization"
+    if show_activity:
+        aria_label += " and workflow phases"
+    aria_label += " over time"
     svg_parts = [
-        f'<svg viewBox="0 0 {width} {height}" width="100%" height="auto" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Process tree resource utilization and workflow phases over time">'
+        f'<svg viewBox="0 0 {width} {height}" width="100%" height="auto" preserveAspectRatio="xMidYMid meet" role="img" aria-label="{aria_label}">'
     ]
 
     for i in range(5):
@@ -159,23 +244,16 @@ def generate_resource_svg(samples, phase_intervals=None):
     if show_activity:
         phase_row_y = {
             phase: activity_top + index * _PHASE_ROW_SPACING
-            for index, phase in enumerate(RESOURCE_PHASE_STYLES)
+            for index, phase in enumerate(visible_phases)
         }
-        for phase, (label, color) in RESOURCE_PHASE_STYLES.items():
+        for phase in visible_phases:
+            label, color = RESOURCE_PHASE_STYLES[phase]
             row_y = phase_row_y[phase]
             svg_parts.append(
                 f'<text x="8" y="{row_y + 10}" fill="{color}" font-size="11" font-weight="600" font-family="system-ui, sans-serif">{label}</text>'
             )
 
-        for interval in phase_intervals:
-            phase = str(interval.get("phase", "")).lower()
-            if phase not in RESOURCE_PHASE_STYLES:
-                continue
-            try:
-                start_epoch = float(interval["start_epoch"])
-                end_epoch = float(interval["end_epoch"])
-            except (KeyError, TypeError, ValueError):
-                continue
+        for phase, start_epoch, end_epoch, interval in phase_intervals:
             if end_epoch < t_min or start_epoch > t_max:
                 continue
 
