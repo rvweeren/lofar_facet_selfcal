@@ -6,16 +6,20 @@ import re
 
 
 RESOURCE_PHASE_STYLES = {
-    "phaseup": ("Phaseup", "#2563EB"),
-    "average": ("Average", "#0F766E"),
+    "phaseup": ("Phaseup", "#E7B2B2"),
+    "average": ("Average", "#DA6AC1"),
     "phaseshift": ("Phaseshift", "#7C3AED"),
     "filter": ("Filter", "#64748B"),
     "aoflagger": ("AOFlagger", "#BE123C"),
-    "imaging": ("Imaging", "#5C7AFF"),
-    "predict": ("Predict", "#52796F"),
-    "solve": ("Solve", "#CA6702"),
-    "applycal": ("Applycal", "#EE9B00"),
+    "imaging": ("Imaging", "#2563EB"),
+    "predict": ("Predict", "#A0AEF0"),
+    "solve": ("Solve", "#0F766E"),
+    "applycal": ("Applycal", "#9DDCCC"),
 }
+
+RESOURCE_RAM_COLOR = RESOURCE_PHASE_STYLES["imaging"][1]
+
+
 _DP3_PHASE_BY_TYPE = {
     "stationadder": "phaseup",
     "phaseup": "phaseup",
@@ -215,14 +219,14 @@ def generate_resource_svg(samples, phase_intervals=None):
             f'<text x="{pad_l - 8}" y="{y + 4:.1f}" text-anchor="end" fill="var(--teal-dark)" font-size="11" font-family="system-ui, sans-serif">{cpu_val:.0f}%</text>'
         )
         svg_parts.append(
-            f'<text x="{pad_l + plot_w + 8}" y="{y + 4:.1f}" text-anchor="start" fill="var(--amber)" font-size="11" font-family="system-ui, sans-serif">{ram_val:.1f} GiB</text>'
+            f'<text x="{pad_l + plot_w + 8}" y="{y + 4:.1f}" text-anchor="start" fill="{RESOURCE_RAM_COLOR}" font-size="11" font-family="system-ui, sans-serif">{ram_val:.1f} GiB</text>'
         )
 
     svg_parts.append(
         f'<text transform="rotate(-90)" x="-{pad_t + plot_h / 2:.1f}" y="16" text-anchor="middle" fill="var(--teal-dark)" font-weight="600" font-size="11" font-family="system-ui, sans-serif">CPU (% of one core)</text>'
     )
     svg_parts.append(
-        f'<text transform="rotate(90)" x="{pad_t + plot_h / 2:.1f}" y="-{width - 16}" text-anchor="middle" fill="var(--amber)" font-weight="600" font-size="11" font-family="system-ui, sans-serif">RAM (GiB)</text>'
+        f'<text transform="rotate(90)" x="{pad_t + plot_h / 2:.1f}" y="-{width - 16}" text-anchor="middle" fill="{RESOURCE_RAM_COLOR}" font-weight="600" font-size="11" font-family="system-ui, sans-serif">RAM (GiB)</text>'
     )
 
     num_x_ticks = 5 if (t_max - t_min) >= 10 else 2
@@ -303,7 +307,7 @@ def generate_resource_svg(samples, phase_intervals=None):
     ram_coords = [(mx(s["epoch"]), my_ram(s["tree_rss_gib"])) for s in samples]
     if ram_coords:
         line_pts = [f"{x:.1f},{y:.1f}" for x, y in ram_coords]
-        svg_parts.append(f'<polyline points="{" ".join(line_pts)}" fill="none" stroke="#d97706" stroke-width="2.5" stroke-linejoin="round" />')
+        svg_parts.append(f'<polyline points="{" ".join(line_pts)}" fill="none" stroke="{RESOURCE_RAM_COLOR}" stroke-width="2.5" stroke-linejoin="round" />')
 
     svg_parts.append("</svg>")
     return "".join(svg_parts)
