@@ -127,11 +127,14 @@ _RESOURCE_MONITOR = None
 
 try:
     from .monitor import ResourceMonitor
+    from .resource_chart import dp3_command_phases
 except ImportError:
     try:
         from monitor import ResourceMonitor
+        from resource_chart import dp3_command_phases
     except ImportError:
         from facetselfcal.monitor import ResourceMonitor
+        from facetselfcal.resource_chart import dp3_command_phases
 
 
 def _track_resource_phase(phase):
@@ -6290,15 +6293,31 @@ def run(command, log=False, taql=False):
     retval : int
         the return code of the executed process.
     """
+    dp3_phases = dp3_command_phases(command)
     if log:
         terminal_print('Command:', command)
+    if log or dp3_phases:
         logger.info(command)
-    if taql:
-         process = subprocess.run(command, shell=True, capture_output=True,
-                                  encoding="utf-8")
-    else:
-        process = subprocess.run(command, shell=True,
-                                 stderr=subprocess.STDOUT, encoding="utf-8")
+    resource_monitor = _RESOURCE_MONITOR
+    dp3_start_epoch = (
+        time.time()
+        if resource_monitor is not None and dp3_phases
+        else None
+    )
+    try:
+        if taql:
+            process = subprocess.run(
+                command, shell=True, capture_output=True, encoding="utf-8"
+            )
+        else:
+            process = subprocess.run(
+                command, shell=True, stderr=subprocess.STDOUT, encoding="utf-8"
+            )
+    finally:
+        if dp3_start_epoch is not None:
+            resource_monitor.record_phase_intervals(
+                dp3_phases, dp3_start_epoch, time.time()
+            )
     retval = process.returncode
     #stdout = process.stdout
     stderr = process.stderr
@@ -21968,7 +21987,11 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
             args['imsize'] = getimsize(args['boxfile'], args['pixelscale'])
     
     if args['auto'] and args['telescope'] == 'MeerKAT' and not args['DDE']:
-        if args['imsize'] is None: args['imsize'] = 12000 # default for MeerKAT in auto mode
+        if args['imsize'] is None:
+            if args['bandpass']: 
+                args['imsize'] = 1024 # default for MeerKAT when doing bandpass
+            else:
+                args['imsize'] = 12000 # default for MeerKAT in DI auto mode 
 
     if args['paralleldeconvolution'] == 0: # means determine automatically
         if args['imsize'] > 1600 and args['telescope'] == 'MeerKAT':
@@ -23327,7 +23350,8 @@ def main():
     None
         Processing follows the command-line arguments.
 
-        An offline HTML report is generated after initialized runs.
+        An offline HTML report is generated shortly after startup and refreshed
+        during and after processing.
     """
 
     global _REPORT_RUN_INITIALIZED
@@ -23395,6 +23419,9 @@ def main():
 
     facetselfcal_version = '20.1.0'
     print_title(facetselfcal_version)
+    _write_html_overview(
+        Path.cwd(), status="running", announce_browser=True
+    )
 
     # copy h5s locally
     for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
@@ -23677,7 +23704,7 @@ def main():
 
     # LOG INPUT SETTINGS
     logbasicinfo(args, fitsmask, mslist, facetselfcal_version, sys.argv)
-    _write_html_overview(Path.cwd(), status="running")
+    _write_html_overview(Path.cwd(), status="running", quiet=True)
 
     # Make starting skymodel from TGSS or VLASS survey if requested
 
@@ -24260,7 +24287,14 @@ def main():
             cleanup(mslist)
 
 
-def _write_html_overview(run_directory, status, error=None, cycle=None):
+def _write_html_overview(
+    run_directory,
+    status,
+    error=None,
+    cycle=None,
+    announce_browser=False,
+    quiet=False,
+):
     """Generate or refresh the offline HTML overview without aborting a run.
 
     Parameters
@@ -24273,6 +24307,10 @@ def _write_html_overview(run_directory, status, error=None, cycle=None):
         Error summary to include for a failed run.
     cycle : int or None, optional
         Completed cycle that triggered this refresh, if any.
+    announce_browser : bool, optional
+        Highlight the absolute overview path and suggest opening it in a browser.
+    quiet : bool, optional
+        Suppress the success message while still updating the report.
 
     Returns
     -------
@@ -24287,7 +24325,14 @@ def _write_html_overview(run_directory, status, error=None, cycle=None):
         report_index = generate_html_overview(
             run_directory, status=status, error=error
         )
-        if cycle is None:
+        if announce_browser:
+            terminal_print(
+                "\033[1;36mHTML overview is ready. You can open this page in a "
+                "browser: {}\033[0m".format(Path(report_index).resolve())
+            )
+        elif quiet:
+            return
+        elif cycle is None:
             terminal_print("Offline HTML overview written to", report_index)
         else:
             terminal_print(
