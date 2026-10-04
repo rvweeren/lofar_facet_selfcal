@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 from .resource_chart import (
     RESOURCE_PHASE_STYLES,
+    dp3_command_phases,
     generate_resource_svg,
     phase_intervals_from_events,
 )
@@ -64,6 +65,7 @@ _IMAGE_METRIC_FIELDS = (
     ("rms_noise", "RMS noise"),
     ("dynamic_range", "Dynamic range"),
 )
+_JY_IMAGE_METRICS = frozenset(("max_image", "min_image", "rms_noise"))
 _CYCLE_IMAGE_METRIC_FIELDS = (
     ("rms_noise", "RMS noise"),
     ("dynamic_range", "Dynamic range"),
@@ -110,6 +112,21 @@ _CSS = r"""
     --workflow-applycal: #EE9B00;
     --workflow-applycal-pale: #FFF5DD;
     --workflow-applycal-ink: #765000;
+    --workflow-average: #0F766E;
+    --workflow-average-pale: #F0FDFA;
+    --workflow-average-ink: #115E59;
+    --workflow-phaseup: #2563EB;
+    --workflow-phaseup-pale: #EFF6FF;
+    --workflow-phaseup-ink: #1D4ED8;
+    --workflow-phaseshift: #7C3AED;
+    --workflow-phaseshift-pale: #F5F3FF;
+    --workflow-phaseshift-ink: #5B21B6;
+    --workflow-filter: #64748B;
+    --workflow-filter-pale: #F1F5F9;
+    --workflow-filter-ink: #334155;
+    --workflow-aoflagger: #BE123C;
+    --workflow-aoflagger-pale: #FFF1F2;
+    --workflow-aoflagger-ink: #9F1239;
   --code: #f1f5f9;
 }
 * { box-sizing: border-box; }
@@ -164,16 +181,33 @@ section { margin: 26px 0 0; }
 .notice.success { border-color: var(--green-border); border-left-color: var(--green); background: var(--green-pale); color: #14532d; }
 .notice p { margin: 4px 0 0; }
 .data-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.data-table.progression-table { table-layout: fixed; }
+.data-table.progression-table thead th:nth-child(1) { width: 12%; }
+.data-table.progression-table thead th:nth-child(2) { width: 14%; }
+.data-table.progression-table thead th:nth-child(3) { width: 7%; }
+.data-table.progression-table thead th:nth-child(4) { width: 7%; }
+.data-table.progression-table thead th:nth-child(5) { width: 9%; }
+.data-table.progression-table thead th:nth-child(6) { width: 11%; }
+.data-table.progression-table thead th:nth-child(7) { width: 8%; }
+.data-table.progression-table thead th:nth-child(8) { width: 8%; }
+.data-table.progression-table thead th:nth-child(9) { width: 24%; }
+.data-table.progression-table th, .data-table.progression-table td { overflow-wrap: anywhere; }
+.data-table.progression-table td.numeric { white-space: normal; }
+.data-table.progression-table .workflow-ms-row { min-width: 0; grid-template-columns: minmax(0, 38%) minmax(0, 1fr); }
+.data-table.progression-table .workflow-step-badge { white-space: normal; overflow-wrap: anywhere; }
 .table-scroll { max-width: 100%; overflow-x: auto; margin-bottom: 14px; }
 .data-table th, .data-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .data-table thead th { background: var(--surface-alt); color: var(--ink-secondary); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
 .data-table tbody th { width: 220px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .data-table tbody th code { overflow-wrap: anywhere; }
+.data-table td { overflow-wrap: break-word; word-break: normal; }
+.data-table td code { overflow-wrap: anywhere; }
+.data-table td.numeric { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.data-table td.nowrap { white-space: nowrap; }
 .cycle-label { font-size: 14px; font-weight: 700; font-style: italic; }
 .cycle-duration { font-size: 14px; font-weight: 400; }
 .data-table tr:last-child th, .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr:nth-child(even) td, .data-table tbody tr:nth-child(even) th { background: #fafcff; }
-.data-table td { overflow-wrap: anywhere; }
 code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 code { font-size: .9em; background: var(--code); padding: 2px 5px; border-radius: 3px; }
 pre { max-width: 100%; margin: 0; padding: 12px 14px; overflow: auto; background: var(--code); border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
@@ -216,6 +250,7 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 @media (max-width: 768px) { .compare-views { grid-template-columns: 1fr; } }
 .dataset-card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; margin: 16px 0; padding: 16px; box-shadow: 0 1px 3px rgba(15,23,42,0.03); }
 .dataset-header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 12px; }
+.dataset-role { display: inline-block; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 650; white-space: nowrap; }
 .dataset-title { font-size: 15px; font-weight: 700; color: var(--teal-deep); margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .dataset-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .dataset-meta-item { font-size: 12px; }
@@ -240,11 +275,38 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .metric-chart-point-rms-noise { fill: #b45309; }
 .metric-chart-point-dynamic-range { fill: #be123c; }
 .image-metrics-note { margin: 8px 0 12px; color: var(--muted); font-size: 12px; }
+.bandpass-controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.bandpass-controls label { display: grid; gap: 4px; min-width: 180px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.bandpass-controls select { min-height: 36px; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; color: var(--ink); font: inherit; }
+.bandpass-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 20px; }
+.bandpass-stat { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.bandpass-stat strong { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.bandpass-stat span { display: block; margin-top: 3px; color: var(--ink); font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.bandpass-chart-card { margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.bandpass-chart-card h2 { margin: 0 0 2px; font-size: 16px; }
+.bandpass-chart-card p { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.bandpass-chart { display: block; width: 100%; height: auto; overflow: visible; font-family: inherit; }
+.bandpass-grid { stroke: var(--line); stroke-width: 1; }
+.bandpass-axis { fill: var(--muted); font-size: 11px; }
+.bandpass-axis-title { fill: var(--ink-secondary); font-size: 12px; font-weight: 600; }
+.bandpass-line { fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.bandpass-empty { fill: var(--muted); font-size: 14px; }
+.bandpass-note { margin: 8px 0 14px; color: var(--muted); font-size: 12px; }
+.bandpass-error { color: #7f1d1d; }
 .step-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; background: var(--teal-light); color: var(--teal-deep); border: 1px solid var(--teal-border); white-space: nowrap; }
-.workflow-step-grid { display: grid; gap: 5px; min-width: 400px; }
+.workflow-step-grid { display: grid; gap: 5px; min-width: 0; }
 .workflow-ms-row { display: grid; grid-template-columns: minmax(100px, 220px) minmax(0, 1fr); align-items: start; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line-light); }
 .workflow-ms-row:first-child { border-top: 0; padding-top: 0; }
-.workflow-ms-name { min-width: 0; overflow: hidden; color: var(--ink-secondary); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-ms-name-container { min-width: 0; }
+.workflow-ms-name { display: block; width: 100%; min-width: 0; padding: 0; overflow: hidden; border: 0; background: transparent; color: var(--ink-secondary); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.workflow-ms-name:hover { color: var(--teal-dark); text-decoration: underline dotted; text-underline-offset: 2px; }
+.workflow-ms-name:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 2px; }
+.workflow-ms-name-popover { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); box-sizing: border-box; width: min(640px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: min(70vh, 520px); margin: 0; padding: 12px 14px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); box-shadow: 0 6px 18px rgba(15,23,42,.16); }
+.workflow-ms-name-popover dl { margin: 0; }
+.workflow-ms-name-popover dt { margin-top: 9px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.workflow-ms-name-popover dt:first-child { margin-top: 0; }
+.workflow-ms-name-popover dd { margin: 2px 0 0; color: var(--ink); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
+.workflow-ms-name-popover code { font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .workflow-ms-badges, .workflow-step-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; min-width: 0; }
 .workflow-step-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
 .workflow-step-badge { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-alt); color: var(--ink-secondary); font-size: 11px; font-weight: 600; line-height: 1.35; white-space: nowrap; }
@@ -252,6 +314,11 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .workflow-step-badge-predict { border-color: var(--workflow-predict); background: var(--workflow-predict-pale); color: var(--workflow-predict-ink); }
 .workflow-step-badge-solve { border-color: var(--workflow-solve); background: var(--workflow-solve-pale); color: var(--workflow-solve-ink); }
 .workflow-step-badge-apply { border-color: var(--workflow-applycal); background: var(--workflow-applycal-pale); color: var(--workflow-applycal-ink); }
+.workflow-step-badge-average { border-color: var(--workflow-average); background: var(--workflow-average-pale); color: var(--workflow-average-ink); }
+.workflow-step-badge-phaseup { border-color: var(--workflow-phaseup); background: var(--workflow-phaseup-pale); color: var(--workflow-phaseup-ink); }
+.workflow-step-badge-phaseshift { border-color: var(--workflow-phaseshift); background: var(--workflow-phaseshift-pale); color: var(--workflow-phaseshift-ink); }
+.workflow-step-badge-filter { border-color: var(--workflow-filter); background: var(--workflow-filter-pale); color: var(--workflow-filter-ink); }
+.workflow-step-badge-aoflagger { border-color: var(--workflow-aoflagger); background: var(--workflow-aoflagger-pale); color: var(--workflow-aoflagger-ink); }
 .workflow-command-trigger { appearance: none; font-family: inherit; text-align: left; cursor: pointer; }
 .workflow-command-trigger:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .workflow-command-text { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); box-sizing: border-box; width: min(760px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: min(70vh, 640px); margin: 0; padding: 12px 14px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); box-shadow: 0 6px 18px rgba(15,23,42,.16); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -261,11 +328,12 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .workflow-shared-label { flex: 0 0 100px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
 @media (max-width: 600px) { .workflow-ms-row { grid-template-columns: minmax(85px, 140px) minmax(0, 1fr); gap: 5px; } .workflow-shared-label { flex-basis: 85px; } }
 .resource-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.resource-phase-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .resource-card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(15,23,42,0.03); }
 .resource-card strong { display: block; font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .05em; margin-bottom: 4px; }
 .resource-card span { font-size: 18px; font-weight: 700; color: var(--ink); }
 .resource-live-frame { display: block; width: 100%; height: 142px; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
-.resource-chart-live-frame { display: block; width: 100%; height: 560px; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
+.resource-chart-live-frame { display: block; width: 100%; height: 360px; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
 .resource-chart-box { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(15,23,42,0.03); }
 .resource-chart-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; font-size: 12px; font-weight: 600; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; }
@@ -306,7 +374,28 @@ footer { border-top: 1px solid var(--line); padding: 18px 0 26px; color: var(--m
 """
 
 _JS = r"""
+window.addEventListener("message", function (event) {
+    var frame = document.querySelector(".resource-chart-live-frame");
+    if (!frame || event.source !== frame.contentWindow) return;
+    var data = event.data;
+    if (!data || data.type !== "facetselfcal-resource-chart-size") return;
+    if (typeof data.height !== "number" || !Number.isFinite(data.height)) return;
+    frame.style.height = Math.ceil(data.height) + "px";
+});
+
 document.addEventListener("DOMContentLoaded", function () {
+    var liveChartFrame = document.querySelector(".resource-chart-live-frame");
+    if (liveChartFrame) {
+        var requestLiveChartSize = function () {
+            liveChartFrame.contentWindow.postMessage(
+                { type: "facetselfcal-resource-chart-size-request" },
+                "*"
+            );
+        };
+        liveChartFrame.addEventListener("load", requestLiveChartSize);
+        requestLiveChartSize();
+    }
+
     document.querySelectorAll("[data-blink-tool]").forEach(function (tool) {
         var frames = JSON.parse(tool.getAttribute("data-blink-images") || "[]");
         var interval = tool.querySelector("[data-blink-interval]");
@@ -436,12 +525,329 @@ document.addEventListener("DOMContentLoaded", function () {
         };
         input.addEventListener("input", update);
     });
+
+    var bandpassDataNode = document.getElementById("bandpass-data");
+    if (!bandpassDataNode) return;
+
+    var bandpassData = JSON.parse(bandpassDataNode.textContent || "{}");
+    var antennaSelect = document.getElementById("bandpass-antenna");
+    var referenceAntennaSelect = document.getElementById("bandpass-reference-antenna");
+    var polarizationSelect = document.getElementById("bandpass-polarization");
+    var directionSelect = document.getElementById("bandpass-direction");
+    var directionLabel = document.getElementById("bandpass-direction-label");
+    var amplitudeChart = document.getElementById("bandpass-amplitude");
+    var phaseChart = document.getElementById("bandpass-phase");
+    var palette = ["#0f766e", "#2563eb", "#c2410c", "#7c3aed", "#be123c", "#4d7c0f"];
+    var svgNamespace = "http://www.w3.org/2000/svg";
+
+    var union = function (items) {
+        var seen = new Set();
+        return items.reduce(function (result, values) {
+            values.forEach(function (value) {
+                if (!seen.has(value)) {
+                    seen.add(value);
+                    result.push(value);
+                }
+            });
+            return result;
+        }, []);
+    };
+    var addOption = function (select, value, label) {
+        var option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        select.appendChild(option);
+    };
+    var appendSvg = function (svg, tag, attributes, text) {
+        var element = document.createElementNS(svgNamespace, tag);
+        Object.keys(attributes || {}).forEach(function (name) {
+            element.setAttribute(name, attributes[name]);
+        });
+        if (text !== undefined) element.textContent = text;
+        svg.appendChild(element);
+        return element;
+    };
+    var formatTick = function (value) {
+        return Number(value.toPrecision(4)).toString();
+    };
+    var drawBandpassChart = function (
+        svg, solution, metric, antenna, direction, polarizations, referenceAntenna
+    ) {
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        var width = 940;
+        var height = 330;
+        var margin = { left: 76, right: 22, top: 30, bottom: 58 };
+        var plotWidth = width - margin.left - margin.right;
+        var plotHeight = height - margin.top - margin.bottom;
+        svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+        svg.setAttribute("role", "img");
+        svg.setAttribute(
+            "aria-label",
+            (metric === "amplitude" ? "Amplitude" : "Phase") +
+                " bandpass for antenna " + antenna + " in direction " + direction +
+                (metric === "phase"
+                    ? " relative to reference antenna " + referenceAntenna
+                    : "")
+        );
+
+        if (!solution || !solution.series[direction]) {
+            appendSvg(svg, "text", {
+                x: width / 2,
+                y: height / 2,
+                "text-anchor": "middle",
+                class: "bandpass-empty"
+            }, "No " + metric + " solutions are available.");
+            return;
+        }
+
+        var antennaData = solution.series[direction][antenna];
+        var referenceData = referenceAntenna
+            ? solution.series[direction][referenceAntenna]
+            : null;
+        var seriesList = polarizations.map(function (polarization) {
+            var source = antennaData && antennaData[polarization];
+            var values = source || [];
+            var referenceValues = metric === "phase" && referenceData
+                ? (referenceData[polarization] || [])
+                : [];
+            return {
+                polarization: polarization,
+                color: palette[Math.max(0, polarizationNames.indexOf(polarization)) % palette.length],
+                points: solution.frequencies_mhz.map(function (frequency, channel) {
+                    var value = values[channel];
+                    if (value === null || value === undefined || !Number.isFinite(value)) {
+                        return null;
+                    }
+                    if (metric === "phase") {
+                        var referenceValue = referenceValues[channel];
+                        if (
+                            referenceValue === null ||
+                            referenceValue === undefined ||
+                            !Number.isFinite(referenceValue)
+                        ) {
+                            return null;
+                        }
+                        var phaseDifference = value - referenceValue;
+                        value = Math.atan2(
+                            Math.sin(phaseDifference),
+                            Math.cos(phaseDifference)
+                        );
+                    }
+                    return {
+                        frequency: frequency,
+                        value: metric === "phase" ? value * 180 / Math.PI : value
+                    };
+                })
+            };
+        }).filter(function (series) {
+            return series.points.some(function (point) { return point !== null; });
+        });
+
+        if (!seriesList.length || !solution.frequencies_mhz.length) {
+            appendSvg(svg, "text", {
+                x: width / 2,
+                y: height / 2,
+                "text-anchor": "middle",
+                class: "bandpass-empty"
+            }, "No valid " + metric + " samples for this selection.");
+            return;
+        }
+
+        var frequencies = solution.frequencies_mhz.filter(Number.isFinite);
+        var xMin = frequencies.reduce(function (minimum, value) {
+            return Math.min(minimum, value);
+        }, Infinity);
+        var xMax = frequencies.reduce(function (maximum, value) {
+            return Math.max(maximum, value);
+        }, -Infinity);
+        if (xMin === xMax) {
+            xMin -= 0.5;
+            xMax += 0.5;
+        }
+        var finiteValues = [];
+        seriesList.forEach(function (series) {
+            series.points.forEach(function (point) {
+                if (point) finiteValues.push(point.value);
+            });
+        });
+        var yMin = metric === "phase" ? -180 : finiteValues.reduce(function (minimum, value) {
+            return Math.min(minimum, value);
+        }, Infinity);
+        var yMax = metric === "phase" ? 180 : finiteValues.reduce(function (maximum, value) {
+            return Math.max(maximum, value);
+        }, -Infinity);
+        if (metric === "amplitude") {
+            var padding = (yMax - yMin) * 0.08 || Math.max(Math.abs(yMax) * 0.05, 0.05);
+            yMin -= padding;
+            yMax += padding;
+            if (yMin === yMax) yMax = yMin + 1;
+        }
+        var x = function (frequency) {
+            return margin.left + (frequency - xMin) / (xMax - xMin) * plotWidth;
+        };
+        var y = function (value) {
+            return margin.top + (yMax - value) / (yMax - yMin) * plotHeight;
+        };
+
+        for (var tickIndex = 0; tickIndex <= 4; tickIndex += 1) {
+            var fraction = tickIndex / 4;
+            var frequencyTick = xMin + fraction * (xMax - xMin);
+            appendSvg(svg, "line", {
+                x1: x(frequencyTick), y1: margin.top,
+                x2: x(frequencyTick), y2: margin.top + plotHeight,
+                class: "bandpass-grid"
+            });
+            appendSvg(svg, "text", {
+                x: x(frequencyTick), y: margin.top + plotHeight + 22,
+                "text-anchor": "middle", class: "bandpass-axis"
+            }, formatTick(frequencyTick));
+
+            var valueTick = yMax - fraction * (yMax - yMin);
+            appendSvg(svg, "line", {
+                x1: margin.left, y1: y(valueTick),
+                x2: margin.left + plotWidth, y2: y(valueTick),
+                class: "bandpass-grid"
+            });
+            appendSvg(svg, "text", {
+                x: margin.left - 10, y: y(valueTick),
+                "text-anchor": "end", "dominant-baseline": "middle",
+                class: "bandpass-axis"
+            }, formatTick(valueTick));
+        }
+
+        seriesList.forEach(function (series, seriesIndex) {
+            var segment = [];
+            var previousValue = null;
+            var flushSegment = function () {
+                if (segment.length === 1) {
+                    appendSvg(svg, "circle", {
+                        cx: segment[0][0], cy: segment[0][1], r: 2.5,
+                        fill: series.color
+                    });
+                } else if (segment.length > 1) {
+                    var path = segment.map(function (point, pointIndex) {
+                        return (pointIndex ? "L" : "M") + point[0].toFixed(2) + " " +
+                            point[1].toFixed(2);
+                    }).join(" ");
+                    appendSvg(svg, "path", {
+                        d: path,
+                        stroke: series.color,
+                        class: "bandpass-line"
+                    });
+                }
+                segment = [];
+            };
+            series.points.forEach(function (point) {
+                if (!point) {
+                    flushSegment();
+                    previousValue = null;
+                    return;
+                }
+                if (
+                    metric === "phase" &&
+                    previousValue !== null &&
+                    Math.abs(point.value - previousValue) > 180
+                ) {
+                    flushSegment();
+                }
+                segment.push([x(point.frequency), y(point.value)]);
+                previousValue = point.value;
+            });
+            flushSegment();
+
+            var legendX = margin.left + seriesIndex * 112;
+            appendSvg(svg, "line", {
+                x1: legendX, y1: 14, x2: legendX + 20, y2: 14,
+                stroke: series.color, class: "bandpass-line"
+            });
+            appendSvg(svg, "text", {
+                x: legendX + 26, y: 18, class: "bandpass-axis"
+            }, series.polarization);
+        });
+
+        appendSvg(svg, "text", {
+            x: margin.left + plotWidth / 2,
+            y: height - 8,
+            "text-anchor": "middle",
+            class: "bandpass-axis-title"
+        }, "Frequency (MHz)");
+        appendSvg(svg, "text", {
+            x: 18,
+            y: margin.top + plotHeight / 2,
+            transform: "rotate(-90 18 " + (margin.top + plotHeight / 2) + ")",
+            "text-anchor": "middle",
+            class: "bandpass-axis-title"
+        }, metric === "amplitude" ? "Gain amplitude" : "Relative phase (degrees)");
+    };
+
+    var antennaNames = union([
+        bandpassData.amplitude ? bandpassData.amplitude.antennas : [],
+        bandpassData.phase ? bandpassData.phase.antennas : []
+    ]);
+    var polarizationNames = union([
+        bandpassData.amplitude ? bandpassData.amplitude.polarizations : [],
+        bandpassData.phase ? bandpassData.phase.polarizations : []
+    ]);
+    var referenceAntennaNames = bandpassData.phase
+        ? bandpassData.phase.antennas
+        : [];
+    var directionNames = union([
+        bandpassData.amplitude ? bandpassData.amplitude.directions : [],
+        bandpassData.phase ? bandpassData.phase.directions : []
+    ]);
+    antennaNames.forEach(function (name) { addOption(antennaSelect, name, name); });
+    referenceAntennaNames.forEach(function (name) {
+        addOption(referenceAntennaSelect, name, name);
+    });
+    if (!referenceAntennaNames.length) {
+        referenceAntennaSelect.parentElement.hidden = true;
+    }
+    if (polarizationNames.length > 1) {
+        addOption(polarizationSelect, "__all__", "All polarizations");
+    }
+    polarizationNames.forEach(function (name) { addOption(polarizationSelect, name, name); });
+    directionNames.forEach(function (name) { addOption(directionSelect, name, name); });
+    if (directionNames.length < 2) directionLabel.hidden = true;
+    if (polarizationNames.length < 2) polarizationSelect.parentElement.hidden = true;
+
+    var renderBandpass = function () {
+        if (!antennaNames.length || !directionNames.length) return;
+        var selectedPol = polarizationSelect.value;
+        var selectedPolarizations = selectedPol === "__all__"
+            ? polarizationNames
+            : [selectedPol];
+        drawBandpassChart(
+            amplitudeChart, bandpassData.amplitude, "amplitude",
+            antennaSelect.value, directionSelect.value, selectedPolarizations
+        );
+        drawBandpassChart(
+            phaseChart, bandpassData.phase, "phase",
+            antennaSelect.value, directionSelect.value, selectedPolarizations,
+            referenceAntennaSelect.value
+        );
+    };
+    antennaSelect.addEventListener("change", renderBandpass);
+    referenceAntennaSelect.addEventListener("change", renderBandpass);
+    polarizationSelect.addEventListener("change", renderBandpass);
+    directionSelect.addEventListener("change", renderBandpass);
+    renderBandpass();
 });
 """
 
 
 def _escape(value):
     return html.escape(str(value), quote=True)
+
+
+def _bandpass_enabled(config):
+    value = config.get("bandpass")
+    if isinstance(value, str):
+        return value.strip().casefold() == "true"
+    return value is True
+
+
+class _BandpassDataError(ValueError):
+    pass
 
 
 def _parse_config(path):
@@ -465,6 +871,39 @@ def _parse_config(path):
         except (ValueError, SyntaxError):
             config[key] = value
     return config
+
+
+def _parse_first_list_literal(value):
+    start = value.find("[")
+    if start < 0:
+        return None
+
+    depth = 0
+    quote = None
+    escaped = False
+    for end in range(start, len(value)):
+        character = value[end]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = None
+            continue
+        if character in {"'", '"'}:
+            quote = character
+        elif character == "[":
+            depth += 1
+        elif character == "]":
+            depth -= 1
+            if depth == 0:
+                try:
+                    result = ast.literal_eval(value[start : end + 1])
+                except (SyntaxError, ValueError):
+                    return None
+                return result if isinstance(result, (list, tuple)) else None
+    return None
 
 
 def _as_list(value):
@@ -514,10 +953,20 @@ def _relative_url(path, base_dir):
     return quote(Path(relative).as_posix(), safe="/._-()[]")
 
 
-def _page_shell(title, active_page, body, nested=False, subtitle="Offline processing report"):
+def _page_shell(
+    title,
+    active_page,
+    body,
+    nested=False,
+    subtitle="Offline processing report",
+    bandpass_enabled=False,
+):
     prefix = "../" if nested else ""
     nav = []
-    for page, label in _PAGE_NAMES.items():
+    page_names = list(_PAGE_NAMES.items())
+    if bandpass_enabled:
+        page_names.insert(3, ("bandpass.html", "Bandpass"))
+    for page, label in page_names:
         current = ' aria-current="page"' if page == active_page else ""
         nav.append(
             '<a href="{}{}"{}>{}</a>'.format(
@@ -698,6 +1147,7 @@ def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None, star
         if not _is_ms_plot(p) and _include_image_artifact(p, run_started_at, start_cycle)
     ]
     overview_plots = [p for p in raw_plots if not _is_ms_plot(p)]
+    all_ms_plot_files = [p for p in all_raw_plots if _is_ms_plot(p)]
     ms_plot_files = [
         p for p in all_raw_plots
         if _is_ms_plot(p)
@@ -753,10 +1203,16 @@ def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None, star
 
     solutions_dir = run_root / "h5_solutions"
     solution_files = []
+    bandpass_files = []
     if solutions_dir.is_dir():
         for path in solutions_dir.rglob("*.h5"):
             if not path.is_file() or not _artifact_is_current(path, run_started_at):
                 continue
+            if any(
+                part.casefold().startswith("bandpass_")
+                for part in path.relative_to(solutions_dir).parts
+            ):
+                bandpass_files.append(path)
             match = re.search(r"selfcalcycle(\d+)", path.name, re.IGNORECASE)
             if match:
                 cycle = match.group(1)
@@ -765,6 +1221,7 @@ def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None, star
                 cycle_names.add(cycle)
             solution_files.append(path)
     solution_files.sort(key=lambda path: path.name.lower())
+    bandpass_files.sort(key=lambda path: path.as_posix().casefold())
 
     ms_directories = sorted(
         (
@@ -779,12 +1236,14 @@ def _scan_artifacts(run_root, run_started_at=None, current_run_cycles=None, star
     return {
         "overview_plots": overview_plots,
         "all_overview_plots": all_overview_plots,
+        "all_ms_plot_files": all_ms_plot_files,
         "ms_plot_files": ms_plot_files,
         "ms_json_files": ms_json_files,
         "calibration_sets": calibration_sets,
         "fits_files": fits_files,
         "all_fits_files": all_fits_files,
         "solution_files": solution_files,
+        "bandpass_files": bandpass_files,
         "ms_directories": ms_directories,
         "cycles": sorted(cycle_names, key=lambda value: int(value) if value.isdigit() else 10**9),
     }
@@ -923,21 +1382,30 @@ def _workflow_steps_html(step_details, id_prefix="segment"):
                 "predict": "workflow-step-badge-predict",
                 "solve": "workflow-step-badge-solve",
                 "apply": "workflow-step-badge-apply",
+                "average": "workflow-step-badge-average",
+                "phaseup": "workflow-step-badge-phaseup",
+                "phaseshift": "workflow-step-badge-phaseshift",
+                "filter": "workflow-step-badge-filter",
+                "aoflagger": "workflow-step-badge-aoflagger",
             }.get(step["kind"], "workflow-step-badge-other")
             arrow = '<span class="workflow-step-arrow" aria-hidden="true">&rarr;</span>' if index + 1 < len(steps) else ""
             command_id = "workflow-command-{}-{}".format(
                 id_prefix, command_index
             )
             command_index += 1
+            title = "Click to view full command"
+            if step.get("shared_command_duration"):
+                title += "; duration is shared by all steps in this DP3 command"
             badges.append(
                 '<div class="workflow-step-item">'
                 '<button type="button" class="workflow-step-badge workflow-command-trigger {}" '
-                'popovertarget="{}" title="Click to view full command">{} <span class="workflow-step-duration">{}</span></button>'
+                'popovertarget="{}" title="{}">{} <span class="workflow-step-duration">{}</span></button>'
                 '<pre class="workflow-command-text" id="{}" popover="auto">{}</pre>'
                 '{}'
                 '</div>'.format(
                     badge_class,
                     command_id,
+                    _escape(title),
                     _escape(label),
                     _escape(step.get("duration") or "-"),
                     command_id,
@@ -953,12 +1421,29 @@ def _workflow_steps_html(step_details, id_prefix="segment"):
             '<div class="workflow-shared-steps"><span class="workflow-shared-label">Shared</span>'
             '<div class="workflow-step-chain">{}</div></div>'.format(render_badges(shared_steps))
         )
-    for group in ms_groups.values():
+    for group_index, group in enumerate(ms_groups.values()):
+        name_popover_id = "workflow-ms-name-{}-{}".format(
+            id_prefix, group_index
+        )
+        group_name = group["name"]
         rows.append(
-            '<div class="workflow-ms-row"><span class="workflow-ms-name" title="{}">{}</span>'
+            '<div class="workflow-ms-row">'
+            '<div class="workflow-ms-name-container">'
+            '<button type="button" class="workflow-ms-name" popovertarget="{}" '
+            'aria-controls="{}" aria-label="{}" title="{}">{}</button>'
+            '<div class="workflow-ms-name-popover" id="{}" popover="auto">'
+            '<dl><dt>Measurement set</dt><dd><code>{}</code></dd></dl>'
+            '</div></div>'
             '<div class="workflow-ms-badges">{}</div></div>'.format(
-                _escape(group["path"] or group["name"]),
-                _escape(group["name"]),
+                _escape(name_popover_id),
+                _escape(name_popover_id),
+                _escape(
+                    "Show full measurement-set name for {}".format(group_name)
+                ),
+                "Click or tap to view the full measurement-set name",
+                _escape(group_name),
+                _escape(name_popover_id),
+                _escape(group_name),
                 render_badges(group["steps"]),
             )
         )
@@ -984,6 +1469,7 @@ def _scan_logs(run_root):
     cycle_start_pattern = re.compile(
         r"Starting self-calibration cycle\s+(\d+)", re.IGNORECASE
     )
+    setup_steps = []
     image_metric_pattern = re.compile(
         r"^(?P<image>.+?)\s+(?P<metric>Max image|Min image|RMS noise):\s*(?P<value>.+)$",
         re.IGNORECASE,
@@ -1001,6 +1487,14 @@ def _scan_logs(run_root):
     fully_flagged_antennas_pattern = re.compile(
         r"^Fully flagged antennas for MS (?P<ms>.+): (?P<antennas>.*)$"
     )
+    effective_config_names = {
+        "soltype": "soltype_list",
+        "soltypecycles": "soltypecycles_list",
+        "solint": "solint_list",
+        "smoothnessconstraint": "smoothnessconstraint_list",
+    }
+    effective_cycle_config = {}
+    effective_cycle_config_errors = set()
 
     for path in candidates:
         if not path.is_file():
@@ -1035,6 +1529,17 @@ def _scan_logs(run_root):
                         invocations += 1
 
                     if path.name == "selfcal.log":
+                        setting_name, separator, setting_value = message.partition(":")
+                        config_name = effective_config_names.get(setting_name.strip())
+                        if separator and config_name:
+                            parsed_value = _parse_first_list_literal(setting_value)
+                            if parsed_value is None:
+                                effective_cycle_config.pop(config_name, None)
+                                effective_cycle_config_errors.add(config_name)
+                            else:
+                                effective_cycle_config[config_name] = parsed_value
+                                effective_cycle_config_errors.discard(config_name)
+
                         if message.startswith("Run host:"):
                             host_info["host"] = message.split(":", 1)[1].strip()
                         elif message.startswith("Operating system:"):
@@ -1087,6 +1592,30 @@ def _scan_logs(run_root):
                                 "steps": [],
                             }
                             continue
+
+                        if ts_obj is not None:
+                            dp3_phases = dp3_command_phases(message)
+                            if dp3_phases:
+                                ms_path = _ms_path_from_command(message)
+                                ms_key = _ms_group_key(ms_path)
+                                destination = (
+                                    cycles[current_cycle]["steps"]
+                                    if current_cycle is not None
+                                    else setup_steps
+                                )
+                                for phase in dp3_phases:
+                                    destination.append(
+                                        {
+                                            "kind": phase,
+                                            "name": RESOURCE_PHASE_STYLES[phase][0],
+                                            "timestamp": ts_obj,
+                                            "ms_path": ms_path,
+                                            "ms_key": ms_key,
+                                            "ms_name": Path(ms_key).name if ms_key else None,
+                                            "command": message,
+                                            "shared_command_duration": True,
+                                        }
+                                    )
 
                         metric_match = image_metric_pattern.match(message)
                         if metric_match:
@@ -1187,6 +1716,27 @@ def _scan_logs(run_root):
             continue
         logs.append({"path": path, "lines": line_count, "tail": list(tail)})
 
+    def build_step_details(steps, end_time):
+        step_details = []
+        for s_idx, step in enumerate(steps):
+            step_ts = step["timestamp"]
+            next_ts = next(
+                (
+                    candidate["timestamp"]
+                    for candidate in steps[s_idx + 1 :]
+                    if candidate["timestamp"] is not None
+                    and candidate["timestamp"] > step_ts
+                ),
+                end_time,
+            )
+            s_dur = (
+                (next_ts - step_ts).total_seconds()
+                if next_ts is not None and next_ts >= step_ts
+                else None
+            )
+            step_details.append({**step, "duration": _format_duration(s_dur)})
+        return step_details
+
     cycle_keys = sorted(cycles.keys())
     for i, ck in enumerate(cycle_keys):
         cd = cycles[ck]
@@ -1200,17 +1750,32 @@ def _scan_logs(run_root):
         else:
             cd["duration_str"] = "-"
 
-        step_details = []
-        for s_idx, step in enumerate(cd["steps"]):
-            step_ts = step["timestamp"]
-            next_ts = (
-                cd["steps"][s_idx + 1]["timestamp"]
-                if s_idx + 1 < len(cd["steps"])
-                else cd["end_time"]
-            )
-            s_dur = (next_ts - step_ts).total_seconds() if next_ts and next_ts >= step_ts else None
-            step_details.append({**step, "duration": _format_duration(s_dur)})
-        cd["step_details"] = step_details
+        cd["step_details"] = build_step_details(cd["steps"], cd["end_time"])
+
+    setup_end_time = (
+        cycles[cycle_keys[0]]["start_time"] if cycle_keys else last_ts
+    )
+    setup_start_time = min(
+        (
+            step["timestamp"]
+            for step in setup_steps
+            if step.get("timestamp") is not None
+        ),
+        default=None,
+    )
+    setup_start_str = (
+        setup_start_time.strftime("%m/%d/%Y %H:%M:%S")
+        if setup_start_time is not None
+        else ""
+    )
+    setup_duration_str = (
+        _format_duration((setup_end_time - setup_start_time).total_seconds())
+        if setup_start_time is not None
+        and setup_end_time is not None
+        and setup_end_time >= setup_start_time
+        else "-"
+    )
+    setup_step_details = build_step_details(setup_steps, setup_end_time)
 
     total_elapsed = None
     if first_ts and last_ts and last_ts >= first_ts:
@@ -1225,8 +1790,13 @@ def _scan_logs(run_root):
         "invocations": invocations,
         "timestamps": timestamps,
         "host_info": host_info,
+        "effective_cycle_config": effective_cycle_config,
+        "effective_cycle_config_errors": sorted(effective_cycle_config_errors),
         "flagging_stats": flagging_stats,
         "cycle_timeline": [cycles[k] for k in cycle_keys],
+        "setup_step_details": setup_step_details,
+        "setup_start_str": setup_start_str,
+        "setup_duration_str": setup_duration_str,
         "image_metrics": sorted(
             image_metric_records.values(), key=lambda record: record["_order"]
         ),
@@ -1347,7 +1917,11 @@ def _scan_resource_phase_log(run_root, run_started_at=None, start_cycle=0):
                 try:
                     epoch = float(row["epoch"])
                     cycle_raw = row.get("cycle", "").strip()
-                    cycle = int(cycle_raw)
+                    cycle = (
+                        None
+                        if cycle_raw.casefold() in {"", "none"}
+                        else int(cycle_raw)
+                    )
                     phase = row.get("phase", "").strip().lower()
                     event = row.get("event", "").strip().lower()
                 except (KeyError, ValueError, TypeError):
@@ -1355,7 +1929,7 @@ def _scan_resource_phase_log(run_root, run_started_at=None, start_cycle=0):
 
                 if phase not in RESOURCE_PHASE_STYLES or event not in {"start", "end"}:
                     continue
-                if start_cycle > 0 and run_started_at is not None:
+                if start_cycle > 0 and run_started_at is not None and cycle is not None:
                     if cycle >= start_cycle and epoch < run_started_at:
                         continue
 
@@ -1507,20 +2081,11 @@ def _render_resource_section(resources, include_chart=True):
     if include_chart:
         phase_intervals = resources.get("phase_intervals")
         svg_chart = _generate_resource_svg(resources["samples"], phase_intervals)
-        phase_legend = ""
-        if phase_intervals is not None:
-            phase_legend = "".join(
-                '<span class="legend-item"><span class="legend-swatch" style="background:{};"></span> {}</span>'.format(
-                    color, html.escape(label)
-                )
-                for label, color in RESOURCE_PHASE_STYLES.values()
-            )
         legend_html = (
             '<div class="resource-chart-legend">'
             '<span class="legend-item"><span class="legend-swatch" style="background:#0d9488;"></span> Process Tree CPU (% of one core)</span>'
             '<span class="legend-item"><span class="legend-swatch" style="background:#d97706;"></span> Process Tree RAM (GiB)</span>'
             '<span class="legend-item" style="color:var(--muted);"><span class="legend-swatch" style="border-top:2px dashed #94a3b8; background:transparent;"></span> Cycle transition</span>'
-            f'{phase_legend}'
             '</div>'
         )
         chart_box = (
@@ -1548,10 +2113,10 @@ def _render_resource_section(resources, include_chart=True):
                 continue
             rows.append(
                 f'<tr><th scope="row">Cycle {_escape(str(c))}</th>'
-                f'<td>{cs["peak_tree_rss_gib"]:.2f} GiB</td>'
-                f'<td>{cs["peak_tree_cpu_pct"]:.0f}%</td>'
-                f'<td>{cs["avg_tree_cpu_pct"]:.0f}%</td>'
-                f'<td>{cs["count"]}</td></tr>'
+                f'<td class="numeric">{cs["peak_tree_rss_gib"]:.2f} GiB</td>'
+                f'<td class="numeric">{cs["peak_tree_cpu_pct"]:.0f}%</td>'
+                f'<td class="numeric">{cs["avg_tree_cpu_pct"]:.0f}%</td>'
+                f'<td class="numeric">{cs["count"]}</td></tr>'
             )
         if rows:
             cycle_table = (
@@ -1564,9 +2129,21 @@ def _render_resource_section(resources, include_chart=True):
                 f'</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
             )
 
+    dp3_phases = {"phaseup", "average", "phaseshift", "filter", "aoflagger"}
+    phase_note = ""
+    if any(
+        interval.get("phase") in dp3_phases
+        for interval in resources.get("phase_intervals") or []
+    ):
+        phase_note = (
+            '<p class="resource-phase-note">DP3 step bars show the full parent-command '
+            'interval; individual DP3 step timings are not available.</p>'
+        )
+
     return (
         f'<div class="resource-summary-grid">{"".join(cards)}</div>\n'
         f'{chart_box}\n'
+        f'{phase_note}\n'
         f'{cycle_table}'
     )
 
@@ -1669,7 +2246,7 @@ def _measurement_set_metadata(run_root):
                 if normalized_message.startswith("===") and normalized_message.endswith("==="):
                     ms_path = normalized_message[3:-3].strip()
                     if ms_path:
-                        current_metadata = {}
+                        current_metadata = {"_source_path": ms_path}
                         metadata[_canonical_ms_path(ms_path, run_root)] = current_metadata
                     else:
                         current_metadata = None
@@ -1689,29 +2266,51 @@ def _measurement_set_metadata(run_root):
     return metadata
 
 
-def _canonical_ms_path(path, run_root):
+def _resolved_ms_path(path, run_root):
     candidate = Path(path).expanduser()
     if not candidate.is_absolute():
         candidate = run_root / candidate
-    normalized_path = os.path.normpath(str(candidate))
-    return re.sub(r"(?:\.(?:copy|avg))+$", "", normalized_path, flags=re.IGNORECASE)
+    return os.path.normpath(str(candidate))
+
+
+def _canonical_ms_path(path, run_root):
+    return _strip_ms_copy_avg_suffix(_resolved_ms_path(path, run_root))
+
+
+def _strip_ms_copy_avg_suffix(path):
+    return re.sub(r"(?:\.(?:copy|avg))+$", "", str(path), flags=re.IGNORECASE)
+
+
+def _split_ms_parent_name(ms_path):
+    name = _strip_ms_copy_avg_suffix(Path(ms_path).name)
+    match = re.fullmatch(
+        r"(?P<parent>.+)_chunk_\d+(?:\.ms)?", name, flags=re.IGNORECASE
+    )
+    return _strip_ms_copy_avg_suffix(match.group("parent")) if match else None
 
 
 def _match_ms_plots(ms_path, ms_plot_files, ms_json_files):
     name = Path(ms_path).name
-    clean_name = re.sub(r"(?:\.(?:copy|avg))+$", "", name, flags=re.IGNORECASE)
-    matched = {"time_coverage": None, "ateam_png": None, "ateam_json": None}
-    for p in ms_plot_files:
-        p_name = p.name
-        if f"{name}.time_coverage" in p_name or f"{clean_name}.time_coverage" in p_name:
-            matched["time_coverage"] = p
-        elif f"ateam_{name.lower()}" in p_name.lower() or f"ateam_{clean_name.lower()}" in p_name.lower():
-            matched["ateam_png"] = p
-    for j in ms_json_files:
-        j_name = j.name
-        if f"ateam_{name.lower()}" in j_name.lower() or f"ateam_{clean_name.lower()}" in j_name.lower():
-            matched["ateam_json"] = j
-    return matched
+    names = tuple(dict.fromkeys((name, _strip_ms_copy_avg_suffix(name))))
+    plot_files_by_name = {path.name.casefold(): path for path in ms_plot_files}
+    json_files_by_name = {path.name.casefold(): path for path in ms_json_files}
+
+    def find_exact_match(files_by_name, prefix, suffix):
+        for candidate in names:
+            match = files_by_name.get(
+                "{}{}{}".format(prefix, candidate, suffix).casefold()
+            )
+            if match is not None:
+                return match
+        return None
+
+    return {
+        "time_coverage": find_exact_match(
+            plot_files_by_name, "", ".time_coverage.png"
+        ),
+        "ateam_png": find_exact_match(plot_files_by_name, "Ateam_", ".png"),
+        "ateam_json": find_exact_match(json_files_by_name, "Ateam_", ".json"),
+    }
 
 
 def _link(path, base_dir, label=None):
@@ -1870,23 +2469,78 @@ def _root_file_link(path, run_root, site_dir, label=None):
     return _link(path, site_dir, label or path.name)
 
 
-def _write_page(path, title, active, body, nested=False, subtitle="Offline processing report"):
+def _write_page(
+    path,
+    title,
+    active,
+    body,
+    nested=False,
+    subtitle="Offline processing report",
+    bandpass_enabled=False,
+):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        _page_shell(title, active, body, nested=nested, subtitle=subtitle),
+        _page_shell(
+            title,
+            active,
+            body,
+            nested=nested,
+            subtitle=subtitle,
+            bandpass_enabled=bandpass_enabled,
+        ),
         encoding="utf-8",
     )
+
+
+def _jy_display_scale(values):
+    magnitude = 0.0
+    for value in values:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(numeric):
+            magnitude = max(magnitude, abs(numeric))
+
+    if magnitude >= 1.0:
+        return 1.0, "Jy"
+    if magnitude >= 1e-3:
+        return 1e3, "mJy"
+    return 1e6, "\u03bcJy"
+
+
+def _format_jy_value(value, scale=None, unit=None):
+    if value is None:
+        return "-"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if not math.isfinite(numeric):
+        return "{:.5g} Jy".format(numeric)
+    if scale is None or unit is None:
+        scale, unit = _jy_display_scale((numeric,))
+    return "{:.5g} {}".format(numeric * scale, unit)
+
+
+def _format_image_metric_value(field, value):
+    if field in _JY_IMAGE_METRICS:
+        return _format_jy_value(value)
+    return str(value)
 
 
 def _image_metric_cycle_cell(records, field):
     values = [
         '<span title="{}">{}</span>'.format(
-            _escape(record["image"]), _escape(record[field])
+            _escape(record["image"]),
+            _escape(_format_image_metric_value(field, record[field])),
         )
         for record in records
         if record.get(field) is not None
     ]
-    return "<td>{}</td>".format("<br>".join(values) if values else "&mdash;")
+    return '<td class="numeric">{}</td>'.format(
+        "<br>".join(values) if values else "&mdash;"
+    )
 
 
 def _image_metrics_chart(records):
@@ -1937,9 +2591,16 @@ def _image_metrics_chart(records):
             if math.isfinite(value):
                 values[cycle] = value
 
+        display_scale = 1.0
+        display_unit = "Jy"
+        display_label = label
+        if field in _JY_IMAGE_METRICS and values:
+            display_scale, display_unit = _jy_display_scale(values.values())
+            display_label = "{} ({})".format(label, display_unit)
+
         parts.append(
             '<text x="8" y="{}" class="metric-chart-title">{}</text>'.format(
-                row_top + 16, _escape(label)
+                row_top + 16, _escape(display_label)
             )
         )
         if not values:
@@ -1960,6 +2621,11 @@ def _image_metrics_chart(records):
             fraction = grid_index / 2
             y = plot_top + fraction * (plot_bottom - plot_top)
             grid_value = scale_max - fraction * (scale_max - scale_min)
+            axis_value = (
+                grid_value * display_scale
+                if field in _JY_IMAGE_METRICS
+                else grid_value
+            )
             parts.append(
                 '<line x1="{:.1f}" y1="{:.1f}" x2="{:.1f}" y2="{:.1f}" class="metric-chart-grid"/>'.format(
                     plot_left, y, plot_right, y
@@ -1968,7 +2634,7 @@ def _image_metrics_chart(records):
             parts.append(
                 '<text x="{}" y="{:.1f}" text-anchor="end" dominant-baseline="middle" '
                 'class="metric-chart-axis">{}</text>'.format(
-                    plot_left - 8, y, _escape("{:.3g}".format(grid_value))
+                    plot_left - 8, y, _escape("{:.3g}".format(axis_value))
                 )
             )
 
@@ -1994,6 +2660,10 @@ def _image_metrics_chart(records):
             )
         for x, y, cycle in points:
             raw_value = latest_by_cycle[cycle].get(field, "")
+            if field in _JY_IMAGE_METRICS:
+                raw_value = _format_jy_value(
+                    raw_value, display_scale, display_unit
+                )
             parts.append(
                 '<circle cx="{:.1f}" cy="{:.1f}" r="3.5" '
                 'class="metric-chart-point metric-chart-point-{}">'
@@ -2029,7 +2699,9 @@ def _image_metrics_content(records):
         image_name = record.get("image", "")
         image_label = Path(image_name).name or image_name
         metric_cells = "".join(
-            "<td>{}</td>".format(_escape(record.get(field, "-")))
+            '<td class="numeric">{}</td>'.format(
+                _escape(_format_image_metric_value(field, record.get(field, "-")))
+            )
             for field, _ in _IMAGE_METRIC_FIELDS
         )
         rows.append(
@@ -2056,6 +2728,8 @@ def _image_metrics_content(records):
 
 def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
     title = str(config.get("imagename") or run_root.name)
+    progression_config = dict(config)
+    progression_config.update(logs.get("effective_cycle_config", {}))
     status_text, status_class = _status(status)
     ms_inputs = _as_list(config.get("ms"))
     telescope_val = config.get("telescope")
@@ -2187,18 +2861,47 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         if env_cards:
             body_parts.append(_section("Execution Environment", '<div class="env-grid">{}</div>'.format("".join(env_cards)), "Startup system snapshot from logs/selfcal.log."))
 
-    # Cycle Timeline Table
+    setup_step_details = logs.get("setup_step_details", [])
     cycle_timeline = logs.get("cycle_timeline", [])
     image_metrics_by_cycle = defaultdict(list)
     for image_metric in logs.get("image_metrics", []):
         cycle = image_metric.get("cycle")
         if cycle is not None:
             image_metrics_by_cycle[cycle].append(image_metric)
-    if cycle_timeline:
+    if cycle_timeline or setup_step_details:
         rows = []
+        if setup_step_details:
+            preparation_steps_html = _workflow_steps_html(
+                setup_step_details, "setup"
+            )
+            preparation_start = logs.get("setup_start_str")
+            preparation_duration = logs.get("setup_duration_str")
+            preparation_metric_cells = "".join(
+                _image_metric_cycle_cell([], field)
+                for field, _ in _CYCLE_IMAGE_METRIC_FIELDS
+            )
+            rows.append(
+                '<tr>'
+                '<th scope="row"><span class="cycle-label">Preparation</span></th>'
+                '<td>{}</td>'
+                '<td class="numeric"><span class="cycle-duration">{}</span></td>'
+                '{}'
+                '<td class="nowrap">&mdash;</td>'
+                '<td class="numeric">&mdash;</td>'
+                '<td class="numeric">&mdash;</td>'
+                '<td>{}</td>'
+                '</tr>'.format(
+                    _escape(preparation_start) if preparation_start else "&mdash;",
+                    _escape(preparation_duration)
+                    if preparation_duration and preparation_duration != "-"
+                    else "&mdash;",
+                    preparation_metric_cells,
+                    preparation_steps_html,
+                )
+            )
         for cdata in cycle_timeline:
             c_int = int(cdata["cycle"])
-            c_cfg = _get_cycle_config(config, c_int)
+            c_cfg = _get_cycle_config(progression_config, c_int)
             steps_html = _workflow_steps_html(
                 cdata.get("step_details", []), "cycle-{}".format(cdata["cycle"])
             )
@@ -2211,11 +2914,11 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                 '<tr>'
                 '<th scope="row"><span class="cycle-label">Cycle {}</span></th>'
                 '<td>{}</td>'
-                '<td><span class="cycle-duration">{}</span></td>'
+                '<td class="numeric"><span class="cycle-duration">{}</span></td>'
                 '{}'
                 '<td>{}</td>'
-                '<td>{}</td>'
-                '<td>{}</td>'
+                '<td class="numeric">{}</td>'
+                '<td class="numeric">{}</td>'
                 '<td>{}</td>'
                 '</tr>'.format(
                     _escape(cdata["cycle"]),
@@ -2229,7 +2932,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                 )
             )
         timeline_html = (
-            '<div class="table-scroll"><table class="data-table"><thead><tr>'
+            '<div class="table-scroll"><table class="data-table progression-table"><thead><tr>'
             '<th scope="col">Cycle</th>'
             '<th scope="col">Start Time</th>'
             '<th scope="col">Duration</th>'
@@ -2241,7 +2944,43 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             '<th scope="col">Workflow Steps</th>'
             '</tr></thead><tbody>{}</tbody></table></div>'.format("".join(rows))
         )
-        body_parts.append(_section("Self-Calibration Progression", timeline_html, "Timing, parameters, and logged image statistics per calibration cycle."))
+        timeline_note = (
+            "Timing, parameters, and logged image statistics per calibration cycle. "
+            "Preparation lists DP3 work before the first self-calibration cycle when recorded."
+        )
+        effective_settings = logs.get("effective_cycle_config", {})
+        if effective_settings:
+            timeline_note += (
+                " Solver settings use effective values recorded in logs/selfcal.log "
+                "when available; missing settings fall back to full_config.txt."
+            )
+        else:
+            timeline_note += (
+                " No effective solver settings were found in logs/selfcal.log; "
+                "the table uses full_config.txt."
+            )
+        setting_errors = logs.get("effective_cycle_config_errors", [])
+        if setting_errors:
+            timeline_note += (
+                " Could not parse runtime values for {}; those values fall back to "
+                "full_config.txt.".format(", ".join(setting_errors))
+            )
+        all_step_details = setup_step_details + [
+            step
+            for cdata in cycle_timeline
+            for step in cdata.get("step_details", [])
+        ]
+        if any(
+            step.get("shared_command_duration")
+            for step in all_step_details
+        ):
+            timeline_note += (
+                " DP3 steps in a combined command share its full duration; "
+                "individual DP3 step timings are not available."
+            )
+        body_parts.append(
+            _section("Self-Calibration Progression", timeline_html, timeline_note)
+        )
 
     summary_html = _config_table(config, _SUMMARY_KEYS)
     body_parts.append(_section("Run configuration", summary_html, "Selected values from full_config.txt."))
@@ -2297,6 +3036,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         "index.html",
         "\n".join(body_parts),
         subtitle=" / ".join(subtitle_parts),
+        bandpass_enabled=_bandpass_enabled(config),
     )
 
 
@@ -2439,7 +3179,14 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
         ) + "\n"
         + _section("FITS products", "".join(fit_sections), "{} files found.".format(len(fits_files)))
     )
-    _write_page(site_dir / "imaging.html", title, "imaging.html", body, subtitle="Imaging & FITS products / {}".format(run_root.name))
+    _write_page(
+        site_dir / "imaging.html",
+        title,
+        "imaging.html",
+        body,
+        subtitle="Imaging & FITS products / {}".format(run_root.name),
+        bandpass_enabled=_bandpass_enabled(config),
+    )
 
 
 def _cycle_sort_key(value):
@@ -2448,7 +3195,16 @@ def _cycle_sort_key(value):
     return (1, value)
 
 
-def _plot_page(site_dir, run_root, title, dataset_name, dataset_slug, cycle, paths):
+def _plot_page(
+    site_dir,
+    run_root,
+    title,
+    dataset_name,
+    dataset_slug,
+    cycle,
+    paths,
+    bandpass_enabled=False,
+):
     calibration_dir = site_dir / "calibration"
     page_path = calibration_dir / "{}.html".format(dataset_slug)
     cycle_title = "Cycle {}".format(cycle) if cycle != "other" else "Other plots"
@@ -2515,20 +3271,30 @@ def _plot_page(site_dir, run_root, title, dataset_name, dataset_slug, cycle, pat
         body,
         nested=True,
         subtitle="Calibration plots / {} / {}".format(dataset_name, cycle_title),
+        bandpass_enabled=bandpass_enabled,
     )
     return page_path
 
 
 def _calibration_page(site_dir, run_root, config, artifacts):
     title = str(config.get("imagename") or run_root.name)
+    bandpass_enabled = _bandpass_enabled(config)
     calibration_sets = artifacts["calibration_sets"]
     all_cycles = sorted(
         {cycle for _, cycles in calibration_sets for cycle in cycles},
         key=_cycle_sort_key,
     )
     if not calibration_sets:
-        body = '<p class="empty">No calibration plots from the current run were found. Products from earlier runs are not shown.</p>'
-        _write_page(site_dir / "calibration.html", title, "calibration.html", body)
+        body = (
+            '<p class="empty">No calibration plots are (yet) available. </p>'
+        )
+        _write_page(
+            site_dir / "calibration.html",
+            title,
+            "calibration.html",
+            body,
+            bandpass_enabled=bandpass_enabled,
+        )
         return
 
     rows = []
@@ -2552,6 +3318,7 @@ def _calibration_page(site_dir, run_root, config, artifacts):
                 page_slug[:-5],
                 cycle,
                 paths,
+                bandpass_enabled=bandpass_enabled,
             )
             cells.append(
                 '<td><a href="calibration/{}">{} plots</a></td>'.format(
@@ -2571,13 +3338,445 @@ def _calibration_page(site_dir, run_root, config, artifacts):
             cycle_headers, "".join(rows)
         )
     )
-    _write_page(site_dir / "calibration.html", title, "calibration.html", body, subtitle="Calibration solutions / {}".format(run_root.name))
+    _write_page(
+        site_dir / "calibration.html",
+        title,
+        "calibration.html",
+        body,
+        subtitle="Calibration solutions / {}".format(run_root.name),
+        bandpass_enabled=bandpass_enabled,
+    )
+
+
+def _read_bandpass_soltab(solset, solution_name, np):
+    if solution_name not in solset._v_children:
+        return None
+    group = solset._v_children[solution_name]
+    children = group._v_children
+    required_axes = ("time", "freq", "ant", "pol")
+    missing_axes = [axis for axis in required_axes if axis not in children]
+    if "val" not in children:
+        raise _BandpassDataError("{} has no value array.".format(solution_name))
+    if missing_axes:
+        raise _BandpassDataError(
+            "{} is missing axis arrays: {}.".format(
+                solution_name, ", ".join(missing_axes)
+            )
+        )
+
+    frequencies = np.asarray(children["freq"][:], dtype=float)
+    antennas = [_decode_bandpass_label(value) for value in children["ant"][:]]
+    polarizations = [_decode_bandpass_label(value) for value in children["pol"][:]]
+    times = children["time"][:]
+    has_direction_axis = "dir" in children
+    directions = (
+        [_decode_bandpass_label(value) for value in children["dir"][:]]
+        if has_direction_axis
+        else ["Direction"]
+    )
+    if not frequencies.size or not antennas or not polarizations or not directions:
+        raise _BandpassDataError(
+            "{} has an empty frequency, antenna, direction, or polarization axis.".format(
+                solution_name
+            )
+        )
+    if len(set(antennas)) != len(antennas):
+        raise _BandpassDataError("{} has duplicate antenna labels.".format(solution_name))
+    if len(set(polarizations)) != len(polarizations):
+        raise _BandpassDataError(
+            "{} has duplicate polarization labels.".format(solution_name)
+        )
+    if len(set(directions)) != len(directions):
+        raise _BandpassDataError(
+            "{} has duplicate direction labels.".format(solution_name)
+        )
+
+    values = np.asarray(children["val"][:], dtype=float)
+    expected_shape = (
+        len(times),
+        len(frequencies),
+        len(antennas),
+        len(directions),
+        len(polarizations),
+    )
+    if values.ndim == 4 and not has_direction_axis:
+        values = np.expand_dims(values, axis=3)
+    if values.shape != expected_shape:
+        raise _BandpassDataError(
+            "{} has value shape {}, expected {}.".format(
+                solution_name, values.shape, expected_shape
+            )
+        )
+    if not len(times):
+        raise _BandpassDataError("{} has no time samples.".format(solution_name))
+
+    weights = None
+    if "weight" in children:
+        weights = np.asarray(children["weight"][:], dtype=float)
+        if weights.ndim == 4 and not has_direction_axis:
+            weights = np.expand_dims(weights, axis=3)
+        if weights.shape != expected_shape:
+            raise _BandpassDataError(
+                "{} has weight shape {}, expected {}.".format(
+                    solution_name, weights.shape, expected_shape
+                )
+            )
+
+    finite_frequency_indices = np.flatnonzero(np.isfinite(frequencies))
+    if not finite_frequency_indices.size:
+        raise _BandpassDataError(
+            "{} has no finite frequency values.".format(solution_name)
+        )
+    frequency_order = finite_frequency_indices[
+        np.argsort(frequencies[finite_frequency_indices])
+    ]
+    frequencies_mhz = (frequencies[frequency_order] / 1e6).tolist()
+    values = values[:, frequency_order, :, :, :]
+    if weights is not None:
+        weights = weights[:, frequency_order, :, :, :]
+
+    series = {}
+    valid_count = 0
+    total_count = 0
+    for direction_index, direction in enumerate(directions):
+        direction_values = values[:, :, :, direction_index, :]
+        valid = np.isfinite(direction_values)
+        if weights is not None:
+            direction_weights = weights[:, :, :, direction_index, :]
+            valid &= np.isfinite(direction_weights) & (direction_weights > 0)
+
+        if solution_name == "amplitude000":
+            masked_values = np.ma.array(direction_values, mask=~valid)
+            reduced = np.ma.median(masked_values, axis=0).filled(np.nan)
+        else:
+            cosine_sum = np.sum(
+                np.where(valid, np.cos(direction_values), 0.0), axis=0
+            )
+            sine_sum = np.sum(
+                np.where(valid, np.sin(direction_values), 0.0), axis=0
+            )
+            valid_times = np.sum(valid, axis=0)
+            coherence = np.hypot(cosine_sum, sine_sum) / np.maximum(valid_times, 1)
+            reduced = np.arctan2(sine_sum, cosine_sum)
+            reduced[(valid_times == 0) | (coherence < 1e-8)] = np.nan
+
+        reduced = np.asarray(reduced, dtype=float)
+        valid_reduced = np.isfinite(reduced)
+        valid_count += int(np.count_nonzero(valid_reduced))
+        total_count += int(reduced.size)
+        antenna_series = {}
+        for antenna_index, antenna in enumerate(antennas):
+            antenna_series[antenna] = {
+                polarization: [
+                    float(value) if math.isfinite(float(value)) else None
+                    for value in reduced[:, antenna_index, polarization_index]
+                ]
+                for polarization_index, polarization in enumerate(polarizations)
+            }
+        series[direction] = antenna_series
+
+    return {
+        "frequencies_mhz": [float(value) for value in frequencies_mhz],
+        "directions": directions,
+        "antennas": antennas,
+        "polarizations": polarizations,
+        "series": series,
+        "weights_available": weights is not None,
+        "valid_count": valid_count,
+        "total_count": total_count,
+    }
+
+
+def _decode_bandpass_label(value):
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _read_bandpass_h5(path):
+    try:
+        import numpy as np
+        import tables
+    except ImportError as exc:
+        raise _BandpassDataError(
+            "Reading bandpass H5 files requires NumPy and PyTables."
+        ) from exc
+
+    try:
+        with tables.open_file(path, mode="r") as handle:
+            if "sol000" not in handle.root._v_children:
+                raise _BandpassDataError("H5Parm has no sol000 solution set.")
+            solset = handle.root._v_children["sol000"]
+            solutions = {}
+            for solution_name, key in (
+                ("amplitude000", "amplitude"),
+                ("phase000", "phase"),
+            ):
+                solution = _read_bandpass_soltab(solset, solution_name, np)
+                if solution is not None:
+                    solutions[key] = solution
+            if not solutions:
+                raise _BandpassDataError(
+                    "H5Parm contains neither amplitude000 nor phase000 solutions."
+                )
+            return solutions
+    except _BandpassDataError:
+        raise
+    except (
+        tables.HDF5ExtError,
+        tables.NoSuchNodeError,
+        OSError,
+        ValueError,
+        TypeError,
+    ) as exc:
+        raise _BandpassDataError(
+            "Could not read {}: {}".format(path.name, exc)
+        ) from exc
+
+
+def _bandpass_label(path, ms_inputs):
+    filename = path.name.casefold()
+    for measurement_set in ms_inputs:
+        basename = Path(measurement_set).name
+        if basename and filename.endswith((basename + ".h5").casefold()):
+            return basename
+    label = path.stem
+    if label.casefold().startswith("bandpass_"):
+        label = label[len("bandpass_"):]
+    label = re.sub(r"^(?:sky)?selfcalcycle\d+_", "", label, flags=re.IGNORECASE)
+    return label or path.name
+
+
+def _bandpass_summary(solutions):
+    antennas = []
+    polarizations = []
+    directions = []
+    frequencies = []
+    total_count = 0
+    valid_count = 0
+    weights_available = True
+    channels = []
+    for name in ("amplitude", "phase"):
+        solution = solutions.get(name)
+        if solution is None:
+            continue
+        for key, target in (
+            ("antennas", antennas),
+            ("polarizations", polarizations),
+            ("directions", directions),
+        ):
+            for value in solution[key]:
+                if value not in target:
+                    target.append(value)
+        frequencies.extend(solution["frequencies_mhz"])
+        channels.append((name, len(solution["frequencies_mhz"])))
+        total_count += solution["total_count"]
+        valid_count += solution["valid_count"]
+        weights_available &= solution["weights_available"]
+
+    flagged_percent = (
+        100.0 * (total_count - valid_count) / total_count
+        if weights_available and total_count
+        else None
+    )
+    return {
+        "antennas": antennas,
+        "polarizations": polarizations,
+        "directions": directions,
+        "channels": channels,
+        "frequency_min_mhz": min(frequencies) if frequencies else None,
+        "frequency_max_mhz": max(frequencies) if frequencies else None,
+        "flagged_percent": flagged_percent,
+        "weights_available": weights_available,
+    }
+
+
+def _bandpass_frequency_range(summary):
+    frequency_min = summary["frequency_min_mhz"]
+    frequency_max = summary["frequency_max_mhz"]
+    if frequency_min is None or frequency_max is None:
+        return "Unknown"
+    if frequency_min == frequency_max:
+        return "{:.5f} MHz".format(frequency_min)
+    return "{:.5f} to {:.5f} MHz".format(frequency_min, frequency_max)
+
+
+def _bandpass_detail_page(
+    site_dir, title, dataset_name, page_name, solutions, summary
+):
+    bandpass_dir = site_dir / "bandpass"
+    page_path = bandpass_dir / page_name
+    channels_text = " / ".join(
+        "{} {}".format(name, count) for name, count in summary["channels"]
+    )
+    flagged_text = (
+        "{:.1f}%".format(summary["flagged_percent"])
+        if summary["flagged_percent"] is not None
+        else "Unavailable"
+    )
+    stats = (
+        ("Frequency range", _bandpass_frequency_range(summary)),
+        ("Channels", channels_text or "Unavailable"),
+        ("Antennas", str(len(summary["antennas"]))),
+        ("Polarizations", ", ".join(summary["polarizations"]) or "Unavailable"),
+        ("Directions", str(len(summary["directions"]))),
+        ("Flagged samples", flagged_text),
+    )
+    summary_html = '<div class="bandpass-summary">{}</div>'.format(
+        "".join(
+            '<div class="bandpass-stat"><strong>{}</strong><span>{}</span></div>'.format(
+                _escape(label), _escape(value)
+            )
+            for label, value in stats
+        )
+    )
+    controls_html = (
+        '<div class="bandpass-controls">'
+        '<label for="bandpass-antenna">Antenna<select id="bandpass-antenna"></select></label>'
+        '<label for="bandpass-reference-antenna">Phase reference antenna'
+        '<select id="bandpass-reference-antenna"></select></label>'
+        '<label for="bandpass-polarization">Polarization<select id="bandpass-polarization"></select></label>'
+        '<label id="bandpass-direction-label" for="bandpass-direction">'
+        'Direction<select id="bandpass-direction"></select></label>'
+        '</div>'
+    )
+    charts_html = (
+        '<div class="bandpass-chart-card"><h2>Amplitude</h2>'
+        '<p>Dimensionless gain amplitude versus frequency.</p>'
+        '<svg id="bandpass-amplitude" class="bandpass-chart" viewBox="0 0 940 330"></svg></div>'
+        '<div class="bandpass-chart-card"><h2>Phase</h2>'
+        '<p>Phase relative to the selected reference antenna, wrapped to [-180, 180] degrees. The reference itself is zero.</p>'
+        '<svg id="bandpass-phase" class="bandpass-chart" viewBox="0 0 940 330"></svg></div>'
+    )
+    note = (
+        "Each curve is one antenna and polarization. Time samples are collapsed "
+        "to a median amplitude and circular-mean phase. The phase plot subtracts "
+        "the selected reference antenna at each frequency for the same direction "
+        "and polarization; flagged or invalid target/reference samples are left as gaps."
+    )
+    if not summary["weights_available"]:
+        note += " At least one solution table has no weight/flag axis, so only non-finite samples can be omitted."
+    data_json = json.dumps(solutions, separators=(",", ":"), ensure_ascii=True)
+    data_json = (
+        data_json.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+    body = (
+        '<p class="page-intro"><a href="../bandpass.html">&larr; Back to Bandpass index</a> / {}.</p>'.format(
+            _escape(dataset_name)
+        )
+        + summary_html
+        + controls_html
+        + charts_html
+        + '<p class="bandpass-note">{}</p>'.format(_escape(note))
+        + '<script type="application/json" id="bandpass-data">{}</script>'.format(
+            data_json
+        )
+    )
+    _write_page(
+        page_path,
+        title,
+        "bandpass.html",
+        body,
+        nested=True,
+        subtitle="Bandpass solutions / {}".format(dataset_name),
+        bandpass_enabled=True,
+    )
+    return page_path
+
+
+def _bandpass_page(site_dir, run_root, config, artifacts):
+    title = str(config.get("imagename") or run_root.name)
+    rows = []
+    ms_inputs = _as_list(config.get("ms"))
+    for index, path in enumerate(artifacts.get("bandpass_files", []), start=1):
+        dataset_name = _bandpass_label(path, ms_inputs)
+        try:
+            solutions = _read_bandpass_h5(path)
+        except _BandpassDataError as exc:
+            rows.append(
+                '<tr><th scope="row"><code>{}</code></th>'
+                '<td colspan="6" class="bandpass-error">Bandpass data unavailable: {}</td></tr>'.format(
+                    _escape(dataset_name), _escape(exc)
+                )
+            )
+            continue
+
+        summary = _bandpass_summary(solutions)
+        detail_page = _bandpass_detail_page(
+            site_dir,
+            title,
+            dataset_name,
+            "ms-{:02d}.html".format(index),
+            solutions,
+            summary,
+        )
+        channel_text = " / ".join(
+            "{} {}".format(name, count) for name, count in summary["channels"]
+        )
+        flagged_text = (
+            "{:.1f}%".format(summary["flagged_percent"])
+            if summary["flagged_percent"] is not None
+            else "Unavailable"
+        )
+        rows.append(
+            '<tr><th scope="row"><code>{}</code></th>'
+            '<td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td>'
+            '<td><a href="{}">View 1D plots</a></td></tr>'.format(
+                _escape(dataset_name),
+                len(summary["antennas"]),
+                _escape(", ".join(summary["polarizations"]) or "Unavailable"),
+                _escape(channel_text or "Unavailable"),
+                _escape(_bandpass_frequency_range(summary)),
+                _escape(flagged_text),
+                _escape(_relative_url(detail_page, site_dir)),
+            )
+        )
+
+    if rows:
+        solutions_html = (
+            '<div class="table-scroll"><table class="data-table"><thead><tr>'
+            '<th scope="col">Measurement set</th><th scope="col">Antennas</th>'
+            '<th scope="col">Polarizations</th><th scope="col">Channels</th>'
+            '<th scope="col">Frequency coverage</th><th scope="col">Flagged</th>'
+            '<th scope="col">Plots</th></tr></thead><tbody>{}</tbody></table></div>'.format(
+                "".join(rows)
+            )
+        )
+    else:
+        solutions_html = (
+            '<p class="empty">Bandpass was enabled, but no per-measurement-set '
+            'bandpass H5 files were found under h5_solutions/.</p>'
+        )
+    body = (
+        '<p class="page-intro">Select a measurement set to inspect its bandpass. '
+        'Each detail page shows one-dimensional amplitude and phase curves versus '
+        'frequency for a selected antenna and polarization.</p>\n'
+        + _section(
+            "Bandpass solutions",
+            solutions_html,
+            "{} H5 product{} found.".format(
+                len(artifacts.get("bandpass_files", [])),
+                "" if len(artifacts.get("bandpass_files", [])) == 1 else "s",
+            ),
+        )
+    )
+    _write_page(
+        site_dir / "bandpass.html",
+        title,
+        "bandpass.html",
+        body,
+        subtitle="Bandpass solutions / {}".format(run_root.name),
+        bandpass_enabled=True,
+    )
 
 
 def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
     title = str(config.get("imagename") or run_root.name)
     inputs = _as_list(config.get("ms"))
-    flagging_stats = (logs or {}).get("flagging_stats", {})
+    report_logs = logs or {}
+    flagging_stats = report_logs.get("flagging_stats", {})
     flagging_stats_by_basename = defaultdict(list)
     for logged_path, record in flagging_stats.items():
         logged_canonical_path = _canonical_ms_path(logged_path, run_root)
@@ -2586,25 +3785,113 @@ def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
         ].append((logged_canonical_path, record))
 
     metadata_by_ms = _measurement_set_metadata(run_root)
+    cycle_steps = [
+        step
+        for cycle in report_logs.get("cycle_timeline") or ()
+        for step in cycle.get("step_details") or ()
+    ]
+    setup_steps = list(report_logs.get("setup_step_details") or ())
+    candidate_ms_records = [
+        (
+            ms_path,
+            _resolved_ms_path(metadata.get("_source_path", ms_path), run_root),
+        )
+        for ms_path, metadata in metadata_by_ms.items()
+    ]
+    candidate_ms_records.extend(
+        (
+            _canonical_ms_path(step["ms_path"], run_root),
+            _resolved_ms_path(step["ms_path"], run_root),
+        )
+        for step in cycle_steps
+        if step.get("ms_path")
+    )
+    candidate_ms_records.extend(
+        (
+            _canonical_ms_path(path, run_root),
+            _resolved_ms_path(record.get("ms_path", path), run_root),
+        )
+        for path, record in flagging_stats.items()
+    )
+    candidate_ms_records.extend(
+        (
+            _canonical_ms_path(step["ms_path"], run_root),
+            _resolved_ms_path(step["ms_path"], run_root),
+        )
+        for step in setup_steps
+        if step.get("ms_path")
+    )
+    seen_ms_paths = set()
+    selfcal_ms_records = []
+    for canonical_path, display_path in candidate_ms_records:
+        if canonical_path in seen_ms_paths:
+            continue
+        seen_ms_paths.add(canonical_path)
+        selfcal_ms_records.append((canonical_path, display_path))
+
+    split_ms_by_input_name = defaultdict(dict)
+    for canonical_path, display_path in selfcal_ms_records:
+        parent_name = _split_ms_parent_name(canonical_path)
+        if parent_name:
+            split_ms_by_input_name[parent_name.casefold()].setdefault(
+                Path(canonical_path).name.casefold(),
+                (canonical_path, display_path),
+            )
+
+    dataset_entries = []
+    for input_path in inputs:
+        input_path = str(input_path)
+        canonical_input_path = _canonical_ms_path(input_path, run_root)
+        input_name = _strip_ms_copy_avg_suffix(
+            Path(canonical_input_path).name
+        )
+        split_paths = sorted(
+            split_ms_by_input_name.get(input_name.casefold(), {}).values(),
+            key=lambda paths: Path(paths[1]).name.casefold(),
+        )
+        dataset_entries.append(
+            {
+                "path": input_path,
+                "canonical_path": canonical_input_path,
+                "role": "Input MS" if split_paths else "Input / self-calibration MS",
+                "is_input": True,
+                "parent_name": None,
+                "split_paths": split_paths,
+            }
+        )
+        dataset_entries.extend(
+            {
+                "path": display_path,
+                "canonical_path": canonical_path,
+                "role": "Self-calibration MS",
+                "is_input": False,
+                "parent_name": Path(input_path).name,
+                "split_paths": [],
+            }
+            for canonical_path, display_path in split_paths
+        )
+
     has_vla_dataset = any(
-        metadata_by_ms.get(_canonical_ms_path(path, run_root), {})
+        metadata_by_ms.get(entry["canonical_path"], {})
         .get("Telescope", "").strip().upper() in {"VLA", "EVLA"}
-        for path in inputs
+        for entry in dataset_entries
     )
     metadata_fields = tuple(
         (field, labels)
         for field, labels in _MS_METADATA_FIELDS
         if field != "VLA configuration" or has_vla_dataset
     )
-    column_count = len(metadata_fields) + 1
-    input_rows = []
+    column_count = len(metadata_fields) + 2
+    dataset_rows = []
     ms_cards = []
 
     ms_plot_files = artifacts.get("ms_plot_files", [])
+    all_ms_plot_files = artifacts.get("all_ms_plot_files") or ms_plot_files
     ms_json_files = artifacts.get("ms_json_files", [])
 
-    for path in inputs:
-        canonical = _canonical_ms_path(path, run_root)
+    for entry in dataset_entries:
+        path = entry["path"]
+        canonical = entry["canonical_path"]
         ms_display_name = Path(path).name or path
         metadata = dict(metadata_by_ms.get(canonical, {}))
         flagging_record = flagging_stats.get(canonical)
@@ -2614,8 +3901,10 @@ def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
             )
             if len(basename_matches) == 1:
                 flagging_record = basename_matches[0][1]
-        telescope = metadata.get("Telescope", "").strip().upper()
-        search_text = " ".join([path] + list(metadata.values()))
+        telescope = (
+            metadata.get("Telescope") or config.get("telescope") or ""
+        ).strip().upper()
+        search_text = " ".join([path, entry["role"]] + list(metadata.values()))
         metadata_cells = "".join(
             "<td>{}</td>".format(
                 _escape(
@@ -2624,6 +3913,7 @@ def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
                         "Not applicable"
                         if field == "VLA configuration"
                         and has_vla_dataset
+                        and telescope
                         and telescope not in {"VLA", "EVLA"}
                         else "Not recorded",
                     )
@@ -2631,17 +3921,22 @@ def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
             )
             for field, _ in metadata_fields
         )
-        input_rows.append(
-            '<tr class="dataset-row" data-search="{}"><th scope="row"><code title="{}">{}</code></th>{}</tr>'.format(
+        dataset_rows.append(
+            '<tr class="dataset-row" data-search="{}"><th scope="row"><code title="{}">{}</code></th>'
+            '<td><span class="dataset-role">{}</span></td>{}</tr>'.format(
                 _escape(search_text),
                 _escape(path),
                 _escape(ms_display_name),
+                _escape(entry["role"]),
                 metadata_cells,
             )
         )
 
-        # Build quality card per measurement set
-        matched_plots = _match_ms_plots(path, ms_plot_files, ms_json_files)
+        matched_plots = _match_ms_plots(
+            path,
+            all_ms_plot_files if entry["is_input"] else ms_plot_files,
+            ms_json_files,
+        )
         meta_items = []
         for field, _ in metadata_fields:
             if field in metadata:
@@ -2650,6 +3945,22 @@ def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
                         _escape(field), _escape(metadata[field])
                     )
                 )
+        if entry["split_paths"]:
+            split_count = len(entry["split_paths"])
+            split_label = "self-calibration measurement set"
+            if split_count != 1:
+                split_label += "s"
+            meta_items.append(
+                '<div class="dataset-meta-item"><strong>Self-calibration splits</strong><span>{} {}</span></div>'.format(
+                    split_count, split_label
+                )
+            )
+        elif not entry["is_input"]:
+            meta_items.append(
+                '<div class="dataset-meta-item"><strong>Input MS</strong><span>{}</span></div>'.format(
+                    _escape(entry["parent_name"])
+                )
+            )
         if flagging_record is not None:
             percentage = flagging_record.get("flagged_percentage")
             if percentage is not None:
@@ -2716,44 +4027,64 @@ def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
         plots_content = '<div class="dataset-plots-grid">{}</div>{}'.format(
             "".join(plot_figures), ateam_note
         )
+        metadata_content = (
+            '<div class="dataset-meta-grid">{}</div>'.format(
+                "".join(meta_items)
+            )
+            if meta_items
+            else ""
+        )
+        if not metadata and flagging_record is None:
+            metadata_content += (
+                '<p class="empty">No observational metadata parsed from log.</p>'
+            )
 
         ms_cards.append(
             '<div class="dataset-card">'
-            '<div class="dataset-header"><h3 class="dataset-title" title="{}">{}</h3></div>'
-            '<div class="dataset-meta-grid">{}</div>'
+            '<div class="dataset-header"><h3 class="dataset-title" title="{}">{}</h3>'
+            '<span class="dataset-role">{}</span></div>'
+            '{}'
             '<h4>Data Quality & Observation Coverage Plots</h4>'
             '{}'
             '</div>'.format(
                 _escape(path),
                 _escape(ms_display_name),
-                "".join(meta_items) if meta_items else '<p class="empty">No observational metadata parsed from log.</p>',
+                _escape(entry["role"]),
+                metadata_content,
                 plots_content,
             )
         )
 
-    if not input_rows:
-        input_rows.append(
+    if not dataset_rows:
+        dataset_rows.append(
             '<tr><td colspan="{}">No input MS list was found in full_config.txt.</td></tr>'.format(
                 column_count
             )
         )
 
     body = (
-        '<p class="page-intro">Input paths come from full_config.txt. Observation metadata is extracted from logs/selfcal.log. Time coverage and A-team elevation diagnostics are shown below each dataset.</p>\n'
+        '<p class="page-intro">Configured input paths come from full_config.txt. When an input is split for self-calibration, both the input and its self-calibration measurement sets are listed. Observation metadata is extracted from logs/selfcal.log; available input time-coverage plots are shown even if generated before the current run.</p>\n'
         + _section(
-            "Configured Measurement Sets Table",
-            _filter_input(".dataset-row", "Filter configured inputs")
-            + '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Measurement Set</th>{}</tr></thead><tbody>{}</tbody></table></div>'.format(
+            "Input and Self-Calibration Measurement Sets",
+            _filter_input(".dataset-row", "Filter measurement sets")
+            + '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Measurement Set</th><th scope="col">Role</th>{}</tr></thead><tbody>{}</tbody></table></div>'.format(
                 "".join(
                     '<th scope="col">{}</th>'.format(_escape(field))
                     for field, _ in metadata_fields
                 ),
-                "".join(input_rows),
+                "".join(dataset_rows),
             ),
         ) + "\n"
         + _section("Measurement Set Data Quality & Coverage", "".join(ms_cards) if ms_cards else '<p class="empty">No measurement sets configured.</p>')
     )
-    _write_page(site_dir / "datasets.html", title, "datasets.html", body, subtitle="Measurement sets & coverage / {}".format(run_root.name))
+    _write_page(
+        site_dir / "datasets.html",
+        title,
+        "datasets.html",
+        body,
+        subtitle="Measurement sets & coverage / {}".format(run_root.name),
+        bandpass_enabled=_bandpass_enabled(config),
+    )
 
 
 def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text, status, error):
@@ -2867,7 +4198,14 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text,
         + _section("Error log records", _render_log_events(logs["errors"], logs["error_count"], is_error=True)) + "\n"
         + _section("Recent log excerpts", log_tails, "At most the last 80 lines of each log are included here; the full logs are linked above.")
     )
-    _write_page(site_dir / "run-details.html", title, "run-details.html", body, subtitle="Run details & logs / {}".format(run_root.name))
+    _write_page(
+        site_dir / "run-details.html",
+        title,
+        "run-details.html",
+        body,
+        subtitle="Run details & logs / {}".format(run_root.name),
+        bandpass_enabled=_bandpass_enabled(config),
+    )
 
 
 def generate_html_overview(run_directory=".", status="unknown", error=None, output_directory=None):
@@ -2932,6 +4270,8 @@ def generate_html_overview(run_directory=".", status="unknown", error=None, outp
     _overview_page(site_dir, run_root, config, artifacts, logs, status, error)
     _imaging_page(site_dir, run_root, config, artifacts, logs)
     _calibration_page(site_dir, run_root, config, artifacts)
+    if _bandpass_enabled(config):
+        _bandpass_page(site_dir, run_root, config, artifacts)
     _datasets_page(site_dir, run_root, config, artifacts, logs)
     _run_details_page(site_dir, run_root, config, artifacts, logs, command_text, status, error)
     return site_dir / "index.html"
