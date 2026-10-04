@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .resource_chart import (
     RESOURCE_PHASE_STYLES,
+    RESOURCE_RAM_COLOR,
     generate_resource_svg,
     phase_intervals_from_events,
 )
@@ -302,7 +303,7 @@ class ResourceMonitor:
             chart_legend = (
                 '<div class="resource-live-chart-legend">'
                 '<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:#0d9488;"></span>Process Tree CPU (% of one core)</span>'
-                '<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:#d97706;"></span>Process Tree RAM (GiB)</span>'
+                f'<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:{RESOURCE_RAM_COLOR};"></span>Process Tree RAM (GiB)</span>'
                 '<span class="resource-live-legend-item"><span class="resource-live-swatch resource-live-swatch-dashed"></span>Cycle transition</span>'
                 + '</div>'
             )
