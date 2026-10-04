@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 from .resource_chart import (
     RESOURCE_PHASE_STYLES,
+    RESOURCE_RAM_COLOR,
     dp3_command_phases,
     generate_resource_svg,
     phase_intervals_from_events,
@@ -99,34 +100,25 @@ _CSS = r"""
   --green: #15803d;
   --green-pale: #f0fdf4;
   --green-border: #bbf7d0;
-    --workflow-imaging: #5C7AFF;
-    --workflow-imaging-pale: #EEF1FF;
-    --workflow-imaging-ink: #3046A9;
-    --workflow-predict: #52796F;
-    --workflow-predict-pale: #EDF4F1;
-    --workflow-predict-ink: #31564B;
-    --workflow: #CA6702;
-    --workflow-solve: #CA6702;
-    --workflow-solve-pale: #FFF1E3;
-    --workflow-solve-ink: #783C00;
-    --workflow-applycal: #EE9B00;
-    --workflow-applycal-pale: #FFF5DD;
-    --workflow-applycal-ink: #765000;
-    --workflow-average: #0F766E;
-    --workflow-average-pale: #F0FDFA;
-    --workflow-average-ink: #115E59;
-    --workflow-phaseup: #2563EB;
-    --workflow-phaseup-pale: #EFF6FF;
-    --workflow-phaseup-ink: #1D4ED8;
-    --workflow-phaseshift: #7C3AED;
-    --workflow-phaseshift-pale: #F5F3FF;
-    --workflow-phaseshift-ink: #5B21B6;
-    --workflow-filter: #64748B;
-    --workflow-filter-pale: #F1F5F9;
-    --workflow-filter-ink: #334155;
-    --workflow-aoflagger: #BE123C;
-    --workflow-aoflagger-pale: #FFF1F2;
-    --workflow-aoflagger-ink: #9F1239;
+  /* RESOURCE_PHASE_COLORS */
+  --workflow-imaging-pale: #EFF6FF;
+  --workflow-imaging-ink: #1D4ED8;
+  --workflow-predict-pale: #F1F3FE;
+  --workflow-predict-ink: #4655A0;
+  --workflow-solve-pale: #F0FDFA;
+  --workflow-solve-ink: #115E59;
+  --workflow-applycal-pale: #F0FAF7;
+  --workflow-applycal-ink: #276658;
+  --workflow-average-pale: #FFF0FA;
+  --workflow-average-ink: #8A2E72;
+  --workflow-phaseup-pale: #FFF5F5;
+  --workflow-phaseup-ink: #7A4242;
+  --workflow-phaseshift-pale: #F5F3FF;
+  --workflow-phaseshift-ink: #5B21B6;
+  --workflow-filter-pale: #F1F5F9;
+  --workflow-filter-ink: #334155;
+  --workflow-aoflagger-pale: #FFF1F2;
+  --workflow-aoflagger-ink: #9F1239;
   --code: #f1f5f9;
 }
 * { box-sizing: border-box; }
@@ -182,19 +174,32 @@ section { margin: 26px 0 0; }
 .notice p { margin: 4px 0 0; }
 .data-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .data-table.progression-table { table-layout: fixed; }
-.data-table.progression-table thead th:nth-child(1) { width: 12%; }
-.data-table.progression-table thead th:nth-child(2) { width: 14%; }
-.data-table.progression-table thead th:nth-child(3) { width: 7%; }
-.data-table.progression-table thead th:nth-child(4) { width: 7%; }
-.data-table.progression-table thead th:nth-child(5) { width: 9%; }
-.data-table.progression-table thead th:nth-child(6) { width: 11%; }
-.data-table.progression-table thead th:nth-child(7) { width: 8%; }
-.data-table.progression-table thead th:nth-child(8) { width: 8%; }
-.data-table.progression-table thead th:nth-child(9) { width: 24%; }
+.data-table.progression-table thead th:nth-child(1) { width: 9%; }
+.data-table.progression-table thead th:nth-child(2) { width: 15%; }
+.data-table.progression-table thead th:nth-child(3) { width: 10%; white-space: nowrap; }
+.data-table.progression-table thead th:nth-child(4) { width: 8%; }
+.data-table.progression-table thead th:nth-child(5) { width: 10%; }
+.data-table.progression-table thead th:nth-child(6) { width: 12%; }
+.data-table.progression-table thead th:nth-child(7) { width: 9%; }
+.data-table.progression-table thead th:nth-child(8) { width: 12%; white-space: nowrap; }
+.data-table.progression-table thead th:nth-child(9) { width: 15%; }
 .data-table.progression-table th, .data-table.progression-table td { overflow-wrap: anywhere; }
+.data-table.progression-table thead th { overflow-wrap: normal; }
+.data-table.progression-table thead th:nth-child(3),
+.data-table.progression-table thead th:nth-child(4),
+.data-table.progression-table thead th:nth-child(5),
+.data-table.progression-table thead th:nth-child(7),
+.data-table.progression-table thead th:nth-child(8) { text-align: right; }
 .data-table.progression-table td.numeric { white-space: normal; }
-.data-table.progression-table .workflow-ms-row { min-width: 0; grid-template-columns: minmax(0, 38%) minmax(0, 1fr); }
-.data-table.progression-table .workflow-step-badge { white-space: normal; overflow-wrap: anywhere; }
+.data-table.progression-table tbody:nth-of-type(even) tr.progression-summary-row th,
+.data-table.progression-table tbody:nth-of-type(even) tr.progression-summary-row td { background: #fafcff; }
+.data-table.progression-table tr.progression-summary-row > th[scope="row"] { border-left: 3px solid var(--teal); padding-left: 9px; }
+.data-table.progression-table tbody:not(:last-of-type) tr:last-child th,
+.data-table.progression-table tbody:not(:last-of-type) tr:last-child td { border-bottom: 1px solid var(--line); }
+.data-table.progression-table tr.progression-workflow-row td { padding: 6px 12px 10px; background: var(--surface); }
+.data-table.progression-table .workflow-panel { padding: 8px 10px; border: 1px solid var(--line-light); border-left: 3px solid var(--teal); border-radius: 4px; background: var(--surface-alt); }
+.data-table.progression-table .workflow-panel-heading { margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.data-table.progression-table .workflow-shared-label { flex-basis: 100px; }
 .table-scroll { max-width: 100%; overflow-x: auto; margin-bottom: 14px; }
 .data-table th, .data-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .data-table thead th { background: var(--surface-alt); color: var(--ink-secondary); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
@@ -204,7 +209,7 @@ section { margin: 26px 0 0; }
 .data-table td code { overflow-wrap: anywhere; }
 .data-table td.numeric { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
 .data-table td.nowrap { white-space: nowrap; }
-.cycle-label { font-size: 14px; font-weight: 700; font-style: italic; }
+.cycle-label { color: var(--teal-deep); font-size: 14px; font-weight: 700; font-style: normal; }
 .cycle-duration { font-size: 14px; font-weight: 400; }
 .data-table tr:last-child th, .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr:nth-child(even) td, .data-table tbody tr:nth-child(even) th { background: #fafcff; }
@@ -275,9 +280,17 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .metric-chart-point-rms-noise { fill: #b45309; }
 .metric-chart-point-dynamic-range { fill: #be123c; }
 .image-metrics-note { margin: 8px 0 12px; color: var(--muted); font-size: 12px; }
-.bandpass-controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
-.bandpass-controls label { display: grid; gap: 4px; min-width: 180px; color: var(--muted); font-size: 12px; font-weight: 600; }
-.bandpass-controls select { min-height: 36px; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; color: var(--ink); font: inherit; }
+.bandpass-controls { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.bandpass-controls > label { display: grid; gap: 4px; min-width: 180px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.bandpass-controls > label select { min-height: 36px; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; color: var(--ink); font: inherit; }
+.bandpass-range-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 5px 8px; min-width: 220px; margin: 0; padding: 6px 10px 8px; border: 1px solid var(--line-light); border-radius: 4px; }
+.bandpass-range-controls legend { padding: 0 4px; color: var(--ink-secondary); font-size: 11px; font-weight: 700; }
+.bandpass-range-controls label { display: grid; gap: 3px; min-width: 0; color: var(--muted); font-size: 10px; font-weight: 600; }
+.bandpass-range-controls input { box-sizing: border-box; width: 100%; min-height: 34px; padding: 5px 7px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; color: var(--ink); font: inherit; font-variant-numeric: tabular-nums; }
+.bandpass-range-controls input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.bandpass-range-hint, .bandpass-range-error { grid-column: 1 / -1; margin: 0; font-size: 10px; }
+.bandpass-range-hint { color: var(--muted); }
+.bandpass-range-error { color: #7f1d1d; font-size: 11px; font-weight: 600; }
 .bandpass-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 20px; }
 .bandpass-stat { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .bandpass-stat strong { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
@@ -295,8 +308,23 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .bandpass-error { color: #7f1d1d; }
 .step-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; background: var(--teal-light); color: var(--teal-deep); border: 1px solid var(--teal-border); white-space: nowrap; }
 .workflow-step-grid { display: grid; gap: 5px; min-width: 0; }
-.workflow-ms-row { display: grid; grid-template-columns: minmax(100px, 220px) minmax(0, 1fr); align-items: start; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line-light); }
-.workflow-ms-row:first-child { border-top: 0; padding-top: 0; }
+.workflow-step-aggregates { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+.workflow-step-aggregate { cursor: default; }
+.workflow-step-aggregate-count { font-size: 10px; font-variant-numeric: tabular-nums; }
+.workflow-detail-disclosure { min-width: 0; margin-top: 5px; border-top: 1px solid var(--line-light); }
+.workflow-detail-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; padding: 5px 0 0; list-style: none; color: var(--ink-secondary); font-size: 11px; cursor: pointer; }
+.workflow-detail-summary::-webkit-details-marker { display: none; }
+.workflow-detail-summary::before { content: "\25B8"; flex: 0 0 10px; color: var(--muted); font-size: 12px; }
+.workflow-detail-disclosure[open] > .workflow-detail-summary::before { content: "\25BE"; }
+.workflow-detail-summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 2px; }
+.workflow-detail-summary-label { font-weight: 700; }
+.workflow-detail-summary-count { color: var(--muted); font-size: 10px; }
+.workflow-detail-summary-hint { margin-left: auto; color: var(--muted); font-size: 10px; }
+.workflow-detail-disclosure[open] .workflow-detail-summary-hint { display: none; }
+.workflow-detail-content { display: grid; gap: 5px; padding-top: 6px; }
+.workflow-ms-list-heading { display: flex; justify-content: space-between; gap: 8px; margin-top: 5px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.workflow-ms-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; }
+.workflow-ms-row { display: grid; grid-template-columns: minmax(180px, 32%) minmax(0, 1fr); align-items: start; gap: 8px; min-width: 0; padding: 5px 6px; border-top: 1px solid var(--line-light); }
 .workflow-ms-name-container { min-width: 0; }
 .workflow-ms-name { display: block; width: 100%; min-width: 0; padding: 0; overflow: hidden; border: 0; background: transparent; color: var(--ink-secondary); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .workflow-ms-name:hover { color: var(--teal-dark); text-decoration: underline dotted; text-underline-offset: 2px; }
@@ -324,9 +352,9 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .workflow-command-text { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); box-sizing: border-box; width: min(760px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: min(70vh, 640px); margin: 0; padding: 12px 14px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); box-shadow: 0 6px 18px rgba(15,23,42,.16); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .workflow-step-duration { color: var(--ink-secondary); font-size: 10px; font-weight: 500; }
 .workflow-step-arrow { color: var(--muted); font-size: 12px; }
-.workflow-shared-steps { display: flex; align-items: start; gap: 8px; padding-bottom: 4px; }
+.workflow-shared-steps { display: flex; align-items: start; gap: 8px; padding: 0 0 4px; }
 .workflow-shared-label { flex: 0 0 100px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
-@media (max-width: 600px) { .workflow-ms-row { grid-template-columns: minmax(85px, 140px) minmax(0, 1fr); gap: 5px; } .workflow-shared-label { flex-basis: 85px; } }
+@media (max-width: 600px) { .workflow-detail-summary-hint { margin-left: 18px; } .workflow-ms-list-heading { flex-wrap: wrap; } .workflow-ms-row { grid-template-columns: minmax(0, 1fr); gap: 3px; } .workflow-shared-steps { flex-wrap: wrap; gap: 5px; } .workflow-shared-label, .data-table.progression-table .workflow-shared-label { flex-basis: 85px; } }
 .resource-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .resource-phase-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .resource-card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(15,23,42,0.03); }
@@ -372,6 +400,18 @@ footer { border-top: 1px solid var(--line); padding: 18px 0 26px; color: var(--m
   .file-size { display: block; margin-top: 2px; }
 }
 """
+
+
+def _report_css():
+    marker = "  /* RESOURCE_PHASE_COLORS */"
+    if marker not in _CSS:
+        raise RuntimeError("Report stylesheet is missing its resource phase color marker")
+    phase_colors = "\n".join(
+        "  --workflow-{}: {};".format(phase, color)
+        for phase, (_, color) in RESOURCE_PHASE_STYLES.items()
+    )
+    return _CSS.replace(marker, phase_colors, 1)
+
 
 _JS = r"""
 window.addEventListener("message", function (event) {
@@ -537,6 +577,16 @@ document.addEventListener("DOMContentLoaded", function () {
     var directionLabel = document.getElementById("bandpass-direction-label");
     var amplitudeChart = document.getElementById("bandpass-amplitude");
     var phaseChart = document.getElementById("bandpass-phase");
+    var amplitudeRangeControls = {
+        minimum: document.getElementById("bandpass-amplitude-y-min"),
+        maximum: document.getElementById("bandpass-amplitude-y-max"),
+        error: document.getElementById("bandpass-amplitude-range-error")
+    };
+    var phaseRangeControls = {
+        minimum: document.getElementById("bandpass-phase-y-min"),
+        maximum: document.getElementById("bandpass-phase-y-max"),
+        error: document.getElementById("bandpass-phase-range-error")
+    };
     var palette = ["#0f766e", "#2563eb", "#c2410c", "#7c3aed", "#be123c", "#4d7c0f"];
     var svgNamespace = "http://www.w3.org/2000/svg";
 
@@ -570,10 +620,18 @@ document.addEventListener("DOMContentLoaded", function () {
     var formatTick = function (value) {
         return Number(value.toPrecision(4)).toString();
     };
+    var setRangeError = function (controls, message) {
+        controls.error.textContent = message;
+        controls.error.hidden = !message;
+        controls.minimum.setAttribute("aria-invalid", message ? "true" : "false");
+        controls.maximum.setAttribute("aria-invalid", message ? "true" : "false");
+    };
     var drawBandpassChart = function (
-        svg, solution, metric, antenna, direction, polarizations, referenceAntenna
+        svg, solution, metric, antenna, direction, polarizations, referenceAntenna,
+        rangeControls
     ) {
         while (svg.firstChild) svg.removeChild(svg.firstChild);
+        setRangeError(rangeControls, "");
         var width = 940;
         var height = 330;
         var margin = { left: 76, right: 22, top: 30, bottom: 58 };
@@ -682,12 +740,63 @@ document.addEventListener("DOMContentLoaded", function () {
             yMax += padding;
             if (yMin === yMax) yMax = yMin + 1;
         }
+        var minimumInput = rangeControls.minimum;
+        var maximumInput = rangeControls.maximum;
+        var minimumText = minimumInput.value.trim();
+        var maximumText = maximumInput.value.trim();
+        var requestedMinimum = minimumText === "" ? null : Number(minimumText);
+        var requestedMaximum = maximumText === "" ? null : Number(maximumText);
+        var rangeError = "";
+        if (
+            minimumInput.validity.badInput ||
+            maximumInput.validity.badInput ||
+            (requestedMinimum !== null && !Number.isFinite(requestedMinimum)) ||
+            (requestedMaximum !== null && !Number.isFinite(requestedMaximum))
+        ) {
+            rangeError = "Enter valid numeric y-axis limits.";
+        } else {
+            var selectedMinimum = requestedMinimum === null ? yMin : requestedMinimum;
+            var selectedMaximum = requestedMaximum === null ? yMax : requestedMaximum;
+            if (
+                !Number.isFinite(selectedMinimum) ||
+                !Number.isFinite(selectedMaximum) ||
+                selectedMinimum >= selectedMaximum
+            ) {
+                rangeError = "Minimum must be less than maximum for the current selection.";
+            } else {
+                yMin = selectedMinimum;
+                yMax = selectedMaximum;
+            }
+        }
+        if (rangeError) {
+            setRangeError(rangeControls, rangeError);
+            appendSvg(svg, "text", {
+                x: width / 2,
+                y: height / 2,
+                "text-anchor": "middle",
+                class: "bandpass-empty"
+            }, "Invalid y-axis range. Check the minimum and maximum values.");
+            return;
+        }
         var x = function (frequency) {
             return margin.left + (frequency - xMin) / (xMax - xMin) * plotWidth;
         };
         var y = function (value) {
             return margin.top + (yMax - value) / (yMax - yMin) * plotHeight;
         };
+        var plotClipId = svg.id + "-plot-clip";
+        var clipPath = appendSvg(
+            appendSvg(svg, "defs"),
+            "clipPath",
+            { id: plotClipId, clipPathUnits: "userSpaceOnUse" }
+        );
+        appendSvg(clipPath, "rect", {
+            x: margin.left,
+            y: margin.top,
+            width: plotWidth,
+            height: plotHeight
+        });
+        var plotClip = "url(#" + plotClipId + ")";
 
         for (var tickIndex = 0; tickIndex <= 4; tickIndex += 1) {
             var fraction = tickIndex / 4;
@@ -722,7 +831,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (segment.length === 1) {
                     appendSvg(svg, "circle", {
                         cx: segment[0][0], cy: segment[0][1], r: 2.5,
-                        fill: series.color
+                        fill: series.color, "clip-path": plotClip
                     });
                 } else if (segment.length > 1) {
                     var path = segment.map(function (point, pointIndex) {
@@ -732,7 +841,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     appendSvg(svg, "path", {
                         d: path,
                         stroke: series.color,
-                        class: "bandpass-line"
+                        class: "bandpass-line",
+                        "clip-path": plotClip
                     });
                 }
                 segment = [];
@@ -818,18 +928,23 @@ document.addEventListener("DOMContentLoaded", function () {
             : [selectedPol];
         drawBandpassChart(
             amplitudeChart, bandpassData.amplitude, "amplitude",
-            antennaSelect.value, directionSelect.value, selectedPolarizations
+            antennaSelect.value, directionSelect.value, selectedPolarizations,
+            null, amplitudeRangeControls
         );
         drawBandpassChart(
             phaseChart, bandpassData.phase, "phase",
             antennaSelect.value, directionSelect.value, selectedPolarizations,
-            referenceAntennaSelect.value
+            referenceAntennaSelect.value, phaseRangeControls
         );
     };
     antennaSelect.addEventListener("change", renderBandpass);
     referenceAntennaSelect.addEventListener("change", renderBandpass);
     polarizationSelect.addEventListener("change", renderBandpass);
     directionSelect.addEventListener("change", renderBandpass);
+    amplitudeRangeControls.minimum.addEventListener("input", renderBandpass);
+    amplitudeRangeControls.maximum.addEventListener("input", renderBandpass);
+    phaseRangeControls.minimum.addEventListener("input", renderBandpass);
+    phaseRangeControls.maximum.addEventListener("input", renderBandpass);
     renderBandpass();
 });
 """
@@ -1350,7 +1465,35 @@ def _ms_group_key(ms_path):
     return re.sub(r"(?:\.(?:copy|avg))+$", "", normalized, flags=re.IGNORECASE)
 
 
-def _workflow_steps_html(step_details, id_prefix="segment"):
+def _workflow_steps_summary(step_details):
+    if not step_details:
+        return "-"
+
+    shared_count = sum(
+        step["kind"] in ("imaging", "predict") for step in step_details
+    )
+    ms_count = len(
+        {
+            step.get("ms_key")
+            for step in step_details
+            if step["kind"] not in ("imaging", "predict")
+        }
+    )
+    step_count = len(step_details)
+    summary = "{} step{}".format(
+        step_count, "" if step_count == 1 else "s"
+    )
+    details = []
+    if ms_count:
+        details.append("{} MS".format(ms_count))
+    if shared_count:
+        details.append("{} shared".format(shared_count))
+    if details:
+        summary += " ({})".format(", ".join(details))
+    return summary
+
+
+def _workflow_steps_html(step_details, id_prefix="segment", heading="Workflow steps"):
     if not step_details:
         return "-"
 
@@ -1367,27 +1510,56 @@ def _workflow_steps_html(step_details, id_prefix="segment"):
         )
         group["steps"].append(step)
 
+    step_labels = {
+        "imaging": "WSClean imaging",
+        "predict": "WSClean predict",
+        "solve": "Solve",
+        "apply": "Apply",
+    }
+    badge_classes = {
+        "imaging": "workflow-step-badge-imaging",
+        "predict": "workflow-step-badge-predict",
+        "solve": "workflow-step-badge-solve",
+        "apply": "workflow-step-badge-apply",
+        "average": "workflow-step-badge-average",
+        "phaseup": "workflow-step-badge-phaseup",
+        "phaseshift": "workflow-step-badge-phaseshift",
+        "filter": "workflow-step-badge-filter",
+        "aoflagger": "workflow-step-badge-aoflagger",
+    }
+
+    def step_label(step):
+        return step_labels.get(step["kind"], step["name"])
+
+    def step_badge_class(step):
+        return badge_classes.get(step["kind"], "workflow-step-badge-other")
+
+    aggregates = {}
+    for step in step_details:
+        label = step_label(step)
+        key = (step["kind"], label)
+        aggregate = aggregates.setdefault(
+            key, {"step": step, "label": label, "count": 0}
+        )
+        aggregate["count"] += 1
+
+    aggregate_badges = []
+    for aggregate in aggregates.values():
+        aggregate_badges.append(
+            '<span role="listitem" class="workflow-step-badge workflow-step-aggregate {}">'
+            '{} <span class="workflow-step-aggregate-count">({}x)</span></span>'.format(
+                step_badge_class(aggregate["step"]),
+                _escape(aggregate["label"]),
+                aggregate["count"],
+            )
+        )
+
     def render_badges(steps):
         nonlocal command_index
         badges = []
         for index, step in enumerate(steps):
-            label = {
-                "imaging": "WSClean imaging",
-                "predict": "WSClean predict",
-                "solve": "Solve",
-                "apply": "Apply",
-            }.get(step["kind"], step["name"])
-            badge_class = {
-                "imaging": "workflow-step-badge-imaging",
-                "predict": "workflow-step-badge-predict",
-                "solve": "workflow-step-badge-solve",
-                "apply": "workflow-step-badge-apply",
-                "average": "workflow-step-badge-average",
-                "phaseup": "workflow-step-badge-phaseup",
-                "phaseshift": "workflow-step-badge-phaseshift",
-                "filter": "workflow-step-badge-filter",
-                "aoflagger": "workflow-step-badge-aoflagger",
-            }.get(step["kind"], "workflow-step-badge-other")
+            label = step_label(step)
+            badge_class = step_badge_class(step)
             arrow = '<span class="workflow-step-arrow" aria-hidden="true">&rarr;</span>' if index + 1 < len(steps) else ""
             command_id = "workflow-command-{}-{}".format(
                 id_prefix, command_index
@@ -1415,11 +1587,49 @@ def _workflow_steps_html(step_details, id_prefix="segment"):
             )
         return "".join(badges)
 
-    rows = ['<div class="workflow-step-grid">']
+    rows = [
+        '<div class="workflow-panel" role="group" aria-label="{}">'
+        '<div class="workflow-panel-heading">{}</div>'
+        '<div class="workflow-step-grid">'
+        '<div class="workflow-step-aggregates" role="list" aria-label="Aggregate step counts">{}</div>'.format(
+            _escape(heading),
+            _escape(heading),
+            "".join(aggregate_badges),
+        )
+    ]
+    if shared_steps or ms_groups:
+        detail_counts = []
+        if shared_steps:
+            detail_counts.append(
+                "{} shared step{}".format(
+                    len(shared_steps), "" if len(shared_steps) == 1 else "s"
+                )
+            )
+        if ms_groups:
+            detail_counts.append(
+                "{} measurement set{}".format(
+                    len(ms_groups), "" if len(ms_groups) == 1 else "s"
+                )
+            )
+        rows.append(
+            '<details class="workflow-detail-disclosure">'
+            '<summary class="workflow-detail-summary">'
+            '<span class="workflow-detail-summary-label">Detailed steps</span>'
+            '<span class="workflow-detail-summary-count">{}</span>'
+            '<span class="workflow-detail-summary-hint">Click to expand</span>'
+            '</summary><div class="workflow-detail-content">'.format(
+                _escape(" · ".join(detail_counts))
+            )
+        )
     if shared_steps:
         rows.append(
             '<div class="workflow-shared-steps"><span class="workflow-shared-label">Shared</span>'
             '<div class="workflow-step-chain">{}</div></div>'.format(render_badges(shared_steps))
+        )
+    if ms_groups:
+        rows.append(
+            '<div class="workflow-ms-list-heading">Per measurement set</div>'
+            '<div class="workflow-ms-list">'
         )
     for group_index, group in enumerate(ms_groups.values()):
         name_popover_id = "workflow-ms-name-{}-{}".format(
@@ -1447,7 +1657,11 @@ def _workflow_steps_html(step_details, id_prefix="segment"):
                 render_badges(group["steps"]),
             )
         )
-    rows.append("</div>")
+    if ms_groups:
+        rows.append("</div>")
+    if shared_steps or ms_groups:
+        rows.append("</div></details>")
+    rows.append("</div></div>")
     return "".join(rows)
 
 
@@ -2084,7 +2298,7 @@ def _render_resource_section(resources, include_chart=True):
         legend_html = (
             '<div class="resource-chart-legend">'
             '<span class="legend-item"><span class="legend-swatch" style="background:#0d9488;"></span> Process Tree CPU (% of one core)</span>'
-            '<span class="legend-item"><span class="legend-swatch" style="background:#d97706;"></span> Process Tree RAM (GiB)</span>'
+            f'<span class="legend-item"><span class="legend-swatch" style="background:{RESOURCE_RAM_COLOR};"></span> Process Tree RAM (GiB)</span>'
             '<span class="legend-item" style="color:var(--muted);"><span class="legend-swatch" style="border-top:2px dashed #94a3b8; background:transparent;"></span> Cycle transition</span>'
             '</div>'
         )
@@ -2869,10 +3083,12 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         if cycle is not None:
             image_metrics_by_cycle[cycle].append(image_metric)
     if cycle_timeline or setup_step_details:
-        rows = []
+        row_groups = []
         if setup_step_details:
             preparation_steps_html = _workflow_steps_html(
-                setup_step_details, "setup"
+                setup_step_details,
+                "setup",
+                "Workflow steps for Preparation",
             )
             preparation_start = logs.get("setup_start_str")
             preparation_duration = logs.get("setup_duration_str")
@@ -2880,8 +3096,8 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                 _image_metric_cycle_cell([], field)
                 for field, _ in _CYCLE_IMAGE_METRIC_FIELDS
             )
-            rows.append(
-                '<tr>'
+            preparation_rows = [
+                '<tr class="progression-summary-row">'
                 '<th scope="row"><span class="cycle-label">Preparation</span></th>'
                 '<td>{}</td>'
                 '<td class="numeric"><span class="cycle-duration">{}</span></td>'
@@ -2896,22 +3112,35 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                     if preparation_duration and preparation_duration != "-"
                     else "&mdash;",
                     preparation_metric_cells,
-                    preparation_steps_html,
+                    _escape(_workflow_steps_summary(setup_step_details)),
+                )
+            ]
+            preparation_rows.append(
+                '<tr class="progression-workflow-row"><td colspan="9">{}</td></tr>'.format(
+                    preparation_steps_html
+                )
+            )
+            row_groups.append(
+                '<tbody class="progression-cycle-group">{}</tbody>'.format(
+                    "".join(preparation_rows)
                 )
             )
         for cdata in cycle_timeline:
             c_int = int(cdata["cycle"])
             c_cfg = _get_cycle_config(progression_config, c_int)
+            cycle_step_details = cdata.get("step_details", [])
             steps_html = _workflow_steps_html(
-                cdata.get("step_details", []), "cycle-{}".format(cdata["cycle"])
+                cycle_step_details,
+                "cycle-{}".format(cdata["cycle"]),
+                "Workflow steps for Cycle {}".format(cdata["cycle"]),
             )
             cycle_metric_records = image_metrics_by_cycle.get(cdata["cycle"], [])
             metric_cells = "".join(
                 _image_metric_cycle_cell(cycle_metric_records, field)
                 for field, _ in _CYCLE_IMAGE_METRIC_FIELDS
             )
-            rows.append(
-                '<tr>'
+            cycle_rows = [
+                '<tr class="progression-summary-row">'
                 '<th scope="row"><span class="cycle-label">Cycle {}</span></th>'
                 '<td>{}</td>'
                 '<td class="numeric"><span class="cycle-duration">{}</span></td>'
@@ -2928,7 +3157,18 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                     _cycle_config_values_html(c_cfg["soltype"]),
                     _cycle_config_values_html(c_cfg["solint"], _format_overview_interval),
                     _cycle_config_values_html(c_cfg["smoothness"], _format_overview_smoothness),
-                    steps_html,
+                    _escape(_workflow_steps_summary(cycle_step_details)),
+                )
+            ]
+            if cycle_step_details:
+                cycle_rows.append(
+                    '<tr class="progression-workflow-row"><td colspan="9">{}</td></tr>'.format(
+                        steps_html
+                    )
+                )
+            row_groups.append(
+                '<tbody class="progression-cycle-group">{}</tbody>'.format(
+                    "".join(cycle_rows)
                 )
             )
         timeline_html = (
@@ -2942,7 +3182,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             '<th scope="col">Interval</th>'
             '<th scope="col">Smoothness</th>'
             '<th scope="col">Workflow Steps</th>'
-            '</tr></thead><tbody>{}</tbody></table></div>'.format("".join(rows))
+            '</tr></thead>{}</table></div>'.format("".join(row_groups))
         )
         timeline_note = (
             "Timing, parameters, and logged image statistics per calibration cycle. "
@@ -3638,6 +3878,36 @@ def _bandpass_detail_page(
         '<label for="bandpass-polarization">Polarization<select id="bandpass-polarization"></select></label>'
         '<label id="bandpass-direction-label" for="bandpass-direction">'
         'Direction<select id="bandpass-direction"></select></label>'
+        '<fieldset class="bandpass-range-controls">'
+        '<legend>Amplitude Y range</legend>'
+        '<label for="bandpass-amplitude-y-min">Min'
+        '<input id="bandpass-amplitude-y-min" type="number" step="any" inputmode="decimal" '
+        'placeholder="Auto" aria-describedby="bandpass-amplitude-range-hint '
+        'bandpass-amplitude-range-error"></label>'
+        '<label for="bandpass-amplitude-y-max">Max'
+        '<input id="bandpass-amplitude-y-max" type="number" step="any" inputmode="decimal" '
+        'placeholder="Auto" aria-describedby="bandpass-amplitude-range-hint '
+        'bandpass-amplitude-range-error"></label>'
+        '<p id="bandpass-amplitude-range-hint" class="bandpass-range-hint">'
+        'Blank endpoints use automatic scaling.</p>'
+        '<p id="bandpass-amplitude-range-error" class="bandpass-range-error" '
+        'role="status" aria-live="polite" hidden></p>'
+        '</fieldset>'
+        '<fieldset class="bandpass-range-controls">'
+        '<legend>Phase Y range (degrees)</legend>'
+        '<label for="bandpass-phase-y-min">Min'
+        '<input id="bandpass-phase-y-min" type="number" step="any" inputmode="decimal" '
+        'placeholder="-180" aria-describedby="bandpass-phase-range-hint '
+        'bandpass-phase-range-error"></label>'
+        '<label for="bandpass-phase-y-max">Max'
+        '<input id="bandpass-phase-y-max" type="number" step="any" inputmode="decimal" '
+        'placeholder="180" aria-describedby="bandpass-phase-range-hint '
+        'bandpass-phase-range-error"></label>'
+        '<p id="bandpass-phase-range-hint" class="bandpass-range-hint">'
+        'Blank endpoints keep the default -180 to 180 degree range.</p>'
+        '<p id="bandpass-phase-range-error" class="bandpass-range-error" '
+        'role="status" aria-live="polite" hidden></p>'
+        '</fieldset>'
         '</div>'
     )
     charts_html = (
@@ -4233,7 +4503,7 @@ def generate_html_overview(run_directory=".", status="unknown", error=None, outp
     site_dir.mkdir(parents=True, exist_ok=True)
     asset_dir = site_dir / "assets"
     asset_dir.mkdir(parents=True, exist_ok=True)
-    (asset_dir / "report.css").write_text(_CSS, encoding="utf-8")
+    (asset_dir / "report.css").write_text(_report_css(), encoding="utf-8")
     (asset_dir / "report.js").write_text(_JS, encoding="utf-8")
 
     config = _parse_config(run_root / "full_config.txt")
