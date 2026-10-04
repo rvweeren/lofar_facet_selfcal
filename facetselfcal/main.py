@@ -36,6 +36,7 @@ import copy
 import fnmatch
 import gc
 import concurrent.futures
+import fcntl
 import glob
 import logging
 import multiprocessing
@@ -50,6 +51,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from contextlib import contextmanager
 from functools import wraps
 from itertools import product
 from itertools import groupby
@@ -124,6 +126,117 @@ logger.setLevel(logging.DEBUG)
 
 _REPORT_RUN_INITIALIZED = False
 _RESOURCE_MONITOR = None
+
+_RUN_MODE_MARKER = "facetselfcal_mode.txt"
+_RUN_LOCK_FILE = ".facetselfcal.lock"
+_RUN_MODES = frozenset(("bandpass", "DDE", "standard"))
+
+
+class _RunDirectoryBusyError(RuntimeError):
+    pass
+
+
+@contextmanager
+def _run_directory_lock(run_directory):
+    """Hold an exclusive, process-released lock for a run directory."""
+    misc_directory = Path(run_directory) / "misc"
+    misc_directory.mkdir(parents=True, exist_ok=True)
+    lock_path = misc_directory / _RUN_LOCK_FILE
+
+    with lock_path.open("a", encoding="utf-8") as lock_file:
+        try:
+            fcntl.flock(
+                lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
+            )
+        except BlockingIOError as exc:
+            raise _RunDirectoryBusyError(
+                "Another facetselfcal run is already active in {}.".format(
+                    Path(run_directory).resolve()
+                )
+            ) from exc
+        yield
+
+
+def _run_mode_from_args(args):
+    dde = args.get("DDE")
+    bandpass = args.get("bandpass")
+    if not isinstance(dde, bool) or not isinstance(bandpass, bool):
+        raise ValueError("The DDE and bandpass mode flags must be booleans.")
+    if dde and bandpass:
+        raise ValueError("--DDE and --bandpass cannot be used together.")
+    if bandpass:
+        return "bandpass"
+    if dde:
+        return "DDE"
+    return "standard"
+
+
+def _run_mode_from_config(config_path):
+    mode_flags = {}
+    with Path(config_path).open(encoding="utf-8") as config_file:
+        for line in config_file:
+            key, separator, value = line.partition("=")
+            key = key.strip()
+            if not separator or key not in ("DDE", "bandpass"):
+                continue
+            try:
+                mode_flags[key] = ast.literal_eval(value.strip())
+            except (SyntaxError, ValueError) as exc:
+                raise ValueError(
+                    "Could not parse the {} flag in {}.".format(key, config_path)
+                ) from exc
+
+    if "DDE" not in mode_flags:
+        raise ValueError(
+            "{} does not contain a DDE mode flag.".format(config_path)
+        )
+    mode_flags.setdefault("bandpass", False)
+    return _run_mode_from_args(mode_flags)
+
+
+def _validate_run_mode(recorded_mode, requested_mode, source):
+    if recorded_mode not in _RUN_MODES:
+        raise ValueError(
+            "{} contains unrecognized run mode {!r}; expected one of {}.".format(
+                source, recorded_mode, ", ".join(sorted(_RUN_MODES))
+            )
+        )
+    if recorded_mode != requested_mode:
+        raise ValueError(
+            "This directory is already associated with the {!r} mode ({}) and "
+            "cannot be used for a {!r} run. Use a new, clean run directory to "
+            "change modes.".format(recorded_mode, source, requested_mode)
+        )
+
+
+def _ensure_run_mode_marker(run_directory, requested_mode):
+    if requested_mode not in _RUN_MODES:
+        raise ValueError("Unrecognized requested run mode {!r}.".format(requested_mode))
+
+    run_directory = Path(run_directory)
+    misc_directory = run_directory / "misc"
+    misc_directory.mkdir(parents=True, exist_ok=True)
+    marker_path = misc_directory / _RUN_MODE_MARKER
+
+    if marker_path.exists():
+        recorded_mode = marker_path.read_text(encoding="utf-8").strip()
+        _validate_run_mode(recorded_mode, requested_mode, marker_path)
+        return
+
+    legacy_config = run_directory / "full_config.txt"
+    if legacy_config.is_file():
+        recorded_mode = _run_mode_from_config(legacy_config)
+        _validate_run_mode(recorded_mode, requested_mode, legacy_config)
+
+    try:
+        with marker_path.open("x", encoding="utf-8") as marker_file:
+            marker_file.write(requested_mode + "\n")
+            marker_file.flush()
+            os.fsync(marker_file.fileno())
+    except FileExistsError:
+        recorded_mode = marker_path.read_text(encoding="utf-8").strip()
+        _validate_run_mode(recorded_mode, requested_mode, marker_path)
+
 
 try:
     from .monitor import ResourceMonitor
@@ -23386,6 +23499,13 @@ def main():
 
     global args
     args = vars(options)
+    try:
+        requested_run_mode = _run_mode_from_args(args)
+        _ensure_run_mode_marker(Path.cwd(), requested_run_mode)
+    except ValueError as exc:
+        terminal_print("Cannot start facetselfcal: {}".format(exc))
+        raise SystemExit(2) from None
+
     _configure_selfcal_log(args['start'])
     _log_machine_info()
     _prepare_html_overview(args['start'])
@@ -24414,7 +24534,24 @@ def _with_html_report(run_function):
     return wrapped
 
 
-main = _with_html_report(main)
+def _with_run_directory_lock(run_function):
+    """Prevent simultaneous workflows from sharing one working directory."""
+    @wraps(run_function)
+    def wrapped(*run_args, **run_kwargs):
+        if any(argument in ("-h", "--help") for argument in sys.argv[1:]):
+            return run_function(*run_args, **run_kwargs)
+
+        try:
+            with _run_directory_lock(Path.cwd()):
+                return run_function(*run_args, **run_kwargs)
+        except _RunDirectoryBusyError as exc:
+            terminal_print(str(exc))
+            raise SystemExit(1) from None
+
+    return wrapped
+
+
+main = _with_run_directory_lock(_with_html_report(main))
 
 
 if __name__ == "__main__":
