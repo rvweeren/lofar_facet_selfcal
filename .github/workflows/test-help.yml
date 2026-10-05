@@ -62,11 +62,14 @@ jobs:
 
       - name: Run --help on main.py
         run: |
-          singularity exec --bind "$(pwd)":/repo flocs.sif \
+          run_directory="$(mktemp -d "$RUNNER_TEMP/facetselfcal.XXXXXX")"
+          trap 'rm -rf -- "$run_directory"' EXIT
+          singularity exec \
+          --bind "$(pwd):/repo" \
+          --bind "$run_directory:/work" \
+          --pwd /work \
+          flocs.sif \
           python /repo/facetselfcal/main.py --help
-
-      - name: Locate breizorro in Singularity image
-        run: singularity exec flocs.sif which breizorro          
 
       - name: Run --help on h5_merger
         run: |
@@ -92,19 +95,37 @@ jobs:
 
       - name: Run --auto with facetselfcal
         run: |
-          singularity exec --bind "$(pwd)":/repo flocs.sif \
+          run_directory="$(mktemp -d "$RUNNER_TEMP/facetselfcal.XXXXXX")"
+          trap 'rm -rf -- "$run_directory"' EXIT
+          singularity exec \
+          --bind "$(pwd):/repo" \
+          --bind "$run_directory:/work" \
+          --pwd /work \
+          flocs.sif \
           python /repo/facetselfcal.py --auto --testing --stop 2 --channelsout 2 --fitspectralpol 1 /repo/.github/data/test.ms
 
       - name: Run self-calibration with config file
         run: |
-          singularity exec --bind "$(pwd)":/repo flocs.sif \
+          run_directory="$(mktemp -d "$RUNNER_TEMP/facetselfcal.XXXXXX")"
+          trap 'rm -rf -- "$run_directory"' EXIT
+          singularity exec \
+          --bind "$(pwd):/repo" \
+          --bind "$run_directory:/work" \
+          --pwd /work \
+          flocs.sif \
           python /repo/facetselfcal.py --configpath /repo/.github/data/config_dd.txt /repo/.github/data/test.ms
 
       - name: Run calibration with skymodel
         run: |
-          singularity exec --bind "$(pwd)":/repo flocs.sif \
+          run_directory="$(mktemp -d "$RUNNER_TEMP/facetselfcal.XXXXXX")"
+          trap 'rm -rf -- "$run_directory"' EXIT
+          singularity exec \
+          --bind "$(pwd):/repo" \
+          --bind "$run_directory:/work" \
+          --pwd /work \
+          flocs.sif \
           python /repo/facetselfcal.py \
-          --imsize=256 \
+          --imsize=1600 \
           -i testdi \
           --pixelscale=0.075 \
           --uvmin=20000 \
@@ -132,9 +153,16 @@ jobs:
           --test \
           /repo/.github/data/test.ms
 
+          
       - name: Run calibration with skymodel and station group calibration
         run: |
-          singularity exec --bind "$(pwd)":/repo flocs.sif \
+          run_directory="$(mktemp -d "$RUNNER_TEMP/facetselfcal.XXXXXX")"
+          trap 'rm -rf -- "$run_directory"' EXIT
+          singularity exec \
+          --bind "$(pwd)":/repo \
+          --bind "$run_directory:/work" \
+          --pwd /work \
+          flocs.sif \
           python /repo/facetselfcal.py \
           --imsize=256 \
           -i testdi2 \
@@ -165,7 +193,13 @@ jobs:
 
       - name: Run multi-facet calibration
         run: |
-          singularity exec --bind "$(pwd)":/repo flocs.sif \
+          run_directory="$(mktemp -d "$RUNNER_TEMP/facetselfcal.XXXXXX")"
+          trap 'rm -rf -- "$run_directory"' EXIT
+          singularity exec \
+          --bind "$(pwd):/repo" \
+          --bind "$run_directory:/work" \
+          --pwd /work \
+          flocs.sif \
           python /repo/facetselfcal.py \
           -i image_A1775_DD \
           --forwidefield \
@@ -192,6 +226,7 @@ jobs:
           --test \
           /repo/.github/data/test2.ms
 
+          
       - name: Show free space at end (debug)
         if: always()
         run: df -h
