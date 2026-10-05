@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .resource_chart import (
     RESOURCE_PHASE_STYLES,
+    RESOURCE_RAM_COLOR,
     generate_resource_svg,
     phase_intervals_from_events,
 )
@@ -65,6 +66,7 @@ class ResourceMonitor:
         self.start_cycle = int(start_cycle)
 
         self._cycle = start_cycle
+        self._cycle_started = False
         self._cycle_lock = threading.Lock()
         self._phase = None
         self._phase_cycle = None
@@ -147,6 +149,7 @@ class ResourceMonitor:
         """
         with self._cycle_lock:
             self._cycle = cycle
+            self._cycle_started = True
 
     def _record_phase_event(self, epoch, cycle, phase, event):
         timestamp = datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
@@ -161,11 +164,48 @@ class ResourceMonitor:
         if self._phase_csv_writer is not None:
             try:
                 self._phase_csv_writer.writerow(
-                    [timestamp, f"{epoch:.2f}", str(cycle), phase, event]
+                    [
+                        timestamp,
+                        f"{epoch:.2f}",
+                        "" if cycle is None else str(cycle),
+                        phase,
+                        event,
+                    ]
                 )
                 self._phase_file.flush()
             except Exception as exc:
                 logger.warning("Failed writing resource phase event: %s", exc)
+
+    def record_phase_intervals(self, phases, start_epoch, end_epoch):
+        """Record overlapping phases that share a command's start and end times."""
+        normalized_phases = list(
+            dict.fromkeys(str(phase).strip().lower() for phase in phases)
+        )
+        invalid_phases = [
+            phase for phase in normalized_phases if phase not in RESOURCE_PHASE_STYLES
+        ]
+        if invalid_phases:
+            raise ValueError(
+                "phases must be recognized resource phases; got {}".format(
+                    ", ".join(invalid_phases)
+                )
+            )
+        if not normalized_phases:
+            return
+
+        start_epoch = float(start_epoch)
+        end_epoch = float(end_epoch)
+        if end_epoch < start_epoch:
+            raise ValueError("end_epoch must not precede start_epoch")
+
+        with self._cycle_lock:
+            cycle = self._cycle if self._cycle_started else None
+            for phase in normalized_phases:
+                self._record_phase_event(start_epoch, cycle, phase, "start")
+            for phase in normalized_phases:
+                self._record_phase_event(end_epoch, cycle, phase, "end")
+
+        self._write_live_page()
 
     def set_phase(self, phase):
         """Record a workflow phase transition for the active cycle."""
@@ -173,7 +213,7 @@ class ResourceMonitor:
             phase = str(phase).strip().lower()
             if phase not in RESOURCE_PHASE_STYLES:
                 raise ValueError(
-                    "phase must be 'imaging', 'predict', 'solve', 'applycal', or None"
+                    "phase must be a recognized resource phase or None"
                 )
 
         now = time.time()
@@ -256,23 +296,16 @@ class ResourceMonitor:
             )
         else:
             sample = latest_sample
-            phase_legend = "".join(
-                '<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:{};"></span>{}</span>'.format(
-                    color, html.escape(label)
-                )
-                for label, color in RESOURCE_PHASE_STYLES.values()
+            phase_intervals = phase_intervals_from_events(
+                phase_events,
+                end_epoch=max(sample["epoch"], time.time()),
             )
             chart_legend = (
                 '<div class="resource-live-chart-legend">'
                 '<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:#0d9488;"></span>Process Tree CPU (% of one core)</span>'
-                '<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:#d97706;"></span>Process Tree RAM (GiB)</span>'
+                f'<span class="resource-live-legend-item"><span class="resource-live-swatch" style="background:{RESOURCE_RAM_COLOR};"></span>Process Tree RAM (GiB)</span>'
                 '<span class="resource-live-legend-item"><span class="resource-live-swatch resource-live-swatch-dashed"></span>Cycle transition</span>'
-                + phase_legend
                 + '</div>'
-            )
-            phase_intervals = phase_intervals_from_events(
-                phase_events,
-                end_epoch=max(sample["epoch"], time.time()),
             )
             chart_content = (
                 '<div class="resource-live-chart">{}<div class="resource-live-chart-plot">{}</div></div>'.format(
@@ -295,7 +328,37 @@ class ResourceMonitor:
                 refresh_seconds
             )
 
-        def make_page(title, content):
+        def make_page(title, content, fit_to_parent=False):
+            fit_script = ""
+            if fit_to_parent:
+                fit_script = """<script>
+(function () {
+    var reportHeight = function () {
+        var main = document.querySelector("main");
+        if (!main) return;
+        var height = Math.ceil(main.getBoundingClientRect().height + 24);
+        window.parent.postMessage(
+            { type: "facetselfcal-resource-chart-size", height: height },
+            "*"
+        );
+    };
+    window.addEventListener("message", function (event) {
+        if (
+            event.source === window.parent &&
+            event.data &&
+            event.data.type === "facetselfcal-resource-chart-size-request"
+        ) {
+            reportHeight();
+        }
+    });
+    window.addEventListener("load", reportHeight);
+    window.addEventListener("resize", reportHeight);
+    if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(reportHeight);
+    }
+    window.requestAnimationFrame(reportHeight);
+})();
+</script>"""
             return "\n".join(
                 (
                 "<!doctype html>",
@@ -326,13 +389,16 @@ class ResourceMonitor:
                 "</head>",
                 "<body>",
                 "<main>{}</main>".format(content),
+                fit_script,
                 "</body>",
                 "</html>",
             )
             )
 
         live_page = make_page("Live resource usage", live_content)
-        chart_page = make_page("Live resource usage chart", chart_content)
+        chart_page = make_page(
+            "Live resource usage chart", chart_content, fit_to_parent=True
+        )
         live_written = self._write_live_snapshot(self._live_page_path, live_page)
         chart_written = self._write_live_snapshot(self._live_chart_path, chart_page)
         return live_written and chart_written
@@ -469,10 +535,6 @@ class ResourceMonitor:
         """Worker loop executed in background thread."""
         try:
             self._parent_process = psutil.Process()
-            # Initialize baseline CPU counter
-            total_cpu_time, _ = self._get_tree_cpu_time_and_rss()
-            self._last_tree_cpu_time = total_cpu_time
-            self._last_sample_time = time.time()
             if _PSUTIL_AVAILABLE:
                 # Prime system cpu_percent
                 try:
@@ -482,6 +544,11 @@ class ResourceMonitor:
         except Exception as exc:
             logger.warning("ResourceMonitor initialization error: %s", exc)
             return
+
+        try:
+            self._sample()
+        except Exception as exc:
+            logger.warning("ResourceMonitor initial sample error: %s", exc)
 
         while not self._stop_event.is_set():
             if self._stop_event.wait(self.interval):
