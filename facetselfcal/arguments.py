@@ -674,6 +674,10 @@ def option_parser():
                     help='Skip creating A-team distance plots')
     parser.add_argument('--skip-time-coverage-plotting', action='store_true',
                     help='Skip creating time coverage plots')
+    parser.add_argument('--skip-UV-coverage-plotting',
+                        dest='skip_uv_coverage_plotting',
+                        help='Skip creating UV-coverage plots for input measurement sets.',
+                        action='store_true')
     parser.add_argument('--keepmodelcolumns',
                         help='Leave the MODEL_DATA-type columns in the MS. By default these are removed to save disk space.',
                         action='store_true')
