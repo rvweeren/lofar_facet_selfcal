@@ -3,19 +3,22 @@
 import csv
 import html
 import logging
-import os
-import tempfile
 import threading
 import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 
+from .report_support import atomic_write_text, read_phase_events, read_resource_samples
 from .resource_chart import (
+    DEFAULT_RESOURCE_SAMPLE_COUNT,
     RESOURCE_PHASE_STYLES,
     RESOURCE_RAM_COLOR,
+    clip_phase_intervals_to_window,
     generate_resource_svg,
     phase_intervals_from_events,
+    resource_chart_browser_js,
+    resource_chart_data_json,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,6 +67,13 @@ class ResourceMonitor:
         self.filename = filename
         self.interval = max(1.0, float(interval))
         self.start_cycle = int(start_cycle)
+        self._run_started_at = time.time()
+        self._lifecycle_lock = threading.RLock()
+        self._publication_lock = threading.RLock()
+        self._state = "idle"
+        self._stopped = False
+        self._files_initialized = False
+        self._chart_published = False
 
         self._cycle = start_cycle
         self._cycle_started = False
@@ -73,7 +83,7 @@ class ResourceMonitor:
         self._phase_log_path = self.log_dir / "resource_phases.csv"
         self._phase_file = None
         self._phase_csv_writer = None
-        self._phase_events = deque(maxlen=1000)
+        self._phase_events = deque()
         self._stop_event = threading.Event()
         self._thread = None
         self._file = None
@@ -82,11 +92,27 @@ class ResourceMonitor:
         self._last_sample_time = None
         self._parent_process = None
         self._latest_sample = None
-        self._resource_samples = deque(maxlen=300)
+        self._resource_samples = deque()
         self._live_page_path = self.log_dir.parent / "html_overview" / "resource-live.html"
         self._live_chart_path = self.log_dir.parent / "html_overview" / "resource-chart-live.html"
         self._live_page_started = False
         self._live_message = None
+        diagnostics = []
+        log_path = self.log_dir / self.filename
+        if self.start_cycle > 0 and log_path.exists():
+            self._resource_samples.extend(read_resource_samples(
+                log_path, run_started_at=self._run_started_at,
+                start_cycle=self.start_cycle, diagnostics=diagnostics,
+            ))
+        if self.start_cycle > 0 and self._phase_log_path.exists():
+            self._phase_events.extend(read_phase_events(
+                self._phase_log_path, run_started_at=self._run_started_at,
+                start_cycle=self.start_cycle, diagnostics=diagnostics,
+            ))
+        if self._resource_samples:
+            self._latest_sample = self._resource_samples[-1]
+        if diagnostics:
+            self._live_message = " ".join(diagnostics)
 
     def _archive_existing_log(self, log_path):
         """Archive existing log when start_cycle == 0, matching selfcal.log behavior."""
@@ -105,18 +131,32 @@ class ResourceMonitor:
             logger.info("Archived previous resource log to %s", archive_path)
         except OSError as exc:
             logger.warning("Could not archive previous resource log %s: %s", log_path, exc)
+            raise
+
+    @staticmethod
+    def _terminate_csv_for_append(log_path):
+        """Keep an unterminated existing row separate from appended records."""
+        with log_path.open("r+b") as stream:
+            stream.seek(0, 2)
+            if stream.tell() == 0:
+                return
+            stream.seek(-1, 2)
+            if stream.read(1) not in (b"\n", b"\r"):
+                stream.write(b"\n")
 
     def _setup_file(self):
         """Prepare the CSV log file and writer."""
         self.log_dir.mkdir(parents=True, exist_ok=True)
         log_path = self.log_dir / self.filename
 
-        if self.start_cycle == 0 and log_path.exists():
+        if self.start_cycle == 0 and not self._files_initialized and log_path.exists():
             self._archive_existing_log(log_path)
 
         file_exists = log_path.is_file() and log_path.stat().st_size > 0
-        mode = "a" if (file_exists and self.start_cycle > 0) else "w"
+        mode = "a" if (file_exists and (self.start_cycle > 0 or self._files_initialized)) else "w"
 
+        if mode == "a":
+            self._terminate_csv_for_append(log_path)
         self._file = open(log_path, mode=mode, newline="", encoding="utf-8")
         self._csv_writer = csv.writer(self._file)
         if mode == "w" or not file_exists:
@@ -126,11 +166,13 @@ class ResourceMonitor:
     def _setup_phase_file(self):
         """Prepare the phase-event log, archiving it for a fresh run."""
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        if self.start_cycle == 0 and self._phase_log_path.exists():
+        if self.start_cycle == 0 and not self._files_initialized and self._phase_log_path.exists():
             self._archive_existing_log(self._phase_log_path)
 
         file_exists = self._phase_log_path.is_file() and self._phase_log_path.stat().st_size > 0
-        mode = "a" if (file_exists and self.start_cycle > 0) else "w"
+        mode = "a" if (file_exists and (self.start_cycle > 0 or self._files_initialized)) else "w"
+        if mode == "a":
+            self._terminate_csv_for_append(self._phase_log_path)
         self._phase_file = open(
             self._phase_log_path, mode=mode, newline="", encoding="utf-8"
         )
@@ -175,6 +217,7 @@ class ResourceMonitor:
                 self._phase_file.flush()
             except Exception as exc:
                 logger.warning("Failed writing resource phase event: %s", exc)
+                self._live_message = "Failed writing resource phase event: {}".format(exc)
 
     def record_phase_intervals(self, phases, start_epoch, end_epoch):
         """Record overlapping phases that share a command's start and end times."""
@@ -199,13 +242,15 @@ class ResourceMonitor:
             raise ValueError("end_epoch must not precede start_epoch")
 
         with self._cycle_lock:
+            if self._stopped:
+                return
             cycle = self._cycle if self._cycle_started else None
             for phase in normalized_phases:
                 self._record_phase_event(start_epoch, cycle, phase, "start")
             for phase in normalized_phases:
                 self._record_phase_event(end_epoch, cycle, phase, "end")
 
-        self._write_live_page()
+        self._write_live_page(phase_only=True)
 
     def set_phase(self, phase):
         """Record a workflow phase transition for the active cycle."""
@@ -219,6 +264,8 @@ class ResourceMonitor:
         now = time.time()
         with self._cycle_lock:
             previous_phase = self._phase
+            if self._stopped and phase is not None:
+                return previous_phase
             if phase == self._phase:
                 return previous_phase
 
@@ -236,17 +283,35 @@ class ResourceMonitor:
                     now, self._phase_cycle, phase, "start"
                 )
 
-        self._write_live_page()
+        self._write_live_page(phase_only=True)
         return previous_phase
 
-    def _write_live_page(self, refresh=True, message=None):
-        if message is not None:
-            self._live_message = message
+    def _write_live_page(self, refresh=True, message=None, phase_only=False):
+        # Serialize snapshot capture, rendering and both replacements, not just writes.
+        with self._publication_lock:
+            if message is not None:
+                self._live_message = message
+            if self._stopped:
+                refresh = False
+            try:
+                return self._render_live_page(refresh, phase_only)
+            except Exception as exc:
+                logger.warning("Could not render live resource page: %s", exc)
+                self._live_message = "Could not render live resource page: {}".format(exc)
+                page = '<!doctype html><html><body><p>{}</p></body></html>'.format(
+                    html.escape(self._live_message)
+                )
+                live_written = self._write_live_snapshot(self._live_page_path, page)
+                chart_written = self._write_live_snapshot(self._live_chart_path, page)
+                self._chart_published = False
+                return False
 
+    def _render_live_page(self, refresh, phase_only):
+        update_chart = not phase_only or not self._chart_published or not refresh
         with self._cycle_lock:
             latest_sample = self._latest_sample
-            resource_samples = list(self._resource_samples)
-            phase_events = list(self._phase_events)
+            resource_samples = list(self._resource_samples) if update_chart else []
+            phase_events = list(self._phase_events) if update_chart else []
             current_phase = self._phase
 
         refresh_meta = ""
@@ -265,12 +330,14 @@ class ResourceMonitor:
             cards = (
                 ("Process CPU", "{:.0f}%".format(sample["tree_cpu_pct"])),
                 ("Process RAM", "{:.2f} GiB".format(sample["tree_rss_gib"])),
-                ("System CPU", "{:.0f}%".format(sample["sys_cpu_pct"])),
+                ("System CPU", "{:.0f}%".format(sample["sys_cpu_pct"])
+                 if sample["sys_cpu_pct"] is not None else "Unavailable"),
                 (
                     "System RAM used / total",
                     "{:.1f} / {:.1f} GiB".format(
                         sample["sys_ram_used_gib"], sample["sys_ram_total_gib"]
-                    ),
+                    ) if sample["sys_ram_used_gib"] is not None
+                    and sample["sys_ram_total_gib"] is not None else "Unavailable",
                 ),
             )
             live_content = '<div class="resource-live-grid">{}</div>'.format(
@@ -288,17 +355,32 @@ class ResourceMonitor:
                 phase_text,
                 html.escape(sample["timestamp"]),
             )
-            self._live_message = None
+            if self._live_message:
+                live_content += '<p class="resource-live-message">{}</p>'.format(
+                    html.escape(self._live_message)
+                )
 
-        if latest_sample is None:
+        chart_content = ""
+        if not update_chart:
+            pass
+        elif latest_sample is None:
             chart_content = '<p class="resource-live-message">{}</p>'.format(
                 html.escape(self._live_message or "Waiting for the first resource sample.")
             )
         else:
             sample = latest_sample
-            phase_intervals = phase_intervals_from_events(
+            all_phase_intervals = phase_intervals_from_events(
                 phase_events,
                 end_epoch=max(sample["epoch"], time.time()),
+            )
+            recent_samples = resource_samples[-DEFAULT_RESOURCE_SAMPLE_COUNT:]
+            phase_intervals = clip_phase_intervals_to_window(
+                all_phase_intervals,
+                recent_samples[0]["epoch"],
+                recent_samples[-1]["epoch"],
+            )
+            chart_data = resource_chart_data_json(
+                resource_samples, all_phase_intervals
             )
             chart_legend = (
                 '<div class="resource-live-chart-legend">'
@@ -308,9 +390,14 @@ class ResourceMonitor:
                 + '</div>'
             )
             chart_content = (
-                '<div class="resource-live-chart">{}<div class="resource-live-chart-plot">{}</div></div>'.format(
+                '<div class="resource-live-chart">{}'
+                '<div class="resource-live-chart-plot" data-resource-chart-live>'
+                '<div data-resource-chart-target>{}</div>'
+                '<script type="application/json" data-resource-chart-data>{}</script>'
+                '</div></div>'.format(
                     chart_legend,
-                    generate_resource_svg(resource_samples, phase_intervals),
+                    generate_resource_svg(recent_samples, phase_intervals),
+                    chart_data,
                 )
             )
             phase_label = RESOURCE_PHASE_STYLES.get(current_phase, (None, None))[0]
@@ -320,6 +407,10 @@ class ResourceMonitor:
                 phase_text,
                 html.escape(sample["timestamp"]),
             )
+            if self._live_message:
+                chart_content += '<p class="resource-live-message">{}</p>'.format(
+                    html.escape(self._live_message)
+                )
 
         refresh_meta = ""
         if refresh:
@@ -328,7 +419,9 @@ class ResourceMonitor:
                 refresh_seconds
             )
 
-        def make_page(title, content, fit_to_parent=False):
+        def make_page(
+            title, content, fit_to_parent=False, include_chart_script=False
+        ):
             fit_script = ""
             if fit_to_parent:
                 fit_script = """<script>
@@ -359,6 +452,11 @@ class ResourceMonitor:
     window.requestAnimationFrame(reportHeight);
 })();
 </script>"""
+            chart_script = ""
+            if include_chart_script:
+                chart_script = "<script>{}</script>".format(
+                    resource_chart_browser_js()
+                )
             return "\n".join(
                 (
                 "<!doctype html>",
@@ -389,6 +487,7 @@ class ResourceMonitor:
                 "</head>",
                 "<body>",
                 "<main>{}</main>".format(content),
+                chart_script,
                 fit_script,
                 "</body>",
                 "</html>",
@@ -396,36 +495,28 @@ class ResourceMonitor:
             )
 
         live_page = make_page("Live resource usage", live_content)
-        chart_page = make_page(
-            "Live resource usage chart", chart_content, fit_to_parent=True
-        )
         live_written = self._write_live_snapshot(self._live_page_path, live_page)
-        chart_written = self._write_live_snapshot(self._live_chart_path, chart_page)
+        chart_written = True
+        if update_chart:
+            chart_page = make_page(
+                "Live resource usage chart",
+                chart_content,
+                fit_to_parent=True,
+                include_chart_script=True,
+            )
+            chart_written = self._write_live_snapshot(self._live_chart_path, chart_page)
+            self._chart_published = chart_written
         return live_written and chart_written
 
     def _write_live_snapshot(self, page_path, page):
-        temporary_path = None
         try:
-            page_path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=page_path.parent,
-                prefix=".resource-live-",
-                suffix=".tmp",
-                delete=False,
-            ) as stream:
-                stream.write(page)
-                temporary_path = Path(stream.name)
-            os.replace(temporary_path, page_path)
+            atomic_write_text(page_path, page)
             self._live_page_started = True
             return True
         except OSError as exc:
             logger.warning("Could not update live resource page %s: %s", page_path, exc)
+            self._live_message = "Could not update live resource page: {}".format(exc)
             return False
-        finally:
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
 
     def _get_tree_cpu_time_and_rss(self):
         """Calculate total cumulative CPU time and resident memory of the process tree."""
@@ -486,16 +577,24 @@ class ResourceMonitor:
         tree_rss_gib = total_rss / (1024.0 ** 3)
 
         # System-level metrics
-        sys_cpu_pct = 0.0
-        sys_ram_used_gib = 0.0
-        sys_ram_total_gib = 0.0
+        sys_cpu_pct = None
+        sys_ram_used_gib = None
+        sys_ram_total_gib = None
+        system_errors = []
         try:
             sys_cpu_pct = psutil.cpu_percent(interval=None)
+        except Exception as exc:
+            logger.warning("System CPU metrics unavailable: %s", exc)
+            system_errors.append("System CPU metrics unavailable: {}".format(exc))
+        try:
             mem = psutil.virtual_memory()
             sys_ram_used_gib = (mem.total - mem.available) / (1024.0 ** 3)
             sys_ram_total_gib = mem.total / (1024.0 ** 3)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("System RAM metrics unavailable: %s", exc)
+            system_errors.append("System RAM metrics unavailable: {}".format(exc))
+        if system_errors:
+            self._live_message = " ".join(system_errors)
 
         row = [
             timestamp_str,
@@ -503,9 +602,9 @@ class ResourceMonitor:
             str(current_cycle),
             f"{tree_cpu_pct:.1f}",
             f"{tree_rss_gib:.2f}",
-            f"{sys_cpu_pct:.1f}",
-            f"{sys_ram_used_gib:.2f}",
-            f"{sys_ram_total_gib:.2f}",
+            "" if sys_cpu_pct is None else f"{sys_cpu_pct:.1f}",
+            "" if sys_ram_used_gib is None else f"{sys_ram_used_gib:.2f}",
+            "" if sys_ram_total_gib is None else f"{sys_ram_total_gib:.2f}",
         ]
 
         if self._csv_writer is not None:
@@ -514,6 +613,7 @@ class ResourceMonitor:
                 self._file.flush()
             except Exception as exc:
                 logger.warning("Failed writing resource sample: %s", exc)
+                self._live_message = "Failed writing resource sample: {}".format(exc)
 
         latest_sample = {
             "timestamp": timestamp_str,
@@ -539,16 +639,17 @@ class ResourceMonitor:
                 # Prime system cpu_percent
                 try:
                     psutil.cpu_percent(interval=None)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("System CPU metrics initialization unavailable: %s", exc)
+                    self._live_message = "System CPU metrics initialization unavailable: {}".format(exc)
         except Exception as exc:
-            logger.warning("ResourceMonitor initialization error: %s", exc)
+            self._report_error("ResourceMonitor initialization error", exc)
             return
 
         try:
             self._sample()
         except Exception as exc:
-            logger.warning("ResourceMonitor initial sample error: %s", exc)
+            self._report_error("ResourceMonitor initial sample error", exc)
 
         while not self._stop_event.is_set():
             if self._stop_event.wait(self.interval):
@@ -556,71 +657,123 @@ class ResourceMonitor:
             try:
                 self._sample()
             except Exception as exc:
-                logger.warning("ResourceMonitor sample error: %s", exc)
+                self._report_error("ResourceMonitor sample error", exc)
+
+    def _report_error(self, context, exc):
+        logger.warning("%s: %s", context, exc)
+        self._write_live_page(message="{}: {}".format(context, exc))
+
+    def _close_files(self):
+        with self._cycle_lock:
+            for attribute, writer_attribute in (
+                ("_file", "_csv_writer"), ("_phase_file", "_phase_csv_writer")
+            ):
+                stream = getattr(self, attribute)
+                if stream is not None and not stream.closed:
+                    try:
+                        stream.close()
+                    except OSError as exc:
+                        logger.warning("Could not close resource log: %s", exc)
+                        self._live_message = "Could not close resource log: {}".format(exc)
+                setattr(self, writer_attribute, None)
+
+    def _finish_stop(self):
+        with self._lifecycle_lock:
+            self._stopped = True
+            with self._cycle_lock:
+                if self._phase is not None:
+                    self._record_phase_event(
+                        time.time(), self._phase_cycle, self._phase, "end"
+                    )
+                    self._phase = None
+                    self._phase_cycle = None
+            self._close_files()
+            self._state = "stopped"
+            message = "Resource monitoring stopped."
+            if self._live_message:
+                message += " " + self._live_message
+            self._write_live_page(refresh=False, message=message)
+
+    def _worker_main(self):
+        try:
+            self._run()
+        except Exception as exc:
+            self._report_error("ResourceMonitor worker error", exc)
+        finally:
+            if self._parent_process is not None and self._stop_event.is_set():
+                try:
+                    self._sample()
+                except Exception as exc:
+                    self._report_error("ResourceMonitor final sample error", exc)
+            self._finish_stop()
 
     def start(self):
-        """Start the background monitoring thread."""
-        if not _PSUTIL_AVAILABLE:
-            logger.warning("psutil is not available; resource monitoring disabled.")
-            self._write_live_page(refresh=False, message="Resource monitoring is unavailable.")
-            return
+        """Start once; a timed-out worker must finish before another can start."""
+        with self._lifecycle_lock:
+            if self._thread is not None and self._thread.is_alive():
+                if self._state == "stopping":
+                    logger.warning("ResourceMonitor is still stopping; cannot restart.")
+                return
+            if not _PSUTIL_AVAILABLE:
+                logger.warning("psutil is not available; resource monitoring disabled.")
+                self._stopped = True
+                self._write_live_page(refresh=False, message="Resource monitoring is unavailable.")
+                return
 
-        try:
-            self._setup_file()
-        except Exception as exc:
-            logger.warning("Could not setup resource usage log: %s", exc)
-            self._write_live_page(refresh=False, message="Resource monitoring could not start.")
-            return
-
-        try:
-            self._setup_phase_file()
-        except Exception as exc:
-            logger.warning("Could not setup resource phase log: %s", exc)
-
-        self._write_live_page(refresh=True)
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, name="ResourceMonitor", daemon=True)
-        self._thread.start()
-        logger.info("ResourceMonitor started (interval=%.1fs, log=%s)", self.interval, self.log_dir / self.filename)
+            self._stopped = False
+            if self._state == "stopped":
+                self._live_message = None
+            self._last_sample_time = None
+            self._last_tree_cpu_time = None
+            self._stop_event.clear()
+            try:
+                self._setup_file()
+                self._setup_phase_file()
+                self._files_initialized = True
+                self._write_live_page(refresh=True)
+                self._thread = threading.Thread(
+                    target=self._worker_main, name="ResourceMonitor", daemon=True
+                )
+                self._state = "running"
+                self._thread.start()
+            except Exception as exc:
+                logger.warning("Resource monitoring could not start: %s", exc)
+                self._stop_event.set()
+                self._stopped = True
+                self._state = "stopped"
+                self._close_files()
+                self._write_live_page(
+                    refresh=False, message="Resource monitoring could not start: {}".format(exc)
+                )
+                return
+            logger.info("ResourceMonitor started (interval=%.1fs, log=%s)", self.interval, self.log_dir / self.filename)
 
     def stop(self):
-        """Stop background monitoring and flush remaining data."""
-        self.set_phase(None)
-        if self._thread is None or not self._thread.is_alive():
-            if self._file is not None and not self._file.closed:
-                try:
-                    self._file.close()
-                except Exception:
-                    pass
-            if self._phase_file is not None and not self._phase_file.closed:
-                try:
-                    self._phase_file.close()
-                except Exception:
-                    pass
-            if self._live_page_started:
-                self._write_live_page(refresh=False, message=self._live_message)
+        """Request shutdown, leaving file cleanup to a worker that is still alive."""
+        with self._lifecycle_lock:
+            self._stop_event.set()
+            self._stopped = True
+            thread = self._thread
+            if thread is None or not thread.is_alive():
+                if self._state != "stopped":
+                    self._finish_stop()
+                return
+            self._state = "stopping"
+        if thread is threading.current_thread():
             return
-
-        self._stop_event.set()
-        self._thread.join(timeout=5.0)
-
-        # Take one final sample on shutdown
-        try:
-            self._sample()
-        except Exception:
-            pass
-
-        if self._file is not None and not self._file.closed:
-            try:
-                self._file.close()
-            except Exception:
-                pass
-        if self._phase_file is not None and not self._phase_file.closed:
-            try:
-                self._phase_file.close()
-            except Exception:
-                pass
-
-        self._write_live_page(refresh=False, message=self._live_message)
-
+        thread.join(timeout=5.0)
+        if thread.is_alive():
+            message = "Resource monitoring shutdown timed out; waiting for the worker to finish."
+            logger.warning(message)
+            self._live_message = message
+            # Do not wait indefinitely for a render already in progress.
+            if self._publication_lock.acquire(blocking=False):
+                try:
+                    self._write_live_page(refresh=False)
+                finally:
+                    self._publication_lock.release()
+            return
+        with self._lifecycle_lock:
+            if self._thread is thread and self._state != "stopped":
+                self._finish_stop()
         logger.info("ResourceMonitor stopped.")
