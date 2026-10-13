@@ -60,7 +60,7 @@ jobs:
           ls -lh flocs.sif
           df -h
 
-      - name: Run --help on main.py
+      - name: Run --help on facetselfcal.py
         run: |
           run_directory="$(mktemp -d "$RUNNER_TEMP/facetselfcal.XXXXXX")"
           trap 'rm -rf -- "$run_directory"' EXIT
@@ -69,7 +69,7 @@ jobs:
           --bind "$run_directory:/work" \
           --pwd /work \
           flocs.sif \
-          python /repo/facetselfcal/main.py --help
+          python /repo/facetselfcal.py --help
 
       - name: Run --help on h5_merger
         run: |
