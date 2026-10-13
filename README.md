@@ -113,7 +113,15 @@ Installing the package provides these commands:
 
 Each initialized `facetselfcal` run creates a multi-page offline report in `html_overview/` shortly after startup, prints the full `index.html` path in highlighted terminal text, refreshes the report after each completed self-calibration cycle, and records the final run status when processing ends.
 
-The Measurement Sets page lists configured inputs alongside any split measurement sets used for self-calibration. Available input time-coverage plots remain visible even when they were generated before the current run.
+To regenerate a report without rerunning calibration:
+
+```bash
+python -m facetselfcal.report /path/to/run --status completed
+python -m facetselfcal.report /path/to/run --output /path/to/report-copy
+```
+
+Only specify `--status` when the outcome is known; regeneration otherwise reports an unknown outcome. Keep the run products available at their original relative locations for offline browsing. An alternative output directory still links to the source products; it is not a self-contained archive.
+
 
 <table>
   <tr>
