@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # rotationmeasure updates
+# HTML/plots:add UV-coverage plots with shadeMS
+# python3 -m venv $PWD; bin/pip install git+https://github.com/rvweeren/shadeMS/@symlog-uv-coverage
 # use phase slope fitting for bandpass step?
 # https://ui.adsabs.harvard.edu/abs/2022ApJ...932..110K/abstract
 # python /net/rijn/data2/rvweeren/software/lofar_facet_selfcal/submods/MSChunker.py --timefraction=0.15 --mintime=1200 --mode=time L765157.ms.copy
@@ -15,7 +17,7 @@
 # phase detrending.
 # BLsmooth constant smooth for gain solves
 # use scalarphasediff sols stats for solints? test amplitude stats as well
-# uvmin, uvmax, uvminim, uvmaxim per ms per soltype
+# uvmin, uvmax, per ms per soltype
 
 # antidx = 0
 # taql("select ANTENNA1,ANTENNA2,gntrue(FLAG)/(gntrue(FLAG)+gnfalse(FLAG)) as NFLAG from L656064_129_164MHz_uv_pre-cal.concat.ms WHERE (ANTENNA1=={:d} OR ANTENNA2=={:d}) AND ANTENNA1!=ANTENNA2".format(antidx, antidx)).getcol('NFLAG')
@@ -36,7 +38,9 @@ import copy
 import fnmatch
 import gc
 import concurrent.futures
+import fcntl
 import glob
+import json
 import logging
 import multiprocessing
 import os
@@ -48,8 +52,10 @@ import socket
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
+from contextlib import contextmanager
 from functools import wraps
 from itertools import product
 from itertools import groupby
@@ -125,13 +131,142 @@ logger.setLevel(logging.DEBUG)
 _REPORT_RUN_INITIALIZED = False
 _RESOURCE_MONITOR = None
 
+_RUN_MODE_MARKER = "facetselfcal_mode.txt"
+_RUN_LOCK_FILE = ".facetselfcal.lock"
+_RUN_MODES = frozenset(("bandpass", "DDE", "standard"))
+
+
+class _RunDirectoryBusyError(RuntimeError):
+    pass
+
+
+@contextmanager
+def _run_directory_lock(run_directory):
+    """Hold an exclusive, process-released lock for a run directory."""
+    misc_directory = Path(run_directory) / "misc"
+    misc_directory.mkdir(parents=True, exist_ok=True)
+    lock_path = misc_directory / _RUN_LOCK_FILE
+
+    with lock_path.open("a", encoding="utf-8") as lock_file:
+        try:
+            fcntl.flock(
+                lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
+            )
+        except BlockingIOError as exc:
+            raise _RunDirectoryBusyError(
+                "Another facetselfcal run is already active in {}.".format(
+                    Path(run_directory).resolve()
+                )
+            ) from exc
+        yield
+
+
+def _run_mode_from_args(args):
+    dde = args.get("DDE")
+    bandpass = args.get("bandpass")
+    if not isinstance(dde, bool) or not isinstance(bandpass, bool):
+        raise ValueError("The DDE and bandpass mode flags must be booleans.")
+    if dde and bandpass:
+        raise ValueError("--DDE and --bandpass cannot be used together.")
+    if bandpass:
+        return "bandpass"
+    if dde:
+        return "DDE"
+    return "standard"
+
+
+def _run_mode_from_config(config_path):
+    mode_flags = {}
+    with Path(config_path).open(encoding="utf-8") as config_file:
+        for line in config_file:
+            key, separator, value = line.partition("=")
+            key = key.strip()
+            if not separator or key not in ("DDE", "bandpass"):
+                continue
+            try:
+                mode_flags[key] = ast.literal_eval(value.strip())
+            except (SyntaxError, ValueError) as exc:
+                raise ValueError(
+                    "Could not parse the {} flag in {}.".format(key, config_path)
+                ) from exc
+
+    if "DDE" not in mode_flags:
+        raise ValueError(
+            "{} does not contain a DDE mode flag.".format(config_path)
+        )
+    mode_flags.setdefault("bandpass", False)
+    return _run_mode_from_args(mode_flags)
+
+
+def _validate_run_mode(recorded_mode, requested_mode, source):
+    if recorded_mode not in _RUN_MODES:
+        raise ValueError(
+            "{} contains unrecognized run mode {!r}; expected one of {}.".format(
+                source, recorded_mode, ", ".join(sorted(_RUN_MODES))
+            )
+        )
+    if recorded_mode != requested_mode:
+        raise ValueError(
+            "This directory is already associated with the {!r} mode ({}) and "
+            "cannot be used for a {!r} run. Use a new, clean run directory to "
+            "change modes.".format(recorded_mode, source, requested_mode)
+        )
+
+
+def _ensure_run_mode_marker(run_directory, requested_mode):
+    if requested_mode not in _RUN_MODES:
+        raise ValueError("Unrecognized requested run mode {!r}.".format(requested_mode))
+
+    run_directory = Path(run_directory)
+    misc_directory = run_directory / "misc"
+    misc_directory.mkdir(parents=True, exist_ok=True)
+    marker_path = misc_directory / _RUN_MODE_MARKER
+
+    if marker_path.exists():
+        recorded_mode = marker_path.read_text(encoding="utf-8").strip()
+        _validate_run_mode(recorded_mode, requested_mode, marker_path)
+        return
+
+    legacy_config = run_directory / "full_config.txt"
+    if legacy_config.is_file():
+        recorded_mode = _run_mode_from_config(legacy_config)
+        _validate_run_mode(recorded_mode, requested_mode, legacy_config)
+
+    try:
+        with marker_path.open("x", encoding="utf-8") as marker_file:
+            marker_file.write(requested_mode + "\n")
+            marker_file.flush()
+            os.fsync(marker_file.fileno())
+    except FileExistsError:
+        recorded_mode = marker_path.read_text(encoding="utf-8").strip()
+        _validate_run_mode(recorded_mode, requested_mode, marker_path)
+
+
 try:
     from .monitor import ResourceMonitor
+    from .resource_chart import (
+        DP3_EXECUTION_END_MARKER,
+        DP3_EXECUTION_START_MARKER,
+        dp3_command_phases,
+        dp3_workflow_step_kinds,
+    )
 except ImportError:
     try:
         from monitor import ResourceMonitor
+        from resource_chart import (
+            DP3_EXECUTION_END_MARKER,
+            DP3_EXECUTION_START_MARKER,
+            dp3_command_phases,
+            dp3_workflow_step_kinds,
+        )
     except ImportError:
         from facetselfcal.monitor import ResourceMonitor
+        from facetselfcal.resource_chart import (
+            DP3_EXECUTION_END_MARKER,
+            DP3_EXECUTION_START_MARKER,
+            dp3_command_phases,
+            dp3_workflow_step_kinds,
+        )
 
 
 def _track_resource_phase(phase):
@@ -643,6 +778,66 @@ def plot_ms_time_coverage(ms, output_path=None, timegap_threshold=1200,
         plt.close(figure)
         return output_path
     return figure
+
+
+def plot_UV_coverage(mslist):
+    """Create a shadeMS UV-coverage plot for each input Measurement Set."""
+    try:
+        os.makedirs('plots', exist_ok=True)
+    except OSError as exc:
+        logger.error('Could not create plots directory for UV-coverage plots: %s', exc)
+        return
+
+    for ms in mslist:
+        ms_path = os.fspath(ms)
+        ms_basename = os.path.basename(os.path.normpath(ms_path))
+        ms_extension = os.path.splitext(ms_basename)[1]
+        plot_path = os.path.join('plots', f'UVcoverage_{ms_basename}.png')
+        command = [
+            'shadems',
+            '--xaxis', 'u',
+            '--yaxis', 'v',
+            '--cmap', 'kbc',
+            '-j', str(max(1, (os.cpu_count() or 1) // 2)),
+            '--dir', 'plots',
+            '--png', f'UVcoverage_{{ms}}{ms_extension}.png',
+            '--fontsize', '20',
+            ms_path,
+        ]
+        logger.info('Generating UV-coverage plot for %s', ms_path)
+        try:
+            result = subprocess.run(
+                command,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            logger.error(
+                'Cannot generate UV-coverage plots because shadems is unavailable: %s',
+                exc,
+            )
+            return
+        except OSError as exc:
+            logger.error('Could not run shadems for %s: %s', ms_path, exc)
+            continue
+
+        if result.returncode != 0:
+            error_detail = (result.stderr or '').strip()
+            logger.error(
+                'shadems failed for %s with exit status %d%s',
+                ms_path,
+                result.returncode,
+                ': ' + error_detail if error_detail else '',
+            )
+            continue
+        if not os.path.isfile(plot_path):
+            logger.error(
+                'shadems completed for %s but did not create the expected plot %s',
+                ms_path,
+                plot_path,
+            )
+            continue
+        logger.info('Saved UV-coverage plot for %s to %s', ms_path, plot_path)
 
 
 
@@ -2136,6 +2331,106 @@ def check_pointing_centers(mslist):
             logger.warning('Pointing centers of MSs differ: ' + ms)
             align = False
     return align        
+
+def fix_variable_reference_pointing(mslist):
+    """
+    Convert variable FIELD.PHASE_DIR references to fixed references when all rows agree.
+
+    The direction values are left unchanged. Measurement Sets with mixed reference
+    frames are rejected because their values must be converted before the metadata
+    can safely be made fixed.
+    """
+    updates = []
+    for ms in mslist:
+        field_path = os.path.join(os.fspath(ms), 'FIELD')
+        with table(field_path, ack=False, readonly=True) as field_table:
+            columns = field_table.colnames()
+            if 'PHASE_DIR' not in columns:
+                raise ValueError(f'{ms}: FIELD table has no PHASE_DIR column')
+            if field_table.nrows() == 0:
+                raise ValueError(f'{ms}: FIELD table has no rows')
+
+            measure_info = field_table.getcolkeywords('PHASE_DIR').get('MEASINFO')
+            if not isinstance(measure_info, dict) or measure_info.get('type') != 'direction':
+                raise ValueError(f'{ms}: FIELD.PHASE_DIR has invalid MEASINFO metadata')
+
+            ref_column = measure_info.get('VarRefCol')
+            if not ref_column:
+                if measure_info.get('Ref'):
+                    continue
+                raise ValueError(
+                    f'{ms}: FIELD.PHASE_DIR has neither a fixed Ref nor a VarRefCol'
+                )
+            if ref_column not in columns:
+                raise ValueError(
+                    f'{ms}: FIELD.PHASE_DIR references missing column {ref_column}'
+                )
+
+            reference_values = np.asarray(field_table.getcol(ref_column)).reshape(-1)
+            if reference_values.size != field_table.nrows():
+                raise ValueError(
+                    f'{ms}: {ref_column} has {reference_values.size} values for '
+                    f'{field_table.nrows()} FIELD rows'
+                )
+
+            ref_codes = np.asarray(measure_info.get('TabRefCodes', [])).reshape(-1).tolist()
+            ref_types = np.asarray(measure_info.get('TabRefTypes', [])).reshape(-1).tolist()
+            if not ref_types or len(ref_codes) != len(ref_types):
+                raise ValueError(
+                    f'{ms}: FIELD.PHASE_DIR has incomplete variable-reference metadata'
+                )
+
+            ref_type_by_code = {}
+            for ref_code, ref_type in zip(ref_codes, ref_types):
+                ref_type_by_code.setdefault(ref_code, str(ref_type).strip().upper())
+            known_ref_types = set(ref_type_by_code.values())
+
+            row_ref_types = []
+            for ref_value in reference_values.tolist():
+                if isinstance(ref_value, str):
+                    ref_name = ref_value.strip().upper()
+                    if ref_name in known_ref_types:
+                        row_ref_types.append(ref_name)
+                        continue
+                    try:
+                        ref_value = int(ref_name)
+                    except ValueError as error:
+                        raise ValueError(
+                            f'{ms}: FIELD.PHASE_DIR has unknown reference {ref_value!r}'
+                        ) from error
+
+                try:
+                    ref_type = ref_type_by_code[ref_value]
+                except KeyError as error:
+                    raise ValueError(
+                        f'{ms}: FIELD.PHASE_DIR has unknown reference code {ref_value!r}'
+                    ) from error
+                row_ref_types.append(ref_type)
+
+            unique_ref_types = set(row_ref_types)
+            if len(unique_ref_types) != 1:
+                raise ValueError(
+                    f'{ms}: FIELD.PHASE_DIR uses multiple reference frames '
+                    f'({sorted(unique_ref_types)}); convert the directions to one '
+                    'frame before fixing the metadata'
+                )
+
+            updates.append((ms, field_path, ref_column, row_ref_types[0]))
+
+    for ms, field_path, ref_column, ref_type in updates:
+        with table(field_path, ack=False, readonly=False) as field_table:
+            measure_info = field_table.getcolkeywords('PHASE_DIR').get('MEASINFO')
+            if not isinstance(measure_info, dict) or measure_info.get('VarRefCol') != ref_column:
+                raise RuntimeError(
+                    f'{ms}: FIELD.PHASE_DIR metadata changed during validation'
+                )
+            field_table.putcolkeyword(
+                'PHASE_DIR', 'MEASINFO', {'type': 'direction', 'Ref': ref_type}
+            )
+        terminal_print(
+            f'Fixed variable FIELD.PHASE_DIR reference in {ms} to {ref_type}'
+        )
+
 
 def write_processing_history(cmd, version, imagebasename):
     """
@@ -6290,15 +6585,53 @@ def run(command, log=False, taql=False):
     retval : int
         the return code of the executed process.
     """
+    dp3_phases = dp3_command_phases(command)
+    dp3_execution_id = (
+        uuid.uuid4().hex if dp3_workflow_step_kinds(command) else None
+    )
     if log:
         terminal_print('Command:', command)
+    if log or dp3_phases:
         logger.info(command)
-    if taql:
-         process = subprocess.run(command, shell=True, capture_output=True,
-                                  encoding="utf-8")
-    else:
-        process = subprocess.run(command, shell=True,
-                                 stderr=subprocess.STDOUT, encoding="utf-8")
+    if dp3_execution_id is not None:
+        logger.info(
+            DP3_EXECUTION_START_MARKER
+            + json.dumps(
+                {"id": dp3_execution_id, "command": command},
+                separators=(",", ":"),
+            )
+        )
+    resource_monitor = _RESOURCE_MONITOR
+    dp3_start_epoch = (
+        time.time()
+        if resource_monitor is not None and dp3_phases
+        else None
+    )
+    try:
+        if taql:
+            process = subprocess.run(
+                command, shell=True, capture_output=True, encoding="utf-8"
+            )
+        else:
+            process = subprocess.run(
+                command, shell=True, stderr=subprocess.STDOUT, encoding="utf-8"
+            )
+        if dp3_execution_id is not None:
+            logger.info(
+                DP3_EXECUTION_END_MARKER
+                + json.dumps(
+                    {
+                        "id": dp3_execution_id,
+                        "returncode": process.returncode,
+                    },
+                    separators=(",", ":"),
+                )
+            )
+    finally:
+        if dp3_start_epoch is not None:
+            resource_monitor.record_phase_intervals(
+                dp3_phases, dp3_start_epoch, time.time()
+            )
     retval = process.returncode
     #stdout = process.stdout
     stderr = process.stderr
@@ -6933,7 +7266,7 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
             chanw = np.median(t.getcol('CHAN_WIDTH'))
             freqs = t.getcol('CHAN_FREQ')[0]
             nfreq = len(t.getcol('CHAN_FREQ')[0])
-            logger.info('Number of channels:        {:.2f}'.format(nfreq))
+            logger.info('Number of channels:        {:d}'.format(nfreq))
             logger.info('Bandwidth [MHz]:           {:.2f}'.format((np.max(freqs)-np.min(freqs))/1e6))
             logger.info('Channel width [kHz]:       {:.2f}'.format(chanw/1e3))
             logger.info('Start frequnecy [MHz]:     {:.2f}'.format(np.min(freqs)/1e6))      
@@ -18880,6 +19213,15 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
             f.write(str(imsize))
         else:
             f.write(str(imsize_to_use))
+
+    output_suffix = (
+        '.extracted_ddcor'
+        if len(h5list) != 0 and ddcor and userbox != 'keepall'
+        else '.extracted'
+    )
+    with open('misc/extracted_ms.txt', 'w') as f:
+        for ms in mslist:
+            f.write(os.path.basename(ms) + output_suffix + '\n')
   
     # remove templatebox.reg if it exists to clean things up
     if os.path.exists('templatebox.reg'):
@@ -21968,7 +22310,11 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
             args['imsize'] = getimsize(args['boxfile'], args['pixelscale'])
     
     if args['auto'] and args['telescope'] == 'MeerKAT' and not args['DDE']:
-        if args['imsize'] is None: args['imsize'] = 12000 # default for MeerKAT in auto mode
+        if args['imsize'] is None:
+            if args['bandpass']: 
+                args['imsize'] = 1024 # default for MeerKAT when doing bandpass
+            else:
+                args['imsize'] = 12000 # default for MeerKAT in DI auto mode 
 
     if args['paralleldeconvolution'] == 0: # means determine automatically
         if args['imsize'] > 1600 and args['telescope'] == 'MeerKAT':
@@ -22086,7 +22432,7 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
             
             # last (fourth) entry just of soltype_list is for auto_flag_antennas 
             # all solutions will be reset, so nothing happens apart from possible flagging of bad antennas
-            # if highDR is detected than args['soltypecycles_list'] = [0, 2, 3, 999]
+            # if highDR is detected then args['soltypecycles_list'] = [0, 2, 3, 999]
 
             if args['start'] == 0 and args['stop'] is None:
                 if args['preapplybandpassH5_list'][0] is None: # SDP-fully-calibrated data
@@ -22662,7 +23008,7 @@ def create_Ateam_seperation_plots(mslist, start=0):
             terminal_print(f"check_Ateam_separation_mod.py does not exist")
     return
 
-def nested_mslistforimaging(mslist, stack=False):
+def nested_mslistforimaging(mslist, stack=False, announce=True):
     """
     Create nested MS groups used by imaging workflows.
 
@@ -22672,6 +23018,8 @@ def nested_mslistforimaging(mslist, stack=False):
         Measurement Set paths.
     stack : bool, optional
         Group inputs for stacked imaging.
+    announce : bool, optional
+        Print the stacked imaging groups.
 
     Returns
     -------
@@ -22700,8 +23048,32 @@ def nested_mslistforimaging(mslist, stack=False):
                     else:
                         phasecenterlist.append(phasecenter)
                         mslistreturn.append([ms])
-        terminal_print(f'Found {len(mslistreturn)} imaging groups: ', mslistreturn)
+        if announce:
+            terminal_print(f'Found {len(mslistreturn)} imaging groups: ', mslistreturn)
         return mslistreturn  # has format [[ms1.ms,..],[ms2.ms,..],[...]]
+
+def _write_stack_imaging_group_manifest(mslist):
+    groups = nested_mslistforimaging(mslist, stack=True, announce=False)
+    manifest_path = Path("misc") / "stack_imaging_groups.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "schema_version": 1,
+        "groups": [
+            {
+                "stack_id": f"{stack_id:02d}",
+                "measurement_sets": [str(ms) for ms in group],
+            }
+            for stack_id, group in enumerate(groups)
+        ],
+    }
+    temporary_path = manifest_path.with_name(
+        ".{}-tmp".format(manifest_path.name)
+    )
+    temporary_path.write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary_path.replace(manifest_path)
 
 def flag_autocorr(mslist):
     """
@@ -23094,7 +23466,7 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
                 elif freq <= 1e9:  # UHF band
                     solint_list[0][ms_id] = '8sec'
 
-                if peak_flux > 5.*((freq/1e9)**(-0.7)):
+                if peak_flux > 0.75*((freq/1e9)**(-0.7)):
                     terminal_print('Very high dynamic range MeerKAT data detected, updating self-calibration settings accordingly...')
                     logger.info('Very high dynamic range MeerKAT data detected, updating self-calibration settings accordingly...')
                     solint_list[2][ms_id] = '32sec' # for scalarcomplexgain2, very short time intervals to deal with scintillations
@@ -23327,7 +23699,8 @@ def main():
     None
         Processing follows the command-line arguments.
 
-        An offline HTML report is generated after initialized runs.
+        An offline HTML report is generated shortly after startup and refreshed
+        during and after processing.
     """
 
     global _REPORT_RUN_INITIALIZED
@@ -23362,6 +23735,13 @@ def main():
 
     global args
     args = vars(options)
+    try:
+        requested_run_mode = _run_mode_from_args(args)
+        _ensure_run_mode_marker(Path.cwd(), requested_run_mode)
+    except ValueError as exc:
+        terminal_print("Cannot start facetselfcal: {}".format(exc))
+        raise SystemExit(2) from None
+
     _configure_selfcal_log(args['start'])
     _log_machine_info()
     _prepare_html_overview(args['start'])
@@ -23393,8 +23773,11 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '20.1.0'
+    facetselfcal_version = '20.2.0'
     print_title(facetselfcal_version)
+    _write_html_overview(
+        Path.cwd(), status="running", announce_browser=True
+    )
 
     # copy h5s locally
     for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
@@ -23478,7 +23861,14 @@ def main():
 
     # fix bad GMRT weights for LR and LR (because they are set to zero if created by fixuGMRT_revised.py)
     # zero weights result in fully flagged data when doing time/freq averaging in DP3
-    if args['start'] == 0: fix_GMRT_weights(mslist)
+    if args['start'] == 0:
+        fix_GMRT_weights(mslist)
+        if not args['skip_uv_coverage_plotting']:
+            plot_UV_coverage(mslist)
+        # fix MS that have a variable reference pointing (like the ELVA)
+        fix_variable_reference_pointing(mslist)
+
+
 
 
     # fix irregular time axes or avoid bloated MS, do this first before any other step
@@ -23676,8 +24066,10 @@ def main():
             create_backup_flag_col(ms)
 
     # LOG INPUT SETTINGS
+    if args['stack']:
+        _write_stack_imaging_group_manifest(mslist)
     logbasicinfo(args, fitsmask, mslist, facetselfcal_version, sys.argv)
-    _write_html_overview(Path.cwd(), status="running")
+    _write_html_overview(Path.cwd(), status="running", quiet=True)
 
     # Make starting skymodel from TGSS or VLASS survey if requested
 
@@ -24260,7 +24652,14 @@ def main():
             cleanup(mslist)
 
 
-def _write_html_overview(run_directory, status, error=None, cycle=None):
+def _write_html_overview(
+    run_directory,
+    status,
+    error=None,
+    cycle=None,
+    announce_browser=False,
+    quiet=False,
+):
     """Generate or refresh the offline HTML overview without aborting a run.
 
     Parameters
@@ -24273,6 +24672,10 @@ def _write_html_overview(run_directory, status, error=None, cycle=None):
         Error summary to include for a failed run.
     cycle : int or None, optional
         Completed cycle that triggered this refresh, if any.
+    announce_browser : bool, optional
+        Highlight the absolute overview path and suggest opening it in a browser.
+    quiet : bool, optional
+        Suppress the success message while still updating the report.
 
     Returns
     -------
@@ -24282,12 +24685,19 @@ def _write_html_overview(run_directory, status, error=None, cycle=None):
         if __package__:
             from .report import generate_html_overview
         else:
-            from report import generate_html_overview
+            from facetselfcal.report import generate_html_overview
 
         report_index = generate_html_overview(
             run_directory, status=status, error=error
         )
-        if cycle is None:
+        if announce_browser:
+            terminal_print(
+                "\033[1;36mHTML overview is ready. You can open this page in a "
+                "browser: {}\033[0m".format(Path(report_index).resolve())
+            )
+        elif quiet:
+            return
+        elif cycle is None:
             terminal_print("Offline HTML overview written to", report_index)
         else:
             terminal_print(
@@ -24362,14 +24772,31 @@ def _with_html_report(run_function):
                 try:
                     _RESOURCE_MONITOR.stop()
                 except Exception:
-                    pass
+                    logger.exception("Could not stop resource monitoring cleanly")
             if _REPORT_RUN_INITIALIZED:
                 _write_html_overview(run_directory, status=status, error=error)
 
     return wrapped
 
 
-main = _with_html_report(main)
+def _with_run_directory_lock(run_function):
+    """Prevent simultaneous workflows from sharing one working directory."""
+    @wraps(run_function)
+    def wrapped(*run_args, **run_kwargs):
+        if any(argument in ("-h", "--help") for argument in sys.argv[1:]):
+            return run_function(*run_args, **run_kwargs)
+
+        try:
+            with _run_directory_lock(Path.cwd()):
+                return run_function(*run_args, **run_kwargs)
+        except _RunDirectoryBusyError as exc:
+            terminal_print(str(exc))
+            raise SystemExit(1) from None
+
+    return wrapped
+
+
+main = _with_run_directory_lock(_with_html_report(main))
 
 
 if __name__ == "__main__":

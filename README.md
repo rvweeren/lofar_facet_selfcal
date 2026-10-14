@@ -70,6 +70,10 @@ An example configuration is available at [`facetselfcal/data/example_config.txt`
 4. Inspect the generated images, calibration tables, and diagnostics.
 5. Use the supporting utilities for HDF5 tables, facet regions, source selection, or phase-difference analysis.
 
+### Run-directory protection
+
+Facetselfcal allows only one active run per working directory. It records the effective mode in `misc/facetselfcal_mode.txt` as `bandpass`, `DDE`, or `standard`; later runs in that directory must use the same mode. Use a new, clean run directory to change modes. Keep the marker with the run products; removing it alone does not make a mode change safe.
+
 The [facet self-calibration overview](https://github.com/rvweeren/lofar_facet_selfcal/wiki/FACETSELFCAL-OVERVIEW) describes the extraction workflow in more detail.
 
 ## Instrument notes
@@ -107,7 +111,17 @@ Installing the package provides these commands:
 
 ### Offline HTML report
 
-Each initialized `facetselfcal` run creates a multi-page offline report in `html_overview/`, refreshes it after each completed self-calibration cycle, and records the final run status when processing ends.
+Each initialized `facetselfcal` run creates a multi-page offline report in `html_overview/` shortly after startup, prints the full `index.html` path in highlighted terminal text, refreshes the report after each completed self-calibration cycle, and records the final run status when processing ends.
+
+To regenerate a report without rerunning calibration:
+
+```bash
+python -m facetselfcal.report /path/to/run --status completed
+python -m facetselfcal.report /path/to/run --output /path/to/report-copy
+```
+
+Only specify `--status` when the outcome is known; regeneration otherwise reports an unknown outcome. Keep the run products available at their original relative locations for offline browsing. An alternative output directory still links to the source products; it is not a self-contained archive.
+
 
 <table>
   <tr>
