@@ -20783,7 +20783,7 @@ def beam_keywords(ms, add_beamkeywords=True):
    
     if not applybeam_info and add_beamkeywords and args['telescope'] == 'LOFAR':
         with table(ms + '::FIELD', readonly=True, ack=False) as t:
-                ref_direction = t.getcol('REFERENCE_DIR').squeeze()
+            ref_direction = t.getcol('REFERENCE_DIR').squeeze()
             cmddppp = 'DP3 msin=' + ms + ' msout=. steps=[sb] sb.type=setbeam sb.beammode=default '  
             cmddppp += 'sb.direction=['+  str(ref_direction[0]) +',' +  str(ref_direction[1]) + ']'
             terminal_print('DP3 command:', cmddppp)
