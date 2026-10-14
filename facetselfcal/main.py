@@ -21345,11 +21345,18 @@ def findrefant_core(H5file, telescope='LOFAR'):
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
         
 
-    if len(cs_indices) == 0 and telescope == 'LOFAR':
+    if len(cs_indices) == 0:
         # print in red
-        terminal_print('\033[91mWarning: no reference stations found, using all antennas to find refant\033[0m')
+        terminal_print(
+            f'\033[91mWarning: no {telescope} reference stations found: none of the antenna names in the MS matched any expected {telescope} names; using all antennas to find refant\033[0m'
+        )
+        logger.warning(
+            'No %s reference stations found: none of the antenna names in the MS matched any expected %s names; using all antennas to find refant.',
+            telescope,
+            telescope,
+        )
         cs_indices = np.arange(len(ants))
-   
+
     # Find the antennas and which dimension that corresponds to
     ant_index = np.where(np.array(soltab.getAxesNames()) == 'ant')[0][0]
 
