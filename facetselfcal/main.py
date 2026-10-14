@@ -957,7 +957,7 @@ def get_EVLA_IF_pair(ms):
         terminal_print('IF pair detection is only supported for EVLA measurement sets, but the telescope for MS ' + ms + ' is ' + get_telescope_from_ms(ms))
         raise ValueError('IF pair detection is only supported for EVLA measurement sets.')
 
-    with table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False) as t:
+    with table(ms + '::SPECTRAL_WINDOW', readonly=True, ack=False) as t:
         name = t.getcol('NAME')[0]
     # format is 'EVLA_X#B2D2#53'
     # strip off the part between the # symbols
@@ -1020,7 +1020,7 @@ def split_ms_spws(ms, dysco=True):
     """
 
     # get SPWids from the MS
-    with table(os.path.join(ms, 'DATA_DESCRIPTION'), readonly=True) as t:
+    with table(ms + '::DATA_DESCRIPTION', readonly=True) as t:
         spw_ids = t.getcol('SPECTRAL_WINDOW_ID')
 
     # check that there are more than one unique SPW, otherwise do nothing
@@ -1034,7 +1034,7 @@ def split_ms_spws(ms, dysco=True):
         active_ddids = np.unique(t.getcol("DATA_DESC_ID"))
 
     # map those DDIDs back to their actual Spectral Window IDs
-    with table(os.path.join(ms, 'DATA_DESCRIPTION'), readonly=True) as t:
+    with table(ms + '::DATA_DESCRIPTION', readonly=True) as t:
         # Fetch the mapping array where row index = DDID, value = SPW_ID
         spw_mapping = t.getcol("SPECTRAL_WINDOW_ID")
     
@@ -1100,7 +1100,7 @@ def collect_all_frequencies(mslist):
     """
     frequencies = set()
     for ms in mslist:
-        with table(ms + '/SPECTRAL_WINDOW', readonly=True) as t:
+        with table(ms + '::SPECTRAL_WINDOW', readonly=True) as t:
             freqs = t.getcol('CHAN_FREQ')[0]# Get the first channel frequency for each SPW    
             terminal_print(f'Frequencies in {ms}: {freqs}')
             frequencies.update(freqs)
@@ -1480,7 +1480,7 @@ def getVarianceRRLL(ms, data_column="DATA", num_baselines=6, candidate_pool_size
     rng = np.random.default_rng(random_seed)
 
     # 1. Identify RR and LL (or XX and YY) polarization indices
-    with table(ms + "/POLARIZATION", readonly=True, ack=False) as tpol:
+    with table(ms + "::POLARIZATION", readonly=True, ack=False) as tpol:
         corr_type = tpol.getcol("CORR_TYPE")[0]
     corr_map = {corr: idx for idx, corr in enumerate(corr_type)}
     
@@ -1499,7 +1499,7 @@ def getVarianceRRLL(ms, data_column="DATA", num_baselines=6, candidate_pool_size
 
     # 2. Identify and mask bad frequency channels
     parsed_bad_ranges = parse_bad_freq_ranges(bad_freq_ranges)
-    with table(ms + "/SPECTRAL_WINDOW", readonly=True, ack=False) as tspect:
+    with table(ms + "::SPECTRAL_WINDOW", readonly=True, ack=False) as tspect:
         chan_freqs = tspect.getcol("CHAN_FREQ")[0]
     bad_freq_mask = np.zeros(len(chan_freqs), dtype=bool)
 
@@ -1511,7 +1511,7 @@ def getVarianceRRLL(ms, data_column="DATA", num_baselines=6, candidate_pool_size
             logging.info(f"Ignoring {n_bad}/{len(chan_freqs)} frequency channels matching bad frequency ranges.")
 
     # 3. Compute physical baseline lengths from ANTENNA subtable
-    with table(ms + "/ANTENNA", readonly=True, ack=False) as t_ant:
+    with table(ms + "::ANTENNA", readonly=True, ack=False) as t_ant:
         ant_pos = t_ant.getcol("POSITION")
         ant_names = t_ant.getcol("NAME") if "NAME" in t_ant.colnames() else None
         num_ants = len(ant_pos)
@@ -1756,7 +1756,7 @@ def aoflagger_column(mslist, aoflagger_strategy=None, column='CORRECTED_DATA'):
 
     # check if MS has circular polarisation data and RR/RL/LR/LL flagging is requested
     if aoflagger_strategy is not None:
-        with table(mslist[0] + '/POLARIZATION', ack=False) as t:
+        with table(mslist[0] + '::POLARIZATION', ack=False) as t:
             corr_type = t.getcol('CORR_TYPE')
             with open(aoflagger_strategy) as myfile:
                 if ("LL" in myfile.read() or "RR" in myfile.read() or \
@@ -1827,7 +1827,7 @@ def setjy_casa(ms):
     c_3C138 = np.array([80.291192, 16.639459])
     c_3C48  = np.array([24.422081, 33.159759])
 
-    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+    with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
         midfreq = np.mean(t.getcol('CHAN_FREQ')[0])
 
     UHF = False; Lband = False; Sband = False; Cband = False; Xband = False
@@ -1842,7 +1842,7 @@ def setjy_casa(ms):
     if (midfreq >= 8.0e9) and (midfreq < 12.0e9): # X-band
         Xband = True
 
-    with table(ms + '/FIELD', ack=False) as t:
+    with table(ms + '::FIELD', ack=False) as t:
         adir = t.getcol('DELAY_DIR')[0][0][:]
     cdatta = SkyCoord(adir[0]*units.radian, adir[1]*units.radian, frame='icrs')
 
@@ -2051,14 +2051,14 @@ def remove_antennas(ms_path, antennas_to_remove):
     Prints information about removed rows or errors encountered.
     """
     
-    with table(f"{ms_path}/POINTING", readonly=False) as pointing_table:
+    with table(f"{ms_path}::POINTING", readonly=False) as pointing_table:
         rows_to_remove = [i for i, antenna in enumerate(pointing_table) if antenna['NAME'] in antennas_to_remove]
         terminal_print(f"Rows to remove from POINTING: {rows_to_remove}")
         if len(rows_to_remove) >0:
             pointing_table.removerows(rows_to_remove)
             terminal_print(f"Removed rows from POINTING: {rows_to_remove}")
     
-    with table(f"{ms_path}/ANTENNA", readonly=False) as antenna_table:
+    with table(f"{ms_path}::ANTENNA", readonly=False) as antenna_table:
         rows_to_remove = [i for i, antenna in enumerate(antenna_table) if antenna['NAME'] in antennas_to_remove]
         if len(rows_to_remove) > 0:
             antenna_table.removerows(rows_to_remove)
@@ -2182,7 +2182,7 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
         
     for msin in ms:
         # load source names and field ids from the FIELD subtable, 
-        with table(msin + '/FIELD', readonly=True, ack=False) as t:
+        with table(msin + '::FIELD', readonly=True, ack=False) as t:
             source_names = t.getcol('NAME')
         with table(msin, readonly=True, ack=False) as t:
             field_ids = t.getcol('FIELD_ID')
@@ -2212,7 +2212,7 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
             else:
                 terminal_print(f"Splitting multisource Measurement Set {msin} into single source MS...")
         # get the source names
-        with table(msin + '/FIELD', readonly=True, ack=False) as t:
+        with table(msin + '::FIELD', readonly=True, ack=False) as t:
             source_names = t.getcol('NAME')
             field_ids = t.getcol('SOURCE_ID')
 
@@ -2315,13 +2315,13 @@ def check_pointing_centers(mslist):
     
     if len(mslist) == 1 or args['stack']:
         return True  # Only one MS, no need to check alignment, for stacking no need to check alignment either
-    with table(mslist[0] + '/FIELD', ack=False, readonly=True) as t:
+    with table(mslist[0] + '::FIELD', ack=False, readonly=True) as t:
         ra_ref, dec_ref = t.getcol('PHASE_DIR').squeeze() # reference direction in radians
         center = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')
     
     align = True
     for ms in mslist[1:]:  
-        with table(ms + '/FIELD', ack=False, readonly=True) as t:
+        with table(ms + '::FIELD', ack=False, readonly=True) as t:
             ra_ms, dec_ms = t.getcol('PHASE_DIR').squeeze()
         center_ms = SkyCoord(ra_ms * units.radian, dec_ms * units.radian, frame='icrs')
         if not center.separation(center_ms).deg < 0.025/3600:  # 0.025 arcsec tolerance
@@ -2342,7 +2342,7 @@ def fix_variable_reference_pointing(mslist):
     """
     updates = []
     for ms in mslist:
-        field_path = os.path.join(os.fspath(ms), 'FIELD')
+        field_path = os.fspath(ms) + '::FIELD'
         with table(field_path, ack=False, readonly=True) as field_table:
             columns = field_table.colnames()
             if 'PHASE_DIR' not in columns:
@@ -2622,7 +2622,7 @@ def is_two_pol_ms(ms):
     - The function reads the 'CORR_TYPE' column from the POLARIZATION table of the MS.
     - It checks if the correlation types correspond to two polarisation correlations.
     """
-    with table(ms + '/POLARIZATION', ack=False, readonly=True) as t:
+    with table(ms + '::POLARIZATION', ack=False, readonly=True) as t:
         corr_type = t.getcol('CORR_TYPE')
         if np.size(corr_type) == 2:
             return True
@@ -2686,16 +2686,16 @@ def set_polarised_model_3C286(ms, chunksize=1000):
     #obtain channel frequency data in GHz
     from tqdm import tqdm
     terminal_print('obtaining channel frequencies...')
-    with table(ms + '/SPECTRAL_WINDOW', ack=False, readonly=True) as t:
+    with table(ms + '::SPECTRAL_WINDOW', ack=False, readonly=True) as t:
         freqs = t.getcol('CHAN_FREQ') / 1e9     #freqs in GHz
         freqs = freqs.flatten()                 #freqs in 1D array
     
     # get polarization information to determine if linear or circular polarisation is used
-    with table(ms + '/POLARIZATION', ack=False, readonly=True) as t:
+    with table(ms + '::POLARIZATION', ack=False, readonly=True) as t:
         corr_type = t.getcol('CORR_TYPE') 
 
     #obtain field_id corresponding to J1331+3030 (3C286)
-    with table(ms+'/FIELD', ack=False, readonly=True) as t:
+    with table(ms+'::FIELD', ack=False, readonly=True) as t:
         names = np.array(t.getcol('NAME'))
         try:
             source_id = np.array(t.getcol('SOURCE_ID'))[names == 'J1331+3030'][0]
@@ -2993,7 +2993,7 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
     w = WCS(hduflat.header)
     if ms is not None:
         terminal_print('Taking pointing center from the ms')
-        with table(ms + '/FIELD', readonly=True, ack=False) as t:
+        with table(ms + '::FIELD', readonly=True, ack=False) as t:
             ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze()
         center = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')   
     else:
@@ -3639,7 +3639,7 @@ def VLA_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15, telescope=No
     w = WCS(hduflat.header)
     if ms is not None:
         terminal_print('Taking pointing center from the ms')
-        with table(ms + '/FIELD', readonly=True, ack=False) as t:
+        with table(ms + '::FIELD', readonly=True, ack=False) as t:
             ref_dir = t.getcol('REFERENCE_DIR')
         ref_dir = np.squeeze(ref_dir)
         if ref_dir.ndim > 1:
@@ -3852,7 +3852,7 @@ def uGMRT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
     w = WCS(hduflat.header)
     if ms is not None:
         terminal_print('Taking pointing center from the ms')
-        with table(ms + '/FIELD', readonly=True, ack=False) as t:
+        with table(ms + '::FIELD', readonly=True, ack=False) as t:
             ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze()
         center = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')
     else:
@@ -4115,7 +4115,7 @@ def set_channelsout(mslist, factor=1):
     """
     
     # get median frequency of the first MS
-    with table(mslist[0] + '/SPECTRAL_WINDOW', ack=False) as t:
+    with table(mslist[0] + '::SPECTRAL_WINDOW', ack=False) as t:
         freq = np.median(t.getcol('REF_FREQUENCY'))
 
     f_bw = get_fractional_bandwidth(mslist)
@@ -4576,7 +4576,7 @@ def get_fractional_bandwidth(mslist):
     """
     freqaxis = []
     for ms in mslist:
-        t = table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False)
+        t = table(ms + '::SPECTRAL_WINDOW', readonly=True, ack=False)
         freq = t.getcol('CHAN_FREQ')[0]
         t.close()
         freqaxis.append(freq)
@@ -4584,7 +4584,7 @@ def get_fractional_bandwidth(mslist):
     f_bw = (np.max(freqaxis) - np.min(freqaxis)) / np.min(freqaxis)
 
     if f_bw == 0.0:  # single channel data
-        t = table(mslist[0] + '/SPECTRAL_WINDOW', readonly=True, ack=False)  # just take the first and assume this is ok
+        t = table(mslist[0] + '::SPECTRAL_WINDOW', readonly=True, ack=False)  # just take the first and assume this is ok
         f_bw = t.getcol('TOTAL_BANDWIDTH')[0] / np.min(freqaxis)
         t.close()
     return f_bw
@@ -5177,7 +5177,7 @@ def getAntennas(ms):
     This function accesses the 'ANTENNA' table within the provided
     Measurement Set to extract the antenna names.
     """
-    t = table(ms + "/ANTENNA", readonly=True, ack=False)
+    t = table(ms + "::ANTENNA", readonly=True, ack=False)
     antennas = t.getcol('NAME')
     t.close()
     return antennas
@@ -5328,7 +5328,7 @@ def create_pointing_list(mslist):
     pointing_list = []
     terminal_print('Taking pointing center from the ms')
     for ms in mslist:
-        with table(ms + '/FIELD', readonly=True, ack=False) as t:
+        with table(ms + '::FIELD', readonly=True, ack=False) as t:
             ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze()
             center = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')   
             # Round to 1arcsec precision
@@ -5353,7 +5353,7 @@ def get_chan_freqs(ms):
     tuple
         A tuple of channel frequencies rounded to 0.1 Hz.
     """
-    with table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False) as t:
+    with table(ms + '::SPECTRAL_WINDOW', readonly=True, ack=False) as t:
         chan_freqs = t.getcol('CHAN_FREQ')
     if isinstance(chan_freqs, np.ndarray) and chan_freqs.dtype == object:
         freq_list = np.concatenate([np.array(f).ravel() for f in chan_freqs])
@@ -5829,7 +5829,7 @@ def set_beamcor(ms, beamcor_var):
         logger.info('Run DP3 applybeam: yes')
         return True
 
-    t = table(ms + '/OBSERVATION', ack=False)
+    t = table(ms + '::OBSERVATION', ack=False)
     if t.getcol('TELESCOPE_NAME')[0] != 'LOFAR':
         t.close()
         logger.info('Run DP3 applybeam: no (because we are not using LOFAR observations)')
@@ -6185,7 +6185,7 @@ def add_dummyms(msfiles):
 
     # Check for wrong REF_FREQUENCY which happens after a DPPP split in frequency
     for ms in msfiles:
-        with table(ms + '/SPECTRAL_WINDOW', readonly=True) as t:
+        with table(ms + '::SPECTRAL_WINDOW', readonly=True) as t:
             freq = t.getcol('REF_FREQUENCY')[0]
         freqaxis.append(freq)
     freqaxis = np.sort(np.array(freqaxis))
@@ -6195,7 +6195,7 @@ def add_dummyms(msfiles):
 
     freqaxis = []
     for ms in msfiles:
-        with table(ms + '/SPECTRAL_WINDOW', readonly=True) as t:
+        with table(ms + '::SPECTRAL_WINDOW', readonly=True) as t:
             if keyname == 'CHAN_FREQ':
                 freq = t.getcol(keyname)[0][0]
             else:
@@ -6548,7 +6548,7 @@ def check_equidistant_freqs(mslist):
     - The function prints the unique frequency differences and the MS path if non-equidistant channels are detected.
     """
     for ms in mslist:
-        with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
             chan_freqs = t.getcol('CHAN_FREQ')[0]
         if len(chan_freqs) == 1:  # single channel data
             return
@@ -6817,7 +6817,7 @@ def format_nchan(nchan, ms):
     if str(nchan).isdigit():
         return str(nchan)
     else:
-        with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
             chanw = np.median(t.getcol('CHAN_WIDTH'))
         if 'Hz' in nchan:
             nchanout = int(np.rint(float(re.findall(r'[+-]?\d+(?:\.\d+)?', nchan)[0]) / chanw))
@@ -7262,7 +7262,7 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
             time = np.unique(t.getcol('TIME'))
             logger.info('Integration time [s]:      {:.2f}'.format(np.abs(time[1] - time[0])))
             logger.info('Observation duration [hr]: {:.2f}'.format((np.max(time)-np.min(time))/3600.))
-        with table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False) as t:
+        with table(ms + '::SPECTRAL_WINDOW', readonly=True, ack=False) as t:
             chanw = np.median(t.getcol('CHAN_WIDTH'))
             freqs = t.getcol('CHAN_FREQ')[0]
             nfreq = len(t.getcol('CHAN_FREQ')[0])
@@ -9453,7 +9453,7 @@ def tmpmakeantresidual(mslist, selfcalcycle, multiscale, fitsmask_list, restorin
     # collect all antenna names in all MS, append to antenna_names
     antenna_names = []
     for ms in mslist:
-        ant_table = table(ms+'/ANTENNA', ack=False)
+        ant_table = table(ms+'::ANTENNA', ack=False)
         antenna_names.extend(ant_table.getcol('NAME'))
         ant_table.close()
     
@@ -9947,7 +9947,7 @@ def findfreqavg(ms, imsize, bwsmearlimit=1.0, msinnchan=None):
     avgfactor : int
         the frequency averaging factor for the Measurement Set.
     """
-    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+    with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
         bwsmear = bandwidthsmearing(np.median(t.getcol('CHAN_WIDTH')), np.min(t.getcol('CHAN_FREQ')[0]), float(imsize), verbose=False)
         nfreq = len(t.getcol('CHAN_FREQ')[0])
     
@@ -10070,7 +10070,7 @@ def check_phaseup_station(ms):
     -------
     None
     """
-    with table(ms + '/ANTENNA', ack=False) as t:
+    with table(ms + '::ANTENNA', ack=False) as t:
         antennasms = list(t.getcol('NAME'))
     substr = 'ST'  # to check if a a superstation is present, assume this 'ST' string, usually ST001
     hassuperstation = any(substr in mystring for mystring in antennasms)
@@ -10091,7 +10091,7 @@ def checklongbaseline(ms):
     -------
     None
     """
-    with table(ms + '/ANTENNA', ack=False) as t:
+    with table(ms + '::ANTENNA', ack=False) as t:
         antennasms = list(t.getcol('NAME'))
     substr = 'DE'  # to check if a German station is present, if yes assume this is long baseline data
     haslongbaselines = any(substr in mystring for mystring in antennasms)
@@ -10220,7 +10220,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                     cmd += ' steps=[shift,av] '
                 cmd += ' shift.type=phaseshifter '
                 if phaseshiftbox == 'align':
-                    with table(mslist[0] + '/FIELD', ack=False) as t:
+                    with table(mslist[0] + '::FIELD', ack=False) as t:
                         ra_ref, dec_ref = t.getcol('PHASE_DIR').squeeze() # get the reference direction of the first MS in radians
                     terminal_print(f'Aligning phase center to {ra_ref}, {dec_ref} (in radians) of first MS {mslist[0]}')
                     # shift to the first MS's phase center
@@ -10412,7 +10412,7 @@ def check_frequency_averaging_steps(mslist, options):
     backup_startchan = options["msinstartchan"] if backup_will_create_copy else 0
     spectral_window_metadata = None
     if backup_nchan is not None:
-        with table(mslist[0] + "/SPECTRAL_WINDOW", readonly=True, ack=False) as spw_table:
+        with table(mslist[0] + "::SPECTRAL_WINDOW", readonly=True, ack=False) as spw_table:
             preview_freqs = np.asarray(spw_table.getcol("CHAN_FREQ")[0], dtype=float)
             preview_widths = np.asarray(spw_table.getcol("CHAN_WIDTH")[0], dtype=float)
         if (
@@ -10471,12 +10471,12 @@ def check_frequency_averaging_steps(mslist, options):
     for ms in setup_mslist:
         with table(ms, readonly=True, ack=False) as ms_table:
             active_ddids = np.unique(ms_table.getcol("DATA_DESC_ID"))
-        with table(os.path.join(ms, "DATA_DESCRIPTION"), readonly=True, ack=False) as dd_table:
+        with table(ms + "::DATA_DESCRIPTION", readonly=True, ack=False) as dd_table:
             spw_ids_by_ddid = dd_table.getcol("SPECTRAL_WINDOW_ID")
         active_spw_ids = sorted({
             int(spw_ids_by_ddid[int(ddid)]) for ddid in active_ddids
         })
-        with table(os.path.join(ms, "SPECTRAL_WINDOW"), readonly=True, ack=False) as spw_table:
+        with table(ms + "::SPECTRAL_WINDOW", readonly=True, ack=False) as spw_table:
             channel_counts = np.asarray(spw_table.getcol("NUM_CHAN")).reshape(-1)
             channel_freqs = spw_table.getcol("CHAN_FREQ")
             channel_widths = spw_table.getcol("CHAN_WIDTH")
@@ -10881,7 +10881,7 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
     # for large MSs with many frequency channels it smees we need to reduce the timeslotsperparmupdate to avoid segmentation faults
     # For example GMRT data with nchan=2688 and 3535 results in a segmentation faults with the DP3 default timeslotsperparmupdate=200
     if auto_update_timeslotsperparmupdate:
-        with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
             nfreq = len(t.getcol('CHAN_FREQ')[0])
             if nfreq > 500:  # if more than 500 channels reduce timeslotsperparmupdate
                 timeslotsperparmupdate = 100
@@ -11865,7 +11865,7 @@ def get_resolution(ms):
         Estimated resolution in arcseconds.
     """
     uvmax = get_uvwmax(ms)
-    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+    with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
         freq = np.median(t.getcol('CHAN_FREQ'))
         terminal_print('Central freq [MHz]', freq / 1e6, 'Longest baselines [km]', uvmax / 1e3)
     res = 1.22 * 3600. * 180. * ((299792458. / freq) / uvmax) / np.pi
@@ -12211,7 +12211,7 @@ def report_bandwidth_smearing(mslist, imsize):
     """Compute and report bandwidth smearing for each Measurement Set."""
     imsize = float(imsize)
     for ms in mslist:
-        with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
             chan_width = np.median(t.getcol('CHAN_WIDTH'))
             min_frequency = np.min(t.getcol('CHAN_FREQ')[0])
         bandwidthsmearing(chan_width, min_frequency, imsize, ms_name=ms)
@@ -12306,7 +12306,7 @@ def flag_smeared_data(msin):
         # uvmaxflag(msin, uvmax)
 
     # uvmax = get_uvwmax(ms)
-    with table(msin + '/SPECTRAL_WINDOW', ack=False) as t:
+    with table(msin + '::SPECTRAL_WINDOW', ack=False) as t:
         freq = np.median(t.getcol('CHAN_FREQ'))
     # print('Central freq [MHz]', freq/1e6, 'Longest baselines [km]', uvmax/1e3)
 
@@ -14308,7 +14308,7 @@ def set_MeerKAT_bandpass_skymodel(ms):
     cJ0408_6545 = np.array([1.08358621, -1.1475981])
     cJ1939_6342 = np.array([5.1461782, -1.11199629])
 
-    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+    with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
         midfreq = np.mean(t.getcol('CHAN_FREQ')[0])
 
     UHF = False; Lband = False; Sband = False
@@ -14319,7 +14319,7 @@ def set_MeerKAT_bandpass_skymodel(ms):
     if (midfreq >= 1.7e9) and (midfreq < 4.0e9):  # S-band
         Sband = True
 
-    with table(ms + '/FIELD', ack=False) as t:
+    with table(ms + '::FIELD', ack=False) as t:
         adir = t.getcol('DELAY_DIR')[0][0][:]
     cdatta = SkyCoord(adir[0]*units.radian, adir[1]*units.radian, frame='icrs')
 
@@ -15067,7 +15067,7 @@ def getmsmodelinfo(ms, modelcolumn, fastrms=False, uvcutfraction=0.333):
     tuple
         Model amplitude and phase summary values.
     """
-    t = table(ms + '/SPECTRAL_WINDOW', ack=False)
+    t = table(ms + '::SPECTRAL_WINDOW', ack=False)
     chanw = np.median(t.getcol('CHAN_WIDTH'))
     freq = np.median(t.getcol('CHAN_FREQ'))
     nfreq = len(t.getcol('CHAN_FREQ')[0])
@@ -17995,11 +17995,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         terminal_print("Restore flagging column: " + "taql " + cmdtaql)
         run("taql " + cmdtaql, taql=True)
 
-    t = table(ms + '/SPECTRAL_WINDOW', ack=False)
+    t = table(ms + '::SPECTRAL_WINDOW', ack=False)
     freq = np.median(t.getcol('CHAN_FREQ')[0])
     t.close()
 
-    t = table(ms + '/ANTENNA', ack=False)
+    t = table(ms + '::ANTENNA', ack=False)
     antennasms = t.getcol('NAME')
     t.close()
 
@@ -20566,7 +20566,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
     phasedup = check_phaseup(H5name)  # in case no beamcor is done we still need this
 
     if (lin2circ or circ2lin):
-        tp = table(ms + '/POLARIZATION', ack=False)
+        tp = table(ms + '::POLARIZATION', ack=False)
         polinfo = tp.getcol('CORR_TYPE')
         if lin2circ:  # so in this case input must be linear
             if not np.array_equal(np.array([[9, 10, 11, 12]]), polinfo):
@@ -20579,7 +20579,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
         tp.close()
 
     if beam:
-        tp = table(ms + '/POLARIZATION', ack=False)
+        tp = table(ms + '::POLARIZATION', ack=False)
         polinfo = tp.getcol('CORR_TYPE')
         tp.close()
         if np.array_equal(np.array([[5, 6, 7, 8]]), polinfo):  # so we have circular data
@@ -20733,7 +20733,7 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
                
     # update ms POLTABLE
     if (lin2circ or circ2lin) and update_poltable:
-        tp = table(ms + '/POLARIZATION', readonly=False, ack=True)
+        tp = table(ms + '::POLARIZATION', readonly=False, ack=True)
         if lin2circ:
             tp.putcol('CORR_TYPE', np.array([[5, 6, 7, 8]], dtype=np.int32))  # FROM LIN-->CIRC
         if circ2lin:
@@ -20782,7 +20782,7 @@ def beam_keywords(ms, add_beamkeywords=True):
             logger.warning(message)
    
     if not applybeam_info and add_beamkeywords and args['telescope'] == 'LOFAR':
-            with table(ms + '/FIELD', readonly=True, ack=False) as t:
+        with table(ms + '::FIELD', readonly=True, ack=False) as t:
                 ref_direction = t.getcol('REFERENCE_DIR').squeeze()
             cmddppp = 'DP3 msin=' + ms + ' msout=. steps=[sb] sb.type=setbeam sb.beammode=default '  
             cmddppp += 'sb.direction=['+  str(ref_direction[0]) +',' +  str(ref_direction[1]) + ']'
@@ -21184,7 +21184,7 @@ def getdeclinationms(ms):
     float
         Approximate declination in degrees.
     """
-    t = table(ms + '/FIELD', readonly=True, ack=False)
+    t = table(ms + '::FIELD', readonly=True, ack=False)
     direction = np.squeeze(t.getcol('PHASE_DIR'))
     t.close()
     return 360. * direction[1] / (2. * np.pi)
@@ -21850,7 +21850,7 @@ def find_bad_deviating_antennas(h5, ms, threshold=0.075):
         terminal_print('Amplitude solutions are fulljones or have amplitude leakage, cannot determine bad antennas based on amplitude deviations')
         raise Exception('Amplitude solutions are fulljones or have amplitude leakage, cannot determine bad antennas based on amplitude deviations')
 
-    with table(ms + '/FIELD', readonly=True, ack=False) as t:
+    with table(ms + '::FIELD', readonly=True, ack=False) as t:
         ra_ref, dec_ref = t.getcol('REFERENCE_DIR').squeeze()
         center_ms = SkyCoord(ra_ref * units.radian, dec_ref * units.radian, frame='icrs')
         #print(center_ms)
@@ -22012,7 +22012,7 @@ def check_valid_ms(mslist):
 
     # check that each MS contains only one spectral window (SPW)
     for ms in mslist:
-        with table(os.path.join(ms, 'SPECTRAL_WINDOW'), readonly=True) as t:
+        with table(ms + '::SPECTRAL_WINDOW', readonly=True) as t:
             n_spws = t.nrows()
         if n_spws != 1:
             terminal_print('Measurement Set:', ms, ' contains more than one spectral window (SPW)')
@@ -22151,7 +22151,7 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
         longbaseline = False
         # Determine HBA or LBA
     if spectral_window_metadata is None:
-        t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
+        t = table(mslist[0] + '::SPECTRAL_WINDOW', ack=False)
         freqs = t.getcol('CHAN_FREQ')[0]
         chan_width = np.median(t.getcol('CHAN_WIDTH')[0])
         t.close()
@@ -23140,7 +23140,7 @@ def flag_uGMRT_badfreqs(mslist):
         return
 
     for ms in mslist:
-        t = table(ms + '/SPECTRAL_WINDOW', ack=False)
+        t = table(ms + '::SPECTRAL_WINDOW', ack=False)
         freq = np.median(t.getcol('CHAN_FREQ')[0]) / 1e6  # in MHz
         t.close()
         if freq > 100 and freq < 250:  # band2
@@ -23442,7 +23442,7 @@ def autodetect_highDR(selfcalcycle, mslist, telescope, soltypecycles_list, solin
     """
     
     # get frequency
-    t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
+    t = table(mslist[0] + '::SPECTRAL_WINDOW', ack=False)
     freq = np.median(t.getcol('CHAN_FREQ')[0]) # in Hz
     t.close()
     
@@ -23511,7 +23511,7 @@ def get_telescope_from_ms(mslist):
     if isinstance(mslist, str):
         mslist = [mslist]
 
-    with table(mslist[0] + '/OBSERVATION', ack=False) as t:
+    with table(mslist[0] + '::OBSERVATION', ack=False) as t:
         telescope = t.getcol('TELESCOPE_NAME')[0]
     return telescope
     
@@ -23540,7 +23540,7 @@ def get_frequencies_from_ms(mslist):
     if isinstance(mslist, str):
         mslist = [mslist]
 
-    t = table(mslist[0] + '/SPECTRAL_WINDOW', ack=False)
+    t = table(mslist[0] + '::SPECTRAL_WINDOW', ack=False)
     freqs = t.getcol('CHAN_FREQ')[0]  # in Hz
     t.close()
     return freqs
@@ -23575,7 +23575,7 @@ def compute_flagging_statistics(mslist, chunk_size=10000):
                     continue
 
                 with table(
-                    os.path.join(ms, "ANTENNA"), readonly=True, ack=False
+                    ms + "::ANTENNA", readonly=True, ack=False
                 ) as antenna_table:
                     antenna_names = [
                         name.decode("utf-8", errors="replace").strip()
