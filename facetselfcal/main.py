@@ -97,6 +97,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
 # Modules
+from .losoto_helpers import tecandphaseplotter
 from arguments import option_parser
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
 from submods.h5_helpers.reset_h5parm_structure import fix_h5
@@ -10662,34 +10663,6 @@ def uvmaxflag(msin, uvmax):
     Executes a DP3 command to flag data in the input MS based on the specified UV distance threshold.
     """
     cmd = 'DP3 msin=' + msin + ' msout=. steps=[f] f.type=uvwflag f.uvlambdamax=' + str(uvmax)
-    terminal_print('Command:', cmd)
-    run(cmd)
-    return
-
-
-def tecandphaseplotter(h5, ms, telescope='LOFAR', outplotname='plot.png'):
-    """
-    Make TEC and phase plots.
-
-    Parameters
-    ----------
-    h5 : str
-        path to the H5parm to plot.
-    ms : str
-        path to th ecorresponding Measurement Set.
-    telescope : str
-        telescope name.
-    outplotname : str
-        name of the output plot.
-
-    Returns
-    -------
-    None
-    """
-    if not os.path.isdir('solution_plots_%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
-        os.makedirs("solution_plots_%s" % os.path.basename(ms), exist_ok=True)
-    cmd = f'python {submodpath}/plot_tecdelayphase.py  '
-    cmd += '--H5file=' + h5 + ' --outfile=solution_plots_%s/%s_nolosoto.png --telescope=%s' % (os.path.basename(ms), os.path.basename(outplotname), args['telescope'])
     terminal_print('Command:', cmd)
     run(cmd)
     return
