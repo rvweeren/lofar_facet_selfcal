@@ -130,7 +130,7 @@ from submods.source_selection.selfcal_selection import get_images_solutions
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
 
 # Modules
-from .losoto_helpers import losotolofarbeam, tecandphaseplotter
+from .losoto_helpers import create_losoto_beamcorparset, losotolofarbeam, tecandphaseplotter
 
 # Set logger
 os.makedirs('logs', exist_ok=True) 
@@ -15351,51 +15351,6 @@ def create_beamcortemplate(ms):
     return H5name
 
 
-def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
-    """
-    Create a LoSoTo parset to fill the beam correction values.
-
-    Parameters
-    ----------
-    ms : str
-        Path to the Measurement Set.
-    refant : str
-        Reference antenna name.
-
-    Returns
-    -------
-    str
-        Path to the generated LoSoTo parset.
-    """
-    parset = 'losoto_parsets/losotobeam.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('pol = [XX,YY]\n')
-    f.write('soltab = [sol000/*]\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotphase]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-0.5,0.5]\n')
-        f.write('prefix = solution_plots_%s/phases_beam\n' % os.path.basename(ms))
-        f.write('refAnt = %s\n\n\n' % refant)
-
-        f.write('[plotamp]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/amplitude000]\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [0.2,1]\n')
-        f.write('prefix = solution_plots_%s/amplitudes_beam\n' % os.path.basename(ms))
-
-    f.close()
-    return parset
-
-
 def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttecandphase', markersize=2):
     """
     Create a LoSoTo parset for plotting TEC and phase solutions.
@@ -20359,10 +20314,11 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
         force_close(H5name)
 
         # print('Phase up dataset, cannot use DPPP beam, do manual correction')
-        cmdlosoto = losoto + ' ' + H5name + ' ' + parset
-        terminal_print('LoSoTo command:', cmdlosoto)
-        logger.info(cmdlosoto)
-        run(cmdlosoto)
+        if not args["skip_solution_plotting"]:
+            cmdlosoto = losoto + ' ' + H5name + ' ' + parset
+            terminal_print('LoSoTo command:', cmdlosoto)
+            logger.info(cmdlosoto)
+            run(cmdlosoto)
 
     if usedppp and not phasedup:
         cmddppp = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '

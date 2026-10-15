@@ -8,6 +8,8 @@ from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
 from astropy.time import Time
 from casacore.tables import taql
 from losoto import h5parm
+from pathlib import Path
+
 from .plotting.plot_tecdelayphase import plot_tecdelayphase
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,48 @@ formatter = logging.Formatter(
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.setLevel(logging.DEBUG)
+
+
+def create_losoto_beamcorparset(ms: str, refant: str = "CS003HBA0"):
+    """
+    Create a LoSoTo parset to fill the beam correction values.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    refant : str
+        Reference antenna name.
+
+    Returns
+    -------
+    str
+        Path to the generated LoSoTo parset.
+    """
+    parset = "losoto_parsets/losotobeam.parset"
+    Path(parset).unlink(missing_ok=True)
+
+    with open(parset, "w") as f:
+        f.write("pol = [XX,YY]\n")
+        f.write("soltab = [sol000/*]\n\n\n")
+
+        f.write("[plotphase]\n")
+        f.write("operation = PLOT\n")
+        f.write("soltab = [sol000/phase000]\n")
+        f.write("axesInPlot = [time,freq]\n")
+        f.write("axisInTable = ant\n")
+        f.write("minmax = [-0.5,0.5]\n")
+        f.write("prefix = solution_plots_%s/phases_beam\n" % os.path.basename(ms))
+        f.write("refAnt = %s\n\n\n" % refant)
+
+        f.write("[plotamp]\n")
+        f.write("operation = PLOT\n")
+        f.write("soltab = [sol000/amplitude000]\n")
+        f.write("axesInPlot = [time,freq]\n")
+        f.write("axisInTable = ant\n")
+        f.write("minmax = [0.2,1]\n")
+        f.write("prefix = solution_plots_%s/amplitudes_beam\n" % os.path.basename(ms))
+    return parset
 
 
 def losotolofarbeam(
