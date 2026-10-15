@@ -33,12 +33,12 @@
 # Standard library imports
 import ast
 import builtins
+import concurrent.futures
 import configparser
 import copy
+import fcntl
 import fnmatch
 import gc
-import concurrent.futures
-import fcntl
 import glob
 import json
 import logging
@@ -53,71 +53,84 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from pathlib import Path
-
 from contextlib import contextmanager
 from functools import wraps
-from itertools import product
-from itertools import groupby
+from itertools import groupby, product
+from pathlib import Path
 
 # avoid numexpr warning when cpu_count() exceeds its default NUMEXPR_MAX_THREADS (64)
 os.environ.setdefault('NUMEXPR_MAX_THREADS', str(multiprocessing.cpu_count()))
+
+import math
+import pickle
+import time
 
 # Third party imports
 import astropy
 import astropy.stats
 import astropy.units as units
-from astropy.io import fits
-from astropy.wcs import WCS
-from astropy.io import ascii
-from astropy.table import Table, vstack
-from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
-from astropy.time import Time
-from astroquery.skyview import SkyView
-from losoto import h5parm # type: ignore
-import bdsf # type: ignore
-from casacore.tables import taql, table, makecoldesc # type: ignore
-import losoto # type: ignore
-import losoto.lib_operations # type: ignore
+import bdsf  # type: ignore
+import losoto  # type: ignore
+import losoto.lib_operations  # type: ignore
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 import pyregion
-import math
-import pickle
-import tables
 import scipy
 import scipy.stats
-import time
+import tables
+from astropy.coordinates import SkyCoord
+from astropy.io import ascii, fits
+from astropy.table import Table, vstack
+from astropy.wcs import WCS
+from astroquery.skyview import SkyView
+from casacore.tables import makecoldesc, table, taql  # type: ignore
+from losoto import h5parm  # type: ignore
+from matplotlib.patches import Patch
 
 # Required for running with relative imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
-# Modules
-from .losoto_helpers import tecandphaseplotter
 from arguments import option_parser
-from submods.split_irregular_timeaxis import regularize_ms, split_ms
-from submods.h5_helpers.reset_h5parm_structure import fix_h5
-from submods.h5_merger import merge_h5
-from submods.h5_helpers.split_h5 import split_multidir
-from submods.h5_helpers.multidir_h5 import same_weights_multidir, is_multidir
-from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5    
-from submods.h5_helpers.modify_amplitude import get_median_amp, normamplitudes, normslope_withmatrix, normamplitudes_withmatrix
-from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5,  fix_rotationreference, fix_weights_rotationmeasureh5, fix_rotationmeasurereference
-from submods.h5_helpers.modify_tec import fix_tecreference
-from submods.h5_helpers.modify_delay import fix_delayreference
-from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones, removenans_amplitude_leakage
-from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
-from submods.h5_helpers.general_utils import make_utf8
-from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
-from submods.source_selection.phasediff_output import GetSolint, generate_csv as generate_phasediff_csv
-from submods.source_selection.selfcal_selection import get_images_solutions
-from submods.source_selection.early_stopping import early_stopping
-from submods.fair_log.config import add_config_to_h5, add_version_to_h5
 from utils.parsers import parse_history
+
+from submods.fair_log.config import add_config_to_h5, add_version_to_h5
+from submods.h5_helpers.flagging import (flag_bad_amps, flaghighamps,
+                                         flaghighamps_fulljones, flaglowamps,
+                                         flaglowamps_fulljones)
+from submods.h5_helpers.general_utils import make_utf8
+from submods.h5_helpers.modify_amplitude import (get_median_amp,
+                                                 normamplitudes,
+                                                 normamplitudes_withmatrix,
+                                                 normslope_withmatrix)
+from submods.h5_helpers.modify_delay import fix_delayreference
+from submods.h5_helpers.modify_rotation import (fix_rotationmeasurereference,
+                                                fix_rotationreference,
+                                                fix_weights_rotationh5,
+                                                fix_weights_rotationmeasureh5,
+                                                rotationmeasure_to_phase)
+from submods.h5_helpers.modify_tec import fix_tecreference
+from submods.h5_helpers.multidir_h5 import is_multidir, same_weights_multidir
+from submods.h5_helpers.nan_values import (remove_nans,
+                                           removenans_amplitude_leakage,
+                                           removenans_fulljones)
+from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
+from submods.h5_helpers.reset_h5parm_structure import fix_h5
+from submods.h5_helpers.split_h5 import split_multidir
+from submods.h5_helpers.update_sources import (update_sourcedir_h5_dde,
+                                               update_sourcedirname_h5_dde)
+from submods.h5_merger import merge_h5
+from submods.source_selection.early_stopping import early_stopping
+from submods.source_selection.phasediff_output import GetSolint
+from submods.source_selection.phasediff_output import \
+    generate_csv as generate_phasediff_csv
+from submods.source_selection.selfcal_selection import get_images_solutions
+from submods.split_irregular_timeaxis import regularize_ms, split_ms
+
+# Modules
+from .losoto_helpers import losotolofarbeam, tecandphaseplotter
 
 # Set logger
 os.makedirs('logs', exist_ok=True) 
@@ -245,29 +258,22 @@ def _ensure_run_mode_marker(run_directory, requested_mode):
 
 try:
     from .monitor import ResourceMonitor
-    from .resource_chart import (
-        DP3_EXECUTION_END_MARKER,
-        DP3_EXECUTION_START_MARKER,
-        dp3_command_phases,
-        dp3_workflow_step_kinds,
-    )
+    from .resource_chart import (DP3_EXECUTION_END_MARKER,
+                                 DP3_EXECUTION_START_MARKER,
+                                 dp3_command_phases, dp3_workflow_step_kinds)
 except ImportError:
     try:
         from monitor import ResourceMonitor
-        from resource_chart import (
-            DP3_EXECUTION_END_MARKER,
-            DP3_EXECUTION_START_MARKER,
-            dp3_command_phases,
-            dp3_workflow_step_kinds,
-        )
+        from resource_chart import (DP3_EXECUTION_END_MARKER,
+                                    DP3_EXECUTION_START_MARKER,
+                                    dp3_command_phases,
+                                    dp3_workflow_step_kinds)
     except ImportError:
         from facetselfcal.monitor import ResourceMonitor
-        from facetselfcal.resource_chart import (
-            DP3_EXECUTION_END_MARKER,
-            DP3_EXECUTION_START_MARKER,
-            dp3_command_phases,
-            dp3_workflow_step_kinds,
-        )
+        from facetselfcal.resource_chart import (DP3_EXECUTION_END_MARKER,
+                                                 DP3_EXECUTION_START_MARKER,
+                                                 dp3_command_phases,
+                                                 dp3_workflow_step_kinds)
 
 
 def _track_resource_phase(phase):
@@ -5248,7 +5254,7 @@ def getGSM(ms_input, SkymodelPath='gsm.skymodel', Radius="5.", DoDownload="Force
     str or int
         Sky-model path when downloaded, or zero when an existing model is reused.
     """
-    import lsmtool # type: ignore
+    import lsmtool  # type: ignore
     FileExists = os.path.isfile(SkymodelPath)
     if (not FileExists and os.path.exists(SkymodelPath)):
         raise ValueError("download_tgss_skymodel_target: Path: \"%s\" exists but is not a file!" % (SkymodelPath))
@@ -14029,228 +14035,6 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
     return
 
 
-def radec_to_xyz(ra, dec, time):
-    """
-    Convert ra and dec coordinates to ITRS coordinates for LOFAR observations.
-
-    Parameters
-    ----------
-    ra : astropy Quantity
-        right ascension
-    dec : astropy Quantity
-        declination
-    time : float
-        MJD time in seconds
-
-    Returns
-    -------
-    pointing_xyz : ndarray
-        NumPy array containing the X, Y and Z coordinates
-    """
-    obstime = Time(time / 3600 / 24, scale='utc', format='mjd')
-    loc_LOFAR = EarthLocation(lon=0.11990128407256424, lat=0.9203091252660295, height=6364618.852935438 * units.m)
-
-    dir_pointing = SkyCoord(ra, dec)
-    dir_pointing_altaz = dir_pointing.transform_to(AltAz(obstime=obstime, location=loc_LOFAR))
-    dir_pointing_xyz = dir_pointing_altaz.transform_to(ITRS)
-
-    pointing_xyz = np.asarray([dir_pointing_xyz.x, dir_pointing_xyz.y, dir_pointing_xyz.z])
-    return pointing_xyz
-
-
-def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=True, useArrayFactor=True,
-                    useChanFreq=True, beamlib='stationresponse'):
-    """
-    Do the beam correction via this imported losoto operation
-
-    Parameters
-    ----------
-    parmdb : str
-        path to the h5parm corrections will be stored in.
-    soltabname : str
-        name of the soltab corrections will be stored in.
-    ms : str
-        path to the MS (used to determine the stations present).
-    inverse : bool
-        calculate the inverse beam correction (i.e. undo the beam).
-    useElementResponse : bool
-        correct for the "element beam" (distance to the tile beam centre).
-    useArrayFactor : bool
-        correct for the "array factor" (sensitivity loss as function of distance to the pointing centre).
-    useChanFreq : bool
-        calculate a beam correction for every channel.
-    beamlib : str
-        beam calculation mode. Can be 'stationresponse' to use the LOFARBeam library (deprecated) or everybeam to use the EveryBeam library.
-
-    Returns
-    -------
-    int or None
-        Returns one when the requested beam operation cannot proceed; otherwise
-        updates the solution table and returns ``None``.
-    """
-
-    H5 = h5parm.h5parm(parmdb, readonly=False)
-    soltab = H5.getSolset('sol000').getSoltab(soltabname)
-    times = soltab.getAxisValues('time')
-    numants = taql('select gcount(*) as numants from ' + ms + '::ANTENNA').getcol('numants')[0]
-    H5ants = len(soltab.getAxisValues('ant'))
-    if numants != H5ants:
-        H5.close()
-        raise ValueError('Number of antennas in Measurement Set does not match number of antennas in H5parm.')
-
-    if (beamlib.lower() == 'stationresponse') or (beamlib.lower() == 'lofarbeam'):
-        from lofar.stationresponse import stationresponse # type: ignore
-        sr = stationresponse(ms, inverse, useElementResponse, useArrayFactor, useChanFreq)
-
-        for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant', 'time', 'pol', 'freq'], weight=False):
-            vals = losoto.lib_operations.reorderAxes(vals, soltab.getAxesNames(), ['ant', 'time', 'freq', 'pol'])
-
-            for stationnum in range(numants):
-                logger.debug('stationresponse working on station number %i' % stationnum)
-                for itime, time in enumerate(times):
-                    beam = sr.evaluateStation(time=time, station=stationnum)
-                    # Reshape from [nfreq, 2, 2] to [nfreq, 4]
-                    beam = beam.reshape(beam.shape[0], 4)
-
-                    if soltab.getAxisLen('pol') == 2:
-                        beam = beam[:, [0, 3]]  # get only XX and YY
-
-                    if soltab.getType() == 'amplitude':
-                        vals[stationnum, itime, :, :] = np.abs(beam)
-                    elif soltab.getType() == 'phase':
-                        vals[stationnum, itime, :, :] = np.angle(beam)
-                    else:
-                        logger.error('Beam prediction works only for amplitude/phase solution tables.')
-                        return 1
-
-            vals = losoto.lib_operations.reorderAxes(vals, ['ant', 'time', 'freq', 'pol'],
-                                                     [ax for ax in soltab.getAxesNames() if
-                                                      ax in ['ant', 'time', 'freq', 'pol']])
-            soltab.setValues(vals, selection)
-    elif beamlib.lower() == 'everybeam':
-        from tqdm import tqdm
-        from joblib import Parallel, delayed, parallel_backend
-        import dill as pickle
-        import psutil
-        freqs = soltab.getAxisValues('freq')
-
-        # Obtain direction to calculate beam for.
-        dirs = taql('SELECT REFERENCE_DIR,PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
-        ra_ref, dec_ref = dirs.getcol('REFERENCE_DIR').squeeze()
-        ra, dec = dirs.getcol('PHASE_DIR').squeeze()
-        reference_xyz = list(zip(*radec_to_xyz(ra_ref * units.rad, dec_ref * units.rad, times)))
-        phase_xyz = list(zip(*radec_to_xyz(ra * units.rad, dec * units.rad, times)))
-
-        for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant', 'time', 'pol', 'freq'], weight=False):
-            vals = losoto.lib_operations.reorderAxes(vals, soltab.getAxesNames(), ['ant', 'time', 'freq', 'pol'])
-            stationloop = tqdm(range(numants))
-            stationloop.set_description('Stations processed: ')
-            for stationnum in range(numants):
-                stationloop.update()
-                logger.debug('everybeam working on station number %i' % stationnum)
-                # Parallelise over channels to speed things along.
-                with parallel_backend('loky', n_jobs=len(psutil.Process().cpu_affinity())):
-                    results = Parallel()(delayed(process_channel_everybeam)(f, stationnum=stationnum,
-                                                                            useElementResponse=useElementResponse,
-                                                                            useArrayFactor=useArrayFactor,
-                                                                            useChanFreq=useChanFreq, ms=ms, freqs=freqs,
-                                                                            times=times, ra=ra, dec=dec, ra_ref=ra_ref,
-                                                                            dec_ref=dec_ref,
-                                                                            reference_xyz=reference_xyz,
-                                                                            phase_xyz=phase_xyz) for f in
-                                         range(len(freqs)))
-                    for freqslot in results:
-                        ifreq, beam = freqslot
-                        if soltab.getAxisLen('pol') == 2:
-                            beam = beam.reshape((beam.shape[0], 4))[:, [0, 3]]  # get only XX and YY
-                        if soltab.getType() == 'amplitude':
-                            vals[stationnum, :, ifreq, :] = np.abs(beam)
-                        elif soltab.getType() == 'phase':
-                            vals[stationnum, :, ifreq, :] = np.angle(beam)
-                        else:
-                            logger.error('Beam prediction works only for amplitude/phase solution tables.')
-                            return 1
-            vals = losoto.lib_operations.reorderAxes(vals, ['ant', 'time', 'freq', 'pol'],
-                                                     [ax for ax in soltab.getAxesNames() if
-                                                      ax in ['ant', 'time', 'freq', 'pol']])
-            soltab.setValues(vals, selection)
-
-    else:
-        H5.close()
-        raise ValueError('Unsupported beam library specified')
-
-    H5.close()
-    return
-
-
-def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFactor, useChanFreq, ms, freqs, times, ra,
-                              dec, ra_ref, dec_ref, reference_xyz, phase_xyz):
-    """
-    Calculate EveryBeam response values for one channel and station.
-
-    Parameters
-    ----------
-    ifreq : int
-        Frequency index.
-    stationnum : int
-        Station index.
-    useElementResponse : bool
-        Include element response.
-    useArrayFactor : bool
-        Include array factor.
-    useChanFreq : bool
-        Use channel frequencies.
-    ms : str
-        Measurement Set path.
-    freqs : ndarray
-        Channel frequencies in hertz.
-    times : ndarray
-        Observation times for the response calculation.
-    ra : float
-        Right ascension of the requested direction, in radians.
-    dec : float
-        Declination of the requested direction, in radians.
-    ra_ref : float
-        Right ascension of the reference direction, in radians.
-    dec_ref : float
-        Declination of the reference direction, in radians.
-    reference_xyz : ndarray
-        Reference-direction Cartesian coordinates for each time sample.
-    phase_xyz : ndarray
-        Phase-center Cartesian coordinates for each time sample.
-
-    Returns
-    -------
-    tuple
-        Channel index and calculated beam response.
-    """
-    import everybeam # type: ignore
-    if useElementResponse and useArrayFactor:
-        # print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
-        obs = everybeam.load_telescope(ms, use_differential_beam=False, use_channel_frequency=useChanFreq)
-    elif not useElementResponse and useArrayFactor:
-        # print('Array factor beam correction requested. Using use_differential_beam=True.')
-        obs = everybeam.load_telescope(ms, use_differential_beam=True, use_channel_frequency=useChanFreq)
-    elif useElementResponse and not useArrayFactor:
-        # print('Element beam correction requested.')
-        # Not sure how to do this with EveryBeam.
-        raise NotImplementedError('Element beam only correction is not implemented in facetselfcal.')
-
-    # print(f'Processing channel {ifreq}')
-    freq = freqs[ifreq]
-    timeslices = np.empty((len(times), 2, 2), dtype=np.complex128)
-    for itime, time in enumerate(times):
-        # timeloop.update()
-        if not useElementResponse and useArrayFactor:
-            # Array-factor-only correction.
-            beam = obs.array_factor(times[itime], stationnum, freq, phase_xyz[itime], reference_xyz[itime])
-        else:
-            beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
-        # beam = beam.reshape(4)
-        timeslices[itime] = beam
-    return ifreq, timeslices
-
-
 # losotolofarbeam('P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive_templatejones.h5', 'amplitude000', 'P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive', inverse=False, useElementResponse=False, useArrayFactor=True, useChanFreq=True)
 
 def set_MeerKAT_bandpass_skymodel(ms):
@@ -16636,7 +16420,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     elif selfcalcycle == 0:
         # Only run this if selfcalcycle==0 [elif]
         # Try to load previous facet_regions/facetdirections.skymodel
-        import lsmtool # type: ignore
+        import lsmtool  # type: ignore
         if 'skymodel' not in imagename:
             img = bdsf.process_image(imagename + str(selfcalcycle).zfill(3) + '-MFS-image.fits', mean_map='zero',
                                      rms_map=True, rms_box=(160, 40))
@@ -20155,7 +19939,7 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
     str
         Output sky-model path.
     """
-    import lsmtool # type: ignore
+    import lsmtool  # type: ignore
     terminal_print('Loading:', skymodelin)
     LSM = lsmtool.load(skymodelin)
     LSM.group(algorithm='facet', facet=facetfitsfile)
@@ -20295,7 +20079,8 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
  
     try: 
         if regionfile is not None:
-            import regions # type: ignore
+            import regions  # type: ignore
+
             # if regionfile is a string
             if isinstance(regionfile, str):
                 ds9regions = regions.Regions.read(regionfile, format='ds9')
@@ -20399,6 +20184,7 @@ def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
         estimate the plotting noise range.
     """
     import aplpy
+
     # image noise for plotting
     if rmsnoiseimage is None:
         hdulist = fits.open(fitsimagename)
@@ -21856,9 +21642,9 @@ def find_bad_deviating_antennas(h5, ms, threshold=0.075):
     
     
     if False: # for testing
-        import matplotlib.pyplot as plt
         # set backend to TkAgg for interactive plotting
         import matplotlib
+        import matplotlib.pyplot as plt
         matplotlib.use('TkAgg')
     
         for antid, ant in enumerate(antennas):
