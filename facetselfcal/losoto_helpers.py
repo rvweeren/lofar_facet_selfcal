@@ -62,6 +62,296 @@ def create_losoto_beamcorparset(ms: str, refant: str = "CS003HBA0"):
         f.write("axisInTable = ant\n")
         f.write("minmax = [0.2,1]\n")
         f.write("prefix = solution_plots_%s/amplitudes_beam\n" % os.path.basename(ms))
+
+    return parset
+
+
+def create_losoto_delayparset(
+    ms: str,
+    refant: str = "CS003HBA0",
+    outplotname: str = "fastdelay",
+    markersize: int = 2,
+):
+    """
+    Create a LoSoTo parset for plotting delay solutions.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    refant : str, optional
+        Reference antenna name.
+    outplotname : str, optional
+        Base name for the output plot.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
+    parset = "losoto_parsets/losoto_plotfastdelay.parset"
+    Path(parset).unlink(missing_ok=True)
+
+    with open(parset, "w") as f:
+        f.write("pol = []\n")
+        f.write("Ncpu = 0\n\n\n")
+        f.write("[plotdelay]\n")
+        f.write("operation = PLOT\n")
+        f.write("soltab = [sol000/delay000]\n")
+        f.write("axesInPlot = [time]\n")
+        f.write("axisInTable = ant\n")
+        f.write("minmax = [-0.2,0.2]\n")
+        f.write("figSize=[120,20]\n")
+        f.write("markerSize=%s\n" % int(markersize))
+        f.write(
+            "prefix = solution_plots_%s/%s\n"
+            % (os.path.basename(ms), os.path.basename(outplotname))
+        )
+        f.write("refAnt = %s\n" % refant)
+
+    return parset
+
+
+def create_losoto_fastphaseparset(
+    ms,
+    refant="CS003HBA0",
+    onechannel=False,
+    onepol=False,
+    outplotname="fastphase",
+    onetime=False,
+    markersize=2,
+):
+    """
+    Create a LoSoTo parset for plotting fast phase solutions.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    refant : str, optional
+        Reference antenna name.
+    onechannel : bool, optional
+        Plot one channel along time only.
+    onepol : bool, optional
+        Omit polarization-specific plots.
+    outplotname : str, optional
+        Base name for the output plot.
+    onetime : bool, optional
+        Plot one time along frequency only.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
+    parset = "losoto_parsets/losoto_plotfastphase.parset"
+    Path(parset).unlink(missing_ok=True)
+
+    with open(parset, "w") as f:
+        f.write("pol = [XX,YY]\n")
+        f.write("soltab = [sol000/*]\n")
+        f.write("Ncpu = 0\n\n\n")
+
+        f.write("[plotphase]\n")
+        f.write("operation = PLOT\n")
+        f.write("soltab = [sol000/phase000]\n")
+        if onechannel:
+            f.write("axesInPlot = [time]\n")
+            if not onepol:
+                f.write("axisInCol = pol\n")
+        if onetime:
+            f.write("axesInPlot = [freq]\n")
+            if not onepol:
+                f.write("axisInCol = pol\n")
+        if onechannel or onetime:
+            f.write("markerSize=%s\n" % int(markersize))
+        if not onechannel and not onetime:
+            f.write("axesInPlot = [time,freq]\n")
+        f.write("axisInTable = ant\n")
+        f.write("minmax = [-3.14,3.14]\n")
+        f.write("figSize=[120,20]\n")
+        f.write(
+            "prefix = solution_plots_%s/%s\n"
+            % (os.path.basename(ms), os.path.basename(outplotname))
+        )
+        f.write("refAnt = %s\n" % refant)
+
+        if not onepol:
+            f.write("[plotphasediff]\n")
+            f.write("operation = PLOT\n")
+            f.write("soltab = [sol000/phase000]\n")
+            if onechannel:
+                f.write("axesInPlot = [time]\n")
+            if onetime:
+                f.write("axesInPlot = [freq]\n")
+            if onechannel or onetime:
+                f.write("markerSize=%s\n" % int(markersize))
+            if not onechannel and not onetime:
+                f.write("axesInPlot = [time,freq]\n")
+            f.write("axisInTable = ant\n")
+            f.write("minmax = [-3.14,3.14]\n")
+            f.write("figSize=[120,20]\n")
+            f.write(
+                "prefix = solution_plots_%s/%spoldiff\n"
+                % (os.path.basename(ms), os.path.basename(outplotname))
+            )
+            f.write("refAnt = %s\n" % refant)
+            f.write("axisDiff=pol\n")
+
+    return parset
+
+
+def create_losoto_rotationparset(
+    ms: str,
+    refant: str = "CS003HBA0",
+    onechannel: bool = False,
+    outplotname: str = "rotation",
+    markersize: int = 2,
+):
+    """
+    Create a LoSoTo parset for plotting rotation solutions.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    refant : str, optional
+        Reference antenna name.
+    onechannel : bool, optional
+        Plot one channel along time only.
+    outplotname : str, optional
+        Base name for the output plot.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
+    parset = "losoto_parsets/losoto_plotrotation.parset"
+    Path(parset).unlink(missing_ok=True)
+
+    with open(parset, "w") as f:
+        f.write("pol = [XX,YY]\n")
+        f.write("soltab = [sol000/*]\n")
+        f.write("Ncpu = 0\n\n\n")
+        f.write("[plotrotation]\n")
+        f.write("operation = PLOT\n")
+        f.write("soltab = [sol000/rotation000]\n")
+        f.write("markerSize=%s\n" % int(markersize))
+        if onechannel:
+            f.write("axesInPlot = [time]\n")
+        else:
+            f.write("axesInPlot = [time,freq]\n")
+        f.write("axisInTable = ant\n")
+        f.write(
+            "minmax = [-1.57,1.57]\n"
+        )  # rotation needs to be plotted from -pi/2 to pi/2
+        f.write("figSize=[120,20]\n")
+        f.write(
+            "prefix = solution_plots_%s/%s\n"
+            % (os.path.basename(ms), os.path.basename(outplotname))
+        )
+        f.write("refAnt = %s\n" % refant)
+
+    return parset
+
+
+def create_losoto_tecparset(
+    ms: str,
+    refant: str = "CS003HBA0",
+    outplotname: str = "fasttec",
+    markersize: int = 2,
+):
+    """
+    Create a LoSoTo parset for plotting TEC solutions.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    refant : str, optional
+        Reference antenna name.
+    outplotname : str, optional
+        Base name for the output plot.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
+    parset = "losoto_parsets/losoto_plotfasttec.parset"
+    Path(parset).unlink(missing_ok=True)
+
+    with open(parset, "w") as f:
+        f.write("pol = []\n")
+        f.write("Ncpu = 0\n\n\n")
+        f.write("[plottec]\n")
+        f.write("operation = PLOT\n")
+        f.write("soltab = [sol000/tec000]\n")
+        f.write("axesInPlot = [time]\n")
+        f.write("axisInTable = ant\n")
+        f.write("minmax = [-0.2,0.2]\n")
+        f.write("figSize=[120,20]\n")
+        f.write("markerSize=%s\n" % int(markersize))
+        f.write(
+            "prefix = solution_plots_%s/%s\n"
+            % (os.path.basename(ms), os.path.basename(outplotname))
+        )
+        f.write("refAnt = %s\n" % refant)
+
+    return parset
+
+
+def create_losoto_tecandphaseparset(
+    ms: str,
+    refant: str = "CS003HBA0",
+    outplotname: str = "fasttecandphase",
+    markersize: int = 2,
+):
+    """
+    Create a LoSoTo parset for plotting TEC and phase solutions.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path used in the plot prefix.
+    refant : str, optional
+        Reference antenna name.
+    outplotname : str, optional
+        Base name for the output plot.
+    markersize : int, optional
+        Plot marker size.
+
+    Returns
+    -------
+    str
+        Generated parset path.
+    """
+    parset = "losoto_parsets/losoto_plotfasttecandphase.parset"
+    Path(parset).unlink(missing_ok=True)
+    with open(parset, "w") as f:
+        f.write("pol = []\n")
+        f.write("Ncpu = 0\n\n\n")
+        f.write("[plottecandphase]\n")
+        f.write("operation = PLOT\n")
+        f.write("soltab = [sol000/phase000]\n")
+        f.write("axesInPlot = [time]\n")
+        f.write("axisInTable = ant\n")
+        f.write("minmax = [-3.14,3.14]\n")
+        f.write("soltabToAdd = tec000\n")
+        f.write("figSize=[120,20]\n")
+        f.write("markerSize=%s\n" % int(markersize))
+        f.write("prefix = solution_plots_%s/fasttecandphase\n" % os.path.basename(ms))
+        f.write("refAnt = %s\n" % refant)
+
     return parset
 
 
