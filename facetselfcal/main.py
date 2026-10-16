@@ -130,7 +130,7 @@ from submods.source_selection.selfcal_selection import get_images_solutions
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
 
 # Modules
-from .losoto_helpers import create_losoto_beamcorparset, create_losoto_delayparset, create_losoto_fastphaseparset, create_losoto_tecandphaseparset, create_losoto_rotationparset, tecandphaseplotter
+from .losoto_helpers import create_losoto_beamcorparset, create_losoto_delayparset, create_losoto_fastphaseparset, create_losoto_FRparset, create_losoto_FRparsetplotfit, create_losoto_tecandphaseparset, create_losoto_rotationparset, tecandphaseplotter, create_losoto_tecparset
 
 # Set logger
 os.makedirs('logs', exist_ok=True) 
@@ -18006,11 +18006,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         # work with copies H5 because losoto changes the format splitting off the length 1 direction axis creating issues
         # with H5merge (also add additional solution talbes which we do not want)
         shutil.copy(parmdb, 'FRcopy' + parmdb)
-        losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb, telescope=args['telescope']), outplotname=outplotname,
-                                                 dejump=dejumpFR)
+        losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb, telescope=args['telescope']), outplotname=outplotname,dejump=dejumpFR,skip_solution_plotting=args["skip_solution_plotting"])
         run('losoto ' + 'FRcopy' + parmdb + ' ' + losoto_parsetFR)
         rotationmeasure_to_phase('FRcopy' + parmdb, parmdb, dejump=dejumpFR)
-        run('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb, telescope=args['telescope']),
+        if not args["skip_solution_plotting"]:
+            run('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb, telescope=args['telescope']),
                                                                      outplotname=outplotname))
         force_close(parmdb)
 
@@ -18167,20 +18167,19 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     # makes plots and do LOSOTO flagging
     if soltype in ['rotation', 'rotation+diagonal', 'rotation+diagonalamplitude',
                    'rotation+scalar', 'rotation+scalaramplitude',
-                   'rotation+scalarphase', 'rotation+diagonalphase']:
+                   'rotation+scalarphase', 'rotation+diagonalphase'] and not args["skip_solution_plotting"]:
+            losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname + 'ROT',
+                                                                 refant=findrefant_core(parmdb, telescope=args['telescope']))  # phase matrix plot
+            force_close(parmdb)
+            cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
+            if onechannel and (ntimesH5(parmdb) == 1): 
+                terminal_print('Skipping losoto rotation plot because only one time and one frequency channel')
+            else:
+                terminal_print('LoSoTo command:', cmdlosoto)
+                logger.info(cmdlosoto)
+                run(cmdlosoto)
 
-        losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname + 'ROT',
-                                                             refant=findrefant_core(parmdb, telescope=args['telescope']))  # phase matrix plot
-        force_close(parmdb)
-        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
-        if onechannel and (ntimesH5(parmdb) == 1): 
-            terminal_print('Skipping losoto rotation plot because only one time and one frequency channel')
-        else:
-            terminal_print('LoSoTo command:', cmdlosoto)
-            logger.info(cmdlosoto)
-            run(cmdlosoto)
-
-        if soltype in ['rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase','faradayrotation+diagonalphase']:
+    if soltype in ['rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase','faradayrotation+diagonalphase'] and not args["skip_solution_plotting"]:
             losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                                outplotname=outplotname,
                                                                refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
@@ -18195,24 +18194,24 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 logger.info(cmdlosoto)
                 run(cmdlosoto)
 
-    if soltype in ['phaseonly', 'scalarphase'] and not args['phasediff_only']:
-        losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
-                                                           outplotname=outplotname,
-                                                           refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
-        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
-        force_close(parmdb)
-        if onechannel and (ntimesH5(parmdb) == 1): 
-            terminal_print('Skipping losoto phase plot for phaseonly or scalarphase because only one time and one frequency channel')
-        else:
-            terminal_print('LoSoTo command:', cmdlosoto)
-            logger.info(cmdlosoto)
-            run(cmdlosoto)
+    if soltype in ['phaseonly', 'scalarphase'] and not args['phasediff_only'] and not args["skip_solution_plotting"]:
+            losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
+                                                               outplotname=outplotname,
+                                                               refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
+            cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
+            force_close(parmdb)
+            if onechannel and (ntimesH5(parmdb) == 1): 
+                terminal_print('Skipping losoto phase plot for phaseonly or scalarphase because only one time and one frequency channel')
+            else:
+                terminal_print('LoSoTo command:', cmdlosoto)
+                logger.info(cmdlosoto)
+                run(cmdlosoto)
 
     if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay'] and not args['skip_solution_plotting']:
         tecandphaseplotter(parmdb, ms, telescope=args['telescope'],
                            outplotname=outplotname)  # use own plotter because losoto cannot add tec and phase
 
-    if soltype in ['tec']:
+    if soltype in ['tec'] and not args["skip_solution_plotting"]:
         losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname,
                                                    refant=findrefant_core(parmdb, telescope=args['telescope']),
                                                    markersize=compute_markersize(parmdb))
@@ -20821,148 +20820,6 @@ def findrefant_core(H5file, telescope='LOFAR'):
     H.close()
     return ants[maxant]
 
-
-def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
-    """
-    Create a LoSoTo parset to fit Faraday Rotation on the phase difference.
-
-    Parameters
-    ----------
-    ms : str
-        Path to the Measurement Set.
-    refant : str
-        Reference antenna name.
-    outplotname : str
-        Output plot path.
-
-    Returns
-    -------
-    str
-        Path to the generated LoSoTo parset.
-    """
-    parset = 'losoto_parsets/losotoFR_plotresult.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-    
-    if not args['skip_solution_plotting']:
-        f.write('[plotFRresult]\n')
-        f.write('pol = [XX,YY]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_fitFR'))
-        f.write('refAnt = %s\n\n\n' % refant)
-    f.close()
-    return parset
-
-
-def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname='FR', onlyplotFRfit=False,
-                           dejump=False):
-    """
-    Create a LoSoTo parset to fit Faraday Rotation on the phase difference.
-
-    Parameters
-    ----------
-    ms : str
-        Path to the Measurement Set.
-    refant : str
-        Reference antenna name.
-    freqminfitFR : float, optional
-        Minimum frequency for fit in MHz.
-    outplotname : str, optional
-        Output plot path.
-    onlyplotFRfit : bool, optional
-        Only plot the fit without applying.
-    dejump : bool, optional
-        Dejump phase solutions.
-
-    Returns
-    -------
-    str
-        Path to the generated LoSoTo parset.
-    """
-    parset = 'losoto_parsets/losotoFR.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('[duplicate]\n')
-    f.write('operation = DUPLICATE\n')
-    f.write('soltab = sol000/phase000\n')
-    f.write('soltabOut = phaseOrig000\n\n\n')
-
-    # should not be needed as already done but just in case....
-    f.write('[reset]\n')
-    f.write('operation = RESET\n')
-    f.write('soltab = sol000/phase000\n')
-    f.write('pol = YY\n')
-    f.write('dataVal = 0.0\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotphase]\n')
-        f.write('pol = [XX,YY]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_beforeFR'))
-        f.write('refAnt = %s\n\n\n' % refant)
-
-    f.write('[faraday]\n')
-    f.write('operation = FARADAY\n')
-    f.write('soltab = sol000/phase000\n')
-    f.write('refAnt = %s\n' % refant)
-    f.write('maxResidual = 2\n')
-    f.write('freq.minmaxstep = [%s,1e9]\n' % str(freqminfitFR))
-    f.write('soltabOut = rotationmeasure000\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotFR]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = sol000/rotationmeasure000\n')
-        f.write('axesInPlot = [time]\n')
-        f.write('axisInTable = ant\n')
-        f.write('prefix = solution_plots_%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FR'))
-
-    if dejump:
-        f.write('[frdejump]\n')
-        f.write('operation = FRJUMP\n')
-        f.write('soltab = sol000/rotationmeasure000\n')
-        f.write('soltabOut = rotationmeasure001\n')
-        f.write('clipping = [%s,1e9]\n\n\n' % str(freqminfitFR))
-
-        if not args['skip_solution_plotting']:
-            f.write('[plotFR_dejump]\n')
-            f.write('operation = PLOT\n')
-            f.write('soltab = sol000/rotationmeasure001\n')
-            f.write('axesInPlot = [time]\n')
-            f.write('axisInTable = ant\n')
-            f.write('prefix = solution_plots_%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FRdejumped'))
-
-    f.write('[residuals]\n')
-    f.write('operation = RESIDUALS\n')
-    f.write('soltab = sol000/phase000\n')
-    if dejump:
-        f.write('soltabsToSub = rotationmeasure001\n\n\n')
-    else:
-        f.write('soltabsToSub = rotationmeasure000\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotRES]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = sol000/phase000\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('AxisInTable = ant\n')
-        f.write('AxisDiff = pol\n')
-        f.write('plotFlag = True\n')
-        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'residualphases_afterFR'))
-        f.write('refAnt = %s\n' % refant)
-        f.write('minmax = [-3.14,3.14]\n\n\n')
-
-    f.close()
-    return parset
 
 def check_if_ms_exists(mslist):
     """

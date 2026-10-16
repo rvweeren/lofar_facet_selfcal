@@ -205,6 +205,184 @@ def create_losoto_fastphaseparset(
     return parset
 
 
+def create_losoto_FRparset(
+    ms: str,
+    refant: str = "CS001LBA",
+    freqminfitFR: float = 20e6,
+    outplotname: str = "FR",
+    onlyplotFRfit: bool = False,
+    dejump: bool = False,
+    skip_solution_plotting: bool = False,
+):
+    """
+    Create a LoSoTo parset to fit Faraday Rotation on the phase difference.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    refant : str
+        Reference antenna name.
+    freqminfitFR : float, optional
+        Minimum frequency for fit in MHz.
+    outplotname : str, optional
+        Output plot path.
+    onlyplotFRfit : bool, optional
+        Only plot the fit without applying.
+    dejump : bool, optional
+        Dejump phase solutions.
+    skip_solution_plotting : bool, optional
+        Skip plotting of the solutions.
+
+    Returns
+    -------
+    str
+        Path to the generated LoSoTo parset.
+    """
+    parset = "losoto_parsets/losotoFR.parset"
+    Path(parset).unlink(missing_ok=True)
+
+    with open(parset, "w") as f:
+        f.write("[duplicate]\n")
+        f.write("operation = DUPLICATE\n")
+        f.write("soltab = sol000/phase000\n")
+        f.write("soltabOut = phaseOrig000\n\n\n")
+
+        # should not be needed as already done but just in case....
+        f.write("[reset]\n")
+        f.write("operation = RESET\n")
+        f.write("soltab = sol000/phase000\n")
+        f.write("pol = YY\n")
+        f.write("dataVal = 0.0\n\n\n")
+
+        if not skip_solution_plotting:
+            f.write("[plotphase]\n")
+            f.write("pol = [XX,YY]\n")
+            f.write("operation = PLOT\n")
+            f.write("soltab = [sol000/phase000]\n")
+            f.write("axesInPlot = [time,freq]\n")
+            f.write("axisInTable = ant\n")
+            f.write("minmax = [-3.14,3.14]\n")
+            f.write(
+                "prefix = solution_plots_%s/%s\n"
+                % (
+                    os.path.basename(ms),
+                    os.path.basename(outplotname) + "phases_beforeFR",
+                )
+            )
+            f.write("refAnt = %s\n\n\n" % refant)
+
+        f.write("[faraday]\n")
+        f.write("operation = FARADAY\n")
+        f.write("soltab = sol000/phase000\n")
+        f.write("refAnt = %s\n" % refant)
+        f.write("maxResidual = 2\n")
+        f.write("freq.minmaxstep = [%s,1e9]\n" % str(freqminfitFR))
+        f.write("soltabOut = rotationmeasure000\n\n\n")
+
+        if not skip_solution_plotting:
+            f.write("[plotFR]\n")
+            f.write("operation = PLOT\n")
+            f.write("soltab = sol000/rotationmeasure000\n")
+            f.write("axesInPlot = [time]\n")
+            f.write("axisInTable = ant\n")
+            f.write(
+                "prefix = solution_plots_%s/%s\n\n\n"
+                % (os.path.basename(ms), os.path.basename(outplotname) + "FR")
+            )
+
+        if dejump:
+            f.write("[frdejump]\n")
+            f.write("operation = FRJUMP\n")
+            f.write("soltab = sol000/rotationmeasure000\n")
+            f.write("soltabOut = rotationmeasure001\n")
+            f.write("clipping = [%s,1e9]\n\n\n" % str(freqminfitFR))
+
+            if not skip_solution_plotting:
+                f.write("[plotFR_dejump]\n")
+                f.write("operation = PLOT\n")
+                f.write("soltab = sol000/rotationmeasure001\n")
+                f.write("axesInPlot = [time]\n")
+                f.write("axisInTable = ant\n")
+                f.write(
+                    "prefix = solution_plots_%s/%s\n\n\n"
+                    % (
+                        os.path.basename(ms),
+                        os.path.basename(outplotname) + "FRdejumped",
+                    )
+                )
+
+        f.write("[residuals]\n")
+        f.write("operation = RESIDUALS\n")
+        f.write("soltab = sol000/phase000\n")
+        if dejump:
+            f.write("soltabsToSub = rotationmeasure001\n\n\n")
+        else:
+            f.write("soltabsToSub = rotationmeasure000\n\n\n")
+
+        if not skip_solution_plotting:
+            f.write("[plotRES]\n")
+            f.write("operation = PLOT\n")
+            f.write("soltab = sol000/phase000\n")
+            f.write("axesInPlot = [time,freq]\n")
+            f.write("AxisInTable = ant\n")
+            f.write("AxisDiff = pol\n")
+            f.write("plotFlag = True\n")
+            f.write(
+                "prefix = solution_plots_%s/%s\n"
+                % (
+                    os.path.basename(ms),
+                    os.path.basename(outplotname) + "residualphases_afterFR",
+                )
+            )
+            f.write("refAnt = %s\n" % refant)
+            f.write("minmax = [-3.14,3.14]\n\n\n")
+
+    return parset
+
+
+def create_losoto_FRparsetplotfit(
+    ms: str,
+    refant: str = "CS001LBA",
+    outplotname: str = "FR",
+):
+    """
+    Create a LoSoTo parset to fit Faraday Rotation on the phase difference.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+    refant : str
+        Reference antenna name.
+    outplotname : str
+        Output plot path.
+
+    Returns
+    -------
+    str
+        Path to the generated LoSoTo parset.
+    """
+    parset = "losoto_parsets/losotoFR_plotresult.parset"
+    Path(parset).unlink(missing_ok=True)
+
+    with open(parset, "w") as f:
+        f.write("[plotFRresult]\n")
+        f.write("pol = [XX,YY]\n")
+        f.write("operation = PLOT\n")
+        f.write("soltab = [sol000/phase000]\n")
+        f.write("axesInPlot = [time,freq]\n")
+        f.write("axisInTable = ant\n")
+        f.write("minmax = [-3.14,3.14]\n")
+        f.write(
+            "prefix = solution_plots_%s/%s\n"
+            % (os.path.basename(ms), os.path.basename(outplotname) + "phases_fitFR")
+        )
+        f.write("refAnt = %s\n\n\n" % refant)
+
+    return parset
+
+
 def create_losoto_rotationparset(
     ms: str,
     refant: str = "CS003HBA0",
