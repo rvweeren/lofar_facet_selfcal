@@ -626,7 +626,7 @@ def _find_ms_time_gaps(ms, timegap_threshold=1800, relative_threshold=0.5,
 
 
 def check_large_timegaps_ms(ms, timegap_threshold=1200, relative_threshold=0.5,
-                            ignore_gap=60):
+                            ignore_gap=60, skip_time_coverage_plotting=False):
     """
     Return whether an MS contains a significant all-baseline time gap.
 
@@ -645,6 +645,8 @@ def check_large_timegaps_ms(ms, timegap_threshold=1200, relative_threshold=0.5,
         Relative threshold against neighboring observations.
     ignore_gap : float, optional
         Ignore gaps shorter than this value in seconds.
+    skip_time_coverage_plotting : bool, optional
+        Do not generate a time-coverage plot.
 
     Returns
     -------
@@ -655,7 +657,7 @@ def check_large_timegaps_ms(ms, timegap_threshold=1200, relative_threshold=0.5,
         ms, timegap_threshold, relative_threshold, ignore_gap)
     ms_basename = os.path.basename(ms.rstrip(os.sep))
     plot_path = os.path.join('plots', f'{ms_basename}.time_coverage.png')
-    if not args['skip_time_coverage_plotting']:
+    if not skip_time_coverage_plotting:
         plot_ms_time_coverage(ms, plot_path, timegap_threshold, relative_threshold,
                               ignore_gap)
     return bool(gaps)
@@ -10519,6 +10521,15 @@ def check_frequency_averaging_steps(mslist, options):
 
         requested_nchan = resolved_options["msinnchan"]
         start_channel = resolved_options["msinstartchan"]
+        if (
+            backup_will_run
+            and not backup_will_create_copy
+            and options["msinnchan"] is not None
+        ):
+            # The preview clears input selection, but the requested selection
+            # still applies when validating the channels used by averaging.
+            requested_nchan = options["msinnchan"]
+            start_channel = options["msinstartchan"]
         selected_metadata = {}
 
         for spw_id in active_spw_ids:
@@ -23895,9 +23906,13 @@ def main():
  
     if args['timesplitbefore'] is None: # in this case we let facetselfcal decide by itself whether to split or not
         os.makedirs('plots', exist_ok=True)
-        args['timesplitbefore'] = check_large_timegaps_ms(mslist[0])  # check for large time gaps
+        args['timesplitbefore'] = check_large_timegaps_ms(
+            mslist[0],
+            skip_time_coverage_plotting=args['skip_time_coverage_plotting'])
         for ms in mslist[1:]:
-            check_large_timegaps_ms(ms)
+            check_large_timegaps_ms(
+                ms,
+                skip_time_coverage_plotting=args['skip_time_coverage_plotting'])
 
     if args['timesplitbefore']:
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, 
