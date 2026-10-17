@@ -11624,7 +11624,6 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
 
     cbar = plt.colorbar(img)
     cbar.set_label('Flux (mJy beam$^{-1}$)')
-    #ax.add_artist(_add_astropy_beam(fitsimagename))
  
     try: 
         if regionfile is not None:
