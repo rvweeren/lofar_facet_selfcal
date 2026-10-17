@@ -583,3 +583,24 @@ def create_phase_column(inmslist, incol='DATA', outcol='DATA_PHASEONLY', dysco=T
             t.putcol(outcol, data)
         del data
     return
+
+
+def remove_column_ms(mslist, colname):
+    """
+    Remove a column from a Measurement Set or a list of Measurement Sets.
+
+    Parameters
+    ----------
+    mslist : str/list
+        Input Measurement Set(s) as a string or a list of strings.
+    colname : str
+        Column name to be removed.
+    """
+    mslist = [mslist] if isinstance(mslist, str) else mslist
+
+    # assert that colname is a string
+    assert isinstance(colname, str), "colname must be a string" 
+
+    for ms in mslist:
+        with table(ms, readonly=False, ack=False) as ts:
+            ts.removecols(colname)
