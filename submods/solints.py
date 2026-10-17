@@ -12,45 +12,6 @@ from submods.runtime_utils import get_logger, terminal_print
 from submods.smearing import get_uvwmax
 
 
-def find_prime_factors(n):
-    """
-    Find the prime factors of a given integer.
-
-    This function computes the prime factors of the input integer `n`
-    and returns them as a list. It first extracts all factors of 2,
-    then iterates through odd numbers to find other prime factors.
-
-    Parameters
-    ----------
-    n : int
-        The integer to factorize. Must be greater than 0.
-
-    Returns
-    -------
-    list
-        A list of integers representing the prime factors of `n`.
-
-    Examples
-    --------
-    >>> find_prime_factors(28)
-    [2, 2, 7]
-
-    """
-    factorlist = []
-    num = n
-    while n % 2 == 0:
-        factorlist.append(2)
-        n = n / 2
-
-    for i in range(3, int(num / 2) + 1, 2):
-        while n % i == 0:
-            factorlist.append(i)
-            n = n / i
-        if n == 1:
-            break
-    return factorlist
-
-
 def tweak_solints(solints, solvalthresh=11, ms_ntimes=None, verbose=False):
     """
     Modify solution intervals so they can be factorized by 2 or 3.
