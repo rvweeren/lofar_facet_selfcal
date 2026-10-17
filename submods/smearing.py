@@ -270,19 +270,22 @@ def smearing_bandwidth(r, th, nu, dnu):
 
     Parameters
     ----------
-    r : float or Astropy Quantity
-        distance from the phase center in arcsec.
-    th : float or Astropy Quantity
-        angular resolution in arcsec.
+    r : float or numpy.ndarray
+        distance from the phase center in arcsec. Must be a plain number or
+        array, not an astropy Quantity.
+    th : float or numpy.ndarray
+        angular resolution in arcsec, in the same form as ``r``.
     nu : float
-        observing frequency.
+        observing frequency, in the same units as ``dnu`` (e.g. Hz).
     dnu : float
-        averaging frequency.
+        averaging frequency (channel width after averaging), in the same
+        units as ``nu``.
 
     Returns
     -------
-    float or astropy.units.Quantity
-        Fraction of intensity remaining after bandwidth smearing.
+    float or numpy.ndarray
+        Fraction of intensity remaining after bandwidth smearing, with the
+        same shape as ``r``.
     """
     r = r + 1e-9  # Add a tiny offset to prevent division by zero.
     I = (np.sqrt(np.pi) / (2 * np.sqrt(np.log(2)))) * ((th * nu) / (r * dnu)) * scipy.special.erf(
