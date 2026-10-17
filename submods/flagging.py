@@ -10,6 +10,9 @@ from losoto import h5parm  # type: ignore
 
 from submods.ms_fixes import fix_uvw
 from submods.runtime_utils import get_logger, run, terminal_print
+from submods.smearing import (compute_distance_to_pointingcenter,
+                              get_time_preavg_factor_LTAdata, smearing_time,
+                              smearing_time_ms)
 
 # facetselfcal package directory (holds flagging_strategies/), same as datapath in main.py
 datapath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'facetselfcal')
@@ -622,3 +625,44 @@ def compute_flagging_statistics(mslist, chunk_size=10000):
             get_logger().warning(
                 "Could not compute flagging statistics for MS %s: %s", ms, exc
             )
+
+
+def flag_smeared_data(msin):
+    """
+    Flag data affected by severe time smearing.
+
+    Parameters
+    ----------
+    msin : str
+        Measurement Set path to update.
+
+    Returns
+    -------
+    None
+        Flagging is applied to the Measurement Set in place.
+    """
+    Ismear = smearing_time_ms(msin, get_time_preavg_factor_LTAdata(msin))
+    if Ismear < 0.5:
+        terminal_print('Smeared', Ismear)
+        # uvmaxflag(msin, uvmax)
+
+    # uvmax = get_uvwmax(ms)
+    with table(msin + '::SPECTRAL_WINDOW', ack=False) as t:
+        freq = np.median(t.getcol('CHAN_FREQ'))
+    # print('Central freq [MHz]', freq/1e6, 'Longest baselines [km]', uvmax/1e3)
+
+    t = get_time_preavg_factor_LTAdata(msin)
+    r_dis = 3600. * compute_distance_to_pointingcenter(msin, returnval=True, dologging=False)
+
+    flagval = None
+    for uvrange in list(np.arange(100e3, 5000e3, 10e3)):
+        res = 1.22 * 3600. * 180. * ((299792458. / freq) / uvrange) / np.pi
+        Ismear = smearing_time(r_dis, res, t)
+        if Ismear > 0.968:
+            flagval = uvrange
+            # print(uvrange,Ismear)
+    terminal_print('Data above', flagval / 1e3, 'klambda is affected by time smearing')
+    if flagval / 1e3 < 650:
+        terminal_print('Flagging data above uvmin value of [klambda]', msin, flagval / 1e3)
+        uvmaxflag(msin, flagval)
+    return
