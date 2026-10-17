@@ -19,26 +19,33 @@ The workflows are used with data from LOFAR, MeerKAT, ASKAP, uGMRT, (E)VLA, and 
 
 ## Installation
 
-The current release requires Python 3.9 or newer. Install the latest source version directly from GitHub:
+`facetselfcal` depends on a large radio astronomy software stack, including [WSClean](https://wsclean.readthedocs.io/), [DP3](https://dp3.readthedocs.io/), and specific Python libraries. Rather than installing these yourself, run `facetselfcal` inside the [FLoCs](https://tikk3r.github.io/flocs/) container, which provides everything it needs. Containers are run with [Apptainer](https://apptainer.org/docs/) or [SingularityCE](https://docs.sylabs.io/); `singularity` can be used in place of `apptainer` in the examples below.
+
+You then have two options:
+
+- **Use the version inside the container.** FLoCs ships a version of `facetselfcal`, so nothing else needs to be installed.
+- **Use the latest version from GitHub.** Clone the repository once, and run `git pull` inside it later to update:
+
+  ```bash
+  git clone https://github.com/rvweeren/lofar_facet_selfcal.git /path/to/lofar_facet_selfcal
+  ```
+
+  Then call `facetselfcal.py` from the clone instead of the container's `facetselfcal` command. Python puts the directory of `facetselfcal.py` first on its import path, so the code from the clone is used, not the copy installed in the container.
+
+The examples below assume you work from a shell inside the container. Start one with your data and the clone bind-mounted (`-B`) so the container can see them:
 
 ```bash
-git clone https://github.com/rvweeren/lofar_facet_selfcal.git
-cd lofar_facet_selfcal
-python -m pip install .
+apptainer shell -B /path/to/data,/path/to/lofar_facet_selfcal flocs.sif
 ```
 
-Alternatively, install it without cloning the repository:
+Check that it works with:
 
 ```bash
-python -m pip install git+https://github.com/rvweeren/lofar_facet_selfcal.git
-```
-
-The software also requires the surrounding radio astronomy software stack used for LOFAR processing. A container with the standard LOFAR software is available from [FLoCs](https://tikk3r.github.io/flocs/). The container includes `facetselfcal`, so a local Python installation can be skipped when using that environment. This is highly recommended because it avoids the complicated installation of a large number of software packages.
-
-Check the installation with:
-
-```bash
+# version inside the container
 facetselfcal --help
+
+# latest version from GitHub
+python /path/to/lofar_facet_selfcal/facetselfcal.py --help
 ```
 
 ## Quick start
@@ -54,6 +61,17 @@ facetselfcal \
 	your-extracted.ms
 ```
 
+To use the latest GitHub version, replace `facetselfcal` with `python /path/to/lofar_facet_selfcal/facetselfcal.py`:
+
+```bash
+python /path/to/lofar_facet_selfcal/facetselfcal.py \
+	--auto \
+	--imsize 1600 \
+	-b your-ds9-extract-box.reg \
+	-i your-image-name \
+	your-extracted.ms
+```
+
 For a configuration-driven run:
 
 ```bash
@@ -61,6 +79,18 @@ facetselfcal --config your-config.txt your-extracted.ms
 ```
 
 An example configuration is available at [`facetselfcal/data/example_config.txt`](facetselfcal/data/example_config.txt). Use `facetselfcal --help` to inspect all options.
+
+You can also run a single command in the container without opening a shell, using `exec`. For example, with the latest GitHub version:
+
+```bash
+apptainer exec -B /path/to/data,/path/to/lofar_facet_selfcal flocs.sif \
+	python /path/to/lofar_facet_selfcal/facetselfcal.py \
+	--auto \
+	--imsize 1600 \
+	-b your-ds9-extract-box.reg \
+	-i your-image-name \
+	your-extracted.ms
+```
 
 ## Typical workflow
 
