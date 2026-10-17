@@ -4,6 +4,7 @@ import re
 
 import astropy.units as units
 import numpy as np
+import scipy.special
 from astropy.coordinates import SkyCoord
 from casacore.tables import table  # type: ignore
 
@@ -261,3 +262,39 @@ def smearing_time_ms_imsize(msin, imsize, pixelscale):
     res = get_resolution(msin)
     r_dis = np.sqrt(2)*(imsize/2)*pixelscale # image half diagonal length in arcsec
     return smearing_time(r_dis, res, tint)
+
+
+def smearing_bandwidth(r, th, nu, dnu):
+    """
+    Returns the left over intensity I/I0 after bandwidth smearing.
+
+    Parameters
+    ----------
+    r : float or Astropy Quantity
+        distance from the phase center in arcsec.
+    th : float or Astropy Quantity
+        angular resolution in arcsec.
+    nu : float
+        observing frequency.
+    dnu : float
+        averaging frequency.
+
+    Returns
+    -------
+    float or astropy.units.Quantity
+        Fraction of intensity remaining after bandwidth smearing.
+    """
+    r = r + 1e-9  # Add a tiny offset to prevent division by zero.
+    I = (np.sqrt(np.pi) / (2 * np.sqrt(np.log(2)))) * ((th * nu) / (r * dnu)) * scipy.special.erf(
+        np.sqrt(np.log(2)) * ((r * dnu) / (th * nu)))
+    return I
+
+
+def report_bandwidth_smearing(mslist, imsize):
+    """Compute and report bandwidth smearing for each Measurement Set."""
+    imsize = float(imsize)
+    for ms in mslist:
+        with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
+            chan_width = np.median(t.getcol('CHAN_WIDTH'))
+            min_frequency = np.min(t.getcol('CHAN_FREQ')[0])
+        bandwidthsmearing(chan_width, min_frequency, imsize, ms_name=ms)

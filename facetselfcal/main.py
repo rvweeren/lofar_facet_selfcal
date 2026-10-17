@@ -151,7 +151,8 @@ from submods.skymodels import (getregioncenter, grab_coord_MS,
                                set_MeerKAT_bandpass_skymodel,
                                set_skymodels_external_surveys)
 from submods.smearing import (bandwidthsmearing,
-                              compute_distance_to_pointingcenter, get_uvwmax)
+                              compute_distance_to_pointingcenter, get_uvwmax,
+                              report_bandwidth_smearing)
 from submods.primary_beam import (MeerKAT_pbcor, VLA_pbcor, uGMRT_pbcor,
                                   write_primarybeam_info)
 from submods.flagging import (aoflagger_column, clip_DATA,
@@ -8716,42 +8717,6 @@ def getregionsize(regionfile):
         boxsizey = boxradius2 * 2.
 
     return max([boxsizex, boxsizey])
-
-
-def smearing_bandwidth(r, th, nu, dnu):
-    """
-    Returns the left over intensity I/I0 after bandwidth smearing.
-
-    Parameters
-    ----------
-    r : float or Astropy Quantity
-        distance from the phase center in arcsec.
-    th : float or Astropy Quantity
-        angular resolution in arcsec.
-    nu : float
-        observing frequency.
-    dnu : float
-        averaging frequency.
-
-    Returns
-    -------
-    float or astropy.units.Quantity
-        Fraction of intensity remaining after bandwidth smearing.
-    """
-    r = r + 1e-9  # Add a tiny offset to prevent division by zero.
-    I = (np.sqrt(np.pi) / (2 * np.sqrt(np.log(2)))) * ((th * nu) / (r * dnu)) * scipy.special.erf(
-        np.sqrt(np.log(2)) * ((r * dnu) / (th * nu)))
-    return I
-
-
-def report_bandwidth_smearing(mslist, imsize):
-    """Compute and report bandwidth smearing for each Measurement Set."""
-    imsize = float(imsize)
-    for ms in mslist:
-        with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
-            chan_width = np.median(t.getcol('CHAN_WIDTH'))
-            min_frequency = np.min(t.getcol('CHAN_FREQ')[0])
-        bandwidthsmearing(chan_width, min_frequency, imsize, ms_name=ms)
 
 
 def calculate_restoringbeam(mslist, LBA):
