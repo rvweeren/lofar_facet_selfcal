@@ -147,8 +147,10 @@ from submods.calibrator_models import setjy_casa
 from submods.data_import import download_MWA_beam_model
 from submods.vla_helpers import get_vla_configuration, get_vla_maxconfiguration
 # Not used in this file, but kept importable from facetselfcal.main for
-# standalone use, e.g. "from facetselfcal.main import split_ms_spws"
-# (see https://github.com/rvweeren/lofar_facet_selfcal/wiki/VLA-processing)
+# standalone use, e.g. "from facetselfcal.main import split_ms_spws". These are
+# functions that used to be defined in this file, so that "from
+# facetselfcal.main import *" as used in the wiki
+# (https://github.com/rvweeren/lofar_facet_selfcal/wiki) keeps working.
 from submods.calibrator_models import (  # noqa: F401
     calculate_evpa_3C286, calculate_pfrac_3C286,
     read_MeerKAT_wscleanmodel_3spix, read_MeerKAT_wscleanmodel_4spix,
@@ -156,6 +158,34 @@ from submods.calibrator_models import (  # noqa: F401
 from submods.data_import import convert_lta_to_uvfits, gmrt_uvfits2ms  # noqa: F401
 from submods.vla_helpers import (  # noqa: F401
     collect_all_frequencies, get_EVLA_IF_pair, split_ms_spws)
+from submods.flagging import (  # noqa: F401
+    flag_antenna_timerange_ms, flag_shadowed_antenna, flagms_startend,
+    runaoflagger, uvmaxflag)
+from submods.h5_helpers.flagging import (  # noqa: F401
+    flag_h5_phasediff)
+from submods.h5_helpers.modify_amplitude import (  # noqa: F401
+    copyovergain, reset_gains_noncore)
+from submods.h5_helpers.modify_phase import (  # noqa: F401
+    change_refant, copyoverscalarphase, makephaseCDFh5, reset_phase000)
+from submods.image_utils import (  # noqa: F401
+    max_area_of_island, rename_models)
+from submods.ms_columns import (  # noqa: F401
+    normalize_data_bymodel, stackMS_taql)
+from submods.ms_fixes import (  # noqa: F401
+    check_equidistant_times, fix_twopol_ms, is_two_pol_ms,
+    parse_bad_freq_ranges, remove_antennas)
+from submods.plotting import (  # noqa: F401
+    plot_ms_time_coverage, plotimage_aplpy, selfcal_animatedgif)
+from submods.skymodels import (  # noqa: F401
+    getGSM, makeBBSmodelforFITS, makeBBSmodelforTGSS, makeBBSmodelforVLASS,
+    mslist_return_stack)
+from submods.smearing import (  # noqa: F401
+    get_resolution, get_time_preavg_factor_LTAdata, get_uvwmax, isfloat,
+    smearing_bandwidth, smearing_time, smearing_time_ms,
+    smearing_time_ms_imsize)
+from submods.solints import (  # noqa: F401
+    find_nearest, getms_amp_stats, getms_phase_stats, getmsmodelinfo,
+    return_soltype_index)
 from submods.plotting import (check_large_timegaps_ms,
                               create_Ateam_seperation_plots, plot_UV_coverage,
                               plotimage, plotimage_astropy)
