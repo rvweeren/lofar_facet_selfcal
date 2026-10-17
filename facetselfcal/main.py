@@ -33,12 +33,12 @@
 # Standard library imports
 import ast
 import builtins
+import concurrent.futures
 import configparser
 import copy
+import fcntl
 import fnmatch
 import gc
-import concurrent.futures
-import fcntl
 import glob
 import json
 import logging
@@ -53,70 +53,84 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from pathlib import Path
-
 from contextlib import contextmanager
 from functools import wraps
-from itertools import product
-from itertools import groupby
+from itertools import groupby, product
+from pathlib import Path
 
 # avoid numexpr warning when cpu_count() exceeds its default NUMEXPR_MAX_THREADS (64)
 os.environ.setdefault('NUMEXPR_MAX_THREADS', str(multiprocessing.cpu_count()))
+
+import math
+import pickle
+import time
 
 # Third party imports
 import astropy
 import astropy.stats
 import astropy.units as units
-from astropy.io import fits
-from astropy.wcs import WCS
-from astropy.io import ascii
-from astropy.table import Table, vstack
-from astropy.coordinates import AltAz, EarthLocation, ITRS, SkyCoord
-from astropy.time import Time
-from astroquery.skyview import SkyView
-from losoto import h5parm # type: ignore
-import bdsf # type: ignore
-from casacore.tables import taql, table, makecoldesc # type: ignore
-import losoto # type: ignore
-import losoto.lib_operations # type: ignore
+import bdsf  # type: ignore
+import losoto  # type: ignore
+import losoto.lib_operations  # type: ignore
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 import pyregion
-import math
-import pickle
-import tables
 import scipy
 import scipy.stats
-import time
+import tables
+from astropy.coordinates import SkyCoord
+from astropy.io import ascii, fits
+from astropy.table import Table, vstack
+from astropy.wcs import WCS
+from astroquery.skyview import SkyView
+from casacore.tables import makecoldesc, table, taql  # type: ignore
+from losoto import h5parm  # type: ignore
+from matplotlib.patches import Patch
 
 # Required for running with relative imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
-# Modules
 from arguments import option_parser
-from submods.split_irregular_timeaxis import regularize_ms, split_ms
-from submods.h5_helpers.reset_h5parm_structure import fix_h5
-from submods.h5_merger import merge_h5
-from submods.h5_helpers.split_h5 import split_multidir
-from submods.h5_helpers.multidir_h5 import same_weights_multidir, is_multidir
-from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5    
-from submods.h5_helpers.modify_amplitude import get_median_amp, normamplitudes, normslope_withmatrix, normamplitudes_withmatrix
-from submods.h5_helpers.modify_rotation import rotationmeasure_to_phase, fix_weights_rotationh5,  fix_rotationreference, fix_weights_rotationmeasureh5, fix_rotationmeasurereference
-from submods.h5_helpers.modify_tec import fix_tecreference
-from submods.h5_helpers.modify_delay import fix_delayreference
-from submods.h5_helpers.nan_values import remove_nans, removenans_fulljones, removenans_amplitude_leakage
-from submods.h5_helpers.update_sources import update_sourcedirname_h5_dde, update_sourcedir_h5_dde
-from submods.h5_helpers.general_utils import make_utf8
-from submods.h5_helpers.flagging import flaglowamps_fulljones, flag_bad_amps, flaglowamps, flaghighamps, flaghighamps_fulljones
-from submods.source_selection.phasediff_output import GetSolint, generate_csv as generate_phasediff_csv
-from submods.source_selection.selfcal_selection import get_images_solutions
-from submods.source_selection.early_stopping import early_stopping
-from submods.fair_log.config import add_config_to_h5, add_version_to_h5
 from utils.parsers import parse_history
+
+from submods.fair_log.config import add_config_to_h5, add_version_to_h5
+from submods.h5_helpers.flagging import (flag_bad_amps, flaghighamps,
+                                         flaghighamps_fulljones, flaglowamps,
+                                         flaglowamps_fulljones)
+from submods.h5_helpers.general_utils import make_utf8
+from submods.h5_helpers.modify_amplitude import (get_median_amp,
+                                                 normamplitudes,
+                                                 normamplitudes_withmatrix,
+                                                 normslope_withmatrix)
+from submods.h5_helpers.modify_delay import fix_delayreference
+from submods.h5_helpers.modify_rotation import (fix_rotationmeasurereference,
+                                                fix_rotationreference,
+                                                fix_weights_rotationh5,
+                                                fix_weights_rotationmeasureh5,
+                                                rotationmeasure_to_phase)
+from submods.h5_helpers.modify_tec import fix_tecreference
+from submods.h5_helpers.multidir_h5 import is_multidir, same_weights_multidir
+from submods.h5_helpers.nan_values import (remove_nans,
+                                           removenans_amplitude_leakage,
+                                           removenans_fulljones)
+from submods.h5_helpers.overwrite_table import copy_over_source_direction_h5
+from submods.h5_helpers.reset_h5parm_structure import fix_h5
+from submods.h5_helpers.split_h5 import split_multidir
+from submods.h5_helpers.update_sources import (update_sourcedir_h5_dde,
+                                               update_sourcedirname_h5_dde)
+from submods.h5_merger import merge_h5
+from submods.source_selection.early_stopping import early_stopping
+from submods.source_selection.phasediff_output import GetSolint
+from submods.source_selection.phasediff_output import \
+    generate_csv as generate_phasediff_csv
+from submods.source_selection.selfcal_selection import get_images_solutions
+from submods.split_irregular_timeaxis import regularize_ms, split_ms
+
+# Modules
+from .losoto_helpers import create_losoto_beamcorparset, create_losoto_delayparset, create_losoto_fastphaseparset, create_losoto_FRparset, create_losoto_FRparsetplotfit, create_losoto_tecandphaseparset, create_losoto_rotationparset, tecandphaseplotter, create_losoto_tecparset, create_losoto_flag_apgridparset, create_losoto_bandpassparset, create_losoto_mediumsmoothparset
 
 # Set logger
 os.makedirs('logs', exist_ok=True) 
@@ -244,29 +258,22 @@ def _ensure_run_mode_marker(run_directory, requested_mode):
 
 try:
     from .monitor import ResourceMonitor
-    from .resource_chart import (
-        DP3_EXECUTION_END_MARKER,
-        DP3_EXECUTION_START_MARKER,
-        dp3_command_phases,
-        dp3_workflow_step_kinds,
-    )
+    from .resource_chart import (DP3_EXECUTION_END_MARKER,
+                                 DP3_EXECUTION_START_MARKER,
+                                 dp3_command_phases, dp3_workflow_step_kinds)
 except ImportError:
     try:
         from monitor import ResourceMonitor
-        from resource_chart import (
-            DP3_EXECUTION_END_MARKER,
-            DP3_EXECUTION_START_MARKER,
-            dp3_command_phases,
-            dp3_workflow_step_kinds,
-        )
+        from resource_chart import (DP3_EXECUTION_END_MARKER,
+                                    DP3_EXECUTION_START_MARKER,
+                                    dp3_command_phases,
+                                    dp3_workflow_step_kinds)
     except ImportError:
         from facetselfcal.monitor import ResourceMonitor
-        from facetselfcal.resource_chart import (
-            DP3_EXECUTION_END_MARKER,
-            DP3_EXECUTION_START_MARKER,
-            dp3_command_phases,
-            dp3_workflow_step_kinds,
-        )
+        from facetselfcal.resource_chart import (DP3_EXECUTION_END_MARKER,
+                                                 DP3_EXECUTION_START_MARKER,
+                                                 dp3_command_phases,
+                                                 dp3_workflow_step_kinds)
 
 
 def _track_resource_phase(phase):
@@ -5249,7 +5256,7 @@ def getGSM(ms_input, SkymodelPath='gsm.skymodel', Radius="5.", DoDownload="Force
     str or int
         Sky-model path when downloaded, or zero when an existing model is reused.
     """
-    import lsmtool # type: ignore
+    import lsmtool  # type: ignore
     FileExists = os.path.isfile(SkymodelPath)
     if (not FileExists and os.path.exists(SkymodelPath)):
         raise ValueError("download_tgss_skymodel_target: Path: \"%s\" exists but is not a file!" % (SkymodelPath))
@@ -10678,34 +10685,6 @@ def uvmaxflag(msin, uvmax):
     return
 
 
-def tecandphaseplotter(h5, ms, telescope='LOFAR', outplotname='plot.png'):
-    """
-    Make TEC and phase plots.
-
-    Parameters
-    ----------
-    h5 : str
-        path to the H5parm to plot.
-    ms : str
-        path to th ecorresponding Measurement Set.
-    telescope : str
-        telescope name.
-    outplotname : str
-        name of the output plot.
-
-    Returns
-    -------
-    None
-    """
-    if not os.path.isdir('solution_plots_%s' % os.path.basename(ms)):  # needed because if this is the first plot this directory does not yet exist
-        os.makedirs("solution_plots_%s" % os.path.basename(ms), exist_ok=True)
-    cmd = f'python {submodpath}/plot_tecdelayphase.py  '
-    cmd += '--H5file=' + h5 + ' --outfile=solution_plots_%s/%s_nolosoto.png --telescope=%s' % (os.path.basename(ms), os.path.basename(outplotname), args['telescope'])
-    terminal_print('Command:', cmd)
-    run(cmd)
-    return
-
-
 def runaoflagger(mslist, strategy=None):
     """
     Run aoglagger on a Measurement Set.
@@ -14067,228 +14046,6 @@ def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
     return
 
 
-def radec_to_xyz(ra, dec, time):
-    """
-    Convert ra and dec coordinates to ITRS coordinates for LOFAR observations.
-
-    Parameters
-    ----------
-    ra : astropy Quantity
-        right ascension
-    dec : astropy Quantity
-        declination
-    time : float
-        MJD time in seconds
-
-    Returns
-    -------
-    pointing_xyz : ndarray
-        NumPy array containing the X, Y and Z coordinates
-    """
-    obstime = Time(time / 3600 / 24, scale='utc', format='mjd')
-    loc_LOFAR = EarthLocation(lon=0.11990128407256424, lat=0.9203091252660295, height=6364618.852935438 * units.m)
-
-    dir_pointing = SkyCoord(ra, dec)
-    dir_pointing_altaz = dir_pointing.transform_to(AltAz(obstime=obstime, location=loc_LOFAR))
-    dir_pointing_xyz = dir_pointing_altaz.transform_to(ITRS)
-
-    pointing_xyz = np.asarray([dir_pointing_xyz.x, dir_pointing_xyz.y, dir_pointing_xyz.z])
-    return pointing_xyz
-
-
-def losotolofarbeam(parmdb, soltabname, ms, inverse=False, useElementResponse=True, useArrayFactor=True,
-                    useChanFreq=True, beamlib='stationresponse'):
-    """
-    Do the beam correction via this imported losoto operation
-
-    Parameters
-    ----------
-    parmdb : str
-        path to the h5parm corrections will be stored in.
-    soltabname : str
-        name of the soltab corrections will be stored in.
-    ms : str
-        path to the MS (used to determine the stations present).
-    inverse : bool
-        calculate the inverse beam correction (i.e. undo the beam).
-    useElementResponse : bool
-        correct for the "element beam" (distance to the tile beam centre).
-    useArrayFactor : bool
-        correct for the "array factor" (sensitivity loss as function of distance to the pointing centre).
-    useChanFreq : bool
-        calculate a beam correction for every channel.
-    beamlib : str
-        beam calculation mode. Can be 'stationresponse' to use the LOFARBeam library (deprecated) or everybeam to use the EveryBeam library.
-
-    Returns
-    -------
-    int or None
-        Returns one when the requested beam operation cannot proceed; otherwise
-        updates the solution table and returns ``None``.
-    """
-
-    H5 = h5parm.h5parm(parmdb, readonly=False)
-    soltab = H5.getSolset('sol000').getSoltab(soltabname)
-    times = soltab.getAxisValues('time')
-    numants = taql('select gcount(*) as numants from ' + ms + '::ANTENNA').getcol('numants')[0]
-    H5ants = len(soltab.getAxisValues('ant'))
-    if numants != H5ants:
-        H5.close()
-        raise ValueError('Number of antennas in Measurement Set does not match number of antennas in H5parm.')
-
-    if (beamlib.lower() == 'stationresponse') or (beamlib.lower() == 'lofarbeam'):
-        from lofar.stationresponse import stationresponse # type: ignore
-        sr = stationresponse(ms, inverse, useElementResponse, useArrayFactor, useChanFreq)
-
-        for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant', 'time', 'pol', 'freq'], weight=False):
-            vals = losoto.lib_operations.reorderAxes(vals, soltab.getAxesNames(), ['ant', 'time', 'freq', 'pol'])
-
-            for stationnum in range(numants):
-                logger.debug('stationresponse working on station number %i' % stationnum)
-                for itime, time in enumerate(times):
-                    beam = sr.evaluateStation(time=time, station=stationnum)
-                    # Reshape from [nfreq, 2, 2] to [nfreq, 4]
-                    beam = beam.reshape(beam.shape[0], 4)
-
-                    if soltab.getAxisLen('pol') == 2:
-                        beam = beam[:, [0, 3]]  # get only XX and YY
-
-                    if soltab.getType() == 'amplitude':
-                        vals[stationnum, itime, :, :] = np.abs(beam)
-                    elif soltab.getType() == 'phase':
-                        vals[stationnum, itime, :, :] = np.angle(beam)
-                    else:
-                        logger.error('Beam prediction works only for amplitude/phase solution tables.')
-                        return 1
-
-            vals = losoto.lib_operations.reorderAxes(vals, ['ant', 'time', 'freq', 'pol'],
-                                                     [ax for ax in soltab.getAxesNames() if
-                                                      ax in ['ant', 'time', 'freq', 'pol']])
-            soltab.setValues(vals, selection)
-    elif beamlib.lower() == 'everybeam':
-        from tqdm import tqdm
-        from joblib import Parallel, delayed, parallel_backend
-        import dill as pickle
-        import psutil
-        freqs = soltab.getAxisValues('freq')
-
-        # Obtain direction to calculate beam for.
-        dirs = taql('SELECT REFERENCE_DIR,PHASE_DIR FROM {ms:s}::FIELD'.format(ms=ms))
-        ra_ref, dec_ref = dirs.getcol('REFERENCE_DIR').squeeze()
-        ra, dec = dirs.getcol('PHASE_DIR').squeeze()
-        reference_xyz = list(zip(*radec_to_xyz(ra_ref * units.rad, dec_ref * units.rad, times)))
-        phase_xyz = list(zip(*radec_to_xyz(ra * units.rad, dec * units.rad, times)))
-
-        for vals, coord, selection in soltab.getValuesIter(returnAxes=['ant', 'time', 'pol', 'freq'], weight=False):
-            vals = losoto.lib_operations.reorderAxes(vals, soltab.getAxesNames(), ['ant', 'time', 'freq', 'pol'])
-            stationloop = tqdm(range(numants))
-            stationloop.set_description('Stations processed: ')
-            for stationnum in range(numants):
-                stationloop.update()
-                logger.debug('everybeam working on station number %i' % stationnum)
-                # Parallelise over channels to speed things along.
-                with parallel_backend('loky', n_jobs=len(psutil.Process().cpu_affinity())):
-                    results = Parallel()(delayed(process_channel_everybeam)(f, stationnum=stationnum,
-                                                                            useElementResponse=useElementResponse,
-                                                                            useArrayFactor=useArrayFactor,
-                                                                            useChanFreq=useChanFreq, ms=ms, freqs=freqs,
-                                                                            times=times, ra=ra, dec=dec, ra_ref=ra_ref,
-                                                                            dec_ref=dec_ref,
-                                                                            reference_xyz=reference_xyz,
-                                                                            phase_xyz=phase_xyz) for f in
-                                         range(len(freqs)))
-                    for freqslot in results:
-                        ifreq, beam = freqslot
-                        if soltab.getAxisLen('pol') == 2:
-                            beam = beam.reshape((beam.shape[0], 4))[:, [0, 3]]  # get only XX and YY
-                        if soltab.getType() == 'amplitude':
-                            vals[stationnum, :, ifreq, :] = np.abs(beam)
-                        elif soltab.getType() == 'phase':
-                            vals[stationnum, :, ifreq, :] = np.angle(beam)
-                        else:
-                            logger.error('Beam prediction works only for amplitude/phase solution tables.')
-                            return 1
-            vals = losoto.lib_operations.reorderAxes(vals, ['ant', 'time', 'freq', 'pol'],
-                                                     [ax for ax in soltab.getAxesNames() if
-                                                      ax in ['ant', 'time', 'freq', 'pol']])
-            soltab.setValues(vals, selection)
-
-    else:
-        H5.close()
-        raise ValueError('Unsupported beam library specified')
-
-    H5.close()
-    return
-
-
-def process_channel_everybeam(ifreq, stationnum, useElementResponse, useArrayFactor, useChanFreq, ms, freqs, times, ra,
-                              dec, ra_ref, dec_ref, reference_xyz, phase_xyz):
-    """
-    Calculate EveryBeam response values for one channel and station.
-
-    Parameters
-    ----------
-    ifreq : int
-        Frequency index.
-    stationnum : int
-        Station index.
-    useElementResponse : bool
-        Include element response.
-    useArrayFactor : bool
-        Include array factor.
-    useChanFreq : bool
-        Use channel frequencies.
-    ms : str
-        Measurement Set path.
-    freqs : ndarray
-        Channel frequencies in hertz.
-    times : ndarray
-        Observation times for the response calculation.
-    ra : float
-        Right ascension of the requested direction, in radians.
-    dec : float
-        Declination of the requested direction, in radians.
-    ra_ref : float
-        Right ascension of the reference direction, in radians.
-    dec_ref : float
-        Declination of the reference direction, in radians.
-    reference_xyz : ndarray
-        Reference-direction Cartesian coordinates for each time sample.
-    phase_xyz : ndarray
-        Phase-center Cartesian coordinates for each time sample.
-
-    Returns
-    -------
-    tuple
-        Channel index and calculated beam response.
-    """
-    import everybeam # type: ignore
-    if useElementResponse and useArrayFactor:
-        # print('Full (element+array_factor) beam correction requested. Using use_differential_beam=False.')
-        obs = everybeam.load_telescope(ms, use_differential_beam=False, use_channel_frequency=useChanFreq)
-    elif not useElementResponse and useArrayFactor:
-        # print('Array factor beam correction requested. Using use_differential_beam=True.')
-        obs = everybeam.load_telescope(ms, use_differential_beam=True, use_channel_frequency=useChanFreq)
-    elif useElementResponse and not useArrayFactor:
-        # print('Element beam correction requested.')
-        # Not sure how to do this with EveryBeam.
-        raise NotImplementedError('Element beam only correction is not implemented in facetselfcal.')
-
-    # print(f'Processing channel {ifreq}')
-    freq = freqs[ifreq]
-    timeslices = np.empty((len(times), 2, 2), dtype=np.complex128)
-    for itime, time in enumerate(times):
-        # timeloop.update()
-        if not useElementResponse and useArrayFactor:
-            # Array-factor-only correction.
-            beam = obs.array_factor(times[itime], stationnum, freq, phase_xyz[itime], reference_xyz[itime])
-        else:
-            beam = obs.station_response(time=time, station_idx=stationnum, freq=freq, ra=ra, dec=dec)
-        # beam = beam.reshape(4)
-        timeslices[itime] = beam
-    return ifreq, timeslices
-
-
 # losotolofarbeam('P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive_templatejones.h5', 'amplitude000', 'P214+55_PSZ2G098.44+56.59.dysco.sub.shift.avg.weights.ms.archive', inverse=False, useElementResponse=False, useArrayFactor=True, useChanFreq=True)
 
 def set_MeerKAT_bandpass_skymodel(ms):
@@ -15603,781 +15360,7 @@ def create_beamcortemplate(ms):
     run(cmd)
 
     return H5name
-
-
-def create_losoto_beamcorparset(ms, refant='CS003HBA0'):
-    """
-    Create a LoSoTo parset to fill the beam correction values.
-
-    Parameters
-    ----------
-    ms : str
-        Path to the Measurement Set.
-    refant : str
-        Reference antenna name.
-
-    Returns
-    -------
-    str
-        Path to the generated LoSoTo parset.
-    """
-    parset = 'losoto_parsets/losotobeam.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('pol = [XX,YY]\n')
-    f.write('soltab = [sol000/*]\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotphase]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-0.5,0.5]\n')
-        f.write('prefix = solution_plots_%s/phases_beam\n' % os.path.basename(ms))
-        f.write('refAnt = %s\n\n\n' % refant)
-
-        f.write('[plotamp]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/amplitude000]\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [0.2,1]\n')
-        f.write('prefix = solution_plots_%s/amplitudes_beam\n' % os.path.basename(ms))
-
-    f.close()
-    return parset
-
-
-def create_losoto_tecandphaseparset(ms, refant='CS003HBA0', outplotname='fasttecandphase', markersize=2):
-    """
-    Create a LoSoTo parset for plotting TEC and phase solutions.
-
-    Parameters
-    ----------
-    ms : str
-        Measurement Set path used in the plot prefix.
-    refant : str, optional
-        Reference antenna name.
-    outplotname : str, optional
-        Base name for the output plot.
-    markersize : int, optional
-        Plot marker size.
-
-    Returns
-    -------
-    str
-        Generated parset path.
-    """
-    parset = 'losoto_parsets/losoto_plotfasttecandphase.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('pol = []\n')
-    f.write('Ncpu = 0\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plottecandphase]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('axesInPlot = [time]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-3.14,3.14]\n')
-        f.write('soltabToAdd = tec000\n')
-        f.write('figSize=[120,20]\n')
-        f.write('markerSize=%s\n' % int(markersize))
-        f.write('prefix = solution_plots_%s/fasttecandphase\n' % os.path.basename(ms))
-        f.write('refAnt = %s\n' % refant)
-
-    f.close()
-    return parset
-
-def create_losoto_delayparset(ms, refant='CS003HBA0', outplotname='fastdelay', markersize=2):
-    """
-    Create a LoSoTo parset for plotting delay solutions.
-
-    Parameters
-    ----------
-    ms : str
-        Measurement Set path used in the plot prefix.
-    refant : str, optional
-        Reference antenna name.
-    outplotname : str, optional
-        Base name for the output plot.
-    markersize : int, optional
-        Plot marker size.
-
-    Returns
-    -------
-    str
-        Generated parset path.
-    """
-    parset = 'losoto_parsets/losoto_plotfastdelay.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('pol = []\n')
-    f.write('Ncpu = 0\n\n\n')
-
-    if not args['skip_solution_plotting']:    
-        f.write('[plotdelay]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/delay000]\n')
-        f.write('axesInPlot = [time]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-0.2,0.2]\n')
-        f.write('figSize=[120,20]\n')
-        f.write('markerSize=%s\n' % int(markersize))
-        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-        f.write('refAnt = %s\n' % refant)
-
-    f.close()
-    return parset
-
-def create_losoto_tecparset(ms, refant='CS003HBA0', outplotname='fasttec', markersize=2):
-    """
-    Create a LoSoTo parset for plotting TEC solutions.
-
-    Parameters
-    ----------
-    ms : str
-        Measurement Set path used in the plot prefix.
-    refant : str, optional
-        Reference antenna name.
-    outplotname : str, optional
-        Base name for the output plot.
-    markersize : int, optional
-        Plot marker size.
-
-    Returns
-    -------
-    str
-        Generated parset path.
-    """
-    parset = 'losoto_parsets/losoto_plotfasttec.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('pol = []\n')
-    f.write('Ncpu = 0\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plottec]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/tec000]\n')
-        f.write('axesInPlot = [time]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-0.2,0.2]\n')
-        f.write('figSize=[120,20]\n')
-        f.write('markerSize=%s\n' % int(markersize))
-        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-        f.write('refAnt = %s\n' % refant)
-
-    f.close()
-    return parset
-
-
-def create_losoto_rotationparset(ms, refant='CS003HBA0', onechannel=False, outplotname='rotation', markersize=2):
-    """
-    Create a LoSoTo parset for plotting rotation solutions.
-
-    Parameters
-    ----------
-    ms : str
-        Measurement Set path used in the plot prefix.
-    refant : str, optional
-        Reference antenna name.
-    onechannel : bool, optional
-        Plot one channel along time only.
-    outplotname : str, optional
-        Base name for the output plot.
-    markersize : int, optional
-        Plot marker size.
-
-    Returns
-    -------
-    str
-        Generated parset path.
-    """
-    parset = 'losoto_parsets/losoto_plotrotation.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('pol = [XX,YY]\n')
-    f.write('soltab = [sol000/*]\n')
-    f.write('Ncpu = 0\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotrotation]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/rotation000]\n')
-        f.write('markerSize=%s\n' % int(markersize))
-        if onechannel:
-            f.write('axesInPlot = [time]\n')
-        else:
-            f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-1.57,1.57]\n')  # rotation needs to be plotted from -pi/2 to pi/2
-        f.write('figSize=[120,20]\n')
-        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-        f.write('refAnt = %s\n' % refant)
-
-    f.close()
-    return parset
-
-
-def create_losoto_fastphaseparset(ms, refant='CS003HBA0', onechannel=False, onepol=False, outplotname='fastphase', onetime=False, markersize=2):
-    """
-    Create a LoSoTo parset for plotting fast phase solutions.
-
-    Parameters
-    ----------
-    ms : str
-        Measurement Set path used in the plot prefix.
-    refant : str, optional
-        Reference antenna name.
-    onechannel : bool, optional
-        Plot one channel along time only.
-    onepol : bool, optional
-        Omit polarization-specific plots.
-    outplotname : str, optional
-        Base name for the output plot.
-    onetime : bool, optional
-        Plot one time along frequency only.
-    markersize : int, optional
-        Plot marker size.
-
-    Returns
-    -------
-    str
-        Generated parset path.
-    """
-    parset = 'losoto_parsets/losoto_plotfastphase.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('pol = [XX,YY]\n')
-    f.write('soltab = [sol000/*]\n')
-    f.write('Ncpu = 0\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotphase]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
-        if onechannel:
-            f.write('axesInPlot = [time]\n')
-            if not onepol:
-                f.write('axisInCol = pol\n')
-        if onetime:
-            f.write('axesInPlot = [freq]\n')
-            if not onepol:
-                f.write('axisInCol = pol\n')
-        if onechannel or onetime: 
-                f.write('markerSize=%s\n' % int(markersize)) 
-        if not onechannel and not onetime:
-            f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-3.14,3.14]\n')
-        f.write('figSize=[120,20]\n')
-        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-        f.write('refAnt = %s\n' % refant)
-
-        if not onepol:
-            f.write('[plotphasediff]\n')
-            f.write('operation = PLOT\n')
-            f.write('soltab = [sol000/phase000]\n')
-            if onechannel:
-                f.write('axesInPlot = [time]\n')
-            if onetime:
-                f.write('axesInPlot = [freq]\n')
-            if onechannel or onetime: 
-                f.write('markerSize=%s\n' % int(markersize))   
-            if not onechannel and not onetime:
-                f.write('axesInPlot = [time,freq]\n')
-            f.write('axisInTable = ant\n')
-            f.write('minmax = [-3.14,3.14]\n')
-            f.write('figSize=[120,20]\n')
-            f.write('prefix = solution_plots_%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-            f.write('refAnt = %s\n' % refant)
-            f.write('axisDiff=pol\n')
-
-    f.close()
-    return parset
-
-
-def create_losoto_flag_apgridparset(ms, flagging=True, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
-                                    refant='CS003HBA0', onechannel=False, medamp=2.5, flagphases=True,
-                                    onepol=False, outplotname='slowamp', fulljones=False, onetime=False, markersize=2):
-    """
-    Create a LoSoTo parset for grid-based solution flagging.
-
-    Parameters
-    ----------
-    ms : str
-        Measurement Set path used in the output context.
-    flagging : bool, optional
-        Enable flagging operations.
-    maxrms : float, optional
-        Maximum amplitude RMS.
-    maxrmsphase : float, optional
-        Maximum phase RMS.
-    includesphase : bool, optional
-        Whether phase solutions are present.
-    refant : str, optional
-        Reference antenna name.
-    onechannel : bool, optional
-        Flag one channel along time.
-    medamp : float, optional
-        Median amplitude used for plotting limits.
-    flagphases : bool, optional
-        Enable phase flagging.
-    onepol : bool, optional
-        Omit polarization-specific plots.
-    outplotname : str, optional
-        Base name for output plots.
-    fulljones : bool, optional
-        Use full-Jones solution settings.
-    onetime : bool, optional
-        Flag one time along frequency.
-    markersize : int, optional
-        Plot marker size.
-
-    Returns
-    -------
-    str
-        Generated parset path.
-    """
-    parset = 'losoto_parsets/losoto_flag_apgrid.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    # f.write('pol = []\n')
-    f.write('soltab = [sol000/*]\n')
-    f.write('Ncpu = 0\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotamp]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/amplitude000]\n')
-        if onechannel:
-            f.write('axesInPlot = [time]\n')
-            if not onepol:
-                f.write('axisInCol = pol\n')
-        if onetime:
-            f.write('axesInPlot = [freq]\n')
-            if not onepol:
-                f.write('axisInCol = pol\n')
-        if onechannel or onetime: 
-                f.write('markerSize=%s\n' % int(markersize)) 
-        if not onechannel and not onetime:
-            f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        # if longbaseline:
-        #  f.write('minmax = [0,2.5]\n')
-        # else:
-        f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
-        # f.write('minmax = [0,2.5]\n')
-        f.write('prefix = solution_plots_%s/%samp\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-
-        if fulljones:
-            f.write('[plotampXYYX]\n')
-            f.write('operation = PLOT\n')
-            f.write('soltab = [sol000/amplitude000]\n')
-            f.write('pol = [XY, YX]\n')
-            if onechannel:
-                f.write('axesInPlot = [time]\n')
-            if onetime:
-                f.write('axesInPlot = [freq]\n')   
-            if onechannel or onetime: 
-                f.write('markerSize=%s\n' % int(markersize)) 
-            if not onetime and not onechannel:
-                f.write('axesInPlot = [time,freq]\n')
-            f.write('axisInTable = ant\n')
-            f.write('minmax = [%s,%s]\n' % (str(0.0), str(0.5)))
-            f.write('prefix = solution_plots_%s/%sampXYYX\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-
-        if includesphase:
-            f.write('[plotphase]\n')
-            f.write('operation = PLOT\n')
-            f.write('soltab = [sol000/phase000]\n')
-            if onechannel:
-                f.write('axesInPlot = [time]\n')
-                if not onepol:
-                    f.write('axisInCol = pol\n')
-            if onetime:
-                f.write('axesInPlot = [freq]\n')
-                if not onepol:
-                    f.write('axisInCol = pol\n')
-            if onechannel or onetime: 
-                f.write('markerSize=%s\n' % int(markersize)) 
-            if not onetime and not onechannel:
-                f.write('axesInPlot = [time,freq]\n')
-            f.write('axisInTable = ant\n')
-            f.write('minmax = [-3.14,3.14]\n')
-            f.write('prefix = solution_plots_%s/%sphase\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-            f.write('refAnt = %s\n\n\n' % refant)
-
-            if not onepol and not fulljones:
-                f.write('[plotphasediff]\n')
-                f.write('operation = PLOT\n')
-                f.write('soltab = [sol000/phase000]\n')
-                if onechannel:
-                    f.write('axesInPlot = [time]\n')
-                if onetime:
-                    f.write('axesInPlot = [freq]\n')  
-                if onechannel or onetime: 
-                    f.write('markerSize=%s\n' % int(markersize)) 
-                if not onetime and not onechannel:
-                    f.write('axesInPlot = [time,freq]\n')
-                f.write('axisInTable = ant\n')
-                f.write('minmax = [-3.14,3.14]\n')
-                f.write('figSize=[120,20]\n')
-                f.write('prefix = solution_plots_%s/%spoldiff\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-                f.write('refAnt = %s\n' % refant)
-                f.write('axisDiff=pol\n\n\n')
-
-    if flagging:
-        f.write('[flagamp]\n')
-        f.write('soltab = [sol000/amplitude000]\n')
-        f.write('operation = FLAG\n')
-        if onechannel:
-            f.write('axesToFlag = [time]\n')
-        if onetime:
-            f.write('axesToFlag = [freq]\n')
-        if not onetime and not onechannel:
-            f.write('axesToFlag = [time,freq]\n')
-        f.write('mode = smooth\n')
-        f.write('maxCycles = 3\n')
-        f.write('windowNoise = 7\n')
-        f.write('maxRms = %s\n' % str(maxrms))
-        if onechannel:
-            f.write('order  = [5]\n\n\n')
-        if onetime:
-            f.write('order  = [5]\n\n\n')
-        if not onetime and not onechannel:
-            f.write('order  = [5,5]\n\n\n')
-
-        if includesphase and flagphases:
-            f.write('[flagphase]\n')
-            f.write('soltab = [sol000/phase000]\n')
-            f.write('operation = FLAG\n')
-            if onechannel:
-                f.write('axesToFlag = [time]\n')
-            if onetime:
-                f.write('axesToFlag = [freq]\n')    
-            if not onetime and not onechannel:
-                f.write('axesToFlag = [time,freq]\n')
-            f.write('mode = smooth\n')
-            f.write('maxCycles = 3\n')
-            f.write('windowNoise = 7\n')
-            f.write('maxRms = %s\n' % str(maxrmsphase))
-            if onechannel:
-                f.write('order  = [5]\n\n\n')
-            if onetime:
-                f.write('order  = [5]\n\n\n')
-            if not onetime and not onechannel:
-                f.write('order  = [5,5]\n\n\n')
-
-        if not args['skip_solution_plotting']:
-            f.write('[plotampafter]\n')
-            f.write('operation = PLOT\n')
-            f.write('soltab = [sol000/amplitude000]\n')
-            if onechannel:
-                f.write('axesInPlot = [time]\n')
-                if not onepol:
-                    f.write('axisInCol = pol\n')
-            if onetime:
-                f.write('axesInPlot = [freq]\n')
-                if not onepol:
-                    f.write('axisInCol = pol\n')
-            if onechannel or onetime: 
-                f.write('markerSize=%s\n' % int(markersize)) 
-            if not onetime and not onechannel:
-                f.write('axesInPlot = [time,freq]\n')
-            f.write('axisInTable = ant\n')
-            # f.write('minmax = [0,2.5]\n')
-            f.write('minmax = [%s,%s]\n' % (str(medamp / 4.0), str(medamp * 2.5)))
-            f.write('prefix = solution_plots_%s/%sampfl\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-
-            if includesphase and flagphases:
-                f.write('[plotphase_after]\n')
-                f.write('operation = PLOT\n')
-                f.write('soltab = [sol000/phase000]\n')
-                if onechannel:
-                    f.write('axesInPlot = [time]\n')
-                    if not onepol:
-                        f.write('axisInCol = pol\n')
-                if onetime:
-                    f.write('axesInPlot = [freq]\n')
-                    if not onepol:
-                        f.write('axisInCol = pol\n')
-                if onechannel or onetime: 
-                    f.write('markerSize=%s\n' % int(markersize)) 
-                if not onetime and not onechannel:
-                    f.write('axesInPlot = [time,freq]\n')
-                f.write('axisInTable = ant\n')
-                f.write('minmax = [-3.14,3.14]\n')
-                f.write('prefix = solution_plots_%s/%sphasefl\n' % (os.path.basename(ms), os.path.basename(outplotname)))
-                f.write('refAnt = %s\n' % refant)
-
-    f.close()
-    return parset
-
-def create_losoto_flag_ap_only(ms, maxrms=7.0, maxrmsphase=7.0, includesphase=True,
-                               onechannel=False, flagphases=True, onetime=False):
-    """
-    Create a LoSoTo parset for amplitude and phase flagging.
-
-    Parameters
-    ----------
-    ms : str
-        Measurement Set path used in the output context.
-    maxrms : float, optional
-        Maximum amplitude RMS.
-    maxrmsphase : float, optional
-        Maximum phase RMS.
-    includesphase : bool, optional
-        Whether phase solutions are present.
-    onechannel : bool, optional
-        Flag one channel along time.
-    flagphases : bool, optional
-        Enable phase flagging.
-    onetime : bool, optional
-        Flag one time along frequency.
-
-    Returns
-    -------
-    str
-        Generated parset path.
-    """
-    parset = 'losoto_parsets/losoto_flag_ap_only.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('soltab = [sol000/*]\n')
-    f.write('Ncpu = 0\n\n\n')
     
-    f.write('[flagamp]\n')
-    f.write('soltab = [sol000/amplitude000]\n')
-    f.write('operation = FLAG\n')
-    if onechannel:
-        f.write('axesToFlag = [time]\n')
-    if onetime:
-        f.write('axesToFlag = [freq]\n')
-    if not onetime and not onechannel:
-        f.write('axesToFlag = [time,freq]\n')
-    f.write('mode = smooth\n')
-    f.write('maxCycles = 3\n')
-    f.write('windowNoise = 7\n')
-    f.write('maxRms = %s\n' % str(maxrms))
-    if onechannel:
-        f.write('order  = [5]\n\n\n')
-    if onetime:
-        f.write('order  = [5]\n\n\n')
-    if not onetime and not onechannel:
-        f.write('order  = [5,5]\n\n\n')
-
-    if includesphase and flagphases:
-        f.write('[flagphase]\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('operation = FLAG\n')
-        if onechannel:
-            f.write('axesToFlag = [time]\n')
-        if onetime:
-            f.write('axesToFlag = [freq]\n')    
-        if not onetime and not onechannel:
-            f.write('axesToFlag = [time,freq]\n')
-        f.write('mode = smooth\n')
-        f.write('maxCycles = 3\n')
-        f.write('windowNoise = 7\n')
-        f.write('maxRms = %s\n' % str(maxrmsphase))
-        if onechannel:
-            f.write('order  = [5]\n\n\n')
-        if onetime:
-            f.write('order  = [5]\n\n\n')
-        if not onetime and not onechannel:
-            f.write('order  = [5,5]\n\n\n')
-
-    f.close()
-    return parset
-
-
-
-def create_losoto_bandpassparset(intype, ms, h5):
-    """
-    Create losoto parset than takes median along the time axis
-    Can be used to create a bandpass
-
-    Parameters
-    ----------
-    intype : str
-        set "phase" or "amplitude" or amplitude and phase ("a&p") smoothing, input should be one of these strings
-    ms : str
-        Measurement Set path used to name solution plots.
-    h5 : str
-        H5Parm containing the calibration solutions.
-
-    Returns
-    -------
-    str
-        Path to the generated LoSoTo parset.
-    """
-    assert intype == 'phase' or intype == 'amplitude' or intype == 'a&p'
-    parset = 'losoto_parsets/losoto_bandpass.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('soltab = [sol000/*]\n')
-    f.write('Ncpu = 0\n\n\n')
-
-    if intype == 'amplitude' or intype == 'a&p':
-        
-        # compute median amplitude for the h5
-        medamp = get_median_amp(h5)
-
-        f.write('[bandpassamp]\n')
-        f.write('operation = SMOOTH\n')
-        f.write('soltab = [sol000/amplitude000]\n')
-        f.write('axesToSmooth = [time] # axes to smooth\n')
-        f.write('mode = median\n')
-        f.write('replace = False\n')
-        f.write('log = True\n')
-
-        if not args['skip_solution_plotting']:
-            f.write('\n[plotamp]\n')
-            f.write('operation = PLOT\n')
-            f.write('soltab = [sol000/amplitude000]\n')
-            f.write('axesInPlot = [time,freq]\n')
-            f.write('axisInTable = ant\n')
-            f.write('minmax = [0,%s]\n' % str(medamp*2.5))
-            f.write('prefix = solution_plots_%s/bandpass_amps\n\n\n' % os.path.basename(ms))
-
-    if intype == 'phase' or intype == 'a&p':
-        f.write('[bandpassphase]\n')
-        f.write('operation = SMOOTH\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('axesToSmooth = [time] # axes to smooth\n')
-        f.write('mode = median\n')
-        f.write('replace = False\n')
-        f.write('log = False\n')
-
-        if not args['skip_solution_plotting']:
-            f.write('\n[plotphase]\n')
-            f.write('operation = PLOT\n')
-            f.write('soltab = [sol000/phase000]\n')
-            f.write('axesInPlot = [time,freq]\n')
-            f.write('axisInTable = ant\n')
-            f.write('minmax = [-3.14,3.14]\n')
-            f.write('prefix = solution_plots_%s/bandpass_phases\n\n\n' % os.path.basename(ms))
-
-    f.close()
-    return parset    
-    
-    
-    
-
-def create_losoto_mediumsmoothparset(ms, boxsize, longbaseline, includesphase=True, refant='CS003HBA0',
-                                     onechannel=False, outplotname='runningmedian'):
-    """
-    Create a LoSoTo parset for medium-scale solution smoothing.
-
-    Parameters
-    ----------
-    ms : str
-        Measurement Set path used in the plot prefix.
-    boxsize : int
-        Smoothing window size.
-    longbaseline : bool
-        Whether long-baseline settings are used.
-    includesphase : bool, optional
-        Whether phase solutions are present.
-    refant : str, optional
-        Reference antenna name.
-    onechannel : bool, optional
-        Use one-channel plotting settings.
-    outplotname : str, optional
-        Base name for the output plot.
-
-    Returns
-    -------
-    str
-        Generated parset path.
-    """
-    parset = 'losoto_parsets/losoto_mediansmooth.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('pol = []\n')
-    f.write('soltab = [sol000/*]\n')
-    f.write('Ncpu = 0\n\n\n')
-
-    if includesphase:
-        f.write('[smoothphase]\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('operation= SMOOTH\n')
-        if onechannel:
-            f.write('axesToSmooth = [time]\n')
-            f.write('size = [%s]\n' % (boxsize))
-        else:
-            f.write('axesToSmooth = [freq,time]\n')
-            f.write('size = [%s,%s]\n' % (boxsize, boxsize))
-        f.write('mode = runningmedian\n\n\n')
-
-    f.write('[smoothamp]\n')
-    f.write('soltab = [sol000/amplitude000]\n')
-    f.write('operation= SMOOTH\n')
-    if onechannel:
-        f.write('axesToSmooth = [time]\n')
-        f.write('size = [%s]\n' % (boxsize))
-    else:
-        f.write('axesToSmooth = [freq,time]\n')
-        f.write('size = [%s,%s]\n' % (boxsize, boxsize))
-    f.write('mode = runningmedian\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotamp_after]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/amplitude000]\n')
-        if onechannel:
-            f.write('axesInPlot = [time]\n')
-        else:
-            f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        if longbaseline:
-            f.write('minmax = [0,2.5]\n')
-        else:
-            f.write('minmax = [0,2.5]\n')
-        f.write('prefix = solution_plots_%s/amps_smoothed\n\n\n' % os.path.basename(ms))
-
-        if includesphase:
-            f.write('[plotphase_after]\n')
-            f.write('operation = PLOT\n')
-            f.write('soltab = [sol000/phase000]\n')
-            if onechannel:
-                f.write('axesInPlot = [time]\n')
-            else:
-                f.write('axesInPlot = [time,freq]\n')
-            f.write('axisInTable = ant\n')
-            f.write('minmax = [-3.14,3.14]\n')
-            f.write('prefix = solution_plots_%s/phases_smoothed\n\n\n' % os.path.basename(ms))
-            f.write('refAnt = %s\n' % refant)
-
-            f.write('[plotphase_after1rad]\n')
-            f.write('operation = PLOT\n')
-            f.write('soltab = [sol000/phase000]\n')
-            if onechannel:
-                f.write('axesInPlot = [time]\n')
-            else:
-                f.write('axesInPlot = [time,freq]\n')
-            f.write('axisInTable = ant\n')
-            f.write('minmax = [-1,1]\n')
-            f.write('prefix = solution_plots_%s/phases_smoothed1rad\n' % os.path.basename(ms))
-            f.write('refAnt = %s\n' % refant)
-
-    f.close()
-    return parset
-
 
 def check_phaseup(H5name):
     """
@@ -16674,7 +15657,7 @@ def create_facet_directions(imagename, selfcalcycle, targetFlux=1.0, ms=None, im
     elif selfcalcycle == 0:
         # Only run this if selfcalcycle==0 [elif]
         # Try to load previous facet_regions/facetdirections.skymodel
-        import lsmtool # type: ignore
+        import lsmtool  # type: ignore
         if 'skymodel' not in imagename:
             img = bdsf.process_image(imagename + str(selfcalcycle).zfill(3) + '-MFS-image.fits', mean_map='zero',
                                      rms_map=True, rms_box=(160, 40))
@@ -17650,7 +16633,8 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                                                        parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0],
                                                        refant=findrefant_core(parmdbmergename, telescope=telescope),
                                                        fulljones=fulljonesparmdb(parmdbmergename),
-                                                       onepol=is_scalar_array_for_wsclean([parmdbmergename]))
+                                                       onepol=is_scalar_array_for_wsclean([parmdbmergename]), 
+                                                       skip_solution_plotting=args["skip_solution_plotting"])
         run('losoto ' + parmdbmergename + ' ' + losotoparset)
         force_close(parmdbmergename)
 
@@ -18563,11 +17547,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         # work with copies H5 because losoto changes the format splitting off the length 1 direction axis creating issues
         # with H5merge (also add additional solution talbes which we do not want)
         shutil.copy(parmdb, 'FRcopy' + parmdb)
-        losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb, telescope=args['telescope']), outplotname=outplotname,
-                                                 dejump=dejumpFR)
+        losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb, telescope=args['telescope']), outplotname=outplotname,dejump=dejumpFR,skip_solution_plotting=args["skip_solution_plotting"])
         run('losoto ' + 'FRcopy' + parmdb + ' ' + losoto_parsetFR)
         rotationmeasure_to_phase('FRcopy' + parmdb, parmdb, dejump=dejumpFR)
-        run('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb, telescope=args['telescope']),
+        if not args["skip_solution_plotting"]:
+            run('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb, telescope=args['telescope']),
                                                                      outplotname=outplotname))
         force_close(parmdb)
 
@@ -18724,20 +17708,19 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     # makes plots and do LOSOTO flagging
     if soltype in ['rotation', 'rotation+diagonal', 'rotation+diagonalamplitude',
                    'rotation+scalar', 'rotation+scalaramplitude',
-                   'rotation+scalarphase', 'rotation+diagonalphase']:
+                   'rotation+scalarphase', 'rotation+diagonalphase'] and not args["skip_solution_plotting"]:
+            losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname + 'ROT',
+                                                                 refant=findrefant_core(parmdb, telescope=args['telescope']))  # phase matrix plot
+            force_close(parmdb)
+            cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
+            if onechannel and (ntimesH5(parmdb) == 1): 
+                terminal_print('Skipping losoto rotation plot because only one time and one frequency channel')
+            else:
+                terminal_print('LoSoTo command:', cmdlosoto)
+                logger.info(cmdlosoto)
+                run(cmdlosoto)
 
-        losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname + 'ROT',
-                                                             refant=findrefant_core(parmdb, telescope=args['telescope']))  # phase matrix plot
-        force_close(parmdb)
-        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
-        if onechannel and (ntimesH5(parmdb) == 1): 
-            terminal_print('Skipping losoto rotation plot because only one time and one frequency channel')
-        else:
-            terminal_print('LoSoTo command:', cmdlosoto)
-            logger.info(cmdlosoto)
-            run(cmdlosoto)
-
-        if soltype in ['rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase','faradayrotation+diagonalphase']:
+    if soltype in ['rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase','faradayrotation+diagonalphase'] and not args["skip_solution_plotting"]:
             losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                                outplotname=outplotname,
                                                                refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
@@ -18752,24 +17735,24 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 logger.info(cmdlosoto)
                 run(cmdlosoto)
 
-    if soltype in ['phaseonly', 'scalarphase'] and not args['phasediff_only']:
-        losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
-                                                           outplotname=outplotname,
-                                                           refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
-        cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
-        force_close(parmdb)
-        if onechannel and (ntimesH5(parmdb) == 1): 
-            terminal_print('Skipping losoto phase plot for phaseonly or scalarphase because only one time and one frequency channel')
-        else:
-            terminal_print('LoSoTo command:', cmdlosoto)
-            logger.info(cmdlosoto)
-            run(cmdlosoto)
+    if soltype in ['phaseonly', 'scalarphase'] and not args['phasediff_only'] and not args["skip_solution_plotting"]:
+            losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
+                                                               outplotname=outplotname,
+                                                               refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
+            cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
+            force_close(parmdb)
+            if onechannel and (ntimesH5(parmdb) == 1): 
+                terminal_print('Skipping losoto phase plot for phaseonly or scalarphase because only one time and one frequency channel')
+            else:
+                terminal_print('LoSoTo command:', cmdlosoto)
+                logger.info(cmdlosoto)
+                run(cmdlosoto)
 
     if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay'] and not args['skip_solution_plotting']:
         tecandphaseplotter(parmdb, ms, telescope=args['telescope'],
                            outplotname=outplotname)  # use own plotter because losoto cannot add tec and phase
 
-    if soltype in ['tec']:
+    if soltype in ['tec'] and not args["skip_solution_plotting"]:
         losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname,
                                                    refant=findrefant_core(parmdb, telescope=args['telescope']),
                                                    markersize=compute_markersize(parmdb))
@@ -18794,14 +17777,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                                                maxrmsphase=flagslowphaserms,
                                                                includesphase=includesphase, onechannel=onechannel,
                                                                medamp=medamp, flagphases=flagslowphases, onepol=onepol,
-                                                               outplotname=outplotname, refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1, markersize=compute_markersize(parmdb))
+                                                               outplotname=outplotname, refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1, markersize=compute_markersize(parmdb), skip_solution_plotting=args["skip_solution_plotting"])
                 force_close(parmdb)
         else:
             losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase,
                                                            onechannel=onechannel, medamp=medamp, onepol=onepol,
                                                            outplotname=outplotname,
                                                            refant=findrefant_core(parmdb, telescope=args['telescope']),
-                                                           fulljones=(fulljonesparmdb(parmdb) or amplitude_leakage_paramdb(parmdb)),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))
+                                                           fulljones=(fulljonesparmdb(parmdb) or amplitude_leakage_paramdb(parmdb)),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb), skip_solution_plotting=args["skip_solution_plotting"])
             force_close(parmdb)
 
         # MAKE losoto command
@@ -20193,7 +19176,7 @@ def groupskymodel(skymodelin, facetfitsfile, skymodelout=None):
     str
         Output sky-model path.
     """
-    import lsmtool # type: ignore
+    import lsmtool  # type: ignore
     terminal_print('Loading:', skymodelin)
     LSM = lsmtool.load(skymodelin)
     LSM.group(algorithm='facet', facet=facetfitsfile)
@@ -20333,7 +19316,8 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
  
     try: 
         if regionfile is not None:
-            import regions # type: ignore
+            import regions  # type: ignore
+
             # if regionfile is a string
             if isinstance(regionfile, str):
                 ds9regions = regions.Regions.read(regionfile, format='ds9')
@@ -20437,6 +19421,7 @@ def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
         estimate the plotting noise range.
     """
     import aplpy
+
     # image noise for plotting
     if rmsnoiseimage is None:
         hdulist = fits.open(fitsimagename)
@@ -20611,10 +19596,11 @@ def beamcor_and_lin2circ(ms, msout='.', dysco=True, beam=True, lin2circ=False,
         force_close(H5name)
 
         # print('Phase up dataset, cannot use DPPP beam, do manual correction')
-        cmdlosoto = losoto + ' ' + H5name + ' ' + parset
-        terminal_print('LoSoTo command:', cmdlosoto)
-        logger.info(cmdlosoto)
-        run(cmdlosoto)
+        if not args["skip_solution_plotting"]:
+            cmdlosoto = losoto + ' ' + H5name + ' ' + parset
+            terminal_print('LoSoTo command:', cmdlosoto)
+            logger.info(cmdlosoto)
+            run(cmdlosoto)
 
     if usedppp and not phasedup:
         cmddppp = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
@@ -20931,7 +19917,7 @@ def getimsize(boxfile, cellsize=1.5, increasefactor=1.2, DDE=None):
     return int(imsize)
 
 
-def smoothsols(parmdb, ms, longbaseline, includesphase=True):
+def smoothsols(parmdb, ms, longbaseline, includesphase=True, skip_plotting: bool = False):
     """
     Smooth calibration solutions for a baseline class.
 
@@ -20957,16 +19943,16 @@ def smoothsols(parmdb, ms, longbaseline, includesphase=True):
     noise = findamplitudenoise(parmdb)
     smooth = False
     if noise >= 0.1:
-        cmdlosoto += create_losoto_mediumsmoothparset(ms, '9', longbaseline, includesphase=includesphase)
+        cmdlosoto += create_losoto_mediumsmoothparset(ms, '9', longbaseline, includesphase=includesphase, skip_solution_plotting=skip_plotting)
         smooth = True
     if noise < 0.1 and noise >= 0.08:
-        cmdlosoto += create_losoto_mediumsmoothparset(ms, '7', longbaseline, includesphase=includesphase)
+        cmdlosoto += create_losoto_mediumsmoothparset(ms, '7', longbaseline, includesphase=includesphase, skip_solution_plotting=skip_plotting)
         smooth = True
     if noise < 0.08 and noise >= 0.07:
-        cmdlosoto += create_losoto_mediumsmoothparset(ms, '5', longbaseline, includesphase=includesphase)
+        cmdlosoto += create_losoto_mediumsmoothparset(ms, '5', longbaseline, includesphase=includesphase, skip_solution_plotting=skip_plotting)
         smooth = True
     if noise < 0.07 and noise >= 0.04:
-        cmdlosoto += create_losoto_mediumsmoothparset(ms, '3', longbaseline, includesphase=includesphase)
+        cmdlosoto += create_losoto_mediumsmoothparset(ms, '3', longbaseline, includesphase=includesphase, skip_solution_plotting=skip_plotting)
         smooth = True
     if smooth:
         terminal_print('LoSoTo command:', cmdlosoto)
@@ -21383,148 +20369,6 @@ def findrefant_core(H5file, telescope='LOFAR'):
     return ants[maxant]
 
 
-def create_losoto_FRparsetplotfit(ms, refant='CS001LBA', outplotname='FR'):
-    """
-    Create a LoSoTo parset to fit Faraday Rotation on the phase difference.
-
-    Parameters
-    ----------
-    ms : str
-        Path to the Measurement Set.
-    refant : str
-        Reference antenna name.
-    outplotname : str
-        Output plot path.
-
-    Returns
-    -------
-    str
-        Path to the generated LoSoTo parset.
-    """
-    parset = 'losoto_parsets/losotoFR_plotresult.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-    
-    if not args['skip_solution_plotting']:
-        f.write('[plotFRresult]\n')
-        f.write('pol = [XX,YY]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_fitFR'))
-        f.write('refAnt = %s\n\n\n' % refant)
-    f.close()
-    return parset
-
-
-def create_losoto_FRparset(ms, refant='CS001LBA', freqminfitFR=20e6, outplotname='FR', onlyplotFRfit=False,
-                           dejump=False):
-    """
-    Create a LoSoTo parset to fit Faraday Rotation on the phase difference.
-
-    Parameters
-    ----------
-    ms : str
-        Path to the Measurement Set.
-    refant : str
-        Reference antenna name.
-    freqminfitFR : float, optional
-        Minimum frequency for fit in MHz.
-    outplotname : str, optional
-        Output plot path.
-    onlyplotFRfit : bool, optional
-        Only plot the fit without applying.
-    dejump : bool, optional
-        Dejump phase solutions.
-
-    Returns
-    -------
-    str
-        Path to the generated LoSoTo parset.
-    """
-    parset = 'losoto_parsets/losotoFR.parset'
-    Path(parset).unlink(missing_ok=True)
-    f = open(parset, 'w')
-
-    f.write('[duplicate]\n')
-    f.write('operation = DUPLICATE\n')
-    f.write('soltab = sol000/phase000\n')
-    f.write('soltabOut = phaseOrig000\n\n\n')
-
-    # should not be needed as already done but just in case....
-    f.write('[reset]\n')
-    f.write('operation = RESET\n')
-    f.write('soltab = sol000/phase000\n')
-    f.write('pol = YY\n')
-    f.write('dataVal = 0.0\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotphase]\n')
-        f.write('pol = [XX,YY]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = [sol000/phase000]\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('axisInTable = ant\n')
-        f.write('minmax = [-3.14,3.14]\n')
-        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'phases_beforeFR'))
-        f.write('refAnt = %s\n\n\n' % refant)
-
-    f.write('[faraday]\n')
-    f.write('operation = FARADAY\n')
-    f.write('soltab = sol000/phase000\n')
-    f.write('refAnt = %s\n' % refant)
-    f.write('maxResidual = 2\n')
-    f.write('freq.minmaxstep = [%s,1e9]\n' % str(freqminfitFR))
-    f.write('soltabOut = rotationmeasure000\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotFR]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = sol000/rotationmeasure000\n')
-        f.write('axesInPlot = [time]\n')
-        f.write('axisInTable = ant\n')
-        f.write('prefix = solution_plots_%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FR'))
-
-    if dejump:
-        f.write('[frdejump]\n')
-        f.write('operation = FRJUMP\n')
-        f.write('soltab = sol000/rotationmeasure000\n')
-        f.write('soltabOut = rotationmeasure001\n')
-        f.write('clipping = [%s,1e9]\n\n\n' % str(freqminfitFR))
-
-        if not args['skip_solution_plotting']:
-            f.write('[plotFR_dejump]\n')
-            f.write('operation = PLOT\n')
-            f.write('soltab = sol000/rotationmeasure001\n')
-            f.write('axesInPlot = [time]\n')
-            f.write('axisInTable = ant\n')
-            f.write('prefix = solution_plots_%s/%s\n\n\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'FRdejumped'))
-
-    f.write('[residuals]\n')
-    f.write('operation = RESIDUALS\n')
-    f.write('soltab = sol000/phase000\n')
-    if dejump:
-        f.write('soltabsToSub = rotationmeasure001\n\n\n')
-    else:
-        f.write('soltabsToSub = rotationmeasure000\n\n\n')
-
-    if not args['skip_solution_plotting']:
-        f.write('[plotRES]\n')
-        f.write('operation = PLOT\n')
-        f.write('soltab = sol000/phase000\n')
-        f.write('axesInPlot = [time,freq]\n')
-        f.write('AxisInTable = ant\n')
-        f.write('AxisDiff = pol\n')
-        f.write('plotFlag = True\n')
-        f.write('prefix = solution_plots_%s/%s\n' % (os.path.basename(ms), os.path.basename(outplotname) + 'residualphases_afterFR'))
-        f.write('refAnt = %s\n' % refant)
-        f.write('minmax = [-3.14,3.14]\n\n\n')
-
-    f.close()
-    return parset
-
 def check_if_ms_exists(mslist):
     """
     Check if all measurement sets in the provided list exist.
@@ -21901,9 +20745,9 @@ def find_bad_deviating_antennas(h5, ms, threshold=0.075):
     
     
     if False: # for testing
-        import matplotlib.pyplot as plt
         # set backend to TkAgg for interactive plotting
         import matplotlib
+        import matplotlib.pyplot as plt
         matplotlib.use('TkAgg')
     
         for antid, ant in enumerate(antennas):
@@ -24472,7 +23316,7 @@ def main():
         if args['bandpass'] and args['bandpass_stop'] == 0: 
             terminal_print('Stopping as requested via --bandpass and compute bandpass')
             for parmdb_id, parmdb in enumerate(create_mergeparmdbname(mslist, i, skymodelsolve=True)):
-                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb))
+                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb), skip_solution_plotting=args["skip_solution_plotting"])
                 set_weights_h5_to_one(parmdb)
                 if os.path.isfile(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_')):
                     # remove existing bandpass file
@@ -24540,7 +23384,7 @@ def main():
         if args['bandpass'] and i >=args['bandpass_stop']: 
             terminal_print('Stopping as requested via --bandpass and compute bandpass')
             for parmdb_id, parmdb in enumerate(create_mergeparmdbname(mslist, i, skymodelsolve=True)):
-                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb))
+                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb), skip_solution_plotting=args["skip_solution_plotting"])
                 set_weights_h5_to_one(parmdb)
                 if os.path.isfile(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_')):
                     # remove existing bandpass file
