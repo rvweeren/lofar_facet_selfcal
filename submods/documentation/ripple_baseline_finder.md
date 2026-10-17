@@ -25,7 +25,7 @@ python submods/ripple_baseline_finder.py obs.ms \
     --jobs 4
 ```
 
-Within the LOFAR/facetselfcal singularity container use the wrapper in the repository, for example `./remote_singularity_python.sh submods/ripple_baseline_finder.py ...`. The python environment needs `numpy`, `scipy`, `matplotlib`, `astropy` and `python-casacore`; WSClean must be on the `PATH` (or be given with `--wsclean`, see below).
+The python environment needs `numpy`, `scipy`, `matplotlib`, `astropy` and `python-casacore`; WSClean must be on the `PATH` (or be given with `--wsclean`, see below).
 
 Then read `ripple_report/ripple_report.md` and look at the figures `01_...` to `08_...` (section 4). A typical flow is:
 
