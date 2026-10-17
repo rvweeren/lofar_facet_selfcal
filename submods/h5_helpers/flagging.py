@@ -2,6 +2,10 @@ import numpy as np
 from losoto import h5parm
 import tables
 
+from ..runtime_utils import terminal_print
+from .h5_info import (amplitude_leakage_paramdb, findrefant_core,
+                      fulljonesparmdb)
+
 
 def flaglowamps_fulljones(parmdb, lowampval=0.1, flagging=True, setphases=True):
     """
@@ -296,4 +300,82 @@ def flag_bad_amps(parmdb, setphases=True, flagamp1=True, flagampxyzero=True):
             H.root.sol000.phase000.val[:] = phase
             H.root.sol000.phase000.weight[:] = weights_p
         H.close()
+    return
+
+
+def flag_h5_phasediff(h5parm, threshold, telescope):
+    """
+    Flag solutions in h5parm where the phase difference between two polarizations exceeds a threshold.
+
+    Parameters
+    ----------
+    h5parm : str
+        Path to the H5Parm file.
+    threshold : float
+        Phase difference threshold in radians.
+    telescope : str
+        Telescope name.
+    """
+    
+    if fulljonesparmdb(h5parm) or amplitude_leakage_paramdb(h5parm):
+        terminal_print('Cannot flag phase differences for fulljones or amplitudeleakage solutions')
+        return
+
+    # make sure phase000 exists
+    with tables.open_file(h5parm) as Hcheck:
+        soltabs = list(Hcheck.root.sol000._v_children.keys())
+    if 'phase000' not in soltabs:
+        terminal_print('No phase000 found in ', h5parm)  
+        return    
+
+    # make sure there is a pol axis and the pol axis is the last axis
+    with tables.open_file(h5parm) as Hcheck:
+        axisn = Hcheck.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+    if 'pol' not in axisn:
+        terminal_print('No pol axis found in phase000 of ', h5parm)  
+        return
+    if axisn[-1] != 'pol':
+        terminal_print('Pol axis is not the last axis in phase000 of ', h5parm)
+        return
+
+    refant = findrefant_core(h5parm, telescope=telescope)
+
+    H = tables.open_file(h5parm, mode='r+')
+
+    phase = H.root.sol000.phase000.val[:]
+    weight = H.root.sol000.phase000.weight[:]
+    weight_xx = weight[..., 0]  # XX, assume pol is last axis
+    weight_yy = weight[..., -1]  # YY, assume pol is last axis
+    refant_idx = np.where(H.root.sol000.phase000.ant[:].astype(str) == refant)  # to deal with byte strings
+    terminal_print('Reference antenna index:', refant_idx, 'Reference antenna name:', refant)
+    axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+    antennaxis = axisn.index('ant')
+    terminal_print('Referencing phase to ', refant, 'Axis entry number', axisn.index('ant'))
+    if antennaxis == 0:
+        phasen = phase - phase[refant_idx[0], ...]
+    if antennaxis == 1:
+        phasen = phase - phase[:, refant_idx[0], ...]
+    if antennaxis == 2:
+        phasen = phase - phase[:, :, refant_idx[0], ...]
+    if antennaxis == 3:
+        phasen = phase - phase[:, :, :, refant_idx[0], ...]
+    if antennaxis == 4:
+        phasen = phase - phase[:, :, :, :, refant_idx[0], ...]
+    phase = np.copy(phasen)
+
+    # calculate phase difference between two polarizations, assuming pol is last axis and we have 2 pols
+    phasediff = phase[..., 0] - phase[..., -1]
+
+    # make sure the phase are between -pi and pi
+    phasediff = np.mod(phasediff + np.pi, 2 * np.pi) - np.pi
+
+    # flag where phase difference exceeds threshold by setting weight to zero
+    # set XX and YY weights to zero where phase difference exceeds threshold
+    weight_xx[phasediff > threshold] = 0.0
+    weight_yy[phasediff > threshold] = 0.0
+    weight[..., 0] = weight_xx
+    weight[..., -1] = weight_yy
+    H.root.sol000.phase000.weight[:] = np.copy(weight)
+    H.flush()
+    H.close()
     return

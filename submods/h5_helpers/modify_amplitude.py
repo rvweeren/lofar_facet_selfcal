@@ -3,6 +3,9 @@ import tables
 from losoto import h5parm
 from .slicing import get_double_slice, get_double_slice_len
 import sys
+from ..runtime_utils import terminal_print
+from .h5_info import (amplitude_leakage_paramdb, check_soltabs,
+                      fulljonesparmdb)
 
 
 def get_median_amp(h5):
@@ -779,3 +782,240 @@ def get_matrix_forslopenorm(parmdblist):
             matrix_weights[h5_id, dir_id] = amps.size / N_direction
             print('Direction:', dir_id, 'Slope:', matrix_slope[h5_id, dir_id])
     return matrix_slope, matrix_weights
+
+
+def reset_gains_noncore(h5parm, keepanntennastr='CS'):
+    """
+    Resets the gain of non-CS stations to unity amplitude and zero phase.
+
+    Parameters
+    ----------
+    h5parm : str
+        path to the H5parm to reset gains of.
+    keepanntennastr : str, optional
+        Antenna-name prefix identifying stations whose gains should be retained.
+
+    Returns
+    -------
+    None
+    """
+    fulljones = fulljonesparmdb(h5parm)  # True/False
+    hasphase, hasamps, hasrotation, hastec, hasrotationmeasure, hasdelay = check_soltabs(h5parm)
+    amplitudeleakage = amplitude_leakage_paramdb(h5parm)
+
+    with tables.open_file(h5parm) as H:
+
+        if hasphase:
+            phase = H.root.sol000.phase000.val[:]
+            antennas = H.root.sol000.phase000.ant[:]
+            axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+        if hasamps:
+            amp = H.root.sol000.amplitude000.val[:]
+            antennas = H.root.sol000.amplitude000.ant[:]
+            axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+        if hastec:
+            tec = H.root.sol000.tec000.val[:]
+            antennas = H.root.sol000.tec000.ant[:]
+            axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+        if hasdelay:
+            delay = H.root.sol000.delay000.val[:]
+            antennas = H.root.sol000.delay000.ant[:]
+            axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+        if hasrotation:
+            rotation = H.root.sol000.rotation000.val[:]
+            antennas = H.root.sol000.rotation000.ant[:]
+            axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+        if hasrotationmeasure:
+            faradayrotation = H.root.sol000.rotationmeasure000.val[:]
+            antennas = H.root.sol000.rotationmeasure000.ant[:]
+            axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+
+
+        for antennaid, antenna in enumerate(antennas):
+            if antenna[0:2] != keepanntennastr:
+                if hasphase:
+                    axisn = H.root.sol000.phase000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
+                    terminal_print('Resetting phase', antenna, 'Axis entry number', axisn.index('ant'))
+                    # print(phase[:,:,antennaid,...])
+                    if antennaxis == 0:
+                        phase[antennaid, ...] = 0.0
+                    if antennaxis == 1:
+                        phase[:, antennaid, ...] = 0.0
+                    if antennaxis == 2:
+                        phase[:, :, antennaid, ...] = 0.0
+                    if antennaxis == 3:
+                        phase[:, :, :, antennaid, ...] = 0.0
+                    if antennaxis == 4:
+                        phase[:, :, :, :, antennaid, ...] = 0.0
+                    # print(phase[:,:,antennaid,...])
+                if hasamps:
+                    axisn = H.root.sol000.amplitude000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
+                    terminal_print('Resetting amplitude', antenna, 'Axis entry number', axisn.index('ant'))
+                    if antennaxis == 0:
+                        amp[antennaid, ...] = 1.0
+                    if antennaxis == 1:
+                        amp[:, antennaid, ...] = 1.0
+                    if antennaxis == 2:
+                        amp[:, :, antennaid, ...] = 1.0
+                    if antennaxis == 3:
+                        amp[:, :, :, antennaid, ...] = 1.0
+                    if antennaxis == 4:
+                        amp[:, :, :, :, antennaid, ...] = 1.0
+                    if fulljones or amplitudeleakage:
+                        amp[..., 1] = 0.0  # XY, assume pol is last axis
+                        amp[..., 2] = 0.0  # YX, assume pol is last axis
+
+                if hastec:
+                    axisn = H.root.sol000.tec000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
+                    terminal_print('Resetting TEC', antenna, 'Axis entry number', axisn.index('ant'))
+                    if antennaxis == 0:
+                        tec[antennaid, ...] = 0.0
+                    if antennaxis == 1:
+                        tec[:, antennaid, ...] = 0.0
+                    if antennaxis == 2:
+                        tec[:, :, antennaid, ...] = 0.0
+                    if antennaxis == 3:
+                        tec[:, :, :, antennaid, ...] = 0.0
+                    if antennaxis == 4:
+                        tec[:, :, :, :, antennaid, ...] = 0.0
+
+                if hasdelay:
+                    axisn = H.root.sol000.delay000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
+                    terminal_print('Resetting delay', antenna, 'Axis entry number', axisn.index('ant'))
+                    if antennaxis == 0:
+                        delay[antennaid, ...] = 0.0
+                    if antennaxis == 1:
+                        delay[:, antennaid, ...] = 0.0
+                    if antennaxis == 2:
+                        delay[:, :, antennaid, ...] = 0.0
+                    if antennaxis == 3:
+                        delay[:, :, :, antennaid, ...] = 0.0
+                    if antennaxis == 4:
+                        delay[:, :, :, :, antennaid, ...] = 0.0
+
+                if hasrotation:
+                    axisn = H.root.sol000.rotation000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
+                    terminal_print('Resetting rotation', antenna, 'Axis entry number', axisn.index('ant'))
+                    if antennaxis == 0:
+                        rotation[antennaid, ...] = 0.0
+                    if antennaxis == 1:
+                        rotation[:, antennaid, ...] = 0.0
+                    if antennaxis == 2:
+                        rotation[:, :, antennaid, ...] = 0.0
+                    if antennaxis == 3:
+                        rotation[:, :, :, antennaid, ...] = 0.0
+                    if antennaxis == 4:
+                        rotation[:, :, :, :, antennaid, ...] = 0.0
+                if hasrotationmeasure:
+                    axisn = H.root.sol000.rotationmeasure000.val.attrs['AXES'].decode().split(',')
+                    antennaxis = axisn.index('ant')
+                    terminal_print('Resetting faradayrotation', antenna, 'Axis entry number', axisn.index('ant'))
+                    if antennaxis == 0:
+                        faradayrotation[antennaid, ...] = 0.0
+                    if antennaxis == 1:
+                        faradayrotation[:, antennaid, ...] = 0.0
+                    if antennaxis == 2:
+                        faradayrotation[:, :, antennaid, ...] = 0.0
+                    if antennaxis == 3:
+                        faradayrotation[:, :, :, antennaid, ...] = 0.0
+                    if antennaxis == 4:
+                        faradayrotation[:, :, :, :, antennaid, ...] = 0.0
+                        # fill values back in
+        if hasphase:
+            H.root.sol000.phase000.val[:] = np.copy(phase)
+        if hasamps:
+            H.root.sol000.amplitude000.val[:] = np.copy(amp)
+        if hastec:
+            H.root.sol000.tec000.val[:] = np.copy(tec)
+        if hasdelay:
+            H.root.sol000.delay000.val[:] = np.copy(delay)
+        if hasrotation:
+            H.root.sol000.rotation000.val[:] = np.copy(rotation)
+        if hasrotationmeasure:
+            H.root.sol000.rotationmeasure000.val[:] = np.copy(faradayrotation)
+
+
+    return
+
+
+def copyovergain(gaininh5, gainouth5, soltype):
+    """
+    Copies gain solutions (amplitude and phase) from an input HDF5 file to an output HDF5 file,
+    handling both scalar and polarized solutions depending on the solution type and the presence
+    of polarization axes.
+
+    Parameters
+    ----------
+    gaininh5 : str
+        Path to the input HDF5 file containing gain solutions.
+    gainouth5 : str
+        Path to the output HDF5 file where gain solutions will be copied.
+    soltype : str
+        Type of solution to copy. Determines whether to copy both amplitude and phase
+        ('full'), or only amplitude ('scalaramplitude' or 'amplitudeonly').
+
+    Notes
+    -----
+    - If the solution table contains a polarization axis, the amplitude and phase arrays
+    are copied directly.
+    - If there is no polarization axis, the function expands the amplitude and phase arrays
+    to fill the polarization dimension in the output file (typically for XX and YY).
+    - Phase values are set to zero if only amplitude solutions are requested.
+    - The function uses PyTables and h5parm for HDF5 file access and manipulation.
+
+    Returns
+    -------
+    None
+    """
+    H5in = tables.open_file(gaininh5, mode='r')
+    H5out = tables.open_file(gainouth5, mode='a')
+    antenna = H5in.root.sol000.amplitude000.ant[:]
+
+    h5 = h5parm.h5parm(gaininh5)
+    ss = h5.getSolset('sol000')
+    st = ss.getSoltab('amplitude000')
+    axesnames = st.getAxesNames()
+    h5.close()
+
+    if 'pol' in axesnames:
+
+        if soltype != 'scalaramplitude' and soltype != 'amplitudeonly':
+            phase = H5in.root.sol000.phase000.val[:]
+            H5out.root.sol000.phase000.val[:] = phase
+        else:
+            H5out.root.sol000.phase000.val[:] = 0.0
+
+        amplitude = H5in.root.sol000.amplitude000.val[:]
+        terminal_print('Shapes for gain copy with polarizations', amplitude.shape)
+        H5out.root.sol000.amplitude000.val[:] = amplitude
+
+    else:
+        if soltype != 'scalaramplitude' and soltype != 'amplitudeonly':
+            phase = H5in.root.sol000.phase000.val[:]
+            phase_pol = H5out.root.sol000.phase000.val[:]  # time, freq, ant, dir, pol
+
+        amplitude = H5in.root.sol000.amplitude000.val[:]
+        amplitude_pol = H5out.root.sol000.amplitude000.val[:]  # time, freq, ant, dir, pol
+        terminal_print('Shapes for gain copy 1 pol', amplitude.shape)
+
+        for ant in range(len(antenna)):
+            if soltype != 'scalaramplitude' and soltype != 'amplitudeonly':
+                phase_pol[:, :, ant, :, 0] = phase[:, :, ant, :]  # XX
+                phase_pol[:, :, ant, :, -1] = phase[:, :, ant, :]  # YY
+            amplitude_pol[:, :, ant, :, 0] = amplitude[:, :, ant, :]  # XX
+            amplitude_pol[:, :, ant, :, -1] = amplitude[:, :, ant, :]  # YY
+        if soltype != 'scalaramplitude' and soltype != 'amplitudeonly':
+            H5out.root.sol000.phase000.val[:] = phase_pol[:, :, :]
+        else:
+            H5out.root.sol000.phase000.val[:] = 0.0
+        H5out.root.sol000.amplitude000.val[:] = amplitude_pol[:, :, :]
+
+    H5out.flush()
+    H5in.close()
+    H5out.close()
+    return
