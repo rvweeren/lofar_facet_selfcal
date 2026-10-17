@@ -11554,32 +11554,6 @@ def updatemodelcols_includedir(modeldatacolumns, soltypelist_includedir, ms, dry
     return modeldatacolumns_solve_newnames, sourcedir[id_removed][:], id_kept
 
 
-def _add_astropy_beam(fitsname):
-    """
-    Add beam from astropy
-
-    Parameters
-    ----------
-    fitsname : str
-        Path to the FITS image whose restoring beam is read.
-
-    Returns
-    -------
-    matplotlib.patches.Ellipse
-        Ellipse patch representing the FITS restoring beam.
-    """
-
-    head = fits.getheader(fitsname)
-    bmaj = head['BMAJ']
-    bmin = head['BMIN']
-    bpa = head['BPA']
-    cdelt = head['CDELT2']
-    bmajpix = bmaj / cdelt
-    bminpix = bmin / cdelt
-    ellipse = matplotlib.patches.Ellipse((20, 20), bmajpix, bminpix, bpa)
-    return ellipse
-
-
 def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
                       cmap='bone', regioncolor='yellow', minmax=None, regionalpha=0.6):
     """

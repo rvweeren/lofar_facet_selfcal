@@ -51,34 +51,6 @@ def find_prime_factors(n):
     return factorlist
 
 
-def tweak_solintsold(solints, solval=20):
-    """
-    Adjusts a list of solution intervals by rounding up values greater than a
-    specified threshold to the nearest even number.
-
-    Parameters
-    ----------
-    solints : list of int
-        A list of solution intervals to be adjusted.
-    solval : int, optional
-        The threshold value. Solution intervals greater
-        than this value will be rounded up to the nearest even number.
-        Defaults to 20.
-
-    Returns
-    -------
-    list of int
-        A list of adjusted solution intervals.
-    """
-    solints_return = []
-    for sol in solints:
-        soltmp = sol
-        if soltmp > solval:
-            soltmp += int(soltmp & 1)  # round up to even
-        solints_return.append(soltmp)
-    return solints_return
-
-
 def tweak_solints(solints, solvalthresh=11, ms_ntimes=None, verbose=False):
     """
     Modify solution intervals so they can be factorized by 2 or 3.
@@ -187,32 +159,6 @@ def remove_bad_endrounding(solints, ms_ntimes, ignorelessthan=13, fraction_lasts
                 np.floor(float(ms_ntimes) / float(solint))) > fraction_lastslot or solint < ignorelessthan:
             solints_out.append(solint)
     return solints_out
-
-
-def listof2and3prime(startval=2, stopval=10000):
-    """
-    Generate a list of integers between `startval` and `stopval` (exclusive)
-    whose largest prime factor is either 2 or 3.
-
-    Parameters
-    ----------
-    startval : int, optional
-        The starting value of the range (inclusive). Defaults to 2.
-    stopval : int, optional
-        The ending value of the range (exclusive). Defaults to 10000.
-
-    Returns
-    -------
-    list
-        A list of integers satisfying the condition, including the initial value 1.
-    """
-    solint = [1]
-    for i in np.arange(startval, stopval):
-        factors = find_prime_factors(i)
-        if len(factors) > 0:
-            if factors[-1] == 2 or factors[-1] == 3:
-                solint.append(i)
-    return solint
 
 
 def find_nearest(array, value):
@@ -1219,46 +1165,3 @@ def auto_determinesolints(mslist, soltype_list, longbaseline, LBA,
     return innchan_list, insolint_list, inBLsmooth_list, insmoothnessconstraint_list, insmoothnessreffrequency_list, insmoothnessspectralexponent_list, insmoothnessrefdistance_list, inantennaconstraint_list, inresetsols_list, inresetdir_list, insoltypecycles_list, innormamps_list
 
 
-def calculate_solintnchan(compactflux):
-    """
-    Select a solution interval and channel count from compact flux.
-
-    Parameters
-    ----------
-    compactflux : float
-        Compact-source flux density.
-
-    Returns
-    -------
-    tuple
-        Selected solution interval and channel count.
-    """
-    if compactflux >= 3.5:
-        nchan = 5.
-        solint_phase = 1.
-
-    if compactflux <= 3.5:
-        nchan = 5.
-        solint_phase = 1.
-
-    if compactflux <= 1.0:
-        nchan = 10.
-        solint_phase = 2
-
-    if compactflux <= 0.75:
-        nchan = 15.
-        solint_phase = 3.
-
-    # solint_ap = 100. / np.sqrt(compactflux)
-    solint_ap = 120. / (compactflux ** (1. / 3.))  # do third power-scaling
-    # print solint_ap
-    if solint_ap < 60.:
-        solint_ap = 60.  # shortest solint_ap allowed
-    if solint_ap > 180.:
-        solint_ap = 180.  # longest solint_ap allowed
-
-    if compactflux <= 0.4:
-        nchan = 15.
-        solint_ap = 180.
-
-    return int(nchan), int(solint_phase), int(solint_ap)

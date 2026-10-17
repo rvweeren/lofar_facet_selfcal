@@ -386,44 +386,6 @@ def makemask_extended(fitsimage, outputfitsfile, kernel_size=21, rebin=None, thr
     return
 
 
-def gunzip_model_images(imagebasename, n_parallel=4):
-    """
-    Gunzips all model images with the given base name.
-    Parameters
-    ----------
-    imagebasename : str
-        The base filename for model images (e.g., 'myimage_001' if files are named  like 'myimage_001-0001-model-pb.fits').
-    n_parallel : int
-        Number of gunzip processes to run in parallel.
-    """
-    imagelist1 = glob.glob(imagebasename + '-????-model*.fits.gz') # channel maps
-    imagelist2 = glob.glob(imagebasename + '-???-model*.fits.gz') # MFS maps
-    imagelist = sorted(imagelist1) + sorted(imagelist2)
-
-    def _gunzip(image):
-        """
-        Decompress one model image in place.
-
-        Parameters
-        ----------
-        image : str
-            Compressed image path.
-
-        Returns
-        -------
-        None
-            The image is decompressed on disk.
-        """
-        terminal_print('Now gunzip ' + image)
-        subprocess.run(['gunzip', '-f', image], check=True)
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel) as executor:
-        futures = [executor.submit(_gunzip, image) for image in imagelist]
-        for future in futures:
-            future.result()
-    return
-
-
 def gzip_model_images(imagebasename, n_parallel=4):
     """
     Gzips all model images with the given base name.

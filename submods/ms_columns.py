@@ -344,54 +344,6 @@ def create_weight_spectrum(inmslist, outweightcol, updateweights=False,
         del weight, model
 
 
-def create_weight_spectrum_taql(inmslist, outweightcol, updateweights=False, updateweights_from_thiscolumn='MODEL_DATA'):
-    """
-    Creates or updates a weight spectrum column in one or more Measurement Sets using TAQL.
-    Parameters
-    ----------
-    inmslist : str or list of str
-        Path(s) to the Measurement Set(s) to process. If a single string is provided, it is converted to a list.
-    outweightcol : str
-        Name of the output weight column to create or update in the Measurement Set(s).
-    updateweights : bool, optional
-        If True, updates the weights using the specified column. Default is False.
-    updateweights_from_thiscolumn : str, optional
-        Name of the column from which to update weights. Default is 'MODEL_DATA'.
-    Notes
-    -----
-    - If the output weight column does not exist, it is added based on the reference weight column.
-    - For LoTSS-DR2 datasets, uses 'WEIGHT_SPECTRUM_SOLVE' as the reference weight column if available.
-    - Updates the specified column's polarization channels and computes the new weights.
-    - Prints the mean input weights and change factor for diagnostic purposes.
-    - Closes the Measurement Set table after processing.
-    """
-
-    if not isinstance(inmslist, list):
-        inmslist = [inmslist]
-    for ms in inmslist:
-        t = table(ms, readonly=False, ack=True)
-        weightref = 'WEIGHT_SPECTRUM'
-        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
-            weightref = 'WEIGHT_SPECTRUM_SOLVE'  # for LoTSS-DR2 datasets
-        if outweightcol not in t.colnames():
-            terminal_print('Adding', outweightcol, 'to', ms, 'based on', weightref)
-            #desc = t.getcoldesc(weightref)
-            #desc['name'] = outweightcol
-            #t.addcols(desc)
-            addcol(t, weightref, outweightcol)
-        taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[,1] = {updateweights_from_thiscolumn}[,0]')
-        taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[,2] = {updateweights_from_thiscolumn}[,0]')
-        taql(f'UPDATE {ms} SET {updateweights_from_thiscolumn}[,3] = {updateweights_from_thiscolumn}[,0]')
-        taql(f'UPDATE {ms} SET {outweightcol} = {weightref} * abs({updateweights_from_thiscolumn})**2')
-        weightmean = taql('SELECT gmean(WEIGHT_SPECTRUM_PM) AS MEAN FROM ms1_nodysco_pointsource.ms').getcol('MEAN')
-        change_factor = taql('SELECT gmean(abs(MODEL_DATA)**2) AS MEAN FROM ms1_nodysco_pointsource.ms').getcol(
-            'MEAN')
-        terminal_print('Mean weights input', weightmean)
-        terminal_print('Mean weights change factor', change_factor)
-        terminal_print()
-        t.close()
-
-
 def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol='MODEL_DATA', stepsize=1000000):
     """
     Normalize visibility data by model data.
@@ -433,69 +385,6 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol=
                     t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
                 else:
                     t.putcol(outcol, data, startrow=row, nrow=stepsize, rowincr=1)
-
-
-def stackMS(inmslist, outputms='stack.MS', incol='DATA_NORM', outcol='DATA', weightref='WEIGHT_SPECTRUM_PM',
-            outcol_weight='WEIGHT_SPECTRUM', stepsize=1000000):
-    """Stack Measurement Sets into a weighted output Measurement Set.
-
-    Henrik Feb 2025: This function is not used currently and does not support ulti-timestack MS. Can be removed?
-
-    Parameters
-    ----------
-    inmslist : str or list of str
-        Input Measurement Set path or paths to combine.
-    outputms : str, optional
-        Output Measurement Set path.
-    incol : str, optional
-        Input visibility column.
-    outcol : str, optional
-        Output visibility column.
-    weightref : str, optional
-        Input weight column used when combining visibilities.
-    outcol_weight : str, optional
-        Output weight column.
-    stepsize : int, optional
-        Number of rows processed in each table operation.
-
-    Returns
-    -------
-    bool or None
-        ``True`` when a single input is copied; otherwise ``None`` after
-        stacking the input list.
-    """
-    terminal_print(f'Using input column {incol}')
-    terminal_print(f'Writing to {outputms}')
-    if not isinstance(inmslist, list):
-        if os.path.isdir(outputms):  # delete MS if it exists
-            shutil.rmtree(outputms, ignore_errors=True)
-        shutil.copytree(inmslist, outputms)
-        terminal_print("WARNING: Stacking was performed on only one MS, so not really a meaningful stack")
-        return True
-    if os.path.isdir(outputms):  # delete MS if it exists
-        shutil.rmtree(outputms, ignore_errors=True)
-    shutil.copytree(inmslist[0], outputms)
-    taql('UPDATE stack.MS SET DATA=DATA_NORM*WEIGHT_SPECTRUM_PM')
-    with table(outputms, readonly=False, ack=True) as t_main:
-        for ms in inmslist[1:]:
-            with table(ms, readonly=True, ack=True) as t:
-                for row in range(0, t.nrows(), stepsize):
-                    terminal_print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
-                    weight_main = t_main.getcol(outcol_weight, startrow=row, nrow=stepsize, rowincr=1)
-                    visibi_main = t_main.getcol(outcol, startrow=row, nrow=stepsize, rowincr=1)
-
-                    weight = t.getcol(weightref, startrow=row, nrow=stepsize, rowincr=1)
-                    visibi = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
-
-                    stacked_vis = visibi_main + (visibi * weight)
-
-                    average_wgt = weight + weight_main
-                    terminal_print(f'Writing stacked data to outputcolumn {outcol}')
-                    t_main.putcol(outcol, stacked_vis, startrow=row, nrow=stepsize, rowincr=1)
-                    terminal_print(f'Writing stacked weights to outputcolumn {outcol_weight}')
-                    t_main.putcol(outcol_weight, average_wgt, startrow=row, nrow=stepsize, rowincr=1)
-    # This is probably wrong / not needed.
-    taql('UPDATE stack.MS SET DATA=DATA/WEIGHT_SPECTRUM')
 
 
 def _get_stack_groups(inmslist, outputms_prefix='stack', verbose=False):
