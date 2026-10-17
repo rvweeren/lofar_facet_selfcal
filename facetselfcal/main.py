@@ -156,7 +156,7 @@ from submods.flagging import (aoflagger_column, clip_DATA,
                               uvmaxflag)
 
 # Modules
-from submods.losoto_helpers import create_losoto_beamcorparset, create_losoto_delayparset, create_losoto_fastphaseparset, create_losoto_FRparset, create_losoto_FRparsetplotfit, create_losoto_tecandphaseparset, create_losoto_rotationparset, tecandphaseplotter, create_losoto_tecparset, create_losoto_flag_apgridparset, create_losoto_bandpassparset, create_losoto_mediumsmoothparset
+from submods.losoto_helpers import create_losoto_beamcorparset, create_losoto_delayparset, create_losoto_fastphaseparset, create_losoto_FRparset, create_losoto_FRparsetplotfit, create_losoto_tecandphaseparset, create_losoto_rotationparset, tecandphaseplotter, create_losoto_tecparset, create_losoto_flag_apgridparset, create_losoto_bandpassparset, create_losoto_mediumsmoothparset, create_losoto_flag_ap_only, losotolofarbeam
 
 # Set logger
 os.makedirs('logs', exist_ok=True) 
