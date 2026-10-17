@@ -371,9 +371,13 @@ def normalize_data_bymodel(inmslist, outcol='DATA_NORM', incol='DATA', modelcol=
         with table(ms, readonly=False, ack=True) as t:
             if outcol not in t.colnames():
                 terminal_print('Adding', outcol, 'to', ms, 'based on', incol)
+                # store uncompressed in its own StandardStMan; without an explicit
+                # data manager casacore can bind the new array column to a
+                # scalar-only manager (e.g. AntennaPairStMan in DP3-written MSs)
                 desc = t.getcoldesc(incol)
-                desc['name'] = outcol
-                t.addcols(desc)
+                newdesc = makecoldesc(outcol, desc)
+                newdmi = {'TYPE': 'StandardStMan', 'NAME': outcol, 'SPEC': {}}
+                t.addcols(newdesc, newdmi)
             for row in range(0, t.nrows(), stepsize):
                 data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
                 if modelcol in t.colnames():
