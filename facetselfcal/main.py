@@ -4277,7 +4277,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
 
-            if not fulljones_h5_facetbeam:
+            if not fulljones_h5_facetbeam and not fullpol:  # full-pol needs all correlations
                 if not is_scalar_array_for_wsclean(h5list):
                     cmd += '-diagonal-visibilities '  # different XX and YY solutions
                 else:
@@ -4295,7 +4295,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA'] and not disable_primarybeam_image:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
                 if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
-                if not fulljones_h5_facetbeam:
+                if not fulljones_h5_facetbeam and not fullpol:  # full-pol needs all correlations
                     # cmd += '-diagonal-visibilities ' # different XX and YY solutions
                     cmd += '-scalar-visibilities '  # scalar solutions
         else:
@@ -5083,6 +5083,45 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
     return
 
 
+def make_fullpol_image(mslistim, cycle, stackstr, fitsmask, automask, multiscale, h5list, facetregionfile):
+    """
+    Make a Stokes IQUV image for quality checking (--makeimage-fullpol).
+
+    Parameters
+    ----------
+    mslistim : list of str
+        Measurement Sets to image.
+    cycle : int
+        Selfcal cycle number used in the output image name.
+    stackstr : str
+        Suffix for stacked imaging (empty string if not stacking).
+    fitsmask : str or None
+        Clean mask.
+    automask : float
+        WSClean auto-mask threshold.
+    multiscale : bool
+        Use multiscale cleaning.
+    h5list : list of str
+        h5parm solutions to apply during facet imaging.
+    facetregionfile : str or None
+        Facet region file for DDE imaging.
+    """
+    makeimage(mslistim, args['imagename'] + 'fullpol' + str(cycle).zfill(3) + stackstr,
+              args['pixelscale'], args['imsize'],
+              args['channelsout'], args['niter'], args['robust'],
+              multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask,
+              uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=0,
+              automask=automask, removenegativecc=False, predict=False,
+              paralleldeconvolution=args['paralleldeconvolution'],
+              parallelgridding=args['parallelgridding'],
+              fullpol=True,
+              h5list=h5list, facetregionfile=facetregionfile,
+              stack=args['stack'],
+              disable_primarybeam_image=args['disable_primary_beam'],
+              disable_primarybeam_predict=args['disable_primary_beam'],
+              fulljones_h5_facetbeam=not args['single_dual_speedup'])
+
+
 ###############################
 ############## MAIN ###########
 ###############################
@@ -5789,21 +5828,10 @@ def main():
                           disable_primarybeam_image=args['disable_primary_beam'],
                           disable_primarybeam_predict=args['disable_primary_beam'],
                           fulljones_h5_facetbeam=not args['single_dual_speedup'])
-            if args['makeimage_fullpol']:
-                makeimage(mslistim, args['imagename'] + 'fullpol' + str(i).zfill(3) + stackstr,
-                          args['pixelscale'], args['imsize'],
-                          args['channelsout'], args['niter'], args['robust'],
-                          multiscale=multiscale, idg=args['idg'], fitsmask=fitsmask_list[msim_id],
-                          uvminim=args['uvminim'], uvmaxim=args['uvmaxim'], fitspectralpol=0,
-                          automask=automaskthreshold_selfcalcycle[i], removenegativecc=False, predict=False,
-                          paralleldeconvolution=args['paralleldeconvolution'],
-                          parallelgridding=args['parallelgridding'],
-                          fullpol=True,
-                          facetregionfile=facetregionfile,
-                          stack=args['stack'],
-                          disable_primarybeam_image=args['disable_primary_beam'],
-                          disable_primarybeam_predict=args['disable_primary_beam'],
-                          fulljones_h5_facetbeam=not args['single_dual_speedup'])
+            # only make full-pol images for the first and last selfcal cycle to save compute time
+            if args['makeimage_fullpol'] and (i == 0 or i == args['stop'] - 1):
+                make_fullpol_image(mslistim, i, stackstr, fitsmask_list[msim_id],
+                                   automaskthreshold_selfcalcycle[i], multiscale, wsclean_h5list, facetregionfile)
 
             # PLOT IMAGE
             plotimage(i, args, stackstr, mask=fitsmask_list[msim_id], regionfile='facet_regions/facets.reg' if (args['DDE'] and facetregionfile is not None) else None)
@@ -5966,6 +5994,12 @@ def main():
         if i == args['stop']-1:
             terminal_print('Reached requested stop selfcal cycle')
             break    
+
+    # Early stopping means the final cycle had no full-pol image made, image the data
+    # with the final solutions applied instead (early stopping is single-MS only, so no stacking)
+    if args['makeimage_fullpol'] and stop_for_early_stopping and i not in (0, args['stop'] - 1):
+        make_fullpol_image(mslistim, i + 1, '', fitsmask,
+                           automaskthreshold_selfcalcycle[i], multiscale, wsclean_h5list, facetregionfile)
 
     # Collect h5 files
     h5s = []

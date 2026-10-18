@@ -152,7 +152,7 @@ def option_parser():
                                help='Make 1.2 arcsec tapered image as quality check of ILT 1 arcsec imaging.',
                                action='store_true')
     imagingparser.add_argument('--makeimage-fullpol',
-                               help='Make Stokes IQUV version for quality checking.',
+                               help='Make Stokes IQUV version for quality checking. Only done for the first (000) and last selfcal cycle (stop-1).',
                                action='store_true')
     imagingparser.add_argument('--groupms-h5facetspeedup',
                                help='Speed up DDE imaging with h5s',
