@@ -15,7 +15,6 @@ import shutil
 import socket
 import subprocess
 import sys
-import time
 import uuid
 from contextlib import contextmanager
 from functools import wraps
@@ -120,8 +119,9 @@ def run(command, log=False, taql=False):
             )
         )
     resource_monitor = _RESOURCE_MONITOR
-    dp3_start_epoch = (
-        time.time()
+    # Open the DP3 phase bars now so they grow with the resource curves.
+    dp3_phase_token = (
+        resource_monitor.begin_phase_intervals(dp3_phases)
         if resource_monitor is not None and dp3_phases
         else None
     )
@@ -146,10 +146,8 @@ def run(command, log=False, taql=False):
                 )
             )
     finally:
-        if dp3_start_epoch is not None:
-            resource_monitor.record_phase_intervals(
-                dp3_phases, dp3_start_epoch, time.time()
-            )
+        if dp3_phase_token is not None:
+            resource_monitor.end_phase_intervals(dp3_phase_token)
     retval = process.returncode
     #stdout = process.stdout
     stderr = process.stderr

@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import shlex
 from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from .report_support import (
     stage_page,
 )
 from .resource_chart import (
+    COMMAND_MARKER,
     DEFAULT_RESOURCE_SAMPLE_COUNT,
     DP3_EXECUTION_END_MARKER,
     DP3_EXECUTION_START_MARKER,
@@ -40,13 +42,19 @@ from .resource_chart import (
 _FULL_RESOURCE_CHART_POINT_LIMIT = 300
 
 
+# Navigation order. Pages in _OPTIONAL_PAGES are shown only when the run
+# uses the matching mode (see _optional_pages).
 _PAGE_NAMES = {
     "index.html": "Overview",
     "imaging.html": "Imaging",
+    "extraction.html": "Extraction",
+    "directions.html": "Directions",
     "calibration.html": "Calibration",
+    "bandpass.html": "Bandpass",
     "datasets.html": "Measurement sets",
     "run-details.html": "Run details",
 }
+_OPTIONAL_PAGES = frozenset({"extraction.html", "directions.html", "bandpass.html"})
 
 _SUMMARY_KEYS = (
     "telescope",
@@ -62,6 +70,7 @@ _SUMMARY_KEYS = (
     "solint_list",
     "nchan_list",
     "soltypecycles_list",
+    "smoothnessconstraint_list",
     "facetdirections",
     "forwidefield",
 )
@@ -274,6 +283,8 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .blink-rate output { margin-left: 5px; color: var(--ink); font-weight: 600; }
 .blink-controls button { min-height: 36px; border: 1px solid var(--teal-dark); border-radius: 4px; padding: 6px 14px; color: white; background: var(--teal-dark); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .blink-controls button:hover { background: var(--teal-deep); }
+.overlay-toggle { align-self: center; color: var(--ink-secondary); font-size: 13px; font-weight: 600; cursor: pointer; }
+.overlay-toggle input { vertical-align: middle; margin: 0 4px 0 0; }
 .blink-preview { margin: 0; }
 .blink-preview img { height: min(65vh, 640px); object-fit: contain; }
 .compare-tool { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 14px; margin: 14px 0; }
@@ -468,6 +479,38 @@ def _report_css():
     )
     return _CSS.replace(marker, phase_colors, 1) + """
 .workflow-step-outcome { display: block; font-size: 10px; font-weight: 500; }
+.direction-table .direction-varies { background: var(--blue-pale); }
+.dirmap { margin: 6px 0 0; }
+.dirmap-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 6px; }
+.dirmap-cycle-select { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ink-secondary); }
+.dirmap-cycle-select select { padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; font: inherit; font-size: 13px; min-width: 220px; }
+.dirmap-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 4px 0 8px; color: var(--muted); font-size: 12px; }
+.dirmap-key { display: inline-block; width: 12px; height: 12px; margin-right: -8px; border-radius: 50%; vertical-align: middle; }
+.dirmap-key-old { background: var(--teal-dark); }
+.dirmap-key-new { background: var(--amber); }
+.dirmap-key-facet { border-radius: 0; height: 0; border-top: 2px solid #94a3b8; }
+.dirmap-figure { position: relative; max-width: 720px; }
+.dirmap-svg { display: block; width: 100%; height: auto; font-family: inherit; }
+.dirmap-frame { fill: var(--surface); stroke: var(--line); }
+.dirmap-grid { fill: none; stroke: #cbd5e1; stroke-width: 0.8; }
+.dirmap-axis { fill: var(--muted); font-size: 11px; }
+.dirmap-axis-title { fill: var(--ink-secondary); font-size: 12px; font-weight: 600; }
+.dirmap-cycle[hidden] { display: none; }
+.dirmap-facet { fill: none; stroke: #94a3b8; stroke-width: 1.2; }
+.dirmap-marker { cursor: pointer; outline: none; }
+.dirmap-marker circle { fill: var(--teal-dark); fill-opacity: 0.75; stroke: white; stroke-width: 1.5; }
+.dirmap-marker.dirmap-new circle { fill: var(--amber); }
+.dirmap-marker text { fill: var(--ink); font-size: 12px; font-weight: 700; paint-order: stroke; stroke: white; stroke-width: 3px; }
+.dirmap-marker:hover circle, .dirmap-marker:focus circle, .dirmap-marker.dirmap-selected circle { stroke: var(--ink); stroke-width: 2.5; fill-opacity: 1; }
+.dirmap-popup { position: absolute; z-index: 5; width: min(300px, 90%); padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); box-shadow: 0 6px 18px rgba(15,23,42,0.18); font-size: 12px; }
+.dirmap-popup h3 { margin: 0 24px 6px 0; font-size: 15px; }
+.dirmap-popup table { width: 100%; border-collapse: collapse; }
+.dirmap-popup th { padding: 2px 8px 2px 0; color: var(--muted); font-weight: 600; text-align: left; vertical-align: top; white-space: nowrap; }
+.dirmap-popup td { padding: 2px 0; overflow-wrap: anywhere; }
+.dirmap-popup ul { margin: 6px 0 0; padding-left: 16px; }
+.dirmap-popup-close { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.gallery-group-heading { grid-column: 1 / -1; margin: 12px 0 0; padding-bottom: 4px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.direction-layout { grid-template-columns: minmax(0, 720px); }
 .workflow-step-failed { color: var(--red); border: 1px solid var(--red-border); background: var(--red-pale); }
 """
 
@@ -688,12 +731,14 @@ document.addEventListener("DOMContentLoaded", function () {
         var toggle = tool.querySelector("[data-blink-toggle]");
         var image = tool.querySelector("[data-blink-image]");
         var caption = tool.querySelector("[data-blink-caption]");
+        var overlayToggle = tool.querySelector("[data-overlay-toggle]");
         var timer = null;
         var frameIndex = 0;
         var render = function () {
             var frame = frames[frameIndex];
             if (!frame) return;
-            image.src = frame.src;
+            var showOverlays = !overlayToggle || overlayToggle.checked;
+            image.src = !showOverlays && frame.plain ? frame.plain : frame.src;
             image.alt = frame.label;
             caption.textContent = frame.label;
         };
@@ -731,6 +776,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (timer === null) start();
             else stop();
         });
+        if (overlayToggle) overlayToggle.addEventListener("change", render);
         render();
     });
 
@@ -743,28 +789,35 @@ document.addEventListener("DOMContentLoaded", function () {
         var linkB = tool.querySelector("[data-compare-link-b]");
         var capA = tool.querySelector("[data-compare-caption-a]");
         var capB = tool.querySelector("[data-compare-caption-b]");
+        var overlayToggle = tool.querySelector("[data-overlay-toggle]");
+        var source = function (option) {
+            var showOverlays = !overlayToggle || overlayToggle.checked;
+            var plain = option.getAttribute("data-plain");
+            return !showOverlays && plain ? plain : option.value;
+        };
         var update = function () {
             if (selectA && imgA) {
                 var optA = selectA.options[selectA.selectedIndex];
                 if (optA) {
-                    imgA.src = optA.value;
+                    imgA.src = source(optA);
                     imgA.alt = optA.text;
-                    if (linkA) linkA.href = optA.value;
+                    if (linkA) linkA.href = source(optA);
                     if (capA) capA.textContent = optA.text;
                 }
             }
             if (selectB && imgB) {
                 var optB = selectB.options[selectB.selectedIndex];
                 if (optB) {
-                    imgB.src = optB.value;
+                    imgB.src = source(optB);
                     imgB.alt = optB.text;
-                    if (linkB) linkB.href = optB.value;
+                    if (linkB) linkB.href = source(optB);
                     if (capB) capB.textContent = optB.text;
                 }
             }
         };
         if (selectA) selectA.addEventListener("change", update);
         if (selectB) selectB.addEventListener("change", update);
+        if (overlayToggle) overlayToggle.addEventListener("change", update);
         update();
     });
 
@@ -1202,6 +1255,204 @@ document.addEventListener("DOMContentLoaded", function () {
     phaseRangeControls.maximum.addEventListener("input", renderBandpass);
     renderBandpass();
 });
+document.addEventListener("DOMContentLoaded", function () {
+    // Reorder solution plots by cycle, direction or solution type, with a
+    // heading per group. "#sort=cycle&filter=dir-03" preselects both.
+    var orders = {
+        cycle: ["sortCycle", "sortDirection", "sortSoltype", "sortName"],
+        direction: ["sortDirection", "sortCycle", "sortSoltype", "sortName"],
+        soltype: ["sortSoltype", "sortCycle", "sortDirection", "sortName"]
+    };
+    var labels = {
+        cycle: function (item) {
+            var cycle = item.dataset.sortCycle;
+            return cycle === "other" ? "Other plots" : "Cycle " + cycle;
+        },
+        direction: function (item) {
+            return item.dataset.sortDirection ? "Dir" + item.dataset.sortDirection : "No direction";
+        },
+        soltype: function (item) { return item.dataset.sortSoltype; }
+    };
+    document.querySelectorAll("[data-sort-controls]").forEach(function (controls) {
+        var gallery = document.querySelector(controls.getAttribute("data-sort-controls"));
+        if (!gallery) return;
+        var items = Array.from(gallery.querySelectorAll("[data-sort-name]"));
+        var headings = [];
+        var updateHeadings = function () {
+            headings.forEach(function (heading) {
+                var hidden = !heading.groupItems.some(function (item) { return !item.hidden; });
+                if (heading.hidden !== hidden) heading.hidden = hidden;
+            });
+        };
+        var apply = function (key) {
+            if (!orders[key]) key = controls.getAttribute("data-sort-default");
+            var fields = orders[key];
+            headings.forEach(function (heading) { heading.remove(); });
+            headings = [];
+            items.sort(function (a, b) {
+                for (var i = 0; i < fields.length; i++) {
+                    var x = a.dataset[fields[i]] || "\uffff";
+                    var y = b.dataset[fields[i]] || "\uffff";
+                    if (x < y) return -1;
+                    if (x > y) return 1;
+                }
+                return 0;
+            });
+            var currentLabel = null;
+            var heading = null;
+            items.forEach(function (item) {
+                var label = labels[key](item);
+                if (label !== currentLabel) {
+                    heading = document.createElement("h3");
+                    heading.className = "gallery-group-heading";
+                    heading.textContent = label;
+                    heading.groupItems = [];
+                    gallery.appendChild(heading);
+                    headings.push(heading);
+                    currentLabel = label;
+                }
+                heading.groupItems.push(item);
+                gallery.appendChild(item);
+            });
+            controls.querySelectorAll("[data-sort-key]").forEach(function (button) {
+                var active = button.getAttribute("data-sort-key") === key;
+                button.classList.toggle("active", active);
+                button.setAttribute("aria-pressed", active ? "true" : "false");
+            });
+            updateHeadings();
+        };
+        new MutationObserver(updateHeadings).observe(gallery, {
+            subtree: true, attributes: true, attributeFilter: ["hidden"]
+        });
+        controls.querySelectorAll("[data-sort-key]").forEach(function (button) {
+            button.addEventListener("click", function () {
+                apply(button.getAttribute("data-sort-key"));
+            });
+        });
+        var params = new URLSearchParams(window.location.hash.slice(1));
+        apply(params.get("sort"));
+        var filter = params.get("filter");
+        if (filter) {
+            var section = gallery.closest("main") || document;
+            var filterButton = Array.from(section.querySelectorAll(".pill-btn[data-filter-value]"))
+                .find(function (button) { return button.getAttribute("data-filter-value") === filter; });
+            if (filterButton) filterButton.click();
+        }
+    });
+});
+document.addEventListener("DOMContentLoaded", function () {
+    // Direction map: cycle selector and a pop-up with the details of the
+    // clicked direction.
+    document.querySelectorAll("[data-dirmap]").forEach(function (map) {
+        var data = JSON.parse(map.getAttribute("data-dirmap-directions") || "{}");
+        var select = map.querySelector("[data-dirmap-cycle]");
+        var popup = map.querySelector("[data-dirmap-popup]");
+        var figure = map.querySelector(".dirmap-figure");
+        var selected = null;
+        var currentCycle = function () {
+            var visible = map.querySelector(".dirmap-cycle:not([hidden])");
+            return visible ? visible.getAttribute("data-cycle") : null;
+        };
+        var close = function () {
+            popup.hidden = true;
+            if (selected) selected.classList.remove("dirmap-selected");
+            selected = null;
+        };
+        var row = function (label, value) {
+            var tr = document.createElement("tr");
+            var th = document.createElement("th");
+            var td = document.createElement("td");
+            th.textContent = label;
+            td.textContent = value;
+            tr.appendChild(th);
+            tr.appendChild(td);
+            return tr;
+        };
+        var open = function (marker) {
+            var records = data[currentCycle()] || [];
+            var record = records[Number(marker.getAttribute("data-index"))];
+            if (!record) return;
+            if (selected) selected.classList.remove("dirmap-selected");
+            selected = marker;
+            marker.classList.add("dirmap-selected");
+            popup.textContent = "";
+            var closeButton = document.createElement("button");
+            closeButton.type = "button";
+            closeButton.className = "dirmap-popup-close";
+            closeButton.setAttribute("aria-label", "Close");
+            closeButton.textContent = "\u00d7";
+            closeButton.addEventListener("click", close);
+            popup.appendChild(closeButton);
+            var heading = document.createElement("h3");
+            heading.textContent = record.name;
+            popup.appendChild(heading);
+            var table = document.createElement("table");
+            table.appendChild(row("RA", record.ra));
+            table.appendChild(row("Dec", record.dec));
+            table.appendChild(row("From phase centre", record.distance));
+            if (record.added) table.appendChild(row("Added", record.added));
+            if (record.aflux) table.appendChild(row("Apparent flux", record.aflux));
+            if (record.tflux) table.appendChild(row("Total flux", record.tflux));
+            record.settings.forEach(function (setting) {
+                table.appendChild(row(setting[0], setting[1]));
+            });
+            popup.appendChild(table);
+            if (record.links.length) {
+                var list = document.createElement("ul");
+                record.links.forEach(function (link) {
+                    var item = document.createElement("li");
+                    var anchor = document.createElement("a");
+                    anchor.href = link[1];
+                    anchor.textContent = record.links.length > 1
+                        ? "Solution plots: " + link[0]
+                        : "Solution plots of " + record.name;
+                    item.appendChild(anchor);
+                    list.appendChild(item);
+                });
+                popup.appendChild(list);
+            }
+            popup.hidden = false;
+            var box = figure.getBoundingClientRect();
+            var mark = marker.querySelector("circle").getBoundingClientRect();
+            var left = mark.right - box.left + 8;
+            if (left + popup.offsetWidth > box.width) {
+                left = Math.max(0, mark.left - box.left - popup.offsetWidth - 8);
+            }
+            var top = Math.min(
+                Math.max(0, mark.top - box.top - 10),
+                Math.max(0, box.height - popup.offsetHeight)
+            );
+            popup.style.left = left + "px";
+            popup.style.top = top + "px";
+        };
+        map.querySelectorAll(".dirmap-marker").forEach(function (marker) {
+            marker.addEventListener("click", function (event) {
+                event.stopPropagation();
+                open(marker);
+            });
+            marker.addEventListener("keydown", function (event) {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    open(marker);
+                }
+            });
+        });
+        popup.addEventListener("click", function (event) { event.stopPropagation(); });
+        document.addEventListener("click", close);
+        document.addEventListener("keydown", function (event) {
+            if (event.key === "Escape") close();
+        });
+        if (select) {
+            select.addEventListener("change", function () {
+                close();
+                // SVG elements ignore the hidden property; toggle the attribute.
+                map.querySelectorAll(".dirmap-cycle").forEach(function (group) {
+                    group.toggleAttribute("hidden", group.getAttribute("data-cycle") !== select.value);
+                });
+            });
+        }
+    });
+});
 """
 
 
@@ -1221,6 +1472,22 @@ def _extraction_enabled(config):
     if isinstance(value, str):
         return value.strip().casefold() == "true"
     return value is True
+
+
+def _dde_enabled(config):
+    return config.get("DDE") is True
+
+
+def _optional_pages(config):
+    """Return the optional report pages that apply to this run."""
+    pages = set()
+    if _extraction_enabled(config):
+        pages.add("extraction.html")
+    if _dde_enabled(config):
+        pages.add("directions.html")
+    if _bandpass_enabled(config):
+        pages.add("bandpass.html")
+    return frozenset(pages)
 
 
 def _stack_enabled(config):
@@ -1313,11 +1580,11 @@ def _display_value(value):
 
 def _format_size(size):
     value = float(size)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if value < 1024 or unit == "TB":
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024 or unit == "TiB":
             return "{:.1f} {}".format(value, unit)
         value /= 1024
-    return "{:.1f} TB".format(value)
+    return "{:.1f} TiB".format(value)
 
 
 def _artifact_size(path):
@@ -1343,7 +1610,7 @@ def _format_duration(seconds):
 
 def _relative_url(path, base_dir):
     relative = os.path.relpath(str(path), str(base_dir))
-    return quote(Path(relative).as_posix(), safe="/._-()[]")
+    return quote(Path(relative).as_posix(), safe="/._-()")
 
 
 def _page_shell(
@@ -1352,16 +1619,14 @@ def _page_shell(
     body,
     nested=False,
     subtitle="Offline processing report",
-    bandpass_enabled=False,
-    extraction_enabled=False,
+    optional_pages=(),
 ):
     prefix = "../" if nested else ""
     nav = []
-    page_names = list(_PAGE_NAMES.items())
-    if extraction_enabled:
-        page_names.insert(2, ("extraction.html", "Extraction"))
-    if bandpass_enabled:
-        page_names.insert(3, ("bandpass.html", "Bandpass"))
+    page_names = [
+        (page, label) for page, label in _PAGE_NAMES.items()
+        if page not in _OPTIONAL_PAGES or page in optional_pages
+    ]
     for page, label in page_names:
         current = ' aria-current="page"' if page == active_page else ""
         nav.append(
@@ -1585,8 +1850,10 @@ def _include_image_artifact(path, run_started_at, start_cycle, stack_mode=False)
             if cycle < start_cycle:
                 return True
             return _artifact_is_current(path, run_started_at)
-    cycle_match = re.search(r"_(\d+)(?:-|\.|$)", path.name)
-    if cycle_match is None or int(cycle_match.group(1)) < start_cycle:
+    # Use the last cycle-like number, as _image_cycle_identity does, so digits
+    # in MS or target names earlier in the file name are not taken as the cycle.
+    cycle_matches = re.findall(r"_(\d+)(?=-|\.|$)", path.name)
+    if not cycle_matches or int(cycle_matches[-1]) < start_cycle:
         return True
     return _artifact_is_current(path, run_started_at)
 
@@ -1631,6 +1898,31 @@ def _filter_restart_image_metrics(
     return filtered
 
 
+_DDE_DIAGNOSTIC_PATTERN = re.compile(
+    r"(?:-errormap\d*(?:\.|-|$)|_artifact_errormap|-compactsource-flux)",
+    re.IGNORECASE,
+)
+_ERRORMAP_INDEX_PATTERN = re.compile(r"-errormap(\d+)(?:\.|-|$)", re.IGNORECASE)
+
+
+def _is_dde_diagnostic(value):
+    """Return True for --DDE direction-finding products such as error maps.
+
+    ``auto_direction`` in main.py writes calibration error maps
+    (``<name>NNN-errormapK.fits``), their source catalogues and compact-source
+    flux tables to ``errormaps_dd/``, with PNG previews in ``plots/``. They are
+    used to find directions, not science images.
+    """
+    return _DDE_DIAGNOSTIC_PATTERN.search(Path(str(value)).name) is not None
+
+
+_PLAIN_PLOT_SUFFIX = "-plain.png"
+
+
+def _is_plain_plot(path):
+    return path.name.lower().endswith(_PLAIN_PLOT_SUFFIX)
+
+
 def _is_ateam_plot(path):
     return path.name.lower().startswith("ateam_")
 
@@ -1661,14 +1953,36 @@ def _scan_artifacts(
     ) if overview_dir.is_dir() else []
 
     raw_plots = [path for path in all_raw_plots if _artifact_is_current(path, run_started_at)]
-    all_overview_plots = [
+    dde_plots = [
         p for p in all_raw_plots
-        if not _is_ms_plot(p)
+        if _is_dde_diagnostic(p)
         and _include_image_artifact(
             p, run_started_at, start_cycle, stack_mode=stack_mode
         )
     ]
-    overview_plots = [p for p in raw_plots if not _is_ms_plot(p)]
+    # "<plot>-plain.png" is the same image as "<plot>.png" without overlays
+    # (see plotimage_plain); it is offered as an alternative, not a plot of its own.
+    plain_plots = {
+        p.name[: -len(_PLAIN_PLOT_SUFFIX)].casefold(): p
+        for p in all_raw_plots
+        if _is_plain_plot(p)
+        and _include_image_artifact(
+            p, run_started_at, start_cycle, stack_mode=stack_mode
+        )
+    }
+    all_overview_plots = [
+        p for p in all_raw_plots
+        if not _is_ms_plot(p)
+        and not _is_dde_diagnostic(p)
+        and not _is_plain_plot(p)
+        and _include_image_artifact(
+            p, run_started_at, start_cycle, stack_mode=stack_mode
+        )
+    ]
+    overview_plots = [
+        p for p in raw_plots
+        if not _is_ms_plot(p) and not _is_dde_diagnostic(p) and not _is_plain_plot(p)
+    ]
     all_ms_plot_files = [p for p in all_raw_plots if _is_ms_plot(p)]
     ms_plot_files = [
         p for p in all_raw_plots
@@ -1679,6 +1993,7 @@ def _scan_artifacts(
         (
             path for path in overview_dir.glob("*.json")
             if path.is_file()
+            and not path.name.lower().endswith("-minmax-cache.json")
             and (_is_ateam_plot(path) or _artifact_is_current(path, run_started_at))
         ),
         key=lambda path: path.name.lower(),
@@ -1739,7 +2054,7 @@ def _scan_artifacts(
                 bandpass_files.append(path)
             match = re.search(r"selfcalcycle(\d+)", path.name, re.IGNORECASE)
             if match:
-                cycle = match.group(1)
+                cycle = str(int(match.group(1))).zfill(3)
                 if current_run_cycles is not None and cycle not in current_run_cycles:
                     continue
                 cycle_names.add(cycle)
@@ -1747,12 +2062,29 @@ def _scan_artifacts(
     solution_files.sort(key=lambda path: path.name.lower())
     bandpass_files.sort(key=lambda path: path.as_posix().casefold())
 
+    def current_files(directory, pattern):
+        directory = run_root / directory
+        if not directory.is_dir():
+            return []
+        return sorted(
+            (
+                path for path in directory.glob(pattern)
+                if path.is_file()
+                and _include_image_artifact(
+                    path, run_started_at, start_cycle, stack_mode=stack_mode
+                )
+            ),
+            key=lambda path: path.name.lower(),
+        )
+
+    # Recognise MeasurementSets by their table.dat, since working copies have
+    # names such as "<obs>.ms.copy.avg.extracted.copy" without a .ms suffix.
     ms_directories = sorted(
         (
             path for path in run_root.iterdir()
             if path.is_dir()
-            and path.name.lower().endswith(".ms")
             and not path.name.lower().startswith("solution_plots_")
+            and (path / "table.dat").is_file()
         ),
         key=lambda path: path.name.lower(),
     )
@@ -1769,6 +2101,11 @@ def _scan_artifacts(
         "solution_files": solution_files,
         "bandpass_files": bandpass_files,
         "ms_directories": ms_directories,
+        "dde_plots": dde_plots,
+        "plain_plots": plain_plots,
+        "dde_errormap_files": current_files("errormaps_dd", "*.fits"),
+        "dde_direction_files": current_files("directions", "directions_*.txt"),
+        "dde_region_files": current_files("facet_regions", "*.reg"),
         "cycles": sorted(cycle_names, key=lambda value: int(value) if value.isdigit() else 10**9),
     }
 
@@ -1825,7 +2162,7 @@ def _current_run_context(run_root):
         timestamp_by_line[index] = _log_timestamp_epoch(timestamp)
         if message.startswith("VERSION:"):
             version_markers.append(index)
-        if invocation_pattern.search(message):
+        if not message.startswith(COMMAND_MARKER) and invocation_pattern.search(message):
             invocation_markers.append(index)
 
     latest_version = version_markers[-1] if version_markers else None
@@ -1856,6 +2193,45 @@ def _current_run_context(run_root):
         )
         current_cycles.update(str(int(cycle)).zfill(3) for cycle in cycle_ids)
     return timestamp_by_line.get(start_index), current_cycles
+
+
+def _command_marker_record(message, timestamp):
+    """Decode a startup command marker logged by facetselfcal."""
+    try:
+        payload = json.loads(message[len(COMMAND_MARKER):])
+        argv = [str(item) for item in payload["argv"]]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return {
+        "command": shlex.join(argv),
+        "cwd": payload.get("cwd"),
+        "timestamp": timestamp,
+        "source": "marker",
+    }
+
+
+def _current_command(logs, run_root):
+    """Return the command line of the current run and where it was found.
+
+    The startup marker in ``logs/selfcal.log`` is preferred. For logs from
+    older versions the command line printed by ``logbasicinfo`` is used, and
+    as a last resort a user-written ``facetselfcal.txt``.
+    """
+    records = logs.get("command_records") or []
+    for source in ("marker", "log"):
+        matching = [record for record in records if record["source"] == source]
+        if matching:
+            return matching[-1]
+    command_path = run_root / "facetselfcal.txt"
+    if command_path.is_file():
+        try:
+            command = command_path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError as exc:
+            report_warning("Could not read command record {}: {}".format(command_path, exc))
+        else:
+            if command:
+                return {"command": command, "timestamp": "", "source": "file", "path": command_path}
+    return None
 
 
 def _ms_path_from_command(message):
@@ -2140,6 +2516,7 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
     warning_count = 0
     error_count = 0
     invocations = 0
+    command_records = []
     timestamps = []
 
     host_info = {}
@@ -2175,9 +2552,20 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
         "soltypecycles": "soltypecycles_list",
         "solint": "solint_list",
         "smoothnessconstraint": "smoothnessconstraint_list",
+        "nchan": "nchan_list",
     }
     effective_cycle_config = {}
     effective_cycle_config_errors = set()
+    # Settings printed by logbasicinfo after facetselfcal resolved its
+    # automatic choices (pixel scale, niter, ...); full_config.txt from older
+    # versions holds the values before that step.
+    effective_setting_names = {
+        "Imsize": "imsize",
+        "Pixelscale [arcsec]": "pixelscale",
+        "Niter": "niter",
+        "Widefield": "forwidefield",
+    }
+    effective_settings = {}
     stack_groups = stack_groups or {}
 
     def record_dp3_execution_start(payload, timestamp):
@@ -2277,8 +2665,17 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
                     elif level in ("ERROR", "CRITICAL"):
                         error_count += 1
                         errors.append((path, line_count, timestamp, message))
-                    if re.search(r"facetselfcal(?:\.py)?\b.*(?:\s-i(?:\s|=)|--config(?:\s|=))", line, re.IGNORECASE):
+                    if message.startswith(COMMAND_MARKER):
+                        if path.name == "selfcal.log":
+                            command_record = _command_marker_record(message, timestamp)
+                            if command_record is not None:
+                                command_records.append(command_record)
+                    elif re.search(r"facetselfcal(?:\.py)?\b.*(?:\s-i(?:\s|=)|--config(?:\s|=))", line, re.IGNORECASE):
                         invocations += 1
+                        if path.name == "selfcal.log":
+                            command_records.append(
+                                {"command": message.strip(), "timestamp": timestamp, "source": "log"}
+                            )
 
                     if path.name == "selfcal.log":
                         if message.startswith(DP3_EXECUTION_START_MARKER):
@@ -2298,6 +2695,12 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
                             continue
 
                         setting_name, separator, setting_value = message.partition(":")
+                        if separator and setting_name.strip() in effective_setting_names:
+                            try:
+                                resolved_value = ast.literal_eval(setting_value.strip())
+                            except (ValueError, SyntaxError):
+                                resolved_value = setting_value.strip()
+                            effective_settings[effective_setting_names[setting_name.strip()]] = resolved_value
                         config_name = effective_config_names.get(setting_name.strip())
                         if separator and config_name:
                             parsed_value = _parse_first_list_literal(setting_value)
@@ -2431,21 +2834,24 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
                                     metric_match.group("metric").casefold()
                                 ]
                                 record_key = (metric_cycle or "", image_name)
-                                record = image_metric_records.setdefault(
-                                    record_key,
-                                    {
-                                        "cycle": metric_cycle,
-                                        "image": image_name,
-                                    },
-                                )
-                                if stack_identity is not None:
-                                    record["stack_id"] = stack_identity[1]
-                                    record["stack_label"] = _stack_group_label(
-                                        stack_identity[1], stack_groups
+                                # Error maps from --DDE direction finding are
+                                # logged the same way but are not images to report.
+                                if not _is_dde_diagnostic(image_name):
+                                    record = image_metric_records.setdefault(
+                                        record_key,
+                                        {
+                                            "cycle": metric_cycle,
+                                            "image": image_name,
+                                        },
                                     )
-                                record[field] = metric_value
-                                record["_timestamp"] = _log_timestamp_epoch(timestamp)
-                                record["_order"] = line_count
+                                    if stack_identity is not None:
+                                        record["stack_id"] = stack_identity[1]
+                                        record["stack_label"] = _stack_group_label(
+                                            stack_identity[1], stack_groups
+                                        )
+                                    record[field] = metric_value
+                                    record["_timestamp"] = _log_timestamp_epoch(timestamp)
+                                    record["_order"] = line_count
 
                         if current_cycle and ts_obj:
                             cdata = cycles[current_cycle]
@@ -2606,9 +3012,11 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
         "warning_count": warning_count,
         "error_count": error_count,
         "invocations": invocations,
+        "command_records": command_records,
         "timestamps": timestamps,
         "host_info": host_info,
         "effective_cycle_config": effective_cycle_config,
+        "effective_settings": effective_settings,
         "effective_cycle_config_errors": sorted(effective_cycle_config_errors),
         "flagging_stats": flagging_stats,
         "cycle_timeline": [cycles[k] for k in cycle_keys],
@@ -3042,12 +3450,14 @@ def _scan_resource_log(run_root, run_started_at=None, start_cycle=0):
     phase_events = _scan_resource_phase_log(run_root, run_started_at, start_cycle)
     phase_intervals = None
     if phase_events is not None:
-        phase_end_epoch = max(
+        # Keep phase bars inside the sampled time range so they line up with
+        # the CPU and RAM curves instead of stretching the time axis.
+        phase_intervals = clip_phase_intervals_to_window(
+            phase_intervals_from_events(
+                phase_events, end_epoch=valid_samples[-1]["epoch"]
+            ),
+            valid_samples[0]["epoch"],
             valid_samples[-1]["epoch"],
-            phase_events[-1]["epoch"] if phase_events else valid_samples[-1]["epoch"],
-        )
-        phase_intervals = phase_intervals_from_events(
-            phase_events, end_epoch=phase_end_epoch
         )
 
     peak_tree_rss_gib = max(s["tree_rss_gib"] for s in valid_samples)
@@ -3358,7 +3768,7 @@ def _measurement_set_metadata(run_root):
     current_metadata = None
     try:
         with path.open("r", encoding="utf-8", errors="replace") as stream:
-            for raw_line in stream:
+            for line_index, raw_line in enumerate(stream):
                 _, _, message = _parse_log_line(raw_line.rstrip("\r\n"))
                 normalized_message = message.strip()
                 if normalized_message == "================":
@@ -3367,7 +3777,9 @@ def _measurement_set_metadata(run_root):
                 if normalized_message.startswith("===") and normalized_message.endswith("==="):
                     ms_path = normalized_message[3:-3].strip()
                     if ms_path:
-                        current_metadata = {"_source_path": ms_path}
+                        # A later invocation (restart) logs the block again;
+                        # keep the latest values and remember their position.
+                        current_metadata = {"_source_path": ms_path, "_order": line_index}
                         metadata[_resolved_ms_path(ms_path, run_root)] = current_metadata
                     else:
                         current_metadata = None
@@ -3423,8 +3835,8 @@ def _measurement_set_metadata_for_path(path, metadata_by_ms, run_root):
         )
         == canonical_path
     ]
-    if len(canonical_matches) == 1:
-        return canonical_matches[0]
+    if canonical_matches:
+        return _latest_ms_metadata(canonical_matches)
 
     basename = _ms_identity_name(path)
     if not basename:
@@ -3437,7 +3849,17 @@ def _measurement_set_metadata_for_path(path, metadata_by_ms, run_root):
         )
         == basename
     ]
-    return matches[0] if len(matches) == 1 else {}
+    return _latest_ms_metadata(matches) if matches else {}
+
+
+def _latest_ms_metadata(matches):
+    """Pick the most recently logged block among working copies of one MS.
+
+    Invocations with different averaging log the same observation under
+    different working-copy names (``.copy``, ``.copy.avg``); they all match the
+    configured input, so the latest block describes the current run.
+    """
+    return max(matches, key=lambda metadata: metadata.get("_order", -1))
 
 
 def _resolved_ms_path(path, run_root):
@@ -3603,15 +4025,32 @@ def _quality_plot_placeholder(
     ).format(_escape(title), _escape(message))
 
 
-def _blink_controls(paths, base_dir):
+def _plain_plot(path, plain_plots):
+    return (plain_plots or {}).get(path.stem.casefold())
+
+
+def _overlay_toggle_html(paths, plain_plots):
+    """Checkbox to switch between plain images and images with overlays."""
+    if not any(_plain_plot(path, plain_plots) for path in paths):
+        return ""
+    return (
+        '<label class="overlay-toggle"><span><input type="checkbox" data-overlay-toggle> '
+        'Show axes, grid, mask and facets</span></label>'
+    )
+
+
+def _blink_controls(paths, base_dir, plain_plots=None):
     if len(paths) < 2:
         return ""
 
-    frames = [
-        {"src": _relative_url(path, base_dir), "label": path.stem}
-        for path in paths
-    ]
-    first_href = _relative_url(paths[0], base_dir)
+    frames = []
+    for path in paths:
+        frame = {"src": _relative_url(path, base_dir), "label": path.stem}
+        plain = _plain_plot(path, plain_plots)
+        if plain is not None:
+            frame["plain"] = _relative_url(plain, base_dir)
+        frames.append(frame)
+    first_href = frames[0].get("plain", frames[0]["src"])
     return (
         '<div class="blink-tool" data-blink-tool data-blink-images="{}">'
         '<div class="blink-controls">'
@@ -3620,43 +4059,47 @@ def _blink_controls(paths, base_dir):
         'data-blink-interval aria-label="Blink interval in milliseconds">'
         '<output data-blink-interval-output>500 ms</output></span></label>'
         '<button type="button" data-blink-toggle aria-pressed="false">Start blinking</button>'
+        '{}'
         '</div>'
         '<figure class="blink-preview"><img data-blink-image src="{}" alt="{}">'
         '<figcaption><code data-blink-caption>{}</code></figcaption></figure>'
         '</div>'
     ).format(
         _escape(json.dumps(frames, separators=(",", ":"))),
+        _overlay_toggle_html(paths, plain_plots),
         _escape(first_href),
         _escape(paths[0].stem),
         _escape(paths[0].stem),
     )
 
 
-def _compare_controls(paths, base_dir):
+def _compare_controls(paths, base_dir, plain_plots=None):
     if len(paths) < 2:
         return ""
 
-    options_a = "".join(
-        '<option value="{}">{}</option>'.format(
-            _escape(_relative_url(p, base_dir)), _escape(p.stem)
+    def option(path, selected=False):
+        plain = _plain_plot(path, plain_plots)
+        return '<option value="{}"{}{}>{}</option>'.format(
+            _escape(_relative_url(path, base_dir)),
+            ' data-plain="{}"'.format(_escape(_relative_url(plain, base_dir))) if plain else "",
+            ' selected="selected"' if selected else "",
+            _escape(path.stem),
         )
-        for p in paths
-    )
+
+    options_a = "".join(option(p) for p in paths)
     options_b = "".join(
-        '<option value="{}"{}>{}</option>'.format(
-            _escape(_relative_url(p, base_dir)),
-            ' selected="selected"' if idx == len(paths) - 1 else "",
-            _escape(p.stem),
-        )
-        for idx, p in enumerate(paths)
+        option(p, selected=idx == len(paths) - 1) for idx, p in enumerate(paths)
     )
-    first_href = _relative_url(paths[0], base_dir)
-    last_href = _relative_url(paths[-1], base_dir)
+    first_plain = _plain_plot(paths[0], plain_plots)
+    last_plain = _plain_plot(paths[-1], plain_plots)
+    first_href = _relative_url(first_plain or paths[0], base_dir)
+    last_href = _relative_url(last_plain or paths[-1], base_dir)
     return (
         '<div class="compare-tool" data-compare-tool>'
         '<div class="compare-controls">'
         '<label><span>Reference image</span><select data-compare-select-a>{}</select></label>'
         '<label><span>Comparison image</span><select data-compare-select-b>{}</select></label>'
+        '{}'
         '</div>'
         '<div class="compare-views">'
         '<figure><a href="{}" title="Open full size" data-compare-link-a><img data-compare-img-a src="{}" alt="{}"></a>'
@@ -3668,6 +4111,7 @@ def _compare_controls(paths, base_dir):
     ).format(
         options_a,
         options_b,
+        _overlay_toggle_html(paths, plain_plots),
         _escape(first_href),
         _escape(first_href),
         _escape(paths[0].stem),
@@ -3731,8 +4175,7 @@ def _write_page(
     body,
     nested=False,
     subtitle="Offline processing report",
-    bandpass_enabled=False,
-    extraction_enabled=False,
+    optional_pages=(),
 ):
     path.parent.mkdir(parents=True, exist_ok=True)
     stage_page(
@@ -3743,8 +4186,7 @@ def _write_page(
             body,
             nested=nested,
             subtitle=subtitle,
-            bandpass_enabled=bandpass_enabled,
-            extraction_enabled=extraction_enabled,
+            optional_pages=optional_pages,
         ),
     )
 
@@ -3825,11 +4267,29 @@ def _image_metric_cycle_cell(records, field, stack_mode=False):
     )
 
 
+def _primary_image_rank(record):
+    """Rank image records so the flat-noise MFS image represents its cycle."""
+    name = Path(str(record.get("image", ""))).name.casefold()
+    for suffix in (".gz",):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+    if name.endswith("-mfs-image.fits"):
+        return 2
+    if name.endswith("-image.fits") and not re.search(r"-\d{4}-image\.fits$", name):
+        return 1
+    return 0
+
+
 def _image_metrics_chart_by_cycle(records):
+    # Prefer -MFS-image.fits, then -image.fits (one output channel), so extra
+    # statistics lines logged later in a cycle do not replace the science image.
     latest_by_cycle = {}
     for record in records:
         cycle = record.get("cycle")
-        if cycle is not None:
+        if cycle is None:
+            continue
+        current = latest_by_cycle.get(cycle)
+        if current is None or _primary_image_rank(record) >= _primary_image_rank(current):
             latest_by_cycle[cycle] = record
 
     cycles = sorted(
@@ -4077,11 +4537,11 @@ def _image_metrics_content(records):
         for _, label in _IMAGE_METRIC_FIELDS
     )
     metrics_note = (
-        "Each chart uses the last image for each cycle within that imaging group; "
+        "Each chart uses the MFS image of each cycle within that imaging group; "
         "the table lists every image with metrics. Values come from selfcal.log "
         "when present, otherwise from the primary cycle FITS image."
         if any(record.get("stack_id") is not None for record in records)
-        else "The chart uses the last image for each cycle; the table lists every "
+        else "The chart uses the MFS image of each cycle; the table lists every "
         "image with metrics. Values come from selfcal.log when present, otherwise "
         "from the primary cycle FITS image."
     )
@@ -4388,8 +4848,39 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             _section("Self-Calibration Progression", timeline_html, timeline_note)
         )
 
-    summary_html = _config_table(config, _SUMMARY_KEYS)
-    body_parts.append(_section("Run configuration", summary_html, "Selected values from full_config.txt."))
+    summary_config = dict(config)
+    logged_settings = dict(logs.get("effective_settings", {}))
+    logged_settings.update(logs.get("effective_cycle_config", {}))
+    summary_config.update(logged_settings)
+    if (
+        _dde_enabled(config)
+        and summary_config.get("facetdirections") in (None, "None")
+        and artifacts.get("dde_direction_files")
+    ):
+        summary_config["facetdirections"] = "Automatic (directions/directions_NNN.txt)"
+    summary_html = _config_table(summary_config, _SUMMARY_KEYS)
+    summary_note = "Selected values from full_config.txt"
+    logged_keys = [key for key in _SUMMARY_KEYS if key in logged_settings]
+    if logged_keys:
+        summary_note += (
+            "; {} are the values logged in selfcal.log after facetselfcal set its "
+            "automatic choices".format(", ".join(logged_keys))
+        )
+    summary_note += "."
+    if _dde_enabled(config):
+        summary_note += (
+            " With --DDE, solution intervals and smoothness can differ per direction; "
+            "see the Directions page."
+        )
+    command_record = logs.get("command_record")
+    if command_record:
+        summary_html = (
+            '<details><summary>Command line</summary><pre>{}</pre></details>'.format(
+                _escape(command_record["command"])
+            )
+            + summary_html
+        )
+    body_parts.append(_section("Run configuration", summary_html, summary_note))
 
     overview_plots = artifacts.get("all_overview_plots", artifacts["overview_plots"])
     if overview_plots:
@@ -4442,8 +4933,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         "index.html",
         "\n".join(body_parts),
         subtitle=" / ".join(subtitle_parts),
-        bandpass_enabled=_bandpass_enabled(config),
-        extraction_enabled=_extraction_enabled(config),
+        optional_pages=_optional_pages(config),
     )
 
 
@@ -4452,6 +4942,7 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
     stack_mode = _stack_enabled(config)
     stack_groups = logs.get("stack_groups", {})
     plots = artifacts.get("all_overview_plots", artifacts["overview_plots"])
+    plain_plots = artifacts.get("plain_plots", {})
     fits_files = artifacts.get("all_fits_files", artifacts["fits_files"])
     stacked_progression = defaultdict(list)
     if stack_mode:
@@ -4518,12 +5009,12 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
             if len(group_paths) > 1:
                 stack_sections.append(
                     '<details data-filter-group open><summary>Side-by-side comparison</summary>{}</details>'.format(
-                        _compare_controls(group_paths, site_dir)
+                        _compare_controls(group_paths, site_dir, plain_plots)
                     )
                 )
                 stack_sections.append(
                     '<details data-filter-group open><summary>Multi-frame image blinking</summary>{}</details>'.format(
-                        _blink_controls(group_paths, site_dir)
+                        _blink_controls(group_paths, site_dir, plain_plots)
                     )
                 )
             stack_sections.append(
@@ -4542,8 +5033,8 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
                 _figure(path, site_dir, path.stem, detail="Imaging overview")
                 for path in progression
             )
-            blink_controls = _blink_controls(progression, site_dir)
-            compare_controls = _compare_controls(progression, site_dir)
+            blink_controls = _blink_controls(progression, site_dir, plain_plots)
+            compare_controls = _compare_controls(progression, site_dir, plain_plots)
             sections.append(
                 '<details data-filter-group open><summary>Side-by-side cycle comparison</summary>{}</details>'.format(
                     compare_controls
@@ -4745,8 +5236,7 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
         "imaging.html",
         body,
         subtitle="Imaging & FITS products / {}".format(run_root.name),
-        bandpass_enabled=_bandpass_enabled(config),
-        extraction_enabled=_extraction_enabled(config),
+        optional_pages=_optional_pages(config),
     )
 
 
@@ -4756,75 +5246,161 @@ def _cycle_sort_key(value):
     return (1, value)
 
 
+_POLARIZATION_PRODUCTS = {"XX", "YY", "XY", "YX", "RR", "LL", "RL", "LR", "Q", "U", "V"}
+
+
+def _plot_direction_index(name):
+    """Return the direction index encoded in a solution plot file name.
+
+    Merged DDE plots use ``dirDirNN`` and per-solve plots use
+    ``dir[MODEL_DATA_DDN]``; both refer to the same direction index.
+    """
+    match = re.search(r"MODEL_DATA_DD(\d+)", name, re.IGNORECASE)
+    if match is None:
+        match = re.search(r"(?:dir|dil)(\d+)", name, re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
 def _plot_page(
     site_dir,
     run_root,
     title,
     dataset_name,
     dataset_slug,
-    cycle,
-    paths,
-    bandpass_enabled=False,
-    extraction_enabled=False,
+    heading,
+    entries,
+    optional_pages=(),
+    default_sort="soltype",
 ):
+    """Write a page with solution plots that can be filtered and reordered.
+
+    ``entries`` is a list of ``(path, cycle)`` pairs. The plots can be ordered
+    by self-calibration cycle, by direction (for --DDE solves) or by solution
+    type; the order and a filter can be preselected with a URL fragment such as
+    ``#sort=cycle&filter=dir-03``.
+    """
     calibration_dir = site_dir / "calibration"
     page_path = calibration_dir / "{}.html".format(dataset_slug)
-    cycle_title = "Cycle {}".format(cycle) if cycle != "other" else "Other plots"
     figures = []
     has_phase = False
     has_amp = False
     has_pol = False
+    directions = set()
+    cycles = set()
+    soltypes = set()
 
-    for path in paths:
+    for path, cycle in entries:
         name = path.name
         tags = []
         lower = name.lower()
+        filter_values = []
+        cycle_title = "Cycle {}".format(cycle) if cycle != "other" else "Other plots"
         if "amp" in lower:
             tags.append("amplitude")
+            filter_values.append("amplitude")
             has_amp = True
         if "phase" in lower:
             tags.append("phase")
+            filter_values.append("phase")
             has_phase = True
-        if "poldiff" in lower or "pol" in lower:
-            tags.append("polarization")
-            has_pol = True
-        direction = re.search(r"(?:dir|dil)(\d+)", name, re.IGNORECASE)
-        if direction:
-            tags.append("direction {}".format(direction.group(1)))
         polarization = re.search(r"pol([a-z0-9]+)", name, re.IGNORECASE)
-        if polarization:
-            tags.append("pol-{}".format(polarization.group(1)))
-        figures.append(
-            _figure(
-                path,
-                calibration_dir,
-                name,
-                detail=" / ".join(tags) if tags else cycle_title,
-                extra_search="{} {} {}".format(dataset_name, cycle_title, " ".join(tags)),
-                item_class="plot-item",
+        # "_polI" marks Stokes I solutions (e.g. merged DDE plots); only
+        # correlation-specific or polarization solution plots count here.
+        if (
+            "poldiff" in lower
+            or re.search(r"fulljones|rotation|leakage", lower)
+            or (
+                polarization
+                and polarization.group(1).upper() in _POLARIZATION_PRODUCTS
             )
+        ):
+            tags.append("polarization")
+            filter_values.append("polarization")
+            has_pol = True
+        direction = _plot_direction_index(name)
+        if direction is not None:
+            tags.append("direction {:02d}".format(direction))
+            filter_values.append("dir-{:02d}".format(direction))
+            directions.add(direction)
+        if polarization:
+            label = polarization.group(1)
+            tags.append("Stokes I" if label.upper() == "I" else "pol-{}".format(label))
+        soltype_match = re.match(r"(.+?)_(?:sky)?selfcalcycle\d+", name, re.IGNORECASE)
+        soltype = soltype_match.group(1) if soltype_match else path.stem
+        cycles.add(cycle)
+        soltypes.add(soltype)
+        detail = " / ".join([cycle_title] + tags)
+        figure = _figure(
+            path,
+            calibration_dir,
+            name,
+            detail=detail,
+            extra_search="{} {} {}".format(dataset_name, cycle_title, " ".join(tags)),
+            item_class="plot-item",
         )
+        figure = figure.replace(
+            'data-filter-values="{}"'.format(
+                _escape("{} {} {}".format(dataset_name, cycle_title, " ".join(tags)))
+            ),
+            'data-filter-values="{}" data-sort-cycle="{}" data-sort-direction="{}" '
+            'data-sort-soltype="{}" data-sort-name="{}"'.format(
+                _escape(" ".join(filter_values)),
+                _escape(cycle),
+                "" if direction is None else "{:02d}".format(direction),
+                _escape(soltype),
+                _escape(lower),
+            ),
+            1,
+        )
+        figures.append(figure)
 
-    # Filter pills for plot types
+    # Filter pills for plot types and directions
     pills = ['<div class="pill-group" data-pill-group data-pill-target=".plot-item">']
-    pills.append('<span class="pill-label">Filter plot types:</span>')
-    pills.append('<button type="button" class="pill-btn active" data-filter-value="all">All plots ({})</button>'.format(len(paths)))
+    pills.append('<span class="pill-label">Show:</span>')
+    pills.append('<button type="button" class="pill-btn active" data-filter-value="all">All plots ({})</button>'.format(len(entries)))
     if has_phase:
         pills.append('<button type="button" class="pill-btn" data-filter-value="phase">Phase</button>')
     if has_amp:
         pills.append('<button type="button" class="pill-btn" data-filter-value="amplitude">Amplitude</button>')
     if has_pol:
         pills.append('<button type="button" class="pill-btn" data-filter-value="polarization">Polarization</button>')
+    for direction in sorted(directions):
+        pills.append(
+            '<button type="button" class="pill-btn" data-filter-value="dir-{0:02d}">Dir{0:02d}</button>'.format(direction)
+        )
     pills.append('</div>')
+
+    sort_options = []
+    if len(cycles) > 1:
+        sort_options.append(("cycle", "Cycle"))
+    if directions:
+        sort_options.append(("direction", "Direction"))
+    if len(soltypes) > 1 or not sort_options:
+        sort_options.append(("soltype", "Solution type"))
+    if default_sort not in {key for key, _ in sort_options}:
+        default_sort = sort_options[0][0]
+    sort_controls = (
+        '<div class="pill-group" data-sort-controls="#solution-plot-gallery" data-sort-default="{}">'
+        '<span class="pill-label">Order by:</span>{}</div>'
+    ).format(
+        default_sort,
+        "".join(
+            '<button type="button" class="pill-btn{}" data-sort-key="{}">{}</button>'.format(
+                " active" if key == default_sort else "", key, label
+            )
+            for key, label in sort_options
+        ),
+    )
 
     body = (
         '<p class="page-intro"><a href="../calibration.html">&larr; Back to Calibration index</a> / {} / {}. '
         'This page contains {} plots and loads thumbnails lazily.</p>'.format(
-            _escape(dataset_name), _escape(cycle_title), len(paths)
+            _escape(dataset_name), _escape(heading), len(entries)
         )
+        + sort_controls
         + "".join(pills)
         + _filter_input(".plot-item", "Search plot filenames")
-        + '<div class="gallery">{}</div>'.format("".join(figures))
+        + '<div class="gallery" id="solution-plot-gallery">{}</div>'.format("".join(figures))
     )
     _write_page(
         page_path,
@@ -4832,17 +5408,15 @@ def _plot_page(
         "calibration.html",
         body,
         nested=True,
-        subtitle="Calibration plots / {} / {}".format(dataset_name, cycle_title),
-        bandpass_enabled=bandpass_enabled,
-        extraction_enabled=extraction_enabled,
+        subtitle="Calibration plots / {} / {}".format(dataset_name, heading),
+        optional_pages=optional_pages,
     )
     return page_path
 
 
 def _calibration_page(site_dir, run_root, config, artifacts):
     title = str(config.get("imagename") or run_root.name)
-    bandpass_enabled = _bandpass_enabled(config)
-    extraction_enabled = _extraction_enabled(config)
+    optional_pages = _optional_pages(config)
     ms_inputs = _as_list(config.get("ms"))
     calibration_sets = artifacts["calibration_sets"]
     all_cycles = sorted(
@@ -4861,12 +5435,12 @@ def _calibration_page(site_dir, run_root, config, artifacts):
             title,
             "calibration.html",
             body,
-            bandpass_enabled=bandpass_enabled,
-            extraction_enabled=extraction_enabled,
+            optional_pages=optional_pages,
         )
         return
 
     rows = []
+    direction_counts = []
     cycle_headers = "".join("<th scope=\"col\">Cycle {}</th>".format(_escape(cycle)) for cycle in all_cycles)
     for index, (directory, cycles) in enumerate(calibration_sets, start=1):
         dataset_slug = "ms-{:02d}".format(index)
@@ -4874,11 +5448,13 @@ def _calibration_page(site_dir, run_root, config, artifacts):
             directory.name.removeprefix("solution_plots_"), ms_inputs
         )
         cells = []
+        all_entries = []
         for cycle in all_cycles:
             paths = cycles.get(cycle, [])
             if not paths:
                 cells.append('<td class="muted">-</td>')
                 continue
+            all_entries.extend((path, cycle) for path in paths)
             cycle_slug = "cycle-{}".format(cycle)
             page_slug = "{}-{}.html".format(dataset_slug, cycle_slug)
             _plot_page(
@@ -4887,28 +5463,87 @@ def _calibration_page(site_dir, run_root, config, artifacts):
                 title,
                 dataset_name,
                 page_slug[:-5],
-                cycle,
-                paths,
-                bandpass_enabled=bandpass_enabled,
-                extraction_enabled=extraction_enabled,
+                "Cycle {}".format(cycle) if cycle != "other" else "Other plots",
+                [(path, cycle) for path in paths],
+                optional_pages=optional_pages,
             )
             cells.append(
                 '<td><a href="calibration/{}">{} plots</a></td>'.format(
                     _escape(page_slug), len(paths)
                 )
             )
+        all_slug = "{}-all".format(dataset_slug)
+        _plot_page(
+            site_dir,
+            run_root,
+            title,
+            dataset_name,
+            all_slug,
+            "All cycles",
+            all_entries,
+            optional_pages=optional_pages,
+            default_sort="cycle",
+        )
         rows.append(
-            '<tr class="dataset-row" data-search="{}"><th scope="row"><code>{}</code></th>{}</tr>'.format(
-                _escape(dataset_name), _escape(dataset_name), "".join(cells)
+            '<tr class="dataset-row" data-search="{}"><th scope="row"><code>{}</code></th>{}'
+            '<td><a href="calibration/{}.html">{} plots</a></td></tr>'.format(
+                _escape(dataset_name), _escape(dataset_name), "".join(cells),
+                _escape(all_slug), len(all_entries),
             )
         )
+        counts = defaultdict(lambda: [0, set()])
+        for path, cycle in all_entries:
+            direction = _plot_direction_index(path.name)
+            if direction is not None:
+                counts[direction][0] += 1
+                counts[direction][1].add(cycle)
+        if counts:
+            direction_counts.append((dataset_name, all_slug, counts))
+
+    sections = [
+        _section(
+            "Solutions by cycle",
+            _filter_input(".dataset-row", "Filter measurement sets")
+            + '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Measurement set</th>{}<th scope="col">All cycles</th></tr></thead><tbody>{}</tbody></table></div>'.format(
+                cycle_headers, "".join(rows)
+            ),
+            "Open a cycle page, or all cycles of a measurement set on one page, to view, filter and reorder the solutions.",
+        )
+    ]
+    if direction_counts:
+        directions = sorted({d for _, _, counts in direction_counts for d in counts})
+        header = "".join(
+            '<th scope="col"><code>{}</code></th>'.format(_escape(name))
+            for name, _, _ in direction_counts
+        )
+        direction_rows = []
+        for direction in directions:
+            cells = []
+            for _, all_slug, counts in direction_counts:
+                if direction not in counts:
+                    cells.append('<td class="muted">-</td>')
+                    continue
+                count, direction_cycles = counts[direction]
+                cells.append(
+                    '<td><a href="calibration/{}.html#sort=cycle&amp;filter=dir-{:02d}">{} plots in {} cycles</a></td>'.format(
+                        _escape(all_slug), direction, count, len(direction_cycles)
+                    )
+                )
+            direction_rows.append(
+                '<tr><th scope="row">Dir{:02d}</th>{}</tr>'.format(direction, "".join(cells))
+            )
+        sections.append(_section(
+            "Solutions by direction",
+            '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Direction</th>{}</tr></thead><tbody>{}</tbody></table></div>'.format(
+                header, "".join(direction_rows)
+            ),
+            "Each link opens all solutions of one direction, ordered by cycle. "
+            "The direction positions are listed on the Directions page.",
+        ))
 
     body = (
-        '<p class="page-intro">Calibration plots are split into one local page per measurement set and solution cycle. Open a cycle page to view and filter phase, amplitude, and polarization solutions.</p>\n'
-        + _filter_input(".dataset-row", "Filter measurement sets") + "\n"
-        + '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Measurement set</th>{}</tr></thead><tbody>{}</tbody></table></div>'.format(
-            cycle_headers, "".join(rows)
-        )
+        '<p class="page-intro">Calibration plots are split into local pages per measurement set. Plots can be filtered by type or direction and ordered by cycle, direction or solution type.</p>\n'
+        + "\n".join(sections)
     )
     _write_page(
         site_dir / "calibration.html",
@@ -4916,8 +5551,7 @@ def _calibration_page(site_dir, run_root, config, artifacts):
         "calibration.html",
         body,
         subtitle="Calibration solutions / {}".format(run_root.name),
-        bandpass_enabled=bandpass_enabled,
-        extraction_enabled=extraction_enabled,
+        optional_pages=optional_pages,
     )
 
 
@@ -5249,7 +5883,7 @@ def _bandpass_detail_page(
     page_name,
     solutions,
     summary,
-    extraction_enabled=False,
+    optional_pages=(),
 ):
     bandpass_dir = site_dir / "bandpass"
     page_path = bandpass_dir / page_name
@@ -5362,15 +5996,14 @@ def _bandpass_detail_page(
         body,
         nested=True,
         subtitle="Bandpass solutions / {}".format(dataset_name),
-        bandpass_enabled=True,
-        extraction_enabled=extraction_enabled,
+        optional_pages=optional_pages,
     )
     return page_path
 
 
 def _bandpass_page(site_dir, run_root, config, artifacts):
     title = str(config.get("imagename") or run_root.name)
-    extraction_enabled = _extraction_enabled(config)
+    optional_pages = _optional_pages(config)
     rows = []
     ms_inputs = _as_list(config.get("ms"))
     for index, path in enumerate(artifacts.get("bandpass_files", []), start=1):
@@ -5395,7 +6028,7 @@ def _bandpass_page(site_dir, run_root, config, artifacts):
             "ms-{:02d}.html".format(index),
             solutions,
             summary,
-            extraction_enabled=extraction_enabled,
+            optional_pages=optional_pages,
         )
         channel_text = " / ".join(
             "{} {}".format(name, count) for name, count in summary["channels"]
@@ -5453,8 +6086,7 @@ def _bandpass_page(site_dir, run_root, config, artifacts):
         "bandpass.html",
         body,
         subtitle="Bandpass solutions / {}".format(run_root.name),
-        bandpass_enabled=True,
-        extraction_enabled=extraction_enabled,
+        optional_pages=optional_pages,
     )
 
 
@@ -5649,6 +6281,7 @@ def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
         metadata = dict(
             _measurement_set_metadata_for_path(path, metadata_by_ms, run_root)
         )
+        metadata.pop("_order", None)
         resolved_path = _resolved_ms_path(path, run_root)
         flagging_record = flagging_stats.get(resolved_path)
         if flagging_record is None:
@@ -5920,8 +6553,7 @@ def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
         "datasets.html",
         body,
         subtitle="Measurement sets & coverage / {}".format(run_root.name),
-        bandpass_enabled=_bandpass_enabled(config),
-        extraction_enabled=_extraction_enabled(config),
+        optional_pages=_optional_pages(config),
     )
 
 
@@ -6506,15 +7138,759 @@ def _extraction_page(
         "extraction.html",
         body,
         subtitle="Extraction / {}".format(run_root.name),
-        bandpass_enabled=_bandpass_enabled(config),
-        extraction_enabled=True,
+        optional_pages=_optional_pages(config),
     )
 
 
-def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text, status, error):
+_DIRECTION_FIELDS = ("start", "solints", "smoothness", "soltypes")
+_DIRECTION_FIELD_LABELS = {
+    "start": "Start cycle",
+    "solints": "Solution intervals",
+    "smoothness": "Smoothness constraints",
+    "soltypes": "Solve per soltype",
+}
+
+
+def _parse_directions_file(path):
+    """Parse a facet directions file.
+
+    ``write_facet_directions`` in main.py writes one direction per line as
+    ``RA DEC start solints smoothness soltypelist_includedir # direction DirNN``.
+    Files supplied with ``--facetdirections`` may only contain RA and DEC.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        report_warning("Could not read directions file {}: {}".format(path, exc))
+        return []
+    directions = []
+    for line in lines:
+        text, _, comment = line.partition("#")
+        tokens = re.findall(r"\[[^\]]*\]|\S+", text)
+        if len(tokens) < 2:
+            continue
+        try:
+            ra, dec = float(tokens[0]), float(tokens[1])
+        except ValueError:
+            continue
+        name_match = re.search(r"direction\s+(\S+)", comment, re.IGNORECASE)
+        record = {
+            "name": name_match.group(1) if name_match else "Dir{:02d}".format(len(directions)),
+            "ra": ra,
+            "dec": dec,
+        }
+        for key, value in zip(_DIRECTION_FIELDS, tokens[2:]):
+            record[key] = value
+        directions.append(record)
+    return directions
+
+
+def _direction_value_text(value):
+    if value is None:
+        return "-"
+    try:
+        parsed = ast.literal_eval(value)
+    except (ValueError, SyntaxError):
+        return str(value)
+    if isinstance(parsed, (list, tuple)):
+        return ", ".join(
+            ("yes" if item else "no") if isinstance(item, bool) else str(item)
+            for item in parsed
+        )
+    return str(parsed)
+
+
+def _format_sexagesimal(value, hours=False):
+    value = float(value)
+    if hours:
+        value = (value % 360.0) / 15.0
+        sign = ""
+    else:
+        sign = "-" if value < 0 else "+"
+        value = abs(value)
+    whole = int(value)
+    minutes = int((value - whole) * 60.0)
+    seconds = ((value - whole) * 60.0 - minutes) * 60.0
+    if round(seconds, 1) >= 60.0:
+        seconds = 0.0
+        minutes += 1
+    if minutes >= 60:
+        minutes -= 60
+        whole += 1
+    if hours:
+        return "{:02d}h{:02d}m{:04.1f}s".format(whole % 24, minutes, seconds)
+    return "{}{:02d}d{:02d}m{:04.1f}s".format(sign, whole, minutes, seconds)
+
+
+def _same_position(a, b, tolerance_deg=1.0 / 3600.0):
+    ra_difference = (a[0] - b[0] + 180.0) % 360.0 - 180.0
+    return (
+        abs(ra_difference * math.cos(math.radians(a[1]))) <= tolerance_deg
+        and abs(a[1] - b[1]) <= tolerance_deg
+    )
+
+
+def _read_catalog_summary(path):
+    """Return the row count and positions/fluxes of a PyBDSF-style catalogue."""
+    cache = DerivedDataCache(path, "dde-catalog-summary-v1")
+    cached = cache.load()
+    if cached is not None:
+        return cached
+    try:
+        from astropy.io import fits
+    except ImportError as exc:
+        report_warning("Catalogue summaries are unavailable: {}.".format(exc))
+        return None
+    try:
+        with fits.open(path, memmap=False) as hdul:
+            data = hdul[1].data
+            columns = set(data.columns.names) if data is not None else set()
+            rows = []
+            if data is not None and {"RA", "DEC"} <= columns:
+                for row in data[:50]:
+                    rows.append({
+                        "ra": float(row["RA"]),
+                        "dec": float(row["DEC"]),
+                        "aflux": float(row["AFLUX"]) if "AFLUX" in columns else None,
+                        "tflux": float(row["TFLUX"]) if "TFLUX" in columns else None,
+                    })
+            summary = {"count": 0 if data is None else len(data), "rows": rows}
+    except (OSError, IndexError, KeyError, TypeError, ValueError) as exc:
+        report_warning("Could not read catalogue {}: {}".format(path, exc))
+        return None
+    cache.save(summary)
+    return summary
+
+
+def _directions_by_cycle(run_root, config, artifacts):
+    """Return {cycle: [direction, ...]} and a description of the source."""
+    by_cycle = {}
+    for path in artifacts.get("dde_direction_files", []):
+        cycle = _image_cycle_identity(path.name)
+        if cycle is not None:
+            directions = _parse_directions_file(path)
+            if directions:
+                by_cycle[str(int(cycle)).zfill(3)] = directions
+    if by_cycle:
+        return by_cycle, "directions/directions_NNN.txt"
+    facetdirections = config.get("facetdirections")
+    if isinstance(facetdirections, str) and facetdirections not in ("", "None"):
+        path = Path(facetdirections).expanduser()
+        if not path.is_absolute():
+            path = run_root / path
+        if path.is_file():
+            directions = _parse_directions_file(path)
+            if directions:
+                return {"all": directions}, str(facetdirections)
+    return {}, None
+
+
+def _errormap_cycle_files(run_root, artifacts):
+    """Group errormaps_dd/ products and error-map plots by cycle."""
+    grouped = defaultdict(lambda: {"files": [], "plots": []})
+    for path in artifacts.get("dde_errormap_files", []):
+        cycle = _image_cycle_identity(path.name)
+        if cycle is not None:
+            grouped[str(int(cycle)).zfill(3)]["files"].append(path)
+    for path in artifacts.get("dde_plots", []):
+        cycle = _image_cycle_identity(path.name)
+        if cycle is not None:
+            grouped[str(int(cycle)).zfill(3)]["plots"].append(path)
+    return dict(grouped)
+
+
+def _directions_table_html(directions, previous_positions, catalog):
+    varying = {
+        key for key in _DIRECTION_FIELDS
+        if len({direction.get(key) for direction in directions}) > 1
+    }
+    has_flux = bool(catalog and any(row.get("tflux") is not None for row in catalog["rows"]))
+    headers = ["Direction", "RA", "Dec"]
+    if previous_positions is not None:
+        headers.append("Added")
+    present_fields = [
+        key for key in _DIRECTION_FIELDS
+        if any(direction.get(key) is not None for direction in directions)
+    ]
+    headers.extend(_DIRECTION_FIELD_LABELS[key] for key in present_fields)
+    if has_flux:
+        headers.extend(["Apparent flux", "Total flux"])
+    header_html = "".join(
+        '<th scope="col"{}>{}</th>'.format(
+            ' class="direction-varies" title="Differs between directions"'
+            if label in {_DIRECTION_FIELD_LABELS[key] for key in varying} else "",
+            _escape(label),
+        )
+        for label in headers
+    )
+    rows = []
+    for direction in directions:
+        position = (direction["ra"], direction["dec"])
+        cells = [
+            '<th scope="row">{}</th>'.format(_escape(direction["name"])),
+            '<td title="{:.6f}">{}</td>'.format(direction["ra"], _escape(_format_sexagesimal(direction["ra"], hours=True))),
+            '<td title="{:.6f}">{}</td>'.format(direction["dec"], _escape(_format_sexagesimal(direction["dec"]))),
+        ]
+        if previous_positions is not None:
+            cells.append('<td>{}</td>'.format(_escape(previous_positions.get(direction["name"], "-"))))
+        for key in present_fields:
+            cells.append('<td{}>{}</td>'.format(
+                ' class="direction-varies"' if key in varying else "",
+                _escape(_direction_value_text(direction.get(key))),
+            ))
+        if has_flux:
+            match = next(
+                (row for row in catalog["rows"] if _same_position(position, (row["ra"], row["dec"]))),
+                None,
+            )
+            for field in ("aflux", "tflux"):
+                value = match.get(field) if match else None
+                cells.append('<td class="numeric">{}</td>'.format(
+                    _escape(_format_jy_value(value)) if value is not None else "-"
+                ))
+        rows.append("<tr>{}</tr>".format("".join(cells)))
+    return (
+        '<div class="table-scroll"><table class="data-table direction-table">'
+        "<thead><tr>{}</tr></thead><tbody>{}</tbody></table></div>"
+    ).format(header_html, "".join(rows))
+
+
+_DIRECTION_MAP_SIZE = 560
+_DIRECTION_MAP_MARGIN = (16, 16, 44, 78)  # top, right, bottom, left
+
+
+def _direction_map_wcs(artifacts):
+    """Return (celestial WCS, nx, ny) of the latest primary image, or None."""
+    candidates = []
+    for path in artifacts.get("all_fits_files", artifacts.get("fits_files", [])):
+        rank = _primary_image_rank({"image": path.name})
+        cycle = _image_cycle_identity(path.name)
+        if rank and cycle is not None and "-pb" not in path.name.lower():
+            candidates.append((rank, int(cycle), path))
+    if not candidates:
+        return None
+    try:
+        import warnings
+        from astropy.io import fits
+        from astropy.wcs import WCS, FITSFixedWarning
+    except ImportError as exc:
+        report_warning("Direction map is unavailable: {}.".format(exc))
+        return None
+    path = max(candidates, key=lambda item: (item[1], item[0]))[2]
+    try:
+        header = fits.getheader(path)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FITSFixedWarning)
+            wcs = WCS(header).celestial
+        return wcs, int(header["NAXIS1"]), int(header["NAXIS2"])
+    except Exception as exc:  # astropy raises several exception types for bad headers
+        report_warning("Could not read the WCS of {}: {}".format(path, exc))
+        return None
+
+
+def _read_facet_polygons(path):
+    polygons = []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        report_warning("Could not read facet regions {}: {}".format(path, exc))
+        return polygons
+    for match in re.finditer(r"polygon\(([^)]*)\)", text, re.IGNORECASE):
+        try:
+            values = [float(value) for value in match.group(1).split(",")]
+        except ValueError:
+            continue
+        if len(values) >= 6 and len(values) % 2 == 0:
+            polygons.append(list(zip(values[0::2], values[1::2])))
+    return polygons
+
+
+def _nice_grid_step(span, candidates):
+    for step in candidates:
+        if span / step <= 6:
+            return step
+    return candidates[-1]
+
+
+def _format_ra_label(ra_deg, step_seconds):
+    seconds = round(((ra_deg % 360.0) / 15.0) * 3600.0) % 86400
+    hours, remainder = divmod(int(seconds), 3600)
+    minutes, secs = divmod(remainder, 60)
+    if step_seconds % 60 == 0:
+        return "{:02d}h{:02d}m".format(hours, minutes)
+    return "{:02d}h{:02d}m{:02d}s".format(hours, minutes, secs)
+
+
+def _format_dec_label(dec_deg, step_arcsec):
+    sign = "-" if dec_deg < 0 else "+"
+    total = round(abs(dec_deg) * 3600.0)
+    degrees, remainder = divmod(int(total), 3600)
+    minutes, secs = divmod(remainder, 60)
+    if step_arcsec % 60 == 0:
+        return "{}{:02d}°{:02d}′".format(sign, degrees, minutes)
+    return "{}{:02d}°{:02d}′{:02d}″".format(sign, degrees, minutes, secs)
+
+
+def _angular_distance_deg(ra1, dec1, ra2, dec2):
+    ra1, dec1, ra2, dec2 = (math.radians(value) for value in (ra1, dec1, ra2, dec2))
+    value = (
+        math.sin(dec1) * math.sin(dec2)
+        + math.cos(dec1) * math.cos(dec2) * math.cos(ra1 - ra2)
+    )
+    return math.degrees(math.acos(max(-1.0, min(1.0, value))))
+
+
+def _direction_map_html(site_dir, artifacts, directions_by_cycle, cycle_keys, first_seen, catalogs):
+    """Interactive SVG map of the directions per cycle on an RA/Dec grid."""
+    geometry = _direction_map_wcs(artifacts)
+    if geometry is None or not directions_by_cycle:
+        return ""
+    wcs, nx, ny = geometry
+    size = _DIRECTION_MAP_SIZE
+    top, right, bottom, left = _DIRECTION_MAP_MARGIN
+    scale = size / float(max(nx, ny))
+    plot_w, plot_h = nx * scale, ny * scale
+
+    def to_svg(ra_values, dec_values):
+        pixels = wcs.all_world2pix(ra_values, dec_values, 0)
+        return [
+            (left + (x + 0.5) * scale, top + plot_h - (y + 0.5) * scale, x, y)
+            for x, y in zip(pixels[0], pixels[1])
+        ]
+
+    def inside(x, y):
+        return -0.5 <= x <= nx - 0.5 and -0.5 <= y <= ny - 0.5
+
+    # World coordinates along the image edge give the grid ranges.
+    edge = [(x, 0) for x in range(0, nx, max(1, nx // 40))] + [(x, ny - 1) for x in range(0, nx, max(1, nx // 40))]
+    edge += [(0, y) for y in range(0, ny, max(1, ny // 40))] + [(nx - 1, y) for y in range(0, ny, max(1, ny // 40))]
+    world = wcs.all_pix2world([point[0] for point in edge], [point[1] for point in edge], 0)
+    centre = wcs.all_pix2world([(nx - 1) / 2.0], [(ny - 1) / 2.0], 0)
+    centre_ra, centre_dec = float(centre[0][0]), float(centre[1][0])
+    ra_offsets = [((float(ra) - centre_ra + 180.0) % 360.0) - 180.0 for ra in world[0]]
+    dec_min, dec_max = float(min(world[1])), float(max(world[1]))
+    ra_min, ra_max = centre_ra + min(ra_offsets), centre_ra + max(ra_offsets)
+
+    ra_step_s = _nice_grid_step((ra_max - ra_min) * 240.0, [5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1200, 1800, 3600, 7200])
+    dec_step_as = _nice_grid_step((dec_max - dec_min) * 3600.0, [10, 15, 30, 60, 120, 300, 600, 900, 1200, 1800, 3600, 7200, 18000, 36000])
+    ra_step, dec_step = ra_step_s / 240.0, dec_step_as / 3600.0
+
+    grid = []
+    labels = []
+    samples = 80
+
+    def add_line(points, label, axis):
+        segment = []
+        segments = []
+        for sx, sy, x, y in points:
+            if inside(x, y):
+                segment.append((sx, sy))
+            elif segment:
+                segments.append(segment)
+                segment = []
+        if segment:
+            segments.append(segment)
+        for segment in segments:
+            if len(segment) > 1:
+                grid.append('<polyline class="dirmap-grid" points="{}"/>'.format(
+                    " ".join("{:.1f},{:.1f}".format(sx, sy) for sx, sy in segment)
+                ))
+        visible = [point for segment in segments for point in segment]
+        if not visible:
+            return
+        if axis == "ra":
+            sx, sy = max(visible, key=lambda point: point[1])
+            if sy >= top + plot_h - 0.06 * plot_h:
+                labels.append('<text class="dirmap-axis" x="{:.1f}" y="{:.1f}" text-anchor="middle">{}</text>'.format(
+                    sx, top + plot_h + 16, _escape(label)))
+        else:
+            sx, sy = min(visible, key=lambda point: point[0])
+            if sx <= left + 0.06 * plot_w:
+                labels.append('<text class="dirmap-axis" x="{:.1f}" y="{:.1f}" text-anchor="end" dominant-baseline="middle">{}</text>'.format(
+                    left - 6, sy, _escape(label)))
+
+    ra_value = math.floor(ra_min / ra_step) * ra_step
+    while ra_value <= ra_max + 1e-9:
+        decs = [dec_min + (dec_max - dec_min) * index / samples for index in range(samples + 1)]
+        add_line(to_svg([ra_value] * len(decs), decs), _format_ra_label(ra_value, ra_step_s), "ra")
+        ra_value += ra_step
+    dec_value = math.floor(dec_min / dec_step) * dec_step
+    while dec_value <= dec_max + 1e-9:
+        ras = [ra_min + (ra_max - ra_min) * index / samples for index in range(samples + 1)]
+        add_line(to_svg(ras, [dec_value] * len(ras)), _format_dec_label(dec_value, dec_step_as), "dec")
+        dec_value += dec_step
+
+    # facet_regions/facets_NNN.reg holds the facet layout of cycle NNN;
+    # older runs only have facets.reg, the layout of the latest cycle.
+    region_files = {path.name.lower(): path for path in artifacts.get("dde_region_files", [])}
+
+    def facet_svg_for(cycle, is_latest):
+        path = region_files.get("facets_{}.reg".format(cycle))
+        if path is None and is_latest:
+            path = region_files.get("facets.reg")
+        if path is None:
+            return ""
+        shapes = []
+        for polygon in _read_facet_polygons(path):
+            points = to_svg([point[0] for point in polygon], [point[1] for point in polygon])
+            shapes.append('<polygon class="dirmap-facet" points="{}"/>'.format(
+                " ".join("{:.1f},{:.1f}".format(sx, sy) for sx, sy, _, _ in points)
+            ))
+        return "".join(shapes)
+
+    calibration_links = [
+        (
+            directory.name.removeprefix("solution_plots_"),
+            "calibration/ms-{:02d}-all.html".format(index),
+        )
+        for index, (directory, _) in enumerate(artifacts.get("calibration_sets", []), start=1)
+    ]
+
+    keys = cycle_keys or ["all"]
+    latest = keys[-1]
+    facet_svgs = {cycle: facet_svg_for(cycle, cycle == latest) for cycle in keys}
+    cycle_groups = []
+    cycle_data = {}
+    for cycle in keys:
+        directions = directions_by_cycle[cycle]
+        catalog = catalogs.get(cycle)
+        fluxes = []
+        records = []
+        for direction in directions:
+            match = None
+            if catalog:
+                match = next(
+                    (row for row in catalog["rows"]
+                     if _same_position((direction["ra"], direction["dec"]), (row["ra"], row["dec"]))),
+                    None,
+                )
+            tflux = match.get("tflux") if match else None
+            aflux = match.get("aflux") if match else None
+            fluxes.append(tflux)
+            index_match = re.search(r"(\d+)$", direction["name"])
+            direction_index = int(index_match.group(1)) if index_match else None
+            added = first_seen.get(direction["name"]) if cycle_keys else None
+            record = {
+                "name": direction["name"],
+                "ra": _format_sexagesimal(direction["ra"], hours=True),
+                "dec": _format_sexagesimal(direction["dec"]),
+                "distance": "{:.1f} arcmin".format(
+                    60.0 * _angular_distance_deg(direction["ra"], direction["dec"], centre_ra, centre_dec)
+                ),
+                "added": added,
+                "settings": [
+                    [_DIRECTION_FIELD_LABELS[key], _direction_value_text(direction.get(key))]
+                    for key in _DIRECTION_FIELDS if direction.get(key) is not None
+                ],
+                "aflux": _format_jy_value(aflux) if aflux is not None else None,
+                "tflux": _format_jy_value(tflux) if tflux is not None else None,
+                "links": [
+                    [name, "{}#sort=cycle&filter=dir-{:02d}".format(href, direction_index)]
+                    for name, href in calibration_links
+                ] if direction_index is not None else [],
+            }
+            records.append(record)
+        cycle_data[cycle] = records
+
+        known = [flux for flux in fluxes if flux is not None and flux > 0]
+        max_flux = max(known) if known else None
+        markers = []
+        for index, (direction, flux) in enumerate(zip(directions, fluxes)):
+            sx, sy, x, y = to_svg([direction["ra"]], [direction["dec"]])[0]
+            radius = 7.0
+            if max_flux and flux:
+                radius = 5.0 + 11.0 * math.sqrt(max(flux, 0.0) / max_flux)
+            new = cycle_keys and first_seen.get(direction["name"]) == "Cycle {}".format(cycle)
+            # Put the label on the left of markers near the right edge, and
+            # below markers near the top edge, so it stays inside the plot.
+            label_right = sx + radius + 48 < left + plot_w
+            label_x = sx + radius + 3 if label_right else sx - radius - 3
+            label_y = sy - radius + 2 if sy - radius - 12 > top else sy + radius + 12
+            markers.append(
+                '<g class="dirmap-marker{}" data-index="{}" tabindex="0" role="button" '
+                'aria-label="{}"><circle cx="{:.1f}" cy="{:.1f}" r="{:.1f}"/>'
+                '<text x="{:.1f}" y="{:.1f}" text-anchor="{}">{}</text></g>'.format(
+                    " dirmap-new" if new else "", index, _escape(direction["name"]),
+                    sx, sy, radius, label_x, label_y,
+                    "start" if label_right else "end", _escape(direction["name"]),
+                )
+            )
+        cycle_groups.append(
+            '<g class="dirmap-cycle" data-cycle="{}"{}>{}{}</g>'.format(
+                _escape(cycle),
+                "" if cycle == latest else " hidden",
+                '<g class="dirmap-facets">{}</g>'.format(facet_svgs[cycle]) if facet_svgs[cycle] else "",
+                "".join(markers),
+            )
+        )
+
+    width = left + plot_w + right
+    height = top + plot_h + bottom
+    svg = (
+        '<svg class="dirmap-svg" viewBox="0 0 {w:.0f} {h:.0f}" role="img" '
+        'aria-label="Direction positions on an RA/Dec grid">'
+        '<defs><clipPath id="dirmap-clip"><rect x="{l}" y="{t}" width="{pw:.1f}" height="{ph:.1f}"/></clipPath></defs>'
+        '<rect class="dirmap-frame" x="{l}" y="{t}" width="{pw:.1f}" height="{ph:.1f}"/>'
+        '<g clip-path="url(#dirmap-clip)">{grid}</g>{labels}'
+        '<text class="dirmap-axis-title" x="{cx:.1f}" y="{by:.1f}" text-anchor="middle">Right Ascension (J2000)</text>'
+        '<text class="dirmap-axis-title" transform="translate(14 {cy:.1f}) rotate(-90)" text-anchor="middle">Declination (J2000)</text>'
+        '<g clip-path="url(#dirmap-clip)">{cycles}</g>'
+        '</svg>'
+    ).format(
+        w=width, h=height, l=left, t=top, pw=plot_w, ph=plot_h,
+        grid="".join(grid), labels="".join(labels), cycles="".join(cycle_groups),
+        cx=left + plot_w / 2.0, by=height - 6, cy=top + plot_h / 2.0,
+    )
+
+    selector = ""
+    if len(keys) > 1:
+        selector = (
+            '<label class="dirmap-cycle-select"><span>Self-calibration cycle</span>'
+            '<select data-dirmap-cycle>{}</select></label>'
+        ).format("".join(
+            '<option value="{0}"{1}>Cycle {0} ({2} directions)</option>'.format(
+                _escape(cycle), " selected" if cycle == latest else "", len(directions_by_cycle[cycle])
+            )
+            for cycle in reversed(keys)
+        ))
+    legend = (
+        '<p class="dirmap-legend"><span class="dirmap-key dirmap-key-old"></span>Direction'
+        '<span class="dirmap-key dirmap-key-new"></span>Added in the selected cycle'
+        '{}<span>Marker size scales with total flux. Click a direction for details.</span></p>'
+    ).format(
+        ""
+        if not any(facet_svgs.values())
+        else '<span class="dirmap-key dirmap-key-facet"></span>Facet boundaries'
+        if all(facet_svgs.values())
+        else '<span class="dirmap-key dirmap-key-facet"></span>Facet boundaries '
+        "(only for cycles with a saved facet layout)"
+    )
+    return (
+        '<div class="dirmap" data-dirmap data-dirmap-directions="{}">'
+        '<div class="dirmap-controls">{}</div>{}'
+        '<div class="dirmap-figure">{}'
+        '<div class="dirmap-popup" data-dirmap-popup hidden role="dialog" aria-live="polite"></div>'
+        '</div></div>'
+    ).format(
+        _escape(json.dumps(cycle_data, separators=(",", ":"))),
+        selector,
+        legend,
+        svg,
+    )
+
+
+def _directions_page(site_dir, run_root, config, artifacts):
+    title = str(config.get("imagename") or run_root.name)
+    optional_pages = _optional_pages(config)
+    sections = []
+
+    directions_by_cycle, directions_source = _directions_by_cycle(run_root, config, artifacts)
+    errormap_cycles = _errormap_cycle_files(run_root, artifacts)
+    cycle_keys = sorted(
+        (key for key in directions_by_cycle if key != "all"), key=_cycle_sort_key
+    )
+
+    # Directions of each cycle, latest cycle first.
+    if directions_by_cycle:
+        first_seen = {}
+        for cycle in cycle_keys:
+            for direction in directions_by_cycle[cycle]:
+                first_seen.setdefault(direction["name"], "Cycle {}".format(cycle))
+        catalogs = {}
+        for cycle in cycle_keys or ["all"]:
+            catalog_paths = [
+                path for path in errormap_cycles.get(cycle, {}).get("files", [])
+                if path.name.lower().endswith("-errormap.srl.filtered.fits")
+            ]
+            if catalog_paths:
+                catalogs[cycle] = _read_catalog_summary(catalog_paths[0])
+
+        direction_map = _direction_map_html(
+            site_dir, artifacts, directions_by_cycle, cycle_keys, first_seen, catalogs
+        )
+        if direction_map:
+            sections.append(_section(
+                "Direction overview",
+                direction_map,
+                "Direction positions within the image area for the selected cycle.",
+            ))
+
+        tables = []
+        for index, cycle in enumerate(reversed(cycle_keys or ["all"])):
+            directions = directions_by_cycle[cycle]
+            catalog = catalogs.get(cycle)
+            table = _directions_table_html(
+                directions, first_seen if cycle_keys else None, catalog
+            )
+            label = (
+                "Cycle {} / {} directions".format(cycle, len(directions))
+                if cycle != "all" else "{} directions".format(len(directions))
+            )
+            tables.append(
+                '<details{}><summary>{}</summary>{}</details>'.format(
+                    " open" if index == 0 else "", _escape(label), table
+                )
+            )
+        sections.append(_section(
+            "Directions",
+            "".join(tables),
+            "Read from {}. Highlighted columns differ between directions. Fluxes "
+            "are the apparent and primary-beam corrected flux of the source in each "
+            "direction, from the filtered error-map catalogue.".format(directions_source),
+        ))
+    else:
+        sections.append(_section(
+            "Directions",
+            '<p class="empty">No facet directions file was found for this run.</p>',
+        ))
+
+    # How directions were selected (--auto): counts per cycle and error maps.
+    if errormap_cycles:
+        rows = []
+        previous_names = set()
+        for cycle in sorted(set(errormap_cycles) | set(cycle_keys), key=_cycle_sort_key):
+            names = [direction["name"] for direction in directions_by_cycle.get(cycle, [])]
+            added = [name for name in names if name not in previous_names]
+            previous_names.update(names)
+            detected = "-"
+            for path in errormap_cycles.get(cycle, {}).get("files", []):
+                if path.name.lower().endswith("-errormap.merged.srl.fits"):
+                    summary = _read_catalog_summary(path)
+                    if summary is not None:
+                        detected = str(summary["count"])
+            rows.append(
+                "<tr><th scope=\"row\">Cycle {}</th><td class=\"numeric\">{}</td>"
+                "<td class=\"numeric\">{}</td><td>{}</td></tr>".format(
+                    _escape(cycle),
+                    _escape(detected),
+                    len(names) if names else "-",
+                    _escape(", ".join(added) if added else "-"),
+                )
+            )
+        selection_table = (
+            '<div class="table-scroll"><table class="data-table"><thead><tr>'
+            '<th scope="col">Cycle</th><th scope="col">Artefact sources detected</th>'
+            '<th scope="col">Directions</th><th scope="col">Added</th>'
+            "</tr></thead><tbody>{}</tbody></table></div>"
+        ).format("".join(rows))
+
+        figures = []
+        cycles_with_plots = []
+        for cycle in sorted(errormap_cycles, key=_cycle_sort_key):
+            plots = errormap_cycles[cycle]["plots"]
+            if plots:
+                cycles_with_plots.append(cycle)
+            for path in plots:
+                index = _ERRORMAP_INDEX_PATTERN.search(path.name)
+                figures.append(_figure(
+                    path,
+                    site_dir,
+                    path.name,
+                    detail="Cycle {} / error map {}".format(
+                        cycle, index.group(1) if index else "?"
+                    ),
+                    extra_search="cycle-{}".format(cycle),
+                    item_class="errormap-entry",
+                ))
+        gallery = ""
+        if figures:
+            pills = ['<div class="pill-group" data-pill-group data-pill-target=".errormap-entry">']
+            pills.append('<span class="pill-label">Cycle:</span>')
+            pills.append('<button type="button" class="pill-btn active" data-filter-value="all">All cycles</button>')
+            for cycle in cycles_with_plots:
+                pills.append(
+                    '<button type="button" class="pill-btn" data-filter-value="cycle-{0}">Cycle {0}</button>'.format(
+                        _escape(cycle)
+                    )
+                )
+            pills.append("</div>")
+            gallery = (
+                "".join(pills)
+                + _filter_input(".errormap-entry", "Search error-map plots")
+                + '<div class="gallery">{}</div>'.format("".join(figures))
+            )
+
+        file_groups = []
+        for cycle in sorted(errormap_cycles, key=_cycle_sort_key):
+            files = errormap_cycles[cycle]["files"]
+            if files:
+                file_groups.append(
+                    '<details><summary>Cycle {} / {} files</summary><ul class="file-list">{}</ul></details>'.format(
+                        _escape(cycle),
+                        len(files),
+                        "".join(
+                            '<li>{}<span class="file-size">{}</span></li>'.format(
+                                _link(path, site_dir), _escape(_artifact_size(path))
+                            )
+                            for path in files
+                        ),
+                    )
+                )
+        sections.append(_section(
+            "Direction selection",
+            selection_table + gallery + "".join(file_groups),
+            "Calibration error maps highlight residual artefacts in the image at three "
+            "spatial scales. A strong artefact pattern marks a bright source with "
+            "calibration errors; these sources become the directions for the next "
+            "cycle (red circles in the plots). The errormaps_dd/ files are the error "
+            "maps, their source catalogues and the compact-source flux catalogue.",
+        ))
+
+    # Facet layout: the latest image plot has the facet regions overlaid.
+    layout_parts = []
+    numbered_plots = []
+    for path in artifacts.get("all_overview_plots", artifacts["overview_plots"]):
+        match = re.fullmatch(r"(.+)_([0-9]+)", path.stem)
+        if match:
+            numbered_plots.append((int(match.group(2)), path))
+    if numbered_plots:
+        cycle, path = max(numbered_plots, key=lambda item: item[0])
+        layout_parts.append('<div class="gallery direction-layout">{}</div>'.format(_figure(
+            path, site_dir, path.name, detail="Cycle {:03d} image with facet regions".format(cycle)
+        )))
+    layout_links = list(artifacts.get("dde_region_files", []))
+    facets_fits = run_root / "fits_images" / "facets.fits"
+    if facets_fits.is_file():
+        layout_links.append(facets_fits)
+    if layout_links:
+        layout_parts.append('<ul class="file-list">{}</ul>'.format("".join(
+            '<li>{}<span class="file-size">{}</span></li>'.format(
+                _link(path, site_dir, path.relative_to(run_root).as_posix()),
+                _escape(_artifact_size(path)),
+            )
+            for path in layout_links
+        )))
+    if layout_parts:
+        sections.append(_section(
+            "Facet layout",
+            "".join(layout_parts),
+            "facets.reg defines the facet assigned to each direction for imaging; "
+            "directions_NNN.reg marks the direction centres per cycle.",
+        ))
+
+    body = (
+        '<p class="page-intro">Direction-dependent calibration: the directions solved for, '
+        "how they were selected and the facet layout. Solution plots per direction "
+        'are on the <a href="calibration.html">Calibration</a> pages.</p>\n'
+        + "\n".join(sections)
+    )
+    _write_page(
+        site_dir / "directions.html",
+        title,
+        "directions.html",
+        body,
+        subtitle="Directions / {}".format(run_root.name),
+        optional_pages=optional_pages,
+    )
+
+
+def _run_details_page(site_dir, run_root, config, artifacts, logs, command_record, status, error):
     title = str(config.get("imagename") or run_root.name)
     file_links = []
-    for relative in ("full_config.txt", "facetselfcal.txt", "logs/selfcal.log", "logs/resource_usage.csv", "logs/resource_phases.csv"):
+    relatives = ["full_config.txt", "logs/selfcal.log", "logs/resource_usage.csv", "logs/resource_phases.csv"]
+    if command_record and command_record["source"] == "file":
+        relatives.insert(1, "facetselfcal.txt")
+    for relative in relatives:
         path = run_root / relative
         if path.is_file():
             file_links.append(
@@ -6536,11 +7912,19 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text,
 
     config_filter = _filter_input(".config-row", "Filter configuration options")
     config_table = _config_table(config, filterable=True)
-    command_section = ""
-    if command_text:
-        command_section = '<details open><summary>Recorded command line</summary><pre>{}</pre></details>'.format(
-            _escape(command_text)
+    command_section = '<p class="empty">No command line was recorded for this run.</p>'
+    source_note = None
+    if command_record:
+        source_note = {
+            "marker": "Logged by facetselfcal at startup{}.",
+            "log": "Taken from logs/selfcal.log{}.",
+            "file": "Taken from the user-supplied facetselfcal.txt; this run did not log its command line.",
+        }[command_record["source"]].format(
+            " ({})".format(command_record["timestamp"]) if command_record.get("timestamp") else ""
         )
+        if command_record.get("cwd"):
+            source_note += " Working directory: {}.".format(command_record["cwd"])
+        command_section = "<pre>{}</pre>".format(_escape(command_record["command"]))
 
     inventory_rows = [
         ("Calibration PNG plots", sum(len(paths) for _, cycles in artifacts["calibration_sets"] for paths in cycles.values())),
@@ -6617,7 +8001,7 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text,
         + env_section + "\n"
         + (resource_section + "\n" if resource_section else "")
         + _section("Configuration files and logs", links_html) + "\n"
-        + _section("Recorded command", command_section or '<p class="empty">No facetselfcal.txt command record was found.</p>') + "\n"
+        + _section("Recorded command", command_section, source_note) + "\n"
         + _section("Saved configuration", config_filter + config_table) + "\n"
         + _section("Artifact inventory", inventory) + "\n"
         + _section("Warning log records", _render_log_events(logs["warnings"], logs["warning_count"])) + "\n"
@@ -6630,8 +8014,7 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_text,
         "run-details.html",
         body,
         subtitle="Run details & logs / {}".format(run_root.name),
-        bandpass_enabled=_bandpass_enabled(config),
-        extraction_enabled=_extraction_enabled(config),
+        optional_pages=_optional_pages(config),
     )
 
 
@@ -6684,13 +8067,6 @@ def _build_html_overview(run_root, site_dir, status, error):
     config = _parse_config(run_root / "full_config.txt")
     stack_mode = _stack_enabled(config)
     stack_groups = _load_stack_imaging_groups(run_root) if stack_mode else {}
-    command_path = run_root / "facetselfcal.txt"
-    command_text = ""
-    if command_path.is_file():
-        try:
-            command_text = command_path.read_text(encoding="utf-8", errors="replace").strip()
-        except OSError as exc:
-            report_warning("Could not read command record {}: {}".format(command_path, exc))
     run_started_at, current_run_cycles = _current_run_context(run_root)
     try:
         start_cycle = int(config.get("start", 0))
@@ -6709,6 +8085,8 @@ def _build_html_overview(run_root, site_dir, status, error):
         stack_groups=stack_groups,
     )
     logs["resources"] = _scan_resource_log(run_root, run_started_at, start_cycle)
+    command_record = _current_command(logs, run_root)
+    logs["command_record"] = command_record
     current_image_names = {path.name.casefold() for path in artifacts["fits_files"]}
     logs["cycle_timeline"] = _filter_restart_cycle_timeline(
         logs["cycle_timeline"], run_started_at, start_cycle
@@ -6739,11 +8117,13 @@ def _build_html_overview(run_root, site_dir, status, error):
         _extraction_page(
             site_dir, run_root, config, artifacts, run_started_at, logs
         )
+    if _dde_enabled(config):
+        _directions_page(site_dir, run_root, config, artifacts)
     _calibration_page(site_dir, run_root, config, artifacts)
     if _bandpass_enabled(config):
         _bandpass_page(site_dir, run_root, config, artifacts)
     _datasets_page(site_dir, run_root, config, artifacts, logs)
-    _run_details_page(site_dir, run_root, config, artifacts, logs, command_text, status, error)
+    _run_details_page(site_dir, run_root, config, artifacts, logs, command_record, status, error)
 
 
 def main(argv=None):

@@ -35,6 +35,7 @@ import ast
 import configparser
 import copy
 import glob
+import json
 import logging
 import multiprocessing
 import os
@@ -395,11 +396,14 @@ def _ensure_run_mode_marker(run_directory, requested_mode):
 
 try:
     from .monitor import ResourceMonitor
+    from .resource_chart import COMMAND_MARKER
 except ImportError:
     try:
         from monitor import ResourceMonitor
+        from resource_chart import COMMAND_MARKER
     except ImportError:
         from facetselfcal.monitor import ResourceMonitor
+        from facetselfcal.resource_chart import COMMAND_MARKER
 
 
 def _configure_selfcal_log(start):
@@ -439,6 +443,33 @@ def _configure_selfcal_log(start):
     file_handler = logging.FileHandler(log_path, mode=mode)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
+
+
+def _write_full_config(settings):
+    """Write the run settings to ``full_config.txt`` as ``key = value`` lines.
+
+    Called at startup, so a run that fails early still leaves a record, and
+    again after automatic settings have been resolved. The file is read by the
+    HTML report and copied into the merged h5parms.
+    """
+    with open("full_config.txt", "w") as file:
+        for key, value in settings.items():
+            file.write(f"{key} = {value}\n")
+
+
+def _log_command_line():
+    """Log the command line of this run as a machine-readable marker.
+
+    The HTML report reads the last marker in ``logs/selfcal.log`` to show the
+    command of the current run.
+    """
+    logger.info(
+        COMMAND_MARKER
+        + json.dumps(
+            {"argv": sys.argv, "cwd": os.getcwd(), "epoch": time.time()},
+            separators=(",", ":"),
+        )
+    )
 
 
 def _prepare_html_overview(start):
@@ -633,7 +664,7 @@ def _remove_previous_cycle_products(start_cycle, stop_cycle, imagename,
                 return start_cycle
             return None
         if product_kind in ("directions", "facet_regions"):
-            match = re.fullmatch(r"directions_(\d+)\.(?:txt|reg)", path.name, re.IGNORECASE)
+            match = re.fullmatch(r"(?:directions|facets)_(\d+)\.(?:txt|reg)", path.name, re.IGNORECASE)
             return int(match.group(1)) if match else None
         for prefix in image_prefixes:
             if not prefix:
@@ -1728,6 +1759,11 @@ def prepare_DDE(imagebasename, selfcalcycle, mslist,
                                                               targetFlux=args['targetFlux'], ms=mslist[0], imsize=args['imsize'],
                                                               pixelscale=args['pixelscale'], numClusters=args['Nfacets'],
                                                               facetdirections=args['facetdirections'], restart=restart)
+    # Keep the facet layout of each cycle; facets.reg itself is overwritten every
+    # cycle (on a restart create_facet_directions keeps the previous facets.reg).
+    if not restart and os.path.isfile('facet_regions/facets.reg'):
+        shutil.copy('facet_regions/facets.reg',
+                    'facet_regions/facets_' + str(selfcalcycle).zfill(3) + '.reg')
     
     # testing
     #if solints is not None and isinstance(args['facetdirections'], str):
@@ -5179,6 +5215,7 @@ def main():
         raise SystemExit(2) from None
 
     _configure_selfcal_log(args['start'])
+    _log_command_line()
     _log_machine_info()
     _prepare_html_overview(args['start'])
 
@@ -5190,9 +5227,7 @@ def main():
         logger.warning("Could not start resource monitor: %s", exc)
         set_resource_monitor(None)
     
-    with open("full_config.txt", "w") as file:
-        for key, value in args.items():
-            file.write(f"{key} = {value}\n")
+    _write_full_config(args)
     _REPORT_RUN_INITIALIZED = True
 
     if args['stack']:
@@ -5209,7 +5244,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
 
-    facetselfcal_version = '20.3.0'
+    facetselfcal_version = '20.4.0'
     print_title(facetselfcal_version)
     _write_html_overview(
         Path.cwd(), status="running", announce_browser=True
@@ -5420,6 +5455,9 @@ def main():
     # SETUP VARIOUS PARAMETERS
     longbaseline, LBA, HBAorLBA, freq, fitsmask, maskthreshold_selfcalcycle, \
         automaskthreshold_selfcalcycle, outtarname = basicsetup(mslist)
+    # basicsetup fills in automatic choices (--auto solve settings, pixelscale,
+    # niter, stop, ...); record the settings that will actually be used.
+    _write_full_config(args)
 
     removed_products = _remove_previous_cycle_products(
         args['start'],
