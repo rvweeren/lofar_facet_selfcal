@@ -219,8 +219,8 @@ class ResourceMonitor:
                 logger.warning("Failed writing resource phase event: %s", exc)
                 self._live_message = "Failed writing resource phase event: {}".format(exc)
 
-    def record_phase_intervals(self, phases, start_epoch, end_epoch):
-        """Record overlapping phases that share a command's start and end times."""
+    @staticmethod
+    def _normalized_phase_list(phases):
         normalized_phases = list(
             dict.fromkeys(str(phase).strip().lower() for phase in phases)
         )
@@ -233,24 +233,52 @@ class ResourceMonitor:
                     ", ".join(invalid_phases)
                 )
             )
+        return normalized_phases
+
+    def begin_phase_intervals(self, phases, start_epoch=None):
+        """Open overlapping phases that share a command's start time.
+
+        The start events are written immediately, so the chart shows the
+        phases while the command runs. Pass the returned token to
+        :meth:`end_phase_intervals` when the command finishes.
+
+        Returns
+        -------
+        dict or None
+            Token describing the opened phases, or None if nothing was opened.
+        """
+        normalized_phases = self._normalized_phase_list(phases)
         if not normalized_phases:
-            return
-
-        start_epoch = float(start_epoch)
-        end_epoch = float(end_epoch)
-        if end_epoch < start_epoch:
-            raise ValueError("end_epoch must not precede start_epoch")
-
+            return None
+        start_epoch = time.time() if start_epoch is None else float(start_epoch)
         with self._cycle_lock:
             if self._stopped:
-                return
+                return None
             cycle = self._cycle if self._cycle_started else None
             for phase in normalized_phases:
                 self._record_phase_event(start_epoch, cycle, phase, "start")
-            for phase in normalized_phases:
-                self._record_phase_event(end_epoch, cycle, phase, "end")
-
         self._write_live_page(phase_only=True)
+        return {"phases": normalized_phases, "cycle": cycle, "start_epoch": start_epoch}
+
+    def end_phase_intervals(self, token, end_epoch=None):
+        """Close phases opened by :meth:`begin_phase_intervals`."""
+        if not token:
+            return
+        end_epoch = time.time() if end_epoch is None else float(end_epoch)
+        end_epoch = max(end_epoch, token["start_epoch"])
+        with self._cycle_lock:
+            if self._stopped:
+                return
+            for phase in token["phases"]:
+                self._record_phase_event(end_epoch, token["cycle"], phase, "end")
+        self._write_live_page(phase_only=True)
+
+    def record_phase_intervals(self, phases, start_epoch, end_epoch):
+        """Record overlapping phases that share a command's start and end times."""
+        if float(end_epoch) < float(start_epoch):
+            raise ValueError("end_epoch must not precede start_epoch")
+        token = self.begin_phase_intervals(phases, start_epoch)
+        self.end_phase_intervals(token, end_epoch)
 
     def set_phase(self, phase):
         """Record a workflow phase transition for the active cycle."""
@@ -369,9 +397,12 @@ class ResourceMonitor:
             )
         else:
             sample = latest_sample
-            all_phase_intervals = phase_intervals_from_events(
-                phase_events,
-                end_epoch=max(sample["epoch"], time.time()),
+            # Bars and curves come from the same snapshot: open phases end at
+            # the latest sample, never past it, so both advance together.
+            all_phase_intervals = clip_phase_intervals_to_window(
+                phase_intervals_from_events(phase_events, end_epoch=sample["epoch"]),
+                resource_samples[0]["epoch"],
+                sample["epoch"],
             )
             recent_samples = resource_samples[-DEFAULT_RESOURCE_SAMPLE_COUNT:]
             phase_intervals = clip_phase_intervals_to_window(

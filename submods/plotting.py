@@ -2,6 +2,7 @@
 time-gap checks, A-team separation plots."""
 import os
 import subprocess
+import warnings
 from pathlib import Path
 
 import matplotlib
@@ -469,6 +470,52 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
     return
 
 
+def plotimage_plain(fitsimagename, outplotname, minmax, cmap='bone', max_pixels=2500):
+    """
+    Write only the image pixels of a FITS image to a PNG file.
+
+    The PNG has no axes, grid, title, colorbar, beam, regions or mask, and
+    one PNG pixel corresponds to a fixed block of image pixels. Plots of the
+    same field made with the same ``minmax`` therefore line up exactly, which
+    the HTML report uses to blink between self-calibration cycles.
+
+    Parameters
+    ----------
+    fitsimagename : str
+        FITS image path.
+    outplotname : str
+        Output PNG path.
+    minmax : sequence of float
+        Display minimum and maximum.
+    cmap : str, optional
+        Matplotlib colormap.
+    max_pixels : int, optional
+        Larger images are block-averaged so neither PNG axis exceeds this size.
+
+    Returns
+    -------
+    None
+        The plot is written to disk.
+    """
+    data = np.asarray(fits.getdata(fitsimagename), dtype=np.float32)
+    while data.ndim > 2:
+        data = data[0]
+
+    factor = int(np.ceil(max(data.shape) / float(max_pixels)))
+    if factor > 1:
+        ny = (data.shape[0] // factor) * factor
+        nx = (data.shape[1] // factor) * factor
+        blocks = data[:ny, :nx].reshape(ny // factor, factor, nx // factor, factor)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', RuntimeWarning)  # all-NaN blocks stay NaN
+            data = np.nanmean(blocks, axis=(1, 3))
+
+    if os.path.isfile(outplotname):
+        Path(outplotname).unlink(missing_ok=True)  # remove existing file to avoid permission issues
+    plt.imsave(outplotname, data, cmap=cmap, vmin=minmax[0], vmax=minmax[1],
+               origin='lower', format='png')
+
+
 def plotimage(selfcalcycle, args, stackstr='', mask=None, regionfile=None):
     """
     Plot an image using Astropy, falling back to APLpy if necessary.
@@ -525,6 +572,13 @@ def plotimage(selfcalcycle, args, stackstr='', mask=None, regionfile=None):
     except Exception as e:
         terminal_print(f"Astropy plotting failed with error: {e}. Switching to aplpy.")
         plotimage_aplpy(plotfitsimage, plotpngimage, mask, plotfitsimage)
+
+    # Same image and display range without overlays, for blinking between cycles
+    plainpngimage = os.path.splitext(plotpngimage)[0] + '-plain.png'
+    try:
+        plotimage_plain(plotfitsimage, plainpngimage, plotminmax)
+    except Exception as e:
+        terminal_print(f"Plain image plot failed with error: {e}. Skipping.")
 
 
 def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
