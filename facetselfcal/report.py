@@ -2195,6 +2195,34 @@ def _current_run_context(run_root):
     return timestamp_by_line.get(start_index), current_cycles
 
 
+_SAFE_SHELL_WORD = re.compile(r"[\w@%+=:,./-]+")
+
+
+def _display_command(argv):
+    """Join argv into a readable, copy-pasteable shell command.
+
+    Arguments are quoted as a user would type them: values with brackets or
+    quotes, such as ``--solint-list=['2min','10min']``, are wrapped in double
+    quotes (``--solint-list="['2min','10min']"``) rather than shlex.join's
+    nested single quotes.
+    """
+    def quote(value):
+        if value and _SAFE_SHELL_WORD.fullmatch(value):
+            return value
+        if not re.search(r'["$`\\!]', value):
+            return '"{}"'.format(value)
+        return shlex.quote(value)
+
+    words = []
+    for arg in argv:
+        option, separator, value = arg.partition("=")
+        if separator and option.startswith("-") and _SAFE_SHELL_WORD.fullmatch(option):
+            words.append(option + "=" + quote(value))
+        else:
+            words.append(quote(arg))
+    return " ".join(words)
+
+
 def _command_marker_record(message, timestamp):
     """Decode a startup command marker logged by facetselfcal."""
     try:
@@ -2203,7 +2231,7 @@ def _command_marker_record(message, timestamp):
     except (ValueError, KeyError, TypeError):
         return None
     return {
-        "command": shlex.join(argv),
+        "command": _display_command(argv),
         "cwd": payload.get("cwd"),
         "timestamp": timestamp,
         "source": "marker",
