@@ -32,7 +32,7 @@ datapath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 
 def split_columns(ms, outms, column='CORRECTED_DATA'):
     """
-    Split a column from a Measurement Set (MS), mimickiqng CASA split.
+    Split a column from a Measurement Set (MS), mimicking CASA split.
 
     Parameters
     ----------
@@ -56,10 +56,21 @@ def split_columns(ms, outms, column='CORRECTED_DATA'):
     # Remove  MS if it exists
     if os.path.isdir(outms):
         shutil.rmtree(outms, ignore_errors=True)
-    cmd = "taql 'select FLAG_CATEGORY,WEIGHT,SIGMA,ARRAY_ID,DATA_DESC_ID,EXPOSURE,\
-           FEED1,FEED2,FIELD_ID,FLAG_ROW,INTERVAL,OBSERVATION_ID,PROCESSOR_ID,\
-           SCAN_NUMBER,STATE_ID,TIME,TIME_CENTROID,UVW,ANTENNA1,ANTENNA2,FLAG,\
-           WEIGHT_SPECTRUM,{} from {} giving {} as plain'".format(column, ms, outms)   
+    with table(ms, ack=False) as t:
+        colnames = t.colnames()
+    if column not in colnames:
+        raise ValueError('Column {} not found in {}'.format(column, ms))
+    # only select columns that are present, TaQL fails on missing ones
+    # (e.g. FLAG_CATEGORY or WEIGHT_SPECTRUM are not always present)
+    wanted = ['FLAG_CATEGORY', 'WEIGHT', 'SIGMA', 'ARRAY_ID', 'DATA_DESC_ID', 'EXPOSURE',
+              'FEED1', 'FEED2', 'FIELD_ID', 'FLAG_ROW', 'INTERVAL', 'OBSERVATION_ID', 'PROCESSOR_ID',
+              'SCAN_NUMBER', 'STATE_ID', 'TIME', 'TIME_CENTROID', 'UVW', 'ANTENNA1', 'ANTENNA2', 'FLAG',
+              'WEIGHT_SPECTRUM']
+    missing = [col for col in wanted if col not in colnames]
+    if missing:
+        terminal_print('Columns not present in {}, skipping: {}'.format(ms, ','.join(missing)))
+    selected = [col for col in wanted if col in colnames] + [column]
+    cmd = "taql 'select {} from {} giving {} as plain'".format(','.join(selected), ms, outms)
     terminal_print('Command:', cmd)
     run(cmd, taql=True)
     fix_uvw([outms])
@@ -389,7 +400,8 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
         H5 solutions to match and
         merge for each group.
     concatms : bool, optional
-        Concatenate each group into an output MS.
+        Concatenate each group into an output MS. If False, existing
+        wsclean_concat_*.ms are reused and only missing ones are created.
 
     Returns
     -------
@@ -446,19 +458,21 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
             terminal_print('MS group and matched h5 group', group, h5group)
             terminal_print('------------------------------')
             if os.path.isfile(f'wsclean_concat_{g}.h5'):
-                shutil.rmtree(f'wsclean_concat_{g}.h5', ignore_errors=True)
+                os.remove(f'wsclean_concat_{g}.h5')
             merge_h5(h5_out=f'wsclean_concat_{g}.h5', h5_tables=h5group, propagate_weights=True, time_concat=True)
             H5s_files_clean.append(f'wsclean_concat_{g}.h5')
-        if concatms:
+        # with concatms=False reuse the existing concatenated MS, but create it if it is missing
+        # (e.g. on a restart with --start > 0 in a directory without wsclean_concat_*.ms)
+        if concatms or not os.path.isdir(f'wsclean_concat_{g}.ms'):
             terminal_print(f'taql select from {group} giving wsclean_concat_{g}.ms as plain')
             run(f'taql select from {group} giving wsclean_concat_{g}.ms as plain', taql=True)
+            fix_uvw(f'wsclean_concat_{g}.ms')
         MSs_files_clean.append(f'wsclean_concat_{g}.ms')
 
     # MSs_files_clean = ' '.join(MSs_files_clean)
 
     # print('Use the following ms files as input in wsclean:')
     terminal_print('Measurement Sets used for imaging:', MSs_files_clean)
-    fix_uvw(MSs_files_clean)
     return MSs_files_clean, H5s_files_clean
 
 

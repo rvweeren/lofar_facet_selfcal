@@ -620,8 +620,11 @@ def set_fitsmask_restart(i, mslist, args):
 
     Returns
     -------
-    object
-        Restart mask state.
+    tuple
+    fitsmask : str or None
+        Mask of the previous cycle for the last imaging set, or None if not found.
+    fitsmask_list : list
+        Mask filenames (or None) for each imaging set.
     """
     fitsmask_list = []
     for msim_id, mslistim in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
@@ -630,29 +633,20 @@ def set_fitsmask_restart(i, mslist, args):
         else:
             stackstr = ''  # empty string
 
-        if args['idg']:
-            if os.path.isfile('clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'):
-                fitsmask = 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
-            else:
-                terminal_print('Cannot find: ' + 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz')
+        # same naming as used when the mask was made in update_fitsmask()
+        if args['imager'] == 'DDFACET':
+            imagename = os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '.app.restored.fits'
         else:
-            if args['imager'] == 'WSCLEAN':
-                if os.path.isfile('clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'):
-                    fitsmask = 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
-                else:
-                    terminal_print('Cannot find: ' + 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz')  
-            if args['imager'] == 'DDFACET':
-                if os.path.isfile('clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '.app.restored.fits'):
-                    fitsmask = 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz'
-                else:
-                    terminal_print('Cannot find: ' + 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz')  
-        if args['channelsout'] == 1:
-            if args['imager'] == 'WSCLEAN':
-                fitsmask = 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits.mask.fits.gz'
-            if args['imager'] == 'DDFACET':
-                fitsmask = 'clean_masks/' + os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '.app.restored.fits.mask.fits.gz'
-            fitsmask = fitsmask.replace('-MFS', '').replace('-I', '')
-        terminal_print('Appending fitsmask: ', fitsmask) 
+            imagename = os.path.basename(args['imagename']) + str(i - 1).zfill(3) + stackstr + '-MFS-image.fits'
+        if args['channelsout'] == 1:  # no MFS in name if no channel images present
+            imagename = imagename.replace('-MFS', '').replace('-I', '')
+        fitsmask = 'clean_masks/' + imagename + '.mask.fits.gz'
+
+        if not os.path.isfile(fitsmask):
+            # no mask from the previous cycle (e.g. maskthreshold <= 0), continue without one
+            terminal_print('Cannot find: ' + fitsmask)
+            fitsmask = None
+        terminal_print('Appending fitsmask: ', fitsmask)
         fitsmask_list.append(fitsmask)
     return fitsmask, fitsmask_list
 

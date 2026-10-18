@@ -2,6 +2,7 @@
 Measurement Sets with DP3 and losoto."""
 import fnmatch
 import multiprocessing
+import os
 
 import astropy.units as units
 import numpy as np
@@ -11,7 +12,7 @@ from losoto import h5parm  # type: ignore
 
 from submods.h5_helpers.h5_info import check_phaseup, findrefant_core, force_close
 from submods.losoto_helpers import create_losoto_beamcorparset, losotolofarbeam
-from submods.ms_columns import remove_column_ms
+from submods.ms_columns import mscolexist, remove_column_ms
 from submods.ms_fixes import fix_uvw
 from submods.ms_info import check_phaseup_station
 from submods.runtime_utils import get_logger, run, terminal_print
@@ -490,6 +491,11 @@ def beamcormodel(ms, dysco=True):
         Use Dysco compression.
     """
     H5name = ms + '_templatejones.h5'
+    # the beam template H5 (create_beamcortemplate + losotolofarbeam) and MODEL_DATA should exist already
+    if not os.path.isfile(H5name):
+        raise FileNotFoundError(H5name + ' not found, create it first with create_beamcortemplate()')
+    if not mscolexist(ms, 'MODEL_DATA'):
+        raise ValueError('MODEL_DATA column not found in ' + ms)
 
     cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. '
     cmd += 'msout.datacolumn=MODEL_DATA_BEAMCOR steps=[ac1,ac2] '
