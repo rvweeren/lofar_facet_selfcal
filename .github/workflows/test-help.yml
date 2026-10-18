@@ -209,7 +209,7 @@ jobs:
           --soltype-list="['scalarphase','scalarcomplexgain']" \
           --soltypecycles-list=[0,2] \
           --smoothnessconstraint-list=[10.,10.] \
-          --niter=15000 \
+          --niter=2500 \
           --stop=2 \
           --multiscale \
           --multiscale-start=0 \
