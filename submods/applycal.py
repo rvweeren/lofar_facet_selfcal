@@ -16,7 +16,7 @@ from submods.h5_helpers.h5_info import amplitude_leakage_paramdb, fulljonesparmd
 from submods.h5_helpers.reset_solutions import resetsolsforstations
 from submods.ms_columns import remove_column_ms
 from submods.ms_fixes import fix_uvw
-from submods.ms_operations import check_phaseup_station
+from submods.ms_info import check_phaseup_station
 from submods.runtime_utils import _track_resource_phase, run, terminal_print
 
 
