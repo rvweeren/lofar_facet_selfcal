@@ -226,6 +226,42 @@ jobs:
           --test \
           /repo/.github/data/test2.ms
 
+      - name: Run GMRT bandpass calibration
+        run: |
+          run_directory="$(mktemp -d "$RUNNER_TEMP/facetselfcal.XXXXXX")"
+          trap 'rm -rf -- "$run_directory"' EXIT
+          singularity exec \
+          --bind "$(pwd):/repo" \
+          --bind "$run_directory:/work" \
+          --pwd /work \
+          flocs.sif \
+          python /repo/facetselfcal.py \
+          -i 3C147_bandpass \
+          --testing \
+          --uvmin=500 \
+          --uvminim=10 \
+          --niter=1000 \
+          --imsize=256 \
+          --aoflagger \
+          --aoflagger-strategy=bandpass1GMRT_StokesI.lua \
+          --no-aoflaggerbeforeavg \
+          --aoflagger-correcteddata \
+          --aoflagger-strategy-correcteddata=bandpass2GMRT_RRLL.lua \
+          --soltype-list="['complexgain']" \
+          --solint-list="['5sec']" \
+          --soltypecycles-list=[0] \
+          --smoothnessconstraint-list="[0.]" \
+          --forwidefield \
+          --skymodelpointsource=49.0 \
+          --keepusingstartingskymodel \
+          --ampresetvalfactor=100 \
+          --bandpass \
+          --bandpass-stop=1 \
+          --msinstartchan=15 \
+          --msinnchan=219 \
+          --flag-antenna-list="['E04','E05','E06','W03']" \
+          /repo/.github/data/gmrt_3C147_bandpass.ms
+
           
       - name: Show free space at end (debug)
         if: always()
