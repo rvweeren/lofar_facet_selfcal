@@ -5272,7 +5272,8 @@ def main():
         # args['skipbackup'] will set based on whether all MS were splitted
         # in case all MS were splitted a backup is not needed anymore
         args['flag_ampresetvalfactor'] = True  # set to True to flag bad bandpass solutions which values are too high or low
-        if args['skymodel'] is None and not args['skymodelsetjy']: 
+        if args['skymodel'] is None and args['skymodelpointsource'] is None \
+                and args['wscleanskymodel'] is None and not args['skymodelsetjy']:
             args['skymodel'] = set_MeerKAT_bandpass_skymodel(mslist[0]) # try to set skymodel automatically    
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, args, 
                                                            dysco=args['dysco'], metadata_compression=args['metadata_compression'])
@@ -5849,7 +5850,7 @@ def main():
         if args['bandpass'] and args['bandpass_stop'] == 0: 
             terminal_print('Stopping as requested via --bandpass and compute bandpass')
             for parmdb_id, parmdb in enumerate(create_mergeparmdbname(mslist, i, skymodelsolve=True)):
-                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb), skip_solution_plotting=args["skip_solution_plotting"])
+                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb, skip_solution_plotting=args["skip_solution_plotting"]))
                 set_weights_h5_to_one(parmdb)
                 if os.path.isfile(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_')):
                     # remove existing bandpass file
@@ -5917,7 +5918,7 @@ def main():
         if args['bandpass'] and i >=args['bandpass_stop']: 
             terminal_print('Stopping as requested via --bandpass and compute bandpass')
             for parmdb_id, parmdb in enumerate(create_mergeparmdbname(mslist, i, skymodelsolve=True)):
-                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb), skip_solution_plotting=args["skip_solution_plotting"])
+                run('losoto ' + parmdb + ' ' + create_losoto_bandpassparset('a&p', mslist[parmdb_id], parmdb, skip_solution_plotting=args["skip_solution_plotting"]))
                 set_weights_h5_to_one(parmdb)
                 if os.path.isfile(parmdb.replace('h5_solutions/merged_', 'h5_solutions/bandpass_')):
                     # remove existing bandpass file
