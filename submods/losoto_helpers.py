@@ -10,7 +10,7 @@ from casacore.tables import taql
 from losoto import h5parm
 from pathlib import Path
 
-from .plotting.plot_tecdelayphase import plot_tecdelayphase
+from facetselfcal.plotting.plot_tecdelayphase import plot_tecdelayphase
 from submods.h5_helpers.modify_amplitude import get_median_amp
 
 logger = logging.getLogger(__name__)
