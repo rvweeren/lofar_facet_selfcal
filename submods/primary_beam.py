@@ -195,7 +195,7 @@ def _apply_pb_and_write(hdu, img, separation, beam, pblimit, outfile):
 
 def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
     """
-    Apply a MeerKAT primary beam correction to a L-band FITS image.
+    Apply a MeerKAT primary beam correction to a UHF-, L- or S-band FITS image.
 
     Parameters
     ----------
@@ -211,7 +211,7 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
 
     ms : str, optional
         Path to the Measurement Set (MS). If provided, the pointing center will be
-        read from the 'REFERENCE_DIR' column of the MS. If not provided, the center 
+        read from the 'REFERENCE_DIR' column of the MS. If not provided, the center
         of the image will be assumed to be the pointing center.
 
     pblimit : float, optional
@@ -226,31 +226,30 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
 
     Notes
     -----
-    - This function applies a primary beam correction for MeerKAT L-band observations
-    using the polynomial model published by T. Mauch et al. (2020, ApJ, 888, 61).
-    - The correction is based on the distance from the pointing center and observing
-    frequency, using a 10th-order polynomial model with coefficients:
+    - The primary beam (power) follows the AIPS PBCOR polynomial convention:
 
-    G1 = -0.3514e-3
-    G2 =  0.5600e-7
-    G3 = -0.0474e-10
-    G4 =  0.00078e-13
-    G5 =  0.00019e-16
+      PB = 1 + G1*X**2 + G2*X**4 + G3*X**6 + G4*X**8 + G5*X**10
 
-    - For UHF and S-band frequencies, different coefficients are used as specified in the code.
-    These were derived from fitting the katbeam model (average of 13 frequencies) with the given polynomial form.
+      where X = separation_arcmin * freq_GHz.
 
-    - The beam correction formula follows the AIPS PBCOR convention.
+    - The coefficients for all three bands are fits to the azimuthally averaged
+      Stokes I katbeam models MKAT-AA-{UHF,L,S}-JIM-2020 (13 frequencies across
+      each band, fitted down to PB = 0.02). Below 1 GHz the UHF coefficients are
+      used, which agree with the L-band katbeam model to within 0.01 at 900 MHz.
+
+    - The L-band polynomial of T. Mauch et al. (2020) is not used: it is only
+      valid for PB > 0.25 and rises again beyond X = 77.6 arcmin GHz.
 
     References
     ----------
-    - T. Mauch et al. 2020, "The 1.28 GHz MeerKAT DEEP2 Image," ApJ, 888, 61.
+    - katbeam: https://github.com/ska-sa/katbeam
     - AIPS PBCOR: http://www.aips.nrao.edu/cgi-bin/ZXHLP2.PL?PBCOR
+    - T. Mauch et al. 2020, "The 1.28 GHz MeerKAT DEEP2 Image," ApJ, 888, 61.
 
     Warnings
     --------
     - If the image center is not the actual pointing center and no MS is provided,
-    the beam correction may be incorrectly applied. Ensure correct pointing 
+    the beam correction may be incorrectly applied. Ensure correct pointing
     information is used when available.
     """
     if freq is None:
@@ -263,7 +262,8 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
         coeffs = (1.0, -0.3409306414e-3, 0.5002777932e-7, -0.0406048877e-10,
                   0.0017837276e-13, -0.0000297565e-16)
     elif (freq >= 1.0) and (freq < 1.7):  # L-band
-        coeffs = (1.0, -0.3514e-3, 0.5600e-7, -0.0474e-10, 0.00078e-13, 0.00019e-16)
+        coeffs = (1.0, -0.3469221475e-3, 0.5220555678e-7, -0.0442470922e-10,
+                  0.0020961527e-13, -0.0000402612e-16)
     elif (freq >= 1.7) and (freq < 4.0):  # S-band
         coeffs = (1.0, -0.2829793167e-3, 0.3462301721e-7, -0.0237871692e-10,
                   0.0009189657e-13, -0.0000148312e-16)
