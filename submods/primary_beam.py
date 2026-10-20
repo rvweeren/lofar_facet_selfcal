@@ -596,6 +596,7 @@ def VLA_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15, telescope=No
     The VLA coffefficients are here https://www.aips.nrao.edu/cgi-bin/ZXHLP2.PL?PBCOR
     The EVLA coefficients can be found in see EVLA Memo 195, Jansky Very Large Array Primary Beam Characteristics by Rick Perley, revision dated June 2016 https://library.nrao.edu/public/memos/evla/EVLAM_195.pdf
     For the EVLA If the observing frequency is between two tabulated frequencies, then the beam is computed for each of the tabulated frequencies and then interpolated to the observing frequency.
+    All polynomials are evaluated at the observing frequency; the tabulated frequencies only select and weight the coefficient sets.
     """
     if freq is None:
         with fits.open(fitsimage) as hdul:
@@ -660,8 +661,8 @@ def VLA_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15, telescope=No
                     break
 
         def beam(r_arcmin):
-            pb1 = _eval_poly(r_arcmin, f1 / 1e3, EVLA_PB_COEFFS[f1])
-            pb2 = _eval_poly(r_arcmin, f2 / 1e3, EVLA_PB_COEFFS[f2])
+            pb1 = _eval_poly(r_arcmin, freq, EVLA_PB_COEFFS[f1])
+            pb2 = _eval_poly(r_arcmin, freq, EVLA_PB_COEFFS[f2])
             return (1.0 - w_interp) * pb1 + w_interp * pb2
 
     hdu, img, separation = _image_separation(fitsimage, ms=ms)
