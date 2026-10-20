@@ -162,20 +162,30 @@ def _apply_pb_and_write(hdu, img, separation, beam, pblimit, outfile):
 
     Notes
     -----
-    Pixels are blanked beyond the first radius where the beam drops to ``pblimit``.
-    Using the first radial crossing avoids holes if the polynomial becomes
-    non-physical and rises again.
+    Pixels are blanked beyond the first radius where the beam drops to ``pblimit``
+    (or to zero if ``pblimit`` is zero), and beyond the first radius where the
+    polynomial stops decreasing. Using the first radial crossing avoids holes, and
+    the turning point avoids applying a polynomial that rises again far from the
+    pointing center, also when it never reaches ``pblimit``.
     """
     primary_beam = beam(separation)
     primary_beam = np.where(primary_beam <= 0.0, np.nan, primary_beam)
     corrected = img / primary_beam
 
-    if pblimit > 0.0:
-        radial_distance = np.unique(separation)
-        cutoff_idx = np.flatnonzero(beam(radial_distance) <= pblimit)
-        if cutoff_idx.size > 0:
-            cutoff_radius = radial_distance[cutoff_idx[0]]
-            corrected[separation >= cutoff_radius] = np.nan
+    cutoff_radius = np.inf
+    radial_distance = np.unique(separation)
+    cutoff_idx = np.flatnonzero(beam(radial_distance) <= max(pblimit, 0.0))
+    if cutoff_idx.size > 0:
+        cutoff_radius = radial_distance[cutoff_idx[0]]
+
+    # Find the turning point on a regular grid: nearly equal pixel radii differ
+    # only by rounding, which would show up as spurious rises in the beam
+    radial_grid = np.linspace(0.0, np.nanmax(separation), 10001)
+    rising_idx = np.flatnonzero(np.diff(beam(radial_grid)) > 0.0)
+    if rising_idx.size > 0:
+        cutoff_radius = min(cutoff_radius, radial_grid[rising_idx[0]])
+
+    corrected[separation >= cutoff_radius] = np.nan
 
     hdu[0].data[...] = corrected.reshape(hdu[0].data.shape)
     astropy.io.fits.writeto(outfile, hdu[0].data, hdu[0].header, overwrite=True)
@@ -206,7 +216,8 @@ def MeerKAT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
 
     pblimit : float, optional
         Primary beam limit in fraction of the peak. Pixels outside the first radial
-        crossing of this limit are set to NaN. Default is 0.15 (zero means no limit).
+        crossing of this limit are set to NaN. Pixels beyond the radius where the
+        polynomial starts to rise again are always set to NaN. Default is 0.15 (zero means no limit).
 
     Returns
     -------
@@ -565,7 +576,7 @@ def VLA_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15, telescope=No
         from its FIELD/REFERENCE_DIR column. Otherwise, the image center is used as the pointing center.
 
     pblimit : float, optional
-        Primary beam limit in fraction of the peak. Pixels outside the first radial crossing of this limit are set to NaN. Default is 0.15 (zero means no limit).
+        Primary beam limit in fraction of the peak. Pixels outside the first radial crossing of this limit are set to NaN. Pixels beyond the radius where the polynomial starts to rise again are always set to NaN. Default is 0.15 (zero means no limit).
 
     telescope : str, optional
         Specify the telescope type: 'VLA' or 'EVLA'. Default is None, in which
@@ -679,7 +690,9 @@ def uGMRT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
 
     pblimit : float, optional
         Primary beam limit in fraction of the peak. Pixels outside the first
-        radial crossing of this limit are set to NaN. Default is 0.15 (zero means no limit).
+        radial crossing of this limit are set to NaN. Pixels beyond the radius
+        where the polynomial starts to rise again are always set to NaN.
+        Default is 0.15 (zero means no limit).
 
     Returns
     -------
