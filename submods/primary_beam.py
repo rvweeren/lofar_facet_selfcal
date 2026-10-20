@@ -725,12 +725,12 @@ def uGMRT_pbcor(fitsimage, outfile, freq=None, ms=None, pblimit=0.15):
         coefficients = (-3.129, 38.816, -21.608, 4.483)
     elif 0.550 <= freq <= 0.850:
         coefficients = (-3.263, 42.618, -25.580, 5.823)
-    elif 1.050 <= freq <= 1.450:
+    elif 1.000 <= freq <= 1.460:
         coefficients = (-2.614, 27.594, -13.268, 2.395)
     else:
         raise ValueError(
             'Frequency must be within a published (u)GMRT band: '
-            '125-250, 250-500, 550-850, or 1050-1450 MHz.'
+            '125-250, 250-500, 550-850, or 1000-1460 MHz.'
         )
 
     coefficient_a, coefficient_b, coefficient_c, coefficient_d = coefficients
