@@ -193,6 +193,52 @@ def bandwidthsmearing(chanw, freq, imsize, verbose=True, ms_name=None):
     return R
 
 
+def timesmearing(tint, imsize, verbose=True, ms_name=None):
+    """
+    Calculate the R value for time-average smearing.
+
+    R = omega_earth * tint * (r / theta), with r / theta = imsize / 6 (image
+    half-width in beams, assuming 3 pixels per beam), the same convention as
+    in bandwidthsmearing. This is the worst case (source at the celestial
+    pole), and the peak intensity left over is I/I0 ~ 1 - (ln2/3) R**2,
+    which is the same relation as for bandwidth smearing (see smearing_time),
+    so the two R values can be compared directly.
+
+    Parameters
+    ----------
+    tint : float
+        integration time in seconds.
+    imsize : int
+        image size in pixels.
+    verbose : bool
+        print information to the screen.
+    ms_name : str or None, optional
+        Measurement Set name to include in log and print messages.
+
+    Returns
+    -------
+    R : float
+        R value for time smearing.
+    """
+    omega_earth = 7.2921159e-5  # sidereal rotation rate [rad/s]
+    R = omega_earth * tint * (imsize / 6.)  # asume we have used 3 pixels per beam
+    if verbose:
+        ms_context = f' in {ms_name}' if ms_name is not None else ''
+        message = f'R value for time smearing{ms_context} is: {R}'
+        terminal_print(message)
+        get_logger().info(message)
+        if R > 1.:
+            warning_context = f' for {ms_name}' if ms_name is not None else ''
+            warning = (
+                f'Warning, time smearing{warning_context} exceeds R=1 (R={R:.1f}). Try '
+                'to increase your time resolution, or lower imsize, '
+                'to reduce the R value below 1'
+            )
+            terminal_print(warning)
+            get_logger().warning(warning)
+    return R
+
+
 def smearing_time(r, th, t):
     """
     Returns the left over intensity I/I0 after time smearing.
@@ -301,3 +347,12 @@ def report_bandwidth_smearing(mslist, imsize):
             chan_width = np.median(t.getcol('CHAN_WIDTH'))
             min_frequency = np.min(t.getcol('CHAN_FREQ')[0])
         bandwidthsmearing(chan_width, min_frequency, imsize, ms_name=ms)
+
+
+def report_time_smearing(mslist, imsize):
+    """Compute and report time smearing for each Measurement Set."""
+    imsize = float(imsize)
+    for ms in mslist:
+        with table(ms, ack=False) as t:
+            tint = np.median(t.getcol('INTERVAL'))
+        timesmearing(tint, imsize, ms_name=ms)

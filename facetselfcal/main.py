@@ -284,7 +284,8 @@ from submods.solints import (auto_determinesolints, format_nchan,
                              tweak_solints_single)
 from submods.smearing import (bandwidthsmearing,
                               compute_distance_to_pointingcenter,
-                              report_bandwidth_smearing)
+                              report_bandwidth_smearing,
+                              report_time_smearing)
 from submods.primary_beam import (MeerKAT_pbcor, VLA_pbcor, uGMRT_pbcor,
                                   write_primarybeam_info)
 from submods.flagging import (aoflagger_column, clip_DATA,
@@ -5534,8 +5535,9 @@ def main():
     #if args['start'] == 0 and args['aoflagger'] and not args['aoflaggerbeforeavg']:
     #    runaoflagger(mslist, strategy=args['aoflagger_strategy'])
 
-    # compute bandwidth smearing
+    # compute bandwidth and time smearing
     report_bandwidth_smearing(mslist, args['imsize'])
+    report_time_smearing(mslist, args['imsize'])
  
     # backup flagging column for option --restoreflags if needed
     if args['restoreflags']:
