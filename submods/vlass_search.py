@@ -3,35 +3,30 @@
 
 """
 Search VLASS for a given RA and Dec
-Downloads best subtile
+Downloads a cutout of the best quicklook subtile from CADC
+(the NRAO VLASS quicklook image cache is offline)
 Original code by Anna Ho
 Edited by Roland Timmerman
 """
 
 
 #Imports
-import os
 import sys
-import errno
 import subprocess
-import glob
 import argparse
 import numpy as np
+import requests
+import astropy.units as u
 from astropy.io import fits
 from astropy.coordinates import SkyCoord
 from astropy.wcs.utils import skycoord_to_pixel
 from astropy.wcs import WCS
 from astropy.nddata import Cutout2D
-try:
-    from urllib.request import urlopen
-except ImportError:
-    from urllib2 import urlopen
+from astroquery.cadc import Cadc
 
 #Settings to potentially tweak
-summary_file_location = '/'.join(os.path.dirname(os.path.abspath(__file__)).split('/')[0:-1]) + '/facetselfcal/data/VLASS_dyn_summary.php'
 crop = True
-crop_scale = 256
-consider_QA_rejected = True
+crop_scale = 256  # pixels; quicklook images have 1 arcsec pixels
 
 
 def sign(x):
@@ -46,128 +41,38 @@ def sign(x):
     else:
         return 1
 
-def get_tiles():
+
+def subtile_center(observation_id):
     """
-    Read tiles from tile catalog. If file missing, try wget https://archive-new.nrao.edu/vlass/VLASS_dyn_summary.php
-    Input: None
-    Returns: tile names (numpy str), dec_min (numpy float), dec_max (numpy float), ra_min (numpy float), ra_max (numpy float), observing epoch (numpy str), observation date (numpy str)
+    Centre of a subtile from its CADC observationID
+    Input: observation_id (str), e.g. 'VLASS3.2.T25t16.J210759+603000'
+    Returns: SkyCoord object
     """
-    
-    name_array = []
-    dec_min_array = []
-    dec_max_array = []
-    ra_min_array = []
-    ra_max_array = []
-    epoch_array = []
-    obsdate_array = []
-    
-    with open(summary_file_location, 'r') as f:
-        lines = f.readlines()[3:]
-        for line in lines:
-            name = line[0:6]
-            dec_min = float(line[9:16])
-            dec_max = float(line[18:25])
-            ra_min = float(line[28:34])
-            ra_max = float(line[37:43])
-            epoch = line[47:55]
-            obsdate = line[61:71]
-            status = line[86:97]
-            
-            if status == f"100% imaged":
-                name_array.append(name)
-                dec_min_array.append(dec_min)
-                dec_max_array.append(dec_max)
-                ra_min_array.append(ra_min)
-                ra_max_array.append(ra_max)
-                epoch_array.append(epoch)
-                obsdate_array.append(obsdate)
-
-    name_array = np.array(name_array)
-    ra_min_array = np.array(ra_min_array)
-    ra_max_array = np.array(ra_max_array)
-    dec_min_array = np.array(dec_min_array)
-    dec_max_array = np.array(dec_max_array)
-    epoch_array = np.array(epoch_array)
-    obsdate_array = np.array(obsdate_array)
-
-    return (name_array, dec_min_array, dec_max_array, ra_min_array, ra_max_array, epoch_array, obsdate_array)
+    pos_raw = observation_id.split(".")[3]
+    sep = "-" if "-" in pos_raw else "+"
+    ra_raw, dec_raw = pos_raw.split(sep)
+    rah = "00" if ra_raw[1:3] == "24" else ra_raw[1:3]
+    return SkyCoord("{}h{}m{}s".format(rah, ra_raw[3:5], ra_raw[5:]),
+                    "{}{}d{}m{}s".format(sep, dec_raw[:2], dec_raw[2:4], dec_raw[4:]), frame='icrs')
 
 
-def search_tiles(tiles, c):
+def search_subtiles(c, cadc):
     """
-    Search the tile catalog for tiles containing the input coordinate
-    Input: tile properties (see get_tiles() output), c (SkyCoord object)
-    Returns: tile name (str), observing epoch (str), observing date (str)
+    Search CADC for the VLASS quicklook subtiles containing the input coordinate
+    Input: c (SkyCoord object), cadc (Cadc object)
+    Returns: the query result row of the subtile to use: from the latest epoch, the one
+    whose centre is closest to the coordinate
     """
-    ra_h = c.ra.hour
-    dec_d = c.dec.deg
-    names, dec_min, dec_max, ra_min, ra_max, epochs, obsdate = tiles
-    has_dec = np.logical_and(dec_d >= dec_min, dec_d < dec_max)
-    has_ra = np.logical_and(ra_h >= ra_min, ra_h < ra_max)
-    in_tile = np.logical_and(has_ra, has_dec)
-    name = names[in_tile]
-    epoch = epochs[in_tile]
-    date = obsdate[in_tile]    
-    if len(name) == 0:
-        raise IndexError("Zero VLASS tiles available for the given coordinate")
-    c_grid = SkyCoord(7.5*(ra_min[in_tile]+ra_max[in_tile]), 0.5*(dec_min[in_tile]+dec_max[in_tile]), unit='deg', frame='icrs')
-    dist = c_grid.separation(c)
-    nearest_tiles = np.where(dist == np.min(dist))[0]
-    best_idx = nearest_tiles[epoch==max(epoch[nearest_tiles])][0]
-    return name[best_idx], epoch[best_idx], date[best_idx]
-
-
-def get_subtiles(tilename, epoch, consider_QA_rejected):
-    """
-    For a given tile name, get the subtile filenames in the VLASS directory
-    Parse those filenames and return a list of subtile RA and Dec.
-    RA and Dec returned as a SkyCoord object
-    """
-    
-    #Obtain the HTML for the given tile
-    if epoch[5] == "1":
-        urlpath = urlopen("https://vlass-dl.nrao.edu/vlass/quicklook/{}v2/{}".format(epoch, tilename))
-    else:
-        urlpath = urlopen("https://vlass-dl.nrao.edu/vlass/quicklook/{}/{}".format(epoch, tilename))
-    string = urlpath.read().decode('utf-8').split("\n")
-
-    if consider_QA_rejected:
-        #Obtain the HTML for the QA Rejected
-        if epoch[5] == "1":
-            urlpath_rejected = urlopen("https://vlass-dl.nrao.edu/vlass/quicklook/{}v2/QA_REJECTED".format(epoch))
-        else:
-            urlpath_rejected = urlopen("https://vlass-dl.nrao.edu/vlass/quicklook/{}/QA_REJECTED".format(epoch))
-        string += urlpath_rejected.read().decode('utf-8').split("\n")
-
-    #Select only the subtile parts
-    vals = np.array([val.strip() for val in string if ("href" in val.strip()) and (tilename in val.strip())])
-    
-    #Select the coordinate part. You want the 'VLASS1.1.ql.T25t12.J150000+603000.10.2048.v1/' bit
-    fname = np.array([val.split("\"")[7] for val in vals])
-
-    #Split out the actual coordinate string
-    pos_raw = np.array([val.split(".")[4] for val in fname])
-    if '-' in pos_raw[0]:
-        # dec < 0
-        ra_raw = np.array([val.split("-")[0] for val in pos_raw])
-        dec_raw = np.array([val.split("-")[1] for val in pos_raw])
-    else:
-        # dec > 0
-        ra_raw = np.array([val.split("+")[0] for val in pos_raw])
-        dec_raw = np.array([val.split("+")[1] for val in pos_raw])
-    ra = []
-    dec = []
-    for ii,val in enumerate(ra_raw):
-        if val[1:3] == '24':
-            rah = '00'
-        else:
-            rah = val[1:3]
-        ra.append("{}h{}m{}s".format(rah, val[3:5], val[5:]))
-        dec.append("{}d{}m{}s".format(dec_raw[ii][:2], dec_raw[ii][2:4], dec_raw[ii][4:]))
-    ra = np.array(ra)
-    dec = np.array(dec)
-    c = SkyCoord(ra, dec, frame='icrs')#.directional_offset_by(45*u.deg, 0.75*u.deg)
-    return fname, c
+    results = cadc.query_region(c, radius=1 * u.arcsec, collection="VLASS")
+    results = results[np.array([str(p).endswith(".quicklook") for p in results["productID"]], dtype=bool)]
+    if len(results) == 0:
+        raise IndexError("Zero VLASS quicklook subtiles available for the given coordinate")
+    #observationID e.g. 'VLASS3.2.T25t16.J210759+603000' -> epoch (3, 2)
+    epoch = [(int(str(o).split(".")[0][5:]), int(str(o).split(".")[1])) for o in results["observationID"]]
+    latest = np.array([e == max(epoch) for e in epoch])
+    results = results[latest]
+    dist = [c.separation(subtile_center(str(o))).deg for o in results["observationID"]]
+    return results[[int(np.argmin(dist))]]
 
 
 def get_cutout(imname, c, crop_scale):
@@ -187,7 +92,7 @@ def get_cutout(imname, c, crop_scale):
     
     if pixel_coords[0] < 0  or pixel_coords[1] < 0 or pixel_coords[0] > data.shape[0]  or pixel_coords[1] > data.shape[1]:
         subprocess.call("rm -f {}".format(imname), shell=True)
-        raise Exception("Requested coordinate not within the available subtiles. Consider running with consider_QA_rejected=True to also search additional subtiles which failed initial QA checks")
+        raise Exception("Requested coordinate not within the downloaded VLASS cutout")
         
     #Produce a cutout
     cutout = Cutout2D(data, c, (crop_scale, crop_scale), wcs=wcs)
@@ -212,37 +117,27 @@ def get_cutout(imname, c, crop_scale):
     return output_fits
 
 
-def search_vlass(c, crop=False, crop_scale=256, consider_QA_rejected=False):
+def search_vlass(c, crop=False, crop_scale=256):
     """ 
     Searches the VLASS catalog for a source
 
     Parameters
     ----------
     c: coordinates as SkyCoord object
+    crop: crop the image to crop_scale x crop_scale pixels around c
+    crop_scale: cutout size in pixels; CADC is asked for a cutout of this radius (arcsec),
+                so that the crop fits in it
     """
-    # Find the VLASS tile
-    tiles = get_tiles()
-    tilename, epoch, obsdate = search_tiles(tiles, c)
+    cadc = Cadc()
+    subtile = search_subtiles(c, cadc)
+    print("Using VLASS subtile {}".format(subtile["observationID"][0]))
 
-    subtiles, c_tiles = get_subtiles(tilename, epoch, consider_QA_rejected)
-    dist = c.separation(c_tiles)
-    subtile = subtiles[np.argmin(dist)]
-
-    imname = "{}.I.iter1.image.pbcor.tt0.subim.fits".format(subtile[:-1])
-    if len(glob.glob(imname)) == 0:
-        if epoch[5] == "1":
-            url_get = "https://vlass-dl.nrao.edu/vlass/quicklook/{}v2/{}/{}".format(epoch, tilename, subtile)
-        else:
-            url_get = "https://vlass-dl.nrao.edu/vlass/quicklook/{}/{}/{}".format(epoch, tilename, subtile)
-        fname = "{}{}".format(url_get, imname)
-        subprocess.call("wget {}".format(fname), shell=True)
-        if not os.path.exists(subtile) and consider_QA_rejected:
-            if epoch[5] == "1":
-                url_get = "https://vlass-dl.nrao.edu/vlass/quicklook/{}v2/QA_REJECTED/{}".format(epoch, subtile)
-            else:
-                url_get = "https://vlass-dl.nrao.edu/vlass/quicklook/{}/QA_REJECTED/{}".format(epoch, subtile)
-            fname = "{}{}".format(url_get, imname)
-            subprocess.call("wget {}".format(fname), shell=True)
+    url = cadc.get_image_list(subtile, c, crop_scale * u.arcsec)[0]
+    imname = "{}.I.iter1.image.pbcor.tt0.subim.fits".format(subtile["observationID"][0])
+    response = requests.get(url, timeout=300)
+    response.raise_for_status()
+    with open(imname, "wb") as f:
+        f.write(response.content)
     if crop:    
         out = get_cutout(imname, c, crop_scale=crop_scale)
         return out
@@ -279,7 +174,4 @@ if __name__=="__main__":
         
     c = SkyCoord(ra, dec, unit='deg')
 
-    if not glob.glob(summary_file_location):
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), summary_file_location)
-    
-    search_vlass(c, crop=crop, crop_scale=crop_scale, consider_QA_rejected=consider_QA_rejected) 
+    search_vlass(c, crop=crop, crop_scale=crop_scale)
