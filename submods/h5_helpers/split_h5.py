@@ -51,10 +51,12 @@ def split_h5_idx(multi_dir_h5, h5_out_name, idx):
                         AXES = st_axes.attrs['AXES']
                         dir_idx = AXES.decode('utf8').split(',').index('dir')
 
-                        # extract values for the specified direction index
-                        allvals = h5_in.root._f_get_child(solset)._f_get_child(soltab)._f_get_child(axes)[:]
-                        newvals = np.take(allvals, indices=[idx], axis=dir_idx)
-                        del allvals  # Free memory
+                        # read only the requested direction (hyperslab along the dir axis),
+                        # so we never hold the full multi-direction array in memory
+                        node_in = h5_in.root._f_get_child(solset)._f_get_child(soltab)._f_get_child(axes)
+                        selection = [slice(None)] * len(node_in.shape)
+                        selection[dir_idx] = slice(idx, idx + 1)  # keeps the dir axis with length 1
+                        newvals = node_in[tuple(selection)]
 
                         # map the data type to the corresponding atom type
                         dtype_map = {
