@@ -89,7 +89,8 @@ from submods.h5_helpers.modify_amplitude import (get_median_amp,
 from submods.h5_helpers.modify_delay import fix_delayreference
 from submods.h5_helpers.modify_phase import (fix_phasereference,
                                              makephaseCDFh5_h5merger,
-                                             makephasediffh5)
+                                             makephasediffh5,
+                                             phasediffh5_to_linear)
 from submods.h5_helpers.modify_rotation import (fix_rotationmeasurereference,
                                                 fix_rotationreference,
                                                 fix_weights_rotationh5,
@@ -264,7 +265,7 @@ from submods.facet_directions import (add_bright_source_to_catalog,
                                       write_compactsource_flux,
                                       write_ds9_regions)
 from submods.ms_info import (check_phaseup_station, checklongbaseline,
-                             get_frequencies_from_ms)
+                             get_frequencies_from_ms, is_linear_ms)
 from submods.ms_operations import (_write_stack_imaging_group_manifest,
                                    applycal_restart_di, archive, average,
                                    cleanup, concat_ms_wsclean_facetimaging,
@@ -296,6 +297,7 @@ from submods.flagging import (aoflagger_column, clip_DATA,
 
 # Modules
 from submods.losoto_helpers import create_losoto_delayparset, create_losoto_fastphaseparset, create_losoto_FRparset, create_losoto_FRparsetplotfit, create_losoto_tecandphaseparset, create_losoto_rotationparset, tecandphaseplotter, create_losoto_tecparset, create_losoto_flag_apgridparset, create_losoto_bandpassparset, create_losoto_mediumsmoothparset, create_losoto_flag_ap_only
+from submods.treemf.command import treemf_command, treemfphasediff_command
 
 # Set logger
 os.makedirs('logs', exist_ok=True) 
@@ -2216,8 +2218,13 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                             antenna_averaging_factors=antenna_averaging_factors_list[soltypenumber][msnumber],
                             antenna_smoothness_factors=antenna_smoothness_factors_list[soltypenumber][msnumber], 
                             auto_flag_antennas=args['auto_flag_antennas'])
+                if soltype in ['scalarphasediff', 'scalarphasediffFR', 'treemfphasediff'] \
+                        and not args['phasediff_only'] and is_linear_ms(ms):
+                    # linear data: apply (and merge) the RR-LL phase difference as a linear full-Jones matrix
+                    parmdb = phasediffh5_to_linear(parmdb)
                 parmdbmslist.append(parmdb)
                 parmdbmergelist[msnumber].append(parmdb)  # for h5_merge
+                _refresh_html_overview()  # show the new solution plot
 
         # NORMALIZE amplitudes
         if normamps and (soltype in ['complexgain', 'scalarcomplexgain', 'rotation+diagonal',
@@ -2341,7 +2348,8 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             and ('tec+phase' not in args['soltype_list']) \
             and ('tec+delay' not in args['soltype_list']) \
             and ('delay' not in args['soltype_list']) \
-            and ('tec+phase+delay' not in args['soltype_list']):
+            and ('tec+phase+delay' not in args['soltype_list']) \
+            and ('treemf' not in args['soltype_list']):
             merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1],
                      merge_all_in_one=merge_all_in_one,
                      propagate_weights=True, single_pol=single_pol_merge)
@@ -2363,9 +2371,13 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                      propagate_weights=True, add_cs=True)
 
         # make LINEAR solutions from CIRCULAR (never do a single_pol merge here!)
-        if ('scalarphasediff' in args['soltype_list']) or ('scalarphasediffFR' in args['soltype_list']) or args['docircular']:
-            merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True,
-                     propagate_weights=True)
+        if ('scalarphasediff' in args['soltype_list']) or ('scalarphasediffFR' in args['soltype_list']) \
+                or ('treemfphasediff' in args['soltype_list']) or args['docircular']:
+            if is_linear_ms(ms):  # phase difference solved on linear data: the merged solutions are already linear
+                shutil.copy(parmdbmergename, parmdbmergename_pc)
+            else:
+                merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True,
+                         propagate_weights=True)
             # add CS stations back for superstation
             if mslist_beforephaseup is not None:
                 merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcycle",
@@ -2391,6 +2403,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                                                        skip_solution_plotting=args["skip_solution_plotting"])
         run('losoto ' + parmdbmergename + ' ' + losotoparset)
         force_close(parmdbmergename)
+        _refresh_html_overview()  # show the merged solution plot
 
         ## --- start STACK code ---
         if args['stack']:
@@ -2644,7 +2657,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         # code above is not sisco proof, as it cannot write to one index at a time so do it in one go:
                
 
-    if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
+    pdiff_source_column = None  # treemfphasediff: the column RR conj(LL) is formed from
+    if soltype in ['scalarphasediff', 'scalarphasediffFR', 'treemfphasediff']:
         # PM means point source model adjusted weights
         create_weight_spectrum(ms, 'WEIGHT_SPECTRUM_PM', updateweights_from_thiscolumn='MODEL_DATA',
                                updateweights=False)  # always do to re-initialize WEIGHT_SPECTRUM_PM (because stack.MS is re-created each selfcalcycle, also MODEL_DATA changes
@@ -2656,11 +2670,15 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         t = table(ms, ack=False)
         colnames = t.colnames()
         t.close()  # needs a close here because below were are writing columns potentially
-        if 'DATA_CIRCULAR_PHASEDIFF' not in colnames:
+        # treemfphasediff forms RR conj(LL) from incol itself and reads no model, so it needs neither
+        # column (except with solve_msinnchan, whose temporary MS carries only the phase-difference column)
+        need_pdiff_columns = soltype != 'treemfphasediff' or solve_msinnchan != 'all'
+        if 'DATA_CIRCULAR_PHASEDIFF' not in colnames and need_pdiff_columns:
             create_phasediff_column(ms, incol=incol, dysco=dysco)
-        if 'MODEL_DATA_PDIFF' not in colnames:
+        if 'MODEL_DATA_PDIFF' not in colnames and need_pdiff_columns:
             create_MODEL_DATA_PDIFF(ms, modelstoragemanager)  # make a point source
         soltype = 'phaseonly'  # do this type of solve, maybe scalarphase is fine? 'scalarphase' #
+        pdiff_source_column = incol
         incol = 'DATA_CIRCULAR_PHASEDIFF'
         modeldata = 'MODEL_DATA_PDIFF'
 
@@ -2692,7 +2710,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    'rotation+scalarphase', 'rotation+scalaramplitude',
                    'faradayrotation', 'faradayrotation+scalar',
                    'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase',
-                   'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay']:
+                   'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf', 'delay']:
         onepol = True
 
     if restoreflags:
@@ -2730,8 +2748,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         includesphase = False
 
     # figure out which weight_spectrum column to use
-    if soltypein == 'scalarphasediff' or soltypein == 'scalarphasediffFR' or \
-            soltypein == 'phaseonly_slope' or soltypein == 'scalarphase_slope':
+    if soltypein in ['scalarphasediff', 'scalarphasediffFR', 'treemfphasediff',
+                     'phaseonly_slope', 'scalarphase_slope']:
         weight_spectrum = 'WEIGHT_SPECTRUM_PM'
     else:
         # check for WEIGHT_SPECTRUM_SOLVE from DR2 products
@@ -2789,17 +2807,23 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     elif soltype in ['faradayrotation+diagonalamplitude', 'faradayrotation+diagonalphase', \
                    'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
         cmd += 'ddecal.mode=faradayrotation '  # 
+    elif soltype == 'treemf':  # solved by DP3_Python_treeMF, see the command swap before run(cmd)
+        cmd += 'ddecal.mode=tec+phase+delay '
     else:
         cmd += 'ddecal.mode=' + soltype + ' '
 
     # note there are two things to check before we can use ddecal.datause=single/dual
     # 1 current solve needs to be of the correct type
     # 2 previous solves should not violate the assumptions of the current single/dual solve
+    # treemfphasediff forms RR conj(LL) from the data column: on linear data that needs all four
+    # correlations (DP3 default datause=full), on circular data RR and LL (dual) are enough
+    # (with solve_msinnchan it reads DATA_CIRCULAR_PHASEDIFF, which holds the phasor in XX and YY)
+    pdiff_needs_full = soltypein == 'treemfphasediff' and solve_msinnchan == 'all' and is_linear_ms(ms)
     if soltype_list is not None:
         terminal_print(f"soltype_list slice: {soltype_list[0:soltypenumber]}")
         terminal_print('Solution type:', soltype, 'Solution type list:', soltype_list)
         if DP3_dual_single:
-            if soltype in ['complexgain', 'amplitudeonly', 'phaseonly'] \
+            if soltype in ['complexgain', 'amplitudeonly', 'phaseonly'] and not pdiff_needs_full \
                     and 'fulljones' not in soltype_list[0:soltypenumber] \
                     and 'leakage' not in soltype_list[0:soltypenumber] \
                     and 'leakageamplitude' not in soltype_list[0:soltypenumber] \
@@ -2820,7 +2844,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 cmd += 'ddecal.datause=dual '
             if soltype in ['scalarcomplexgain', 'scalaramplitude', \
                            'tec', 'tecandphase', 'scalarphase','tec+phase', \
-                           'tec+delay', 'tec+phase+delay', 'delay'] \
+                           'tec+delay', 'tec+phase+delay', 'treemf', 'delay'] \
                     and 'fulljones' not in soltype_list[0:soltypenumber] \
                     and 'leakage' not in soltype_list[0:soltypenumber] \
                     and 'leakageamplitude' not in soltype_list[0:soltypenumber] \
@@ -2961,7 +2985,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd += 'msin.datacolumn=' + incol + ' '
 
     # SET UVMIN
-    if soltypein == 'scalarphasediff' or soltypein == 'scalarphasediffFR':
+    if soltypein in ['scalarphasediff', 'scalarphasediffFR', 'treemfphasediff']:
         if uvminscalarphasediff is not None:
             cmd += 'ddecal.uvlambdamin=' + str(uvminscalarphasediff) + ' '
         else:
@@ -3037,7 +3061,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd += 'ddecal.smoothnessrefdistance=' + str(SMconstraintrefdistance * 1e3) + ' '  # input units in km
 
     if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'tec+phase', \
-                   'tec+delay', 'tec+phase+delay', 'delay', 'rotation+scalarphase', \
+                   'tec+delay', 'tec+phase+delay', 'treemf', 'delay', 'rotation+scalarphase', \
                    'rotation+diagonalphase', 'faradayrotation+scalarphase', \
                    'faradayrotation+diagonalphase', 'faradayrotation']:
         cmd += 'ddecal.tolerance=' + str(tolerance) + ' '
@@ -3148,6 +3172,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         cmd = cmd.replace('msin=' + ms, 'msin=' + ms_tmp)
         
     
+    if soltype == 'treemf':  # same arguments, solved by the Python treeMF solver instead of DP3
+        cmd = treemf_command(cmd, args)
+    if soltypein == 'treemfphasediff':  # RM fit to RR conj(LL) by the Python treeMF solver
+        # a temporary MS (solve_msinnchan) only has the phase-difference column
+        cmd = treemfphasediff_command(cmd, args, pdiff_source_column if ms_tmp is None else None)
+
     # RUN THE SOLVE WITH DP3
     terminal_print('DP3 solve:', cmd)
     logger.info('DP3 solve: ' + cmd)
@@ -3158,7 +3188,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         terminal_print('Removing temporary MS:', ms_tmp)
         shutil.rmtree(ms_tmp, ignore_errors=True)
 
-    if selfcalcycle == 0 and (soltypein == "scalarphasediffFR" or soltypein == "scalarphasediff") and not args['phasediff_only']:
+    if selfcalcycle == 0 and soltypein in ["scalarphasediffFR", "scalarphasediff", "treemfphasediff"] and not args['phasediff_only']:
         shutil.copy(parmdb, parmdb + '.scbackup')
 
     if (len(modeldatacolumns_solve) > 0) and (len(modeldatacolumns) != len(modeldatacolumns_solve)):
@@ -3218,14 +3248,14 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         fix_rotationmeasurereference(parmdb, refant)
 
     # tec checking
-    if soltype in ['tec', 'tecandphase', 'tec+phase', 'tec+delay', 'tec+phase+delay']:
+    if soltype in ['tec', 'tecandphase', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf']:
         remove_nans(parmdb, 'tec000')
         refant = findrefant_core(parmdb, telescope=args['telescope'])
         fix_tecreference(parmdb, refant)
         force_close(parmdb)
 
     # delay checking
-    if soltype in ['tec+delay', 'tec+phase+delay', 'delay']:
+    if soltype in ['tec+delay', 'tec+phase+delay', 'treemf', 'delay']:
         remove_nans(parmdb, 'delay000')
         refant = findrefant_core(parmdb, telescope=args['telescope'])
         fix_delayreference(parmdb, refant)
@@ -3280,7 +3310,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
                        'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', \
-                       'tec+phase+delay', 'delay']:
+                       'tec+phase+delay', 'treemf', 'delay']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -3296,7 +3326,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',\
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
-                       'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay']:
+                       'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf', 'delay']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -3383,7 +3413,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'rotation+scalaramplitude', 'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
-                       'faradayrotation+scalarphase', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay']:
+                       'faradayrotation+scalarphase', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf', 'delay']:
             refant = findrefant_core(parmdb, telescope=args['telescope'])
             force_close(parmdb)
         else:
@@ -3458,7 +3488,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 logger.info(cmdlosoto)
                 run(cmdlosoto)
 
-    if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay'] and not args['skip_solution_plotting']:
+    if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf', 'delay'] and not args['skip_solution_plotting']:
         tecandphaseplotter(parmdb, ms, telescope=args['telescope'],
                            outplotname=outplotname)  # use own plotter because losoto cannot add tec and phase
 
@@ -4066,7 +4096,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
         if sharedfacetreads: cmd += '-shared-facet-reads -shared-facet-writes '
 
-        if not fulljones_h5_facetbeam:
+        # full-Jones solutions (e.g. a phase difference solved on linear data) need all correlations
+        if not fulljones_h5_facetbeam and not any(fulljonesparmdb(h5) for h5 in h5list):
             if not is_scalar_array_for_wsclean(h5list):
                 cmd += '-diagonal-visibilities '  # different XX and YY solutions
             else:
@@ -4314,7 +4345,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
 
-            if not fulljones_h5_facetbeam and not fullpol:  # full-pol needs all correlations
+            # full-pol and full-Jones solutions (e.g. a phase difference solved on linear data) need all correlations
+            if not fulljones_h5_facetbeam and not fullpol and not any(fulljonesparmdb(h5) for h5 in h5list):
                 if not is_scalar_array_for_wsclean(h5list):
                     cmd += '-diagonal-visibilities '  # different XX and YY solutions
                 else:
@@ -5759,7 +5791,8 @@ def main():
         # Generate phasediff stat CSV here if more than 2
         if args['compute_phasediffstat'] and len(args['soltype_list'])>=2:
             if args['solint_list'][0]=='10min':
-                generate_phasediff_csv(glob.glob("h5_solutions/scalarphasediff*.h5"))
+                generate_phasediff_csv(glob.glob("h5_solutions/scalarphasediff*.h5")
+                                       + glob.glob("h5_solutions/treemfphasediff*.h5"))
             else:
                 terminal_print("WARNING: Cannot generate phasediff CSV because solution interval for scalarphasediff is not 10min")
         if args['phasediff_only']:
@@ -5875,6 +5908,7 @@ def main():
 
             # PLOT IMAGE
             plotimage(i, args, stackstr, mask=fitsmask_list[msim_id], regionfile='facet_regions/facets.reg' if (args['DDE'] and facetregionfile is not None) else None)
+            _refresh_html_overview()  # show the new cycle image
         #  --- END IMAGING PART ---
 
         # RUN AOFLAGGER ON THE RESIDUAL DATA COLUMN IF REQUESTED
@@ -6126,6 +6160,35 @@ def main():
             cleanup(mslist)
 
 
+# end time and duration of the last HTML overview build, for the rate limit in _refresh_html_overview
+_html_overview_timing = {"last_end": None, "duration": 0.0}
+# in-run refreshes wait at least 50x the last build time (and 10 s), so they cost at most ~2% of the run time
+_HTML_REFRESH_MIN_INTERVAL = 10.0
+_HTML_REFRESH_DUTY_FACTOR = 50.0
+
+
+def _refresh_html_overview():
+    """Refresh the HTML overview after a new image or solution plot, rate limited.
+
+    A refresh is skipped when the last build ended less than
+    ``max(_HTML_REFRESH_MIN_INTERVAL, _HTML_REFRESH_DUTY_FACTOR * last build time)``
+    seconds ago; the next refresh or the end-of-cycle update then includes the new
+    products.
+
+    Returns
+    -------
+    None
+    """
+    last_end = _html_overview_timing["last_end"]
+    if last_end is not None:
+        interval = max(_HTML_REFRESH_MIN_INTERVAL,
+                       _HTML_REFRESH_DUTY_FACTOR * _html_overview_timing["duration"])
+        if time.time() - last_end < interval:
+            return
+    _write_html_overview(Path.cwd(), status="running", quiet=True)
+    logger.info("HTML overview refreshed in %.2f s", _html_overview_timing["duration"])
+
+
 def _write_html_overview(
     run_directory,
     status,
@@ -6161,9 +6224,14 @@ def _write_html_overview(
         else:
             from facetselfcal.report import generate_html_overview
 
-        report_index = generate_html_overview(
-            run_directory, status=status, error=error
-        )
+        build_start = time.time()
+        try:
+            report_index = generate_html_overview(
+                run_directory, status=status, error=error
+            )
+        finally:
+            _html_overview_timing["last_end"] = time.time()
+            _html_overview_timing["duration"] = _html_overview_timing["last_end"] - build_start
         if announce_browser:
             terminal_print(
                 "\033[1;36mHTML overview is ready. You can open this page in a "

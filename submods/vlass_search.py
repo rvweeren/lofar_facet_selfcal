@@ -11,6 +11,7 @@ Edited by Roland Timmerman
 
 
 #Imports
+import os
 import sys
 import subprocess
 import argparse
@@ -19,14 +20,19 @@ import requests
 import astropy.units as u
 from astropy.io import fits
 from astropy.coordinates import SkyCoord
+from astropy.utils.data import import_file_to_cache
 from astropy.wcs.utils import skycoord_to_pixel
 from astropy.wcs import WCS
 from astropy.nddata import Cutout2D
 from astroquery.cadc import Cadc
+from pyvo.utils.vocabularies import IVOA_VOCABULARY_ROOT, VocabularyError
 
 #Settings to potentially tweak
 crop = True
 crop_scale = 256  # pixels; quicklook images have 1 arcsec pixels
+
+#Copy of the IVOA datalink vocabulary that pyvo needs for the CADC cutout links
+DATALINK_VOCABULARY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ivoa_datalink_core.json")
 
 
 def sign(x):
@@ -73,6 +79,23 @@ def search_subtiles(c, cadc):
     results = results[latest]
     dist = [c.separation(subtile_center(str(o))).deg for o in results["observationID"]]
     return results[[int(np.argmin(dist))]]
+
+
+def cutout_url(cadc, subtile, c, radius):
+    """
+    URL of a CADC cutout of the subtile around c
+    Input: cadc (Cadc object), subtile (query result row), c (SkyCoord object), radius (Quantity)
+    Returns: the cutout URL (str)
+    """
+    try:
+        return cadc.get_image_list(subtile, c, radius)[0]
+    except VocabularyError:
+        #pyvo downloads the datalink vocabulary from ivoa.net unless it is in the astropy
+        #cache; when ivoa.net is unreachable, cache the copy shipped with facetselfcal
+        print("IVOA datalink vocabulary unavailable, using {}".format(DATALINK_VOCABULARY))
+        import_file_to_cache(IVOA_VOCABULARY_ROOT + "datalink/core", DATALINK_VOCABULARY,
+                             remove_original=False)
+        return cadc.get_image_list(subtile, c, radius)[0]
 
 
 def get_cutout(imname, c, crop_scale):
@@ -132,7 +155,7 @@ def search_vlass(c, crop=False, crop_scale=256):
     subtile = search_subtiles(c, cadc)
     print("Using VLASS subtile {}".format(subtile["observationID"][0]))
 
-    url = cadc.get_image_list(subtile, c, crop_scale * u.arcsec)[0]
+    url = cutout_url(cadc, subtile, c, crop_scale * u.arcsec)
     imname = "{}.I.iter1.image.pbcor.tt0.subim.fits".format(subtile["observationID"][0])
     response = requests.get(url, timeout=300)
     response.raise_for_status()

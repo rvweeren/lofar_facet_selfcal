@@ -52,7 +52,7 @@ def tweak_solints(solints, solvalthresh=11, ms_ntimes=None, verbose=False):
         possible_solints = remove_bad_endrounding(possible_solints, ms_ntimes)
 
     for sol in solints:
-        solints_return.append(find_nearest(possible_solints, sol))
+        solints_return.append(int(find_nearest(possible_solints, sol)))
 
     return solints_return
 
@@ -401,7 +401,7 @@ def setinitial_solint(mslist, options):
 
             # force nchan 1 for tec(andphase) solve and in case smoothnessconstraint is invoked
             # if soltype == 'tec' or  soltype == 'tecandphase' or smoothnessconstraint > 0.0:
-            if soltype == 'tec' or soltype == 'tecandphase' or soltype == 'tec+phase' or soltype == 'tec+delay' or soltype == 'tec+phase+delay' or soltype == 'delay':
+            if soltype == 'tec' or soltype == 'tecandphase' or soltype == 'tec+phase' or soltype == 'tec+delay' or soltype == 'tec+phase+delay' or soltype == 'treemf' or soltype == 'delay':
                 nchan = 1
 
             nchan_ms.append(nchan)

@@ -295,6 +295,12 @@ def build_applycal_dde_cmd(inparmdblist):
     for parmdb in inparmdblist:
         with tables.open_file(parmdb) as H:
             soltabs = list(H.root.sol000._v_children.keys())
+        if fulljonesparmdb(parmdb):
+            cmd += 'ddecal.applycal.ac' + str(count) + '.parmdb=' + parmdb + ' '
+            cmd += 'ddecal.applycal.ac' + str(count) + '.correction=fulljones '
+            cmd += 'ddecal.applycal.ac' + str(count) + '.soltab=[amplitude000,phase000] '
+            count = count + 1
+            continue
         if 'phase000' in soltabs:
             cmd += 'ddecal.applycal.ac' + str(count) + '.parmdb=' + parmdb + ' '
             cmd += 'ddecal.applycal.ac' + str(count) + '.correction=phase000 '
