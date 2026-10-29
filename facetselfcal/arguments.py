@@ -641,8 +641,13 @@ def option_parser():
                                   type=arg_as_str_or_list,
                                   default=None)    
     startmodelparser.add_argument('--skymodelsetjy',
-                                  help='3C48, 3C147, 3C138, 3C286 skymodels are computed via CASA setjy. For 3C286 polarization information is also included using the model from B. Hugo & R. Perley 2024. Skymodel is automatically selected based on the pointing center of the MS',
+                                  help='3C48, 3C147, 3C138, 3C286 skymodels following the Perley-Butler 2017 flux density scale, based on the VLA clean-component model images that CASA setjy uses. By default the model is predicted with DP3 (see --setjy-method). For 3C286 polarization information is also included using the model from B. Hugo & R. Perley 2024. Skymodel is automatically selected based on the pointing center of the MS',
                                   action='store_true')
+    startmodelparser.add_argument('--setjy-method',
+                                  help='How --skymodelsetjy computes the model: "dp3" predicts the skymodels shipped in facetselfcal/data/setjy with DP3 (no CASA needed), "casa" runs CASA setjy. The default is "dp3".',
+                                  type=str,
+                                  choices=['dp3', 'casa'],
+                                  default='dp3')
     startmodelparser.add_argument('--keepusingstartingskymodel',
                                   help='Keep using the initial skymodel for each selfcalcycle. Can be useful for bandpass calibration where some extra flagging rounds on CORRECTED_DATA are done. Relevant for --wscleanskymodel, --skymodelsetjy, --skymodel, --skymodelpointsource, --startfromtgss, --startfromgsm, --startfromimage, --startfromvlass', action='store_true')
     

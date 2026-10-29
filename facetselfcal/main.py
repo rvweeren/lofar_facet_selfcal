@@ -132,7 +132,7 @@ from submods.ms_fixes import (fix_antenna_info_gmrt, fix_bad_weightspectrum,
                               remove_syspower, set_metadata_compression,
                               updateCrosshand)
 from submods.fits_utils import flatten
-from submods.calibrator_models import setjy_casa
+from submods.calibrator_models import setjy_casa, setjy_dp3
 from submods.data_import import download_MWA_beam_model
 from submods.vla_helpers import get_vla_configuration, get_vla_maxconfiguration
 # Not used in this file, but kept importable from facetselfcal.main for
@@ -2614,7 +2614,10 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         incol = 'SMOOTHED_DATA'
 
     if skymodelsetjy and create_modeldata and len(modeldatacolumns) == 0:
-        setjy_casa(ms)
+        if args['setjy_method'] == 'casa':
+            setjy_casa(ms)
+        else:
+            setjy_dp3(ms, modelstoragemanager=modelstoragemanager)
     
      
     if skymodel is not None and create_modeldata and len(modeldatacolumns) == 0:
@@ -5268,8 +5271,9 @@ def main():
         args['metadata_compression'] = False  # no metadata compression allowed
         args['noarchive'] = True
     if args['skymodelsetjy']:
-        args['dysco'] = False  # no dysco compression allowed as CASA does not work with dysco compression
-        args['modelstoragemanager'] = None  # no model compression allowed as CASA does not work with dysco compression
+        if args['setjy_method'] == 'casa':
+            args['dysco'] = False  # no dysco compression allowed as CASA does not work with dysco compression
+        args['modelstoragemanager'] = None  # no model compression: CASA cannot write it, and the polarised 3C286 model needs all four correlations
     args |= {'telescope': get_telescope_from_ms(sorted(args['ms']))} # get telescope from MS and add to args
     
     global submodpath, datapath, facetselfcal_version

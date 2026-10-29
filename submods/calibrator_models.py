@@ -1,5 +1,6 @@
-"""Calibrator source models: CASA setjy with the polarised 3C286 model, and
-reading MeerKAT WSClean calibrator models."""
+"""Calibrator source models: setjy (CASA, or DP3 with the shipped Perley-Butler 2017
+models) with the polarised 3C286 model, and reading MeerKAT WSClean calibrator models."""
+import json
 import os
 from pathlib import Path
 
@@ -7,16 +8,68 @@ import astropy.units as units
 import numpy as np
 from astropy.coordinates import SkyCoord
 from astropy.io import ascii
+from astropy.time import Time
 from casacore.tables import table, taql  # type: ignore
 
+from submods.model_columns import predictsky
 from submods.runtime_utils import run, terminal_print
+
+
+# J2000 positions (degrees) of the calibrators that setjy_casa and setjy_dp3 can model
+SETJY_CALIBRATORS = {'3C147': (85.650575, 49.852009),
+                     '3C286': (202.784534, 30.509155),
+                     '3C138': (80.291192, 16.639459),
+                     '3C48': (24.422081, 33.159759)}
+
+# upper frequency edge (Hz) of the VLA bands that have a model image; below 1.7 GHz
+# (including UHF and lower frequencies) the L-band model is used
+SETJY_BANDS = [('L', 1.7e9), ('S', 4.0e9), ('C', 8.0e9), ('X', 12.0e9),
+               ('U', 18.0e9), ('K', 26.5e9), ('A', 40.0e9), ('Q', 50.0e9)]
+
+
+def find_setjy_calibrator(ms):
+    """
+    Find which setjy calibrator is observed in a Measurement Set and the band of its model.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set. It must contain a single field (fieldid=0).
+
+    Returns
+    -------
+    source : str
+        '3C147', '3C286', '3C138' or '3C48'.
+    band : str
+        VLA band letter of the model (L, S, C, X, U, K, A or Q).
+
+    Raises
+    ------
+    Exception
+        If the field is not one of the calibrators or the frequency is above 50 GHz.
+    """
+    with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
+        midfreq = np.mean(t.getcol('CHAN_FREQ')[0])
+    band = next((name for name, upper in SETJY_BANDS if midfreq < upper), None)
+    if band is None:
+        terminal_print('No setjy model available above 50 GHz')
+        raise Exception('No setjy model available above 50 GHz')
+
+    with table(ms + '::FIELD', ack=False) as t:
+        adir = t.getcol('DELAY_DIR')[0][0][:]
+    cdatta = SkyCoord(adir[0]*units.radian, adir[1]*units.radian, frame='icrs')
+    for source, (ra, dec) in SETJY_CALIBRATORS.items():
+        if cdatta.separation(SkyCoord(ra*units.deg, dec*units.deg, frame='icrs')) < 0.05*units.deg:
+            return source, band
+    terminal_print('No calibrator found in MS that matches the coordinates of 3C147, 3C138, 3C286, or 3C48: cannot use setjy')
+    raise Exception('No calibrator found in MS that matches the coordinates of 3C147, 3C138, 3C286, or 3C48: cannot use setjy')
 
 
 def setjy_casa(ms):
     """
     Selects and applies the appropriate CASA setjy model image for a known calibrator present in the Measurement Set (MS).
     This function determines which standard calibrator (3C147, 3C286, 3C138, or 3C48) is present in the MS by comparing the field coordinates.
-    It then selects the correct model image based on the observing frequency band (UHF, L, S, C, or X band) and runs the CASA setjy procedure
+    It then selects the correct model image based on the observing frequency band and runs the CASA setjy procedure
     using a helper script. If 3C286 is detected, it also sets the polarised model for this calibrator.
     Parameters
     ----------
@@ -31,69 +84,124 @@ def setjy_casa(ms):
     - Assumes the MS contains only a single source (fieldid=0).
     - Requires access to model images named according to the calibrator and frequency band.
     - Relies on external scripts and functions: `casa_setjy.py` and `set_polarised_model_3C286`.
+    - setjy_dp3 does the same without CASA.
     """
  
     datapathc = os.path.dirname(os.path.abspath(__file__))
     submodpathc = '/'.join(datapathc.split('/')[0:-1])+'/submods'
 
     # find which calibrators is present in the MS (this cannot be a mulitsource MS), so fieldid is 0
-    
-    c_3C147 = np.array([85.650575, 49.852009])
-    c_3C286 = np.array([202.784534, 30.509155])
-    c_3C138 = np.array([80.291192, 16.639459])
-    c_3C48  = np.array([24.422081, 33.159759])
-
-    with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
-        midfreq = np.mean(t.getcol('CHAN_FREQ')[0])
-
-    UHF = False; Lband = False; Sband = False; Cband = False; Xband = False
-    if midfreq < 1.0e9:  # UHF-band or lower
-        UHF = True
-    if (midfreq >= 1.0e9) and (midfreq < 1.7e9):  # L-band
-        Lband = True
-    if (midfreq >= 1.7e9) and (midfreq < 4.0e9):  # S-band
-        Sband = True
-    if (midfreq >= 4.0e9) and (midfreq < 8.0e9):  # C-band
-        Cband = True
-    if (midfreq >= 8.0e9) and (midfreq < 12.0e9): # X-band
-        Xband = True
-
-    with table(ms + '::FIELD', ack=False) as t:
-        adir = t.getcol('DELAY_DIR')[0][0][:]
-    cdatta = SkyCoord(adir[0]*units.radian, adir[1]*units.radian, frame='icrs')
-
-    if (cdatta.separation(SkyCoord(c_3C147[0]*units.deg, c_3C147[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
-        if Lband or UHF: modelimage = '3C147_L.im'
-        if Sband: modelimage = '3C147_S.im'
-        if Cband: modelimage = '3C147_C.im' 
-        if Xband: modelimage = '3C147_X.im'
-    elif (cdatta.separation(SkyCoord(c_3C286[0]*units.deg, c_3C286[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
-        if Lband or UHF: modelimage = '3C286_L.im'
-        if Sband: modelimage = '3C286_S.im'
-        if Cband: modelimage = '3C286_C.im' 
-        if Xband: modelimage = '3C286_X.im'     
-    elif (cdatta.separation(SkyCoord(c_3C138[0]*units.deg, c_3C138[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
-        if Lband or UHF: modelimage = '3C147_L.im'
-        if Sband: modelimage = '3C138_S.im'
-        if Cband: modelimage = '3C138_C.im' 
-        if Xband: modelimage = '3C138_X.im'
-    elif (cdatta.separation(SkyCoord(c_3C48[0]*units.deg, c_3C48[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
-        if Lband or UHF: modelimage = '3C48_L.im'
-        if Sband: modelimage = '3C48_S.im'
-        if Cband: modelimage = '3C48_C.im' 
-        if Xband: modelimage = '3C48_X.im'
-    else:
-        terminal_print('No calibrator found in MS that matches the coordinates of 3C147, 3C138, 3C286, or 3C48: cannot use CASA setjy')
-        raise Exception('No calibrator found in MS that matches the coordinates of 3C147, 3C138, 3C286, or 3C48: cannot use CASA setjy')    
+    source, band = find_setjy_calibrator(ms)
+    modelimage = source + '_' + band + '.im'
     terminal_print('Using model image for CASA setjy: ' + modelimage)
     cmdsetjy = f'python {submodpathc}/casa_setjy.py '
     cmdsetjy += '--ms=' + ms + ' --fieldid=0 --modelimage=' + modelimage + ' '
     terminal_print('CASA setjy command:', cmdsetjy)
     run(cmdsetjy)
-    #sys.exit()
-    if (cdatta.separation(SkyCoord(c_3C286[0]*units.deg, c_3C286[1]*units.deg, frame='icrs'))) < 0.05*units.deg:
+    if source == '3C286':
         terminal_print('Setting polarised model for 3C286')
         set_polarised_model_3C286(ms, chunksize=1000)
+
+
+def setjy_dp3(ms, modelstoragemanager=None):
+    """
+    Predict the Perley-Butler 2017 model of a VLA flux density calibrator into MODEL_DATA with DP3.
+
+    This is the CASA-free counterpart of setjy_casa. The calibrator (3C147, 3C286, 3C138 or 3C48)
+    and band are found as in setjy_casa. The model is a DP3 skymodel shipped in
+    facetselfcal/data/setjy, made by make_setjy_skymodels.py from the CASA model images
+    (nrao/VLA/CalModels). Its components carry the Perley-Butler 2017 spectrum, so the model is
+    scaled per channel like CASA setjy with scalebychan=True. For the time-variable calibrators
+    (3C48, 3C138, 3C147) the coefficients of the epoch nearest to the observation are used, as
+    CASA does by default. If 3C286 is detected, the polarised model is set as well.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set. It must contain a single field (fieldid=0).
+    modelstoragemanager : str or None, optional
+        Storage manager for MODEL_DATA, passed to predictsky.
+    """
+    source, band = find_setjy_calibrator(ms)
+    setjydir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'facetselfcal', 'data', 'setjy')
+    skymodel = os.path.join(setjydir, source + '_' + band + '.skymodel')
+
+    with table(ms, ack=False) as t:
+        obsyear = Time(np.mean(t.getcol('TIME')) / 86400., format='mjd').decimalyear
+    epoch, coeffs = pb2017_coefficients(source, obsyear, setjydir)
+    terminal_print(f'setjy_dp3: {source}, {band}-band model, Perley-Butler 2017 coefficients of epoch {epoch} '
+                   f'(observation {obsyear:.2f}): {coeffs}')
+
+    _, coeffs_skymodel = pb2017_coefficients(source, np.inf, setjydir)  # the shipped skymodels use the latest epoch
+    if coeffs != coeffs_skymodel:
+        skymodel_epoch = os.path.basename(skymodel).replace('.skymodel', f'_PB2017_{epoch}.skymodel')
+        rescale_setjy_skymodel(skymodel, skymodel_epoch, coeffs_skymodel[0], coeffs)
+        skymodel = skymodel_epoch
+
+    terminal_print('Using skymodel for DP3 setjy: ' + skymodel)
+    predictsky(ms, skymodel, modeldata='MODEL_DATA', modelstoragemanager=modelstoragemanager)
+    if source == '3C286':
+        terminal_print('Setting polarised model for 3C286')
+        set_polarised_model_3C286(ms, chunksize=1000)
+
+
+def pb2017_coefficients(source, year, setjydir):
+    """
+    Perley-Butler 2017 coefficients of a calibrator for the epoch nearest to a date.
+
+    Parameters
+    ----------
+    source : str
+        Calibrator name, e.g. '3C147'.
+    year : float
+        Date as a decimal year (np.inf gives the latest epoch).
+    setjydir : str
+        Directory with PerleyButler2017Coeffs.json.
+
+    Returns
+    -------
+    epoch : float
+        The selected epoch (decimal year).
+    coeffs : list of float
+        Coefficients a_i of log10(S/Jy) = sum_i a_i log10(nu/GHz)^i, without trailing zeros.
+    """
+    with open(os.path.join(setjydir, 'PerleyButler2017Coeffs.json')) as f:
+        pb2017 = json.load(f)
+    epochs = np.array(pb2017['epochs'])
+    index = len(epochs) - 1 if np.isinf(year) else int(np.argmin(np.abs(epochs - year)))
+    coeffs = list(pb2017['coeffs'][source][index])
+    while len(coeffs) > 1 and coeffs[-1] == 0.0:  # the table pads with zeros
+        coeffs.pop()
+    return float(epochs[index]), coeffs
+
+
+def rescale_setjy_skymodel(skymodel, outfile, a0_skymodel, coeffs):
+    """
+    Write a copy of a setjy skymodel with a different Perley-Butler 2017 spectrum.
+
+    Parameters
+    ----------
+    skymodel : str
+        Skymodel made by make_setjy_skymodels.py (ReferenceFrequency 1 GHz, LogarithmicSI true).
+    outfile : str
+        Output skymodel.
+    a0_skymodel : float
+        Zeroth coefficient used in the input skymodel.
+    coeffs : list of float
+        New coefficients a_0, a_1, ...
+    """
+    scale = 10**(coeffs[0] - a0_skymodel)
+    spectralindex = '[' + ', '.join(f'{c:.6g}' for c in coeffs[1:]) + ']'
+    with open(skymodel) as fin, open(outfile, 'w') as fout:
+        for line in fin:
+            if line.startswith('Format') or line.startswith('#'):
+                fout.write(line)
+                continue
+            # Name, POINT, Ra, Dec, I, [SpectralIndex], LogarithmicSI, ReferenceFrequency,,,
+            head, rest = line.split('[', 1)
+            fields = head.rstrip(', ').split(', ')
+            fields[4] = f'{float(fields[4]) * scale:.8g}'
+            fout.write(', '.join(fields) + ', ' + spectralindex + rest.split(']', 1)[1])
 
 
 def set_polarised_model_3C286(ms, chunksize=1000):
