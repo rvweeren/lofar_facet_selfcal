@@ -502,6 +502,8 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
+        with table(ms + '::POLARIZATION', ack=False) as tp:
+            linear = np.array_equal(tp.getcol('CORR_TYPE'), [[9, 10, 11, 12]])
         with table(ms, readonly=False, ack=True) as t:
             if outcol not in t.colnames():
                 terminal_print('Adding', outcol, 'to', ms)
@@ -517,7 +519,13 @@ def create_phasediff_column(inmslist, incol='DATA', outcol='DATA_CIRCULAR_PHASED
             for row in range(0, t.nrows(), stepsize):
                 terminal_print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
                 data = t.getcol(incol, startrow=row, nrow=stepsize, rowincr=1)
-                phasediff = np.copy(np.angle(data[:, :, 0]) - np.angle(data[:, :, 3]))  # RR - LL
+                if linear:  # form RR and LL from XX, XY, YX, YY (as polconv.py lin2circ)
+                    rr = data[:, :, 0] - 1j * data[:, :, 1] + 1j * data[:, :, 2] + data[:, :, 3]
+                    ll = data[:, :, 0] + 1j * data[:, :, 1] - 1j * data[:, :, 2] + data[:, :, 3]
+                    phasediff = np.angle(rr) - np.angle(ll)
+                    del rr, ll
+                else:
+                    phasediff = np.copy(np.angle(data[:, :, 0]) - np.angle(data[:, :, 3]))  # RR - LL
                 data[:, :, 0] = 0.5 * np.exp(
                     1j * phasediff)  # because I = RR+LL/2 (this is tricky because we work with phase diff)
                 data[:, :, 3] = data[:, :, 0]

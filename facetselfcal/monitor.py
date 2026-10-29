@@ -23,6 +23,9 @@ from .resource_chart import (
 
 logger = logging.getLogger(__name__)
 
+# Lines of selfcal.log on the live log page (as many as the report's static excerpt)
+LIVE_LOG_TAIL_LINES = 80
+
 try:
     import psutil
     _PSUTIL_AVAILABLE = True
@@ -95,6 +98,7 @@ class ResourceMonitor:
         self._resource_samples = deque()
         self._live_page_path = self.log_dir.parent / "html_overview" / "resource-live.html"
         self._live_chart_path = self.log_dir.parent / "html_overview" / "resource-chart-live.html"
+        self._live_log_path = self.log_dir.parent / "html_overview" / "log-tail-live.html"
         self._live_page_started = False
         self._live_message = None
         diagnostics = []
@@ -322,7 +326,10 @@ class ResourceMonitor:
             if self._stopped:
                 refresh = False
             try:
-                return self._render_live_page(refresh, phase_only)
+                written = self._render_live_page(refresh, phase_only)
+                if not phase_only:
+                    self._write_live_log_tail(refresh)
+                return written
             except Exception as exc:
                 logger.warning("Could not render live resource page: %s", exc)
                 self._live_message = "Could not render live resource page: {}".format(exc)
@@ -538,6 +545,47 @@ class ResourceMonitor:
             chart_written = self._write_live_snapshot(self._live_chart_path, chart_page)
             self._chart_published = chart_written
         return live_written and chart_written
+
+    def _write_live_log_tail(self, refresh):
+        """Publish the last lines of selfcal.log, which the report shows while the run is active."""
+        log_path = self.log_dir / "selfcal.log"
+        try:
+            with log_path.open("rb") as stream:
+                lines = stream.read().decode("utf-8", errors="replace").splitlines()
+        except OSError:
+            return False  # no log yet
+        tail = lines[-LIVE_LOG_TAIL_LINES:]
+        refresh_meta = ""
+        if refresh:
+            refresh_meta = '<meta http-equiv="refresh" content="{}">'.format(
+                max(1, int(round(self.interval)))
+            )
+        page = "\n".join((
+            "<!doctype html>",
+            '<html lang="en">',
+            "<head>",
+            '<meta charset="utf-8">',
+            refresh_meta,
+            "<title>Live log excerpt</title>",
+            "<style>",
+            "body { margin: 0; padding: 10px; color: #0f172a; background: #f8fafc; font: 13px/1.4 system-ui, sans-serif; }",
+            ".log-tail-meta { margin: 0 0 6px; color: #0f766e; font-weight: 600; }",
+            "pre { margin: 0; overflow-x: auto; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }",
+            "</style>",
+            "</head>",
+            "<body>",
+            '<p class="log-tail-meta">{} / last {} of {} lines - Updated {}</p>'.format(
+                html.escape(log_path.name), len(tail), len(lines),
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+            "<pre>{}</pre>".format(html.escape("\n".join(tail))),
+            # show the newest lines after every refresh
+            '<script>window.addEventListener("load", function () {'
+            " window.scrollTo(0, document.body.scrollHeight); });</script>",
+            "</body>",
+            "</html>",
+        ))
+        return self._write_live_snapshot(self._live_log_path, page)
 
     def _write_live_snapshot(self, page_path, page):
         try:

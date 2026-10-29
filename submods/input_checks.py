@@ -224,6 +224,8 @@ def is_stokesdiagonal_modeltype_allowed(args, telescope):
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
                        'faradayrotation+scalarphase', 'leakage', 'leakageamplitude']
+    if not args['docircular']:  # a phase-difference solve on linear data is applied as a full-Jones matrix
+        notallowed_list += ['scalarphasediff', 'scalarphasediffFR', 'treemfphasediff']
     for soltype in args['soltype_list']:
         if soltype in notallowed_list: return False
     return True
@@ -255,7 +257,7 @@ def is_stokesi_modeltype_allowed(args, telescope):
                        'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', \
                        'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', \
                        'phaseonly_phmin', 'rotation_phmin', 'phaseonly_slope', 'scalarphasediff', \
-                       'scalarphasediffFR', 'faradayrotation', 'faradayrotation+diagonal', \
+                       'scalarphasediffFR', 'treemfphasediff', 'faradayrotation', 'faradayrotation+diagonal', \
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
                        'faradayrotation+scalarphase', 'leakage', 'leakageamplitude']
@@ -942,23 +944,24 @@ def inputchecker(args, mslist):
                            'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',
                            'faradayrotation+scalar', 'faradayrotation+scalaramplitude',
                            'faradayrotation+scalarphase', 'leakage', 'leakageamplitude',
-                           'tec+phase', 'tec+delay', 'tec+phase+delay'] and soltype is not None:
+                           'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf',
+                           'treemfphasediff'] and soltype is not None:
             terminal_print('Invalid soltype input')
             raise Exception('Invalid soltype input')
 
     # check that there is only on scalarphasediff solve and it the first entry
-    if 'scalarphasediff' in args['soltype_list'] or 'scalarphasediffFR' in args['soltype_list']:
-        if (args['soltype_list'][0] != 'scalarphasediff') and \
-                (args['soltype_list'][0] != 'scalarphasediffFR'):
-            terminal_print('scalarphasediff/scalarphasediffFR need to be to first solves in the list')
-            raise Exception('scalarphasediff/scalarphasediffFR need to be to first solves in the list')
+    phasediff_types = ['scalarphasediff', 'scalarphasediffFR', 'treemfphasediff']
+    if any(soltype in phasediff_types for soltype in args['soltype_list']):
+        if args['soltype_list'][0] not in phasediff_types:
+            terminal_print('scalarphasediff/scalarphasediffFR/treemfphasediff need to be to first solves in the list')
+            raise Exception('scalarphasediff/scalarphasediffFR/treemfphasediff need to be to first solves in the list')
         sccount = 0
         for soltype in args['soltype_list']:
-            if soltype == 'scalarphasediff' or soltype == 'scalarphasediffFR':
+            if soltype in phasediff_types:
                 sccount = sccount + 1
         if sccount > 1:
-            terminal_print('only one scalarphasediff/scalarphasediffFR solve allowed')
-            raise Exception('only one scalarphasediff/scalarphasediffFR solve allowed')
+            terminal_print('only one scalarphasediff/scalarphasediffFR/treemfphasediff solve allowed')
+            raise Exception('only one scalarphasediff/scalarphasediffFR/treemfphasediff solve allowed')
 
     # check if args['facetdirections'] is a string and if the file exists
     if args['facetdirections'] is not None:
@@ -1106,7 +1109,7 @@ def inputchecker(args, mslist):
     for ms in mslist:
         if not check_phaseup_station(ms):
             for soltype_id, soltype in enumerate(args['soltype_list']):
-                if soltype in ['scalarphasediff', 'scalarphasediff']:
+                if soltype in ['scalarphasediff', 'scalarphasediff', 'treemfphasediff']:
                     if args['antennaconstraint_list'][soltype_id] not in ['superterp', 'coreandfirstremotes', 'core',
                                                                           'remote', 'distantremote',
                                                                           'all', 'international', 'alldutch',
@@ -1217,17 +1220,23 @@ def inputchecker(args, mslist):
         terminal_print('Wrong input detected, length soltypecycles-list does not match that of soltype-list')
         raise Exception('Wrong input detected, length soltypecycles-list does not match that of soltype-list')
 
+    # DP3 applies the smoothness constraint before the tec/delay or Faraday-rotation fit, so it smooths
+    # over phase wraps the fit itself handles; the fitted frequency model already makes the solutions smooth
     for soltype_id, soltype in enumerate(args['soltype_list']):
         wronginput = False
-        if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'delay']:
+        if soltype in ['tecandphase', 'tec', 'tec_phmin', 'tecandphase_phmin', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf', 'delay',
+                       'treemfphasediff',
+                       'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase',
+                       'faradayrotation+diagonalamplitude', 'faradayrotation+scalar',
+                       'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
             try:  # in smoothnessconstraint_list is not filled by the user
                 if args['smoothnessconstraint_list'][soltype_id] > 0.0:
-                    terminal_print('smoothnessconstraint should be 0.0 for a tec/delay-like solve')
+                    terminal_print('smoothnessconstraint should be 0.0 for a tec/delay/faradayrotation-like solve')
                     wronginput = True
             except:
                 pass
             if wronginput:
-                raise Exception('smoothnessconstraint should be 0.0 for a tec/delay-like solve')
+                raise Exception('smoothnessconstraint should be 0.0 for a tec/delay/faradayrotation-like solve')
 
     for smoothnessconstraint in args['smoothnessconstraint_list']:
         if smoothnessconstraint < 0.0:

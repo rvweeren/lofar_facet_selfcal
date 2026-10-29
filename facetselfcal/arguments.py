@@ -241,7 +241,7 @@ def option_parser():
     calibrationparser.add_argument("--soltype-list",
                                    type=arg_as_list,
                                    default=['tecandphase', 'tecandphase', 'scalarcomplexgain'],
-                                   help="List with solution types. Possible input: 'complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase' , 'tec', 'tecandphase', 'scalarphase', 'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', 'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope', 'leakage', 'leakageamplitude'. The default is [tecandphase,tecandphase,scalarcomplexgain].")
+                                   help="List with solution types. Possible input: 'complexgain', 'scalarcomplexgain', 'scalaramplitude', 'amplitudeonly', 'phaseonly', 'fulljones', 'rotation', 'rotation+diagonal', 'rotation+diagonalphase', 'rotation+diagonalamplitude', 'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase', 'faradayrotation', 'faradayrotation+diagonal', 'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', 'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase' , 'tec', 'tecandphase', 'scalarphase', 'scalarphasediff', 'scalarphasediffFR', 'phaseonly_phmin', 'rotation_phmin', 'tec_phmin', 'tecandphase_phmin', 'scalarphase_phmin', 'scalarphase_slope', 'phaseonly_slope', 'leakage', 'leakageamplitude', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf' (tec+phase+delay solved with the Python treeMF solver instead of DP3, see the --treemf-* options), 'treemfphasediff' (in place of scalarphasediff: a per-station rotation measure fitted to RR-LL with the Python treeMF solver, see the --treemfphasediff-* options). Note: treemf and treemfphasediff are experimental, meant for expert testing, and will likely be replaced in a future version. The default is [tecandphase,tecandphase,scalarcomplexgain].")
     calibrationparser.add_argument("--solint-list",
                                    type=check_strlist_or_intlist,
                                    default=[1, 1, 120],
@@ -261,7 +261,7 @@ def option_parser():
     calibrationparser.add_argument("--smoothnessconstraint-list",
                                    type=arg_as_list,
                                    default=[0., 0., 5.],
-                                   help="List with frequency smoothness values in MHz (in same order as soltype-list input). The default is [0.,0.,5.].")
+                                   help="List with frequency smoothness values in MHz (in same order as soltype-list input). Must be 0 for the tec/delay-type and faradayrotation soltypes, whose fitted frequency model is already smooth. The default is [0.,0.,5.].")
     calibrationparser.add_argument("--smoothnessreffrequency-list",
                                    type=arg_as_list,
                                    default=[0., 0., 0.],
@@ -417,6 +417,111 @@ def option_parser():
     calibrationparser.add_argument('--reduce-h5size',
                                    help='Save h5 file at the highest time and frequency grid based on the solints, instead of the time and frequency resolution of the MS (the default). This option is ignored for tec/tecandphase solves. Enabling this option can potentially reduce the accuracy of the solutions applied. For example if solint 3min and 4min are combined, the 4min solutions cannot be sampled perfectly onto a 3min solution grid.',
                                    action='store_true')
+    calibrationparser.add_argument('--treemf-model',
+                                   help="For soltype treemf (experimental, for expert testing; likely to be replaced in a future version): the phase model fitted per station. Parameters not in the model are fixed at zero. The default is 'tec+phase+delay'.",
+                                   type=str,
+                                   choices=['tec+phase+delay', 'tec+phase', 'tec+delay', 'tec', 'delay+phase', 'delay'],
+                                   default='tec+phase+delay')
+    calibrationparser.add_argument('--treemf-delaymax',
+                                   help='For soltype treemf: bound on |delay| relative to the reference station in ns. The default is 20.',
+                                   type=float,
+                                   default=20.0)
+    calibrationparser.add_argument('--treemf-delaysigma',
+                                   help='For soltype treemf: width of an optional Gaussian delay prior in ns (in addition to --treemf-delaymax). The default is None (no Gaussian prior).',
+                                   type=float,
+                                   default=None)
+    calibrationparser.add_argument('--treemf-tecmax',
+                                   help='For soltype treemf: bound on |TEC| relative to the reference station in TECU (the TEC search range). The default is 4.',
+                                   type=float,
+                                   default=4.0)
+    calibrationparser.add_argument('--treemf-tecprior',
+                                   help="For soltype treemf: TEC prior. 'geometric' gives each station a zero-mean prior whose width grows with its ionospheric pierce-point distance from the reference station, 'none' uses only the --treemf-tecmax bound. The default is 'geometric'.",
+                                   type=str,
+                                   choices=['geometric', 'none'],
+                                   default='geometric')
+    calibrationparser.add_argument('--treemf-tecsig100',
+                                   help='For soltype treemf with --treemf-tecprior geometric: prior width in TECU at 100 km pierce-point separation; it scales with separation^(5/6). The default is 0.25.',
+                                   type=float,
+                                   default=0.25)
+    add_bool_arg(calibrationparser, 'treemf-propagate',
+                 help='For soltype treemf: use each solution interval as the prior mean for the next one (with widths --treemf-propagate-tecsigma and --treemf-propagate-delaysigma). Without it every interval is solved independently.',
+                 default=False)
+    calibrationparser.add_argument('--treemf-propagate-tecsigma',
+                                   help='For soltype treemf with --treemf-propagate: TEC prior width around the previous solution in TECU. The default is 0.1.',
+                                   type=float,
+                                   default=0.1)
+    calibrationparser.add_argument('--treemf-propagate-delaysigma',
+                                   help='For soltype treemf with --treemf-propagate: delay prior width around the previous solution in ns. The default is 5.',
+                                   type=float,
+                                   default=5.0)
+    add_bool_arg(calibrationparser, 'treemf-tiecore',
+                 help='For soltype treemf: solve all core stations (CS*) as one station; they share the clock and see the same ionosphere. The tied core is then the reference station. Core stations in an --antennaconstraint group stay in that group.',
+                 default=True)
+    calibrationparser.add_argument('--treemf-delaycentre',
+                                   help="For soltype treemf: centre of each station's delay window (--treemf-delaymax applies around it). 'zero' centres the windows on zero delay; 'track' estimates a slowly varying delay per station from the data first (the delay likelihoods of all solution intervals stacked in --treemf-delaytrack-block minute blocks, with a test per station against shuffled data; stations that fail it keep zero), so that a narrow window can follow large and drifting residual clock delays; or an h5parm with a delay000 soltab (e.g. an earlier treemf solve) whose delays are used as centres. The default is 'zero'.",
+                                   type=str,
+                                   default='zero')
+    calibrationparser.add_argument('--treemf-delaytrack-search',
+                                   help='For soltype treemf with --treemf-delaycentre track: half-width in ns of the delay range searched for the track. The default is 200.',
+                                   type=float,
+                                   default=200.0)
+    calibrationparser.add_argument('--treemf-delaytrack-tecwander',
+                                   help='For soltype treemf with --treemf-delaycentre track: how far (TECU) the TEC of a solution interval may wander around that of its block when the delay likelihoods are stacked. The default is 0.1.',
+                                   type=float,
+                                   default=0.1)
+    calibrationparser.add_argument('--treemf-delaytrack-block',
+                                   help='For soltype treemf with --treemf-delaycentre track or --treemf-delayadapt: block length in minutes over which the delay is taken as constant. The default is 30.',
+                                   type=float,
+                                   default=30.0)
+    calibrationparser.add_argument('--treemf-delaytrack-maxstep',
+                                   help='For soltype treemf with --treemf-delaycentre track: largest change of the delay track between consecutive blocks in ns. The default is 15.',
+                                   type=float,
+                                   default=15.0)
+    calibrationparser.add_argument('--treemf-delayadapt',
+                                   help="For soltype treemf: number of rounds of the delay-bound check. Where a station's solutions pile up at one edge of its delay window within a block, the window there is moved by half of --treemf-delaymax towards the pile-up and that block is solved again. The default is 0 (only report pile-ups in the log).",
+                                   type=int,
+                                   default=0)
+    calibrationparser.add_argument('--treemfphasediff-model',
+                                   help="For soltype treemfphasediff (used in place of scalarphasediff; experimental, for expert testing; likely to be replaced in a future version): the model fitted per station to the RR-LL phase difference. 'rm' is a differential Faraday rotation, 2 RM lambda^2; 'rm+phase' adds a constant R-L phase offset (a residual frame rotation, e.g. without the full beam applied). The default is 'rm+phase'.",
+                                   type=str,
+                                   choices=['rm', 'rm+phase'],
+                                   default='rm+phase')
+    calibrationparser.add_argument('--treemfphasediff-rmmax',
+                                   help='For soltype treemfphasediff: bound on |RM| relative to the reference station in rad/m^2 (the RM search range). The default is 5.',
+                                   type=float,
+                                   default=5.0)
+    calibrationparser.add_argument('--treemfphasediff-rmprior',
+                                   help="For soltype treemfphasediff: RM prior. 'none' uses only --treemfphasediff-rmmax; 'geometric' a zero-mean prior whose width grows with the pierce-point distance from the reference station (--treemfphasediff-rmsig100); 'rmextract' a prior mean from RMextract (GPS TEC maps and the geomagnetic field) with width --treemfphasediff-rmsigma, only for data that do not already have the RMextract Faraday-rotation correction applied (needs RMextract and IONEX downloads). The default is 'none'.",
+                                   type=str,
+                                   choices=['none', 'geometric', 'rmextract'],
+                                   default='none')
+    calibrationparser.add_argument('--treemfphasediff-rmsig100',
+                                   help='For soltype treemfphasediff with --treemfphasediff-rmprior geometric: prior width in rad/m^2 at 100 km pierce-point separation; it scales with separation^(5/6). The default is 0.1.',
+                                   type=float,
+                                   default=0.1)
+    calibrationparser.add_argument('--treemfphasediff-rmsigma',
+                                   help='For soltype treemfphasediff with --treemfphasediff-rmprior rmextract: prior width around the RMextract value in rad/m^2. The default is 0.1.',
+                                   type=float,
+                                   default=0.1)
+    calibrationparser.add_argument('--treemfphasediff-offsetsigma',
+                                   help='For soltype treemfphasediff with model rm+phase: width in rad of a zero-mean Gaussian prior on the R-L phase offset. The default is None (no prior).',
+                                   type=float,
+                                   default=None)
+    calibrationparser.add_argument('--treemfphasediff-amp',
+                                   help="For soltype treemfphasediff: 'unit' uses the phase of RR conj(LL) only (as scalarphasediff does), 'product' keeps its amplitude as a weight. The default is 'unit'.",
+                                   type=str,
+                                   choices=['unit', 'product'],
+                                   default='unit')
+    add_bool_arg(calibrationparser, 'treemfphasediff-propagate',
+                 help='For soltype treemfphasediff: use each solution interval as the prior mean for the next one (with width --treemfphasediff-propagate-rmsigma).',
+                 default=False)
+    calibrationparser.add_argument('--treemfphasediff-propagate-rmsigma',
+                                   help='For soltype treemfphasediff with --treemfphasediff-propagate: RM prior width around the previous solution in rad/m^2. The default is 0.05.',
+                                   type=float,
+                                   default=0.05)
+    add_bool_arg(calibrationparser, 'treemfphasediff-tiecore',
+                 help='For soltype treemfphasediff: solve all core stations (CS*) as one station (they see the same ionosphere). Core stations in an --antennaconstraint group stay in that group.',
+                 default=True)
     
     blsmoothparser = parser.add_argument_group("-------------------------BLSmooth Settings-------------------------")
     # BLsmooth settings

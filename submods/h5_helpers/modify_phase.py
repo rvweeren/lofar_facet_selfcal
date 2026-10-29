@@ -57,6 +57,30 @@ def makephasediffh5(phaseh5, refant):
     return
 
 
+def phasediffh5_to_linear(phaseh5):
+    """
+    Convert a phase-difference H5 (from makephasediffh5) to a linear full-Jones H5 for linear data.
+
+    The correction diag(exp(i*phi), 1) on (R, L) becomes, in linear, a rotation by phi/2 times a
+    common phase exp(i*phi/2), so it has to be applied as a full-Jones matrix.
+
+    Parameters
+    ----------
+    phaseh5 : str
+        Path to the phase-difference H5 file (circular, pol axis RR, LL).
+
+    Returns
+    -------
+    str
+        Path to the linear full-Jones H5, ``linearfulljones_<name>`` next to the input.
+    """
+    h5_lin = os.path.join(os.path.dirname(phaseh5), 'linearfulljones_' + os.path.basename(phaseh5))
+    Path(h5_lin).unlink(missing_ok=True)
+    terminal_print('Converting phase-difference solutions to linear full-Jones:', h5_lin)
+    merge_h5(h5_out=h5_lin, h5_tables=phaseh5, circ2lin=True, propagate_weights=True)
+    return h5_lin
+
+
 def makephaseCDFh5(phaseh5, backup=True, testscfactor=1.):
     """
     Convert phase solutions to cumulative frequency-difference values.

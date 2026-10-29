@@ -206,9 +206,10 @@ def detect_shadowed_antennas(ms_path: str, tolerance: float = 0.0,
     if verbose:
         print(f"[shadow] Reading {main_tab.nrows():,} rows from MAIN table …")
 
-    time_col = 'TIME_CENTROID' if 'TIME_CENTROID' in main_tab.colnames() else 'TIME'
-    time_ref = _get_measure_ref(main_tab, time_col, 'UTC')
-    times = main_tab.getcol(time_col)        # MJD seconds, shape (nrow,)
+    # TIME, not TIME_CENTROID: it is the same for all rows of a time slot (TIME_CENTROID can
+    # differ per row after averaging with flags) and it is what DP3's abstime selection matches
+    time_ref = _get_measure_ref(main_tab, 'TIME', 'UTC')
+    times = main_tab.getcol('TIME')          # MJD seconds, shape (nrow,)
     ant1 = main_tab.getcol('ANTENNA1')       # shape (nrow,)
     ant2 = main_tab.getcol('ANTENNA2')       # shape (nrow,)
     field_ids = main_tab.getcol('FIELD_ID')  # shape (nrow,)

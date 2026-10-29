@@ -25,6 +25,10 @@ jobs:
           sudo apt update
           sudo apt install -y apptainer
 
+      - name: Allow unprivileged user namespaces
+        # AppArmor blocks them by default on new Ubuntu runners, which makes apptainer
+        # fail with "Failed to create container process: Operation not permitted"
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Configure Singularity cache
         run: |

@@ -38,6 +38,8 @@ _DP3_PHASE_BY_TYPE = {
 }
 _PHASE_ROW_SPACING = 20
 _MIN_PHASE_BAR_WIDTH = 2.0
+# DP3, or the Python treeMF solver that takes DP3's arguments (soltype treemf)
+_DP3_COMMAND = r"^\s*(?:DP3|python\s+\S*DP3_Python_treeMF\.py)(?:\s|$)"
 
 
 def _escape(value):
@@ -47,7 +49,7 @@ def _escape(value):
 def dp3_command_phases(command):
     """Return recognized DP3 steps in the order configured by ``steps=[...]``."""
     command_text = str(command)
-    if not re.match(r"^\s*DP3(?:\s|$)", command_text, re.IGNORECASE):
+    if not re.match(_DP3_COMMAND, command_text, re.IGNORECASE):
         return []
 
     steps_match = re.search(
@@ -85,7 +87,7 @@ def dp3_command_phases(command):
 def dp3_workflow_step_kinds(command):
     """Return workflow step kinds represented by a DP3 command."""
     command_text = str(command)
-    if not re.match(r"^\s*DP3(?:\s|$)", command_text, re.IGNORECASE):
+    if not re.match(_DP3_COMMAND, command_text, re.IGNORECASE):
         return []
 
     step_kinds = dp3_command_phases(command_text)
@@ -880,9 +882,13 @@ _RESOURCE_CHART_BROWSER_JS = r"""
                 }
                 var parameters = new URLSearchParams(window.location.search);
                 var rawCount = parameters.get("sample_limit");
-                var requestedCount = rawCount === null
-                    ? __DEFAULT_RESOURCE_SAMPLE_COUNT__
-                    : Number(rawCount);
+                // sample_limit=all draws the full time range of the run
+                var fullRange = rawCount === "all";
+                var requestedCount = fullRange
+                    ? Math.max(1, data.samples.length)
+                    : rawCount === null
+                        ? __DEFAULT_RESOURCE_SAMPLE_COUNT__
+                        : Number(rawCount);
                 var displayedCount = renderResourceWindow(
                     target,
                     data,
@@ -892,6 +898,7 @@ _RESOURCE_CHART_BROWSER_JS = r"""
                     window.parent.postMessage(
                         {
                             type: "facetselfcal-resource-chart-window",
+                            fullRange: fullRange,
                             requestedCount: requestedCount,
                             displayedCount: displayedCount,
                             availableCount:

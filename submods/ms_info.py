@@ -129,6 +129,25 @@ def check_phaseup_station(ms):
     return hassuperstation
 
 
+def is_linear_ms(ms):
+    """
+    Check if the Measurement Set has linear correlations (XX, XY, YX, YY).
+
+    Parameters
+    ----------
+    ms : str
+        path to the Measurement Set.
+
+    Returns
+    -------
+    bool
+        True if CORR_TYPE is [9, 10, 11, 12].
+    """
+    with table(ms + '::POLARIZATION', ack=False) as t:
+        corr_type = t.getcol('CORR_TYPE')
+    return np.array_equal(corr_type, [[9, 10, 11, 12]])
+
+
 def checklongbaseline(ms):
     """
     Check if the Measurement Set contains international stations.

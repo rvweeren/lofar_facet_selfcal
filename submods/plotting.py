@@ -418,11 +418,11 @@ def plotimage_astropy(fitsimagename, outplotname, mask=None, regionfile=None, \
     ax = f.add_subplot(111, projection=WCS(hdulist.header) ) #, slices=('x', 'y', 0, 0))
     if minmax is None:
         img = ax.imshow(data[0, 0, :, :], cmap=cmap, vmax=16 * imagenoiseinfo, vmin=-6 * imagenoiseinfo)
-        ax.set_title(fitsimagename + ' (noise = {} mJy/beam)'.format(round(imagenoiseinfo * 1e3, 3)),fontsize=6)
+        ax.set_title(fitsimagename + ' (noise = {:.3g} mJy/beam)'.format(imagenoiseinfo * 1e3),fontsize=6)
     else:
         img = ax.imshow(data[0, 0, :, :], cmap=cmap, vmax=minmax[1], vmin=minmax[0])
         #ax.set_title(fitsimagename, fontsize=6)
-        ax.set_title(fitsimagename + ' (noise = {} mJy/beam)'.format(round(imagenoiseinfo * 1e3, 3)),fontsize=6)
+        ax.set_title(fitsimagename + ' (noise = {:.3g} mJy/beam)'.format(imagenoiseinfo * 1e3),fontsize=6)
     
     ax.grid(True)
     ax.coords[0].set_axislabel_position('b') # for some reason this needs to be hardcoded, otherwise RA gets on top axis
@@ -621,7 +621,7 @@ def plotimage_aplpy(fitsimagename, outplotname, mask=None, rmsnoiseimage=None):
 
     f = aplpy.FITSFigure(fitsimagename, slices=[0, 0])
     f.show_colorscale(vmax=16 * imagenoise, vmin=-6 * imagenoise, cmap='bone')
-    f.set_title(fitsimagename + ' (noise = {} mJy/beam)'.format(round(imagenoiseinfo * 1e3, 3)))
+    f.set_title(fitsimagename + ' (noise = {:.3g} mJy/beam)'.format(imagenoiseinfo * 1e3))
     try:  # to work around an aplpy error
         f.add_beam()
         f.beam.set_frame(True)

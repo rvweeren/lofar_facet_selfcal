@@ -408,6 +408,7 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .resource-card span { font-size: 18px; font-weight: 700; color: var(--ink); }
 .resource-live-frame { display: block; width: 100%; height: 142px; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
 .resource-chart-live-frame { display: block; width: 100%; height: 360px; margin: 0 0 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
+.log-tail-live-frame { display: block; width: 100%; height: 480px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
 .resource-chart-box { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(15,23,42,0.03); }
 .resource-chart-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; font-size: 12px; font-weight: 600; }
 .resource-range-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 0 0 10px; }
@@ -517,11 +518,16 @@ def _report_css():
 
 _JS = r"""
 window.addEventListener("message", function (event) {
-    var frame = document.querySelector(".resource-chart-live-frame");
-    if (!frame || event.source !== frame.contentWindow) return;
+    var frame = Array.prototype.find.call(
+        document.querySelectorAll(".resource-chart-live-frame"),
+        function (candidate) { return event.source === candidate.contentWindow; }
+    );
+    if (!frame) return;
     var data = event.data;
     if (!data) return;
     if (data.type === "facetselfcal-resource-chart-window") {
+        // the full-range frame does not describe the recent-sample window
+        if (data.fullRange) return;
         var container = frame.closest("[data-resource-range-container]");
         if (!container) return;
         var countInput = container.querySelector("[data-resource-sample-count]");
@@ -565,8 +571,7 @@ window.addEventListener("message", function (event) {
 });
 
 document.addEventListener("DOMContentLoaded", function () {
-    var liveChartFrame = document.querySelector(".resource-chart-live-frame");
-    if (liveChartFrame) {
+    document.querySelectorAll(".resource-chart-live-frame").forEach(function (liveChartFrame) {
         var requestLiveChartSize = function () {
             liveChartFrame.contentWindow.postMessage(
                 { type: "facetselfcal-resource-chart-size-request" },
@@ -575,7 +580,7 @@ document.addEventListener("DOMContentLoaded", function () {
         };
         liveChartFrame.addEventListener("load", requestLiveChartSize);
         requestLiveChartSize();
-    }
+    });
 
     document.querySelectorAll("[data-resource-range-container]").forEach(function (container) {
         var buttons = container.querySelectorAll("[data-resource-range-button]");
@@ -674,7 +679,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             if (updateLiveFrame) {
                 var liveFrame = container.querySelector(
-                    ".resource-chart-live-frame"
+                    '[data-resource-range-view="recent"] .resource-chart-live-frame'
                 );
                 if (liveFrame) {
                     var frameUrl = new URL(
@@ -711,6 +716,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     view.hidden = !isSelected;
                     if (isSelected) selectedView = view;
                 });
+                // the status describes the recent-sample window only
+                if (countStatus) countStatus.hidden = selectedRange !== "recent";
                 var liveFrame = selectedView
                     ? selectedView.querySelector(".resource-chart-live-frame")
                     : null;
@@ -3588,8 +3595,15 @@ def _render_resource_section(resources, include_chart=True, live_chart_frame=Non
         recent_samples = resources.get("recent_samples") or all_samples[
             -DEFAULT_RESOURCE_SAMPLE_COUNT:
         ]
+        # While monitoring is active the live chart page also draws the full range, so it is
+        # not limited to the samples of the last report update
         full_view = (
-            _resource_chart_legend_html()
+            _resource_chart_live_iframe(
+                "resource-chart-live.html?sample_limit=all",
+                "Live process tree CPU and RAM chart, full time range",
+            )
+            if live_chart_frame
+            else _resource_chart_legend_html()
             + '<div class="chart-container">{}</div>'.format(
                 _generate_resource_svg(full_samples, phase_intervals)
             )
@@ -3637,7 +3651,7 @@ def _render_resource_section(resources, include_chart=True, live_chart_frame=Non
                 '<span id="resource-sample-count-status" '
                 'class="resource-range-count-status" '
                 'data-resource-sample-count-status role="status" '
-                'aria-live="polite"></span></div>'
+                'aria-live="polite" hidden></span></div>'
                 '<script type="application/json" '
                 'data-resource-chart-data>{}</script>'
                 '<div class="resource-chart-range-view" '
@@ -3727,9 +3741,33 @@ def _resource_chart_live_frame(site_dir):
         return ""
     if '<meta http-equiv="refresh"' not in page_head:
         return ""
+    return _resource_chart_live_iframe(
+        "resource-chart-live.html", "Live process tree CPU and RAM chart"
+    )
+
+
+def _log_tail_live_frame(site_dir):
+    """The resource monitor's live log excerpt, while it is refreshing (empty otherwise)."""
+    page = site_dir / "log-tail-live.html"
+    if not page.is_file():
+        return ""
+    try:
+        with page.open(encoding="utf-8", errors="replace") as stream:
+            page_head = stream.read(1024)
+    except OSError as exc:
+        report_warning("Live log availability could not be read from {}: {}".format(page, exc))
+        return ""
+    if '<meta http-equiv="refresh"' not in page_head:
+        return ""
     return (
-        '<iframe class="resource-chart-live-frame" src="resource-chart-live.html" '
-        'title="Live process tree CPU and RAM chart"></iframe>'
+        '<iframe class="log-tail-live-frame" src="log-tail-live.html" '
+        'title="Live excerpt of selfcal.log"></iframe>'
+    )
+
+
+def _resource_chart_live_iframe(src, title):
+    return '<iframe class="resource-chart-live-frame" src="{}" title="{}"></iframe>'.format(
+        _escape(src), _escape(title)
     )
 
 
@@ -7936,7 +7974,9 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_recor
                 _escape(log["path"].name), min(80, log["lines"]), log["lines"], _escape(tail)
             )
         )
-    log_tails = "".join(tail_sections) if tail_sections else '<p class="empty">No logs were found.</p>'
+    log_tails = _log_tail_live_frame(site_dir) or (
+        "".join(tail_sections) if tail_sections else '<p class="empty">No logs were found.</p>'
+    )
 
     config_filter = _filter_input(".config-row", "Filter configuration options")
     config_table = _config_table(config, filterable=True)
@@ -8013,7 +8053,7 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_recor
         resource_content += live_chart_frame
     if resource_content:
         resource_note = (
-            "The latest-sample window defaults to 300 samples and can be adjusted in the chart controls. Its live chart refreshes about every 15 seconds while monitoring is active; the full time range shows data from the most recent report update. Phase bars use explicit workflow boundaries; process-tree CPU is relative to one core and can exceed 100%."
+            "The latest-sample window defaults to 300 samples and can be adjusted in the chart controls. While monitoring is active both time ranges come from the live chart, which refreshes about every 15 seconds. Phase bars use explicit workflow boundaries; process-tree CPU is relative to one core and can exceed 100%."
             if live_chart_frame
             else "Full time range shows all recorded samples; the latest-sample window defaults to 300 samples and can be adjusted in the chart controls. Phase bars use explicit workflow boundaries; process-tree CPU is relative to one core and can exceed 100%."
         )
@@ -8034,7 +8074,7 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_recor
         + _section("Artifact inventory", inventory) + "\n"
         + _section("Warning log records", _render_log_events(logs["warnings"], logs["warning_count"])) + "\n"
         + _section("Error log records", _render_log_events(logs["errors"], logs["error_count"], is_error=True)) + "\n"
-        + _section("Recent log excerpts", log_tails, "At most the last 80 lines of each log are included here; the full logs are linked above.")
+        + _section("Recent log excerpts", log_tails, "At most the last 80 lines of each log are included here; while monitoring is active they refresh about every 15 seconds. The full logs are linked above.")
     )
     _write_page(
         site_dir / "run-details.html",
