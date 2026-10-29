@@ -85,6 +85,11 @@ jobs:
           singularity exec --bind "$(pwd)":/repo flocs.sif \
           python /repo/submods/ds9facetgenerator.py --help
 
+      - name: Run --help on dysco_ms
+        run: |
+          singularity exec --bind "$(pwd)":/repo flocs.sif \
+          python /repo/submods/dysco_ms.py --help
+
       - name: Multi-directional merge h5_merger
         run: |
           singularity exec --bind "$(pwd)":/repo flocs.sif \
