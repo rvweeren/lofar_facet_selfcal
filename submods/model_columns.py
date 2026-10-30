@@ -110,29 +110,66 @@ def create_MODEL_DATA_PDIFF(inmslist, modelstoragemanager=None):
     if not isinstance(inmslist, list):
         inmslist = [inmslist]
     for ms in inmslist:
-        nchan = len(get_frequencies_from_ms(ms))
-        if modelstoragemanager is None:
-            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF steps=[]')
-            run("taql 'update " + ms + " set MODEL_DATA_PDIFF=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
-        elif modelstoragemanager == 'sisco_stokes_i':
-            # create temporary column with the phase diff to avoid DP3 error std exception detected: Diagonal storage modes cannot store data for which the 2nd and 3rd correlation are non-zero
-            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF_TMP steps=[]') # create temporary column uncompressed
-            run("taql 'update " + ms + " set MODEL_DATA_PDIFF_TMP=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
-            # now create the sisco compressed column based on the temporary column with the correct phase diff
-            run('DP3 msin=' + ms + ' msout=. msin.datacolumn=MODEL_DATA_PDIFF_TMP msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i steps=[]')
-            # remove temporary column
-            remove_column_ms(ms, 'MODEL_DATA_PDIFF_TMP')
-        elif modelstoragemanager == 'sisco_diagonal':
-            # create temporary column with the phase diff to avoid DP3 error std exception detected: Diagonal storage modes cannot store data for which the 2nd and 3rd correlation are non-zero
-            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF_TMP steps=[]') # create temporary column uncompressed
-            run("taql 'update " + ms + " set MODEL_DATA_PDIFF_TMP=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
-            # now create the sisco compressed column based on the temporary column with the correct phase diff
-            run('DP3 msin=' + ms + ' msout=. msin.datacolumn=MODEL_DATA_PDIFF_TMP msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal steps=[]')
-            # remove temporary column
-            remove_column_ms(ms, 'MODEL_DATA_PDIFF_TMP')
-        else:
-            run('DP3 msin=' + ms + ' msout=. msout.datacolumn=MODEL_DATA_PDIFF msout.storagemanager=' + modelstoragemanager + ' steps=[]')
-            run("taql 'update " + ms + " set MODEL_DATA_PDIFF=array([0.5+0i,0+0i,0+0i,0.5+0i], [" + str(nchan) + ",4])'", log=True, taql=True)
+        set_constant_model_column(ms, 'MODEL_DATA_PDIFF', 0.5, modelstoragemanager=modelstoragemanager)
+
+
+def dp3_storagemanager_args(modelstoragemanager):
+    """
+    DP3 msout arguments for writing a model column with the given storage manager.
+
+    Parameters
+    ----------
+    modelstoragemanager : str or None
+        None, 'stokes_i', 'sisco', 'sisco_stokes_i' or 'sisco_diagonal'.
+
+    Returns
+    -------
+    str
+        The msout.storagemanager arguments, with a trailing space (empty for None).
+    """
+    if modelstoragemanager is None:
+        return ''
+    if modelstoragemanager == 'sisco_stokes_i':
+        return 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i '
+    if modelstoragemanager == 'sisco_diagonal':
+        return 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal '
+    return 'msout.storagemanager=' + modelstoragemanager + ' '
+
+
+def set_constant_model_column(ms, column, value, modelstoragemanager=None, log=False):
+    """
+    Fill a model column with a constant, unpolarised point-source model (value + 0i on the diagonal).
+
+    The column is created if needed. With a model storage manager the values are first
+    written to an uncompressed temporary column and then compressed in a single DP3 pass:
+    the Stokes-I and diagonal storage modes cannot store the cross-hands of DATA, so the
+    column cannot be created as a copy of DATA, and for Sisco creating it from DATA and
+    overwriting it with TaQL would compress the column twice (Sisco encoding is slow).
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set path.
+    column : str
+        Model column name, e.g. 'MODEL_DATA'.
+    value : float
+        Flux density on the diagonal correlations (XX/YY or RR/LL).
+    modelstoragemanager : str or None, optional
+        Storage manager for a new column (see dp3_storagemanager_args).
+    log : bool, optional
+        Log the DP3 commands.
+    """
+    nchan = len(get_frequencies_from_ms(ms))
+    values = f"array([{value}+0i,0+0i,0+0i,{value}+0i], [{nchan},4])"
+    if modelstoragemanager is not None:
+        run(f'DP3 msin={ms} msout=. msout.datacolumn={column}_TMP steps=[]', log=log)
+        run(f"taql 'update {ms} set {column}_TMP={values}'", log=True, taql=True)
+        run(f'DP3 msin={ms} msout=. msin.datacolumn={column}_TMP msout.datacolumn={column} '
+            f'{dp3_storagemanager_args(modelstoragemanager)}steps=[]', log=log)
+        remove_column_ms(ms, column + '_TMP')
+    else:
+        run(f'DP3 msin={ms} msout=. msout.datacolumn={column} steps=[]', log=log)
+        run(f"taql 'update {ms} set {column}={values}'", log=True, taql=True)
 
 
 def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, sources=None, beamproximitylimit=240.0, modelstoragemanager=None):
@@ -168,13 +205,8 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
     if predictskywithbeam:
         cmd += 'p.usebeammodel=True p.usechannelfreq=True p.beammode=array_factor '
         cmd += 'p.beamproximitylimit=' + str(beamproximitylimit) + ' '
-    elif modelstoragemanager is not None:
-        if modelstoragemanager == 'sisco_stokes_i':
-            cmd += 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i '
-        elif modelstoragemanager == 'sisco_diagonal':
-            cmd += 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal '
-        else:
-            cmd += 'msout.storagemanager=' + modelstoragemanager + ' '
+    else:
+        cmd += dp3_storagemanager_args(modelstoragemanager)
     terminal_print('Command:', cmd)
     run(cmd)
 
@@ -261,42 +293,42 @@ def updatemodelcols_includedir(modeldatacolumns, soltypelist_includedir, ms, dry
             modeldatacolumns[removed_id].split('MODEL_DATA_DD')[1]
 
     # print(modeldatacolumns_solve_newnames)
-    # DP3 to create the missing columns
-    for modelcol in modeldatacolumns_solve_newnames:
-        t = table(ms, ack=False)
+    # DP3 to create the missing columns, taql to fill the composite columns MODEL_DATA_DDX+Y+Z
+    # with the sum of the merged directions
+    with table(ms, ack=False) as t:
         colnames = t.colnames()
-        t.close()
-        if modelcol not in colnames:
+    for modelcol in modeldatacolumns_solve_newnames:
+        composite = '+' in modelcol
+        # with Sisco, fill an uncompressed temporary column and compress it in a single DP3 pass,
+        # instead of compressing the column twice (DP3 copy of the template, then the taql update)
+        via_tmp = composite and modelstoragemanager in ['sisco', 'sisco_stokes_i', 'sisco_diagonal']
+        fillcol = modelcol + '_TMP' if via_tmp else modelcol
+        if fillcol not in colnames:
             cmddppp = 'DP3 msin=' + ms + ' msin.datacolumn='
             cmddppp += modeldatacolumns[0] + ' msout=. steps=[] ' # modeldatacolumns[0] just use to first one as template
-            cmddppp += 'msout.datacolumn=' + modelcol + ' '
-            if modelstoragemanager is not None:
-                if modelstoragemanager == 'sisco_stokes_i':
-                    cmddppp += 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=stokes_i '
-                elif modelstoragemanager == 'sisco_diagonal':
-                    cmddppp += 'msout.storagemanager=sisco msout.storagemanager.sisco_mode=diagonal '
-                else:
-                    cmddppp += 'msout.storagemanager=' + modelstoragemanager + ' '
+            cmddppp += 'msout.datacolumn=' + fillcol + ' '
+            if not via_tmp:
+                cmddppp += dp3_storagemanager_args(modelstoragemanager)
             terminal_print('DP3 command:', cmddppp)
             if not dryrun:
                 run(cmddppp)
+        if not composite:
+            continue
 
-    # taql to fill the missing columns
-    for modelcol in modeldatacolumns_solve_newnames:
-        modeldatacolumns_taql_tmp = list(modelcol.split('+'))
-        modeldatacolumns_taql = modeldatacolumns_taql_tmp[:]
-        for mm_id, mm in enumerate(modeldatacolumns_taql_tmp):
-            if mm_id > 0:
-                modeldatacolumns_taql[mm_id] = 'MODEL_DATA_DD' + mm
-        # print(modeldatacolumns_taql)
-        colstr = '(' + '+'.join(map(str, modeldatacolumns_taql)) + ')'
-        # print(colstr)
+        modeldatacolumns_taql = [mm if mm_id == 0 else 'MODEL_DATA_DD' + mm for mm_id, mm in enumerate(modelcol.split('+'))]
+        colstr = '(' + '+'.join(modeldatacolumns_taql) + ')'
+        taqlcmd = "taql" + " 'update " + ms + " set " + fillcol.replace("+", "\\+") + "=" + colstr + "'"
+        terminal_print('TAQL command:', taqlcmd)
+        if not dryrun:
+            run(taqlcmd, taql=True)
 
-        if '+' in modelcol:  # we have a composite column
-            taqlcmd = "taql" + " 'update " + ms + " set " + modelcol.replace("+", "\\+") + "=" + colstr + "'"
-            terminal_print('TAQL command:', taqlcmd)
+        if via_tmp:
+            cmddppp = 'DP3 msin=' + ms + ' msin.datacolumn=' + fillcol + ' msout=. steps=[] '
+            cmddppp += 'msout.datacolumn=' + modelcol + ' ' + dp3_storagemanager_args(modelstoragemanager)
+            terminal_print('DP3 command:', cmddppp)
             if not dryrun:
-                run(taqlcmd, taql=True)
+                run(cmddppp)
+                remove_column_ms(ms, fillcol)
 
     # create new column name MODEL_DATA_DDX+Y+Z with DP3
     # fill this column with taql

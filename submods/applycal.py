@@ -14,7 +14,6 @@ from casacore.tables import table  # type: ignore
 from submods.h5_helpers.general_utils import make_utf8
 from submods.h5_helpers.h5_info import amplitude_leakage_paramdb, fulljonesparmdb
 from submods.h5_helpers.reset_solutions import resetsolsforstations
-from submods.ms_columns import remove_column_ms
 from submods.ms_fixes import fix_uvw
 from submods.ms_info import check_phaseup_station
 from submods.runtime_utils import _track_resource_phase, run, terminal_print
@@ -637,12 +636,18 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
         fix_uvw([msout])
     
     if msincol == msoutcol_orig and msout == '.' and modelstoragemanager in sisco_modelstoragemanager_modes and fix_sisco_samecol_issue:
-        # copy back from temporary column to original column with taql
-        taql_cmd = f"taql 'UPDATE {ms} SET {msoutcol_orig} = {msoutcol}'"
-        terminal_print('Copying back from temporary column to original column with taql:', taql_cmd)
-        run(taql_cmd, log=True, taql=True)
-        # remove temporary column
-        remove_column_ms(ms, msoutcol)
+        # replace the original column by the temporary one. Renaming instead of copying back with
+        # taql avoids decoding and encoding the whole Sisco column once more (that copy costs more
+        # than the applycal itself). The new column has a fixed shape, so a next applycal can
+        # write it in place.
+        terminal_print('Replacing', msoutcol_orig, 'by', msoutcol)
+        with table(ms, readonly=False, ack=False) as t:
+            keywords = t.getcolkeywords(msoutcol_orig)
+            t.renamecol(msoutcol_orig, msoutcol_orig + '_SISCO_OLD')
+            t.renamecol(msoutcol, msoutcol_orig)
+            if keywords:
+                t.putcolkeywords(msoutcol_orig, keywords)
+            t.removecols(msoutcol_orig + '_SISCO_OLD')
     return
 
 
