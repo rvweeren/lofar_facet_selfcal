@@ -12,7 +12,7 @@ from astropy.coordinates import SkyCoord
 from astropy.io import ascii
 from casacore.tables import table  # type: ignore
 
-from submods.antenna_constraints import max_in_str
+from submods.antenna_constraints import available_antennaconstraints, max_in_str
 from submods.facet_directions import parse_facetdirections
 from submods.ms_fixes import get_telescope_from_ms
 from submods.ms_info import check_phaseup_station, checklongbaseline
@@ -929,6 +929,15 @@ def inputchecker(args, mslist):
                 'Invalid input, resetsols can only be core, superterp, corebutsuperterp, coreandfirstremotes, remote, alldutch, international, distantremote, alldutchandclosegerman, or all')
             raise Exception(
                 'Invalid input, resetsols can only be core, superterp, corebutsuperterp, coreandfirstremotes, remote, alldutch, international, distantremote, alldutchandclosegerman, or all')
+
+    # most antenna constraint types are LOFAR station groups, check what exists for this telescope
+    available = available_antennaconstraints(args['telescope'])
+    for ctype in args['antennaconstraint_list'] + args['resetsols_list']:
+        if ctype is not None and ctype not in available:
+            msg = ("antennaconstraint/resetsols '" + ctype + "' is not defined for telescope " +
+                   args['telescope'] + ', available: ' + ', '.join(available))
+            terminal_print(msg)
+            raise Exception(msg)
 
     for soltype in args['soltype_list']:
         if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude',

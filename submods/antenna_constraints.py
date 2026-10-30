@@ -125,6 +125,34 @@ def max_in_str(s):
     return max(values)
 
 
+LOFAR_ANTENNACONSTRAINTS = ['superterp', 'core', 'coreandfirstremotes', 'remote', 'alldutch', 'all',
+                            'international', 'core-remote', 'coreandallbutmostdistantremotes',
+                            'alldutchandclosegerman', 'alldutchbutnoST001', 'distantremote', 'mediumremote',
+                            'closeremote', 'corebutsuperterp', 'closeinternational', 'distantinternational',
+                            'superstation']
+
+
+def available_antennaconstraints(telescope):
+    """
+    Antenna constraint types that antennaconstraintstr supports for a telescope.
+
+    Parameters
+    ----------
+    telescope : str
+        telescope name as in the MS OBSERVATION table (LOFAR, MeerKAT, GMRT, ASKAP, EVLA, ...).
+
+    Returns
+    -------
+    list of str
+        'all' (every antenna in the MS) is available for any telescope.
+    """
+    if telescope == 'LOFAR':
+        return LOFAR_ANTENNACONSTRAINTS
+    if telescope in ['MeerKAT', 'GMRT', 'ASKAP']:
+        return ['core', 'remote', 'all']
+    return ['all']
+
+
 def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, telescope='LOFAR'):
     """
     Formats an anntena constraint string in a DP3-suitable format.
@@ -133,6 +161,8 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
     ----------
     ctype : str
         constraint type. Can be superterp, core, coreandfirstremotes, remote, alldutch, all, international, core-remote, coreandallbutmostdistantremotes, alldutchandclosegerman or alldutchbutnoST001.
+        'all' means all antennas in the MS, for any telescope. For MeerKAT, GMRT and ASKAP also core and remote
+        are available, the other types are LOFAR only (see available_antennaconstraints).
     antennasms : list
         antennas present in the Measurement Set.
     HBAorLBA : str
@@ -149,16 +179,10 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
     """
     antennasms = list(antennasms)
     # print(antennasms)
-    if ctype != 'superterp' and ctype != 'core' and ctype != 'coreandfirstremotes' and \
-            ctype != 'remote' and ctype != 'alldutch' and ctype != 'all' and \
-            ctype != 'international' and ctype != 'core-remote' and ctype != 'coreandallbutmostdistantremotes' and \
-            ctype != 'alldutchandclosegerman' and \
-            ctype != 'alldutchbutnoST001' and ctype != 'distantremote' and ctype != 'mediumremote' and \
-            ctype != 'closeremote' and ctype != 'corebutsuperterp' and ctype != 'closeinternational' and \
-            ctype != 'distantinternational' and ctype != 'superstation':
-
+    if ctype not in LOFAR_ANTENNACONSTRAINTS:
         terminal_print('Invalid input, ctype can only be "superterp" or "core"')
         raise Exception('Invalid input, ctype can only be "superterp" or "core"')
+    antstr, antstr1 = None, None  # stay None if ctype is not defined for this telescope
     if HBAorLBA == 'LBA':
         if ctype == 'superterp':
             antstr = ['CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA', 'ST001']
@@ -207,15 +231,6 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA',
                       'RS409LBA', 'RS508LBA', 'RS509LBA']
 
-        if ctype == 'all':
-            antstr = ['CS001LBA', 'CS002LBA', 'CS003LBA', 'CS004LBA', 'CS005LBA', 'CS006LBA', 'CS007LBA',
-                      'CS011LBA', 'CS013LBA', 'CS017LBA', 'CS021LBA', 'CS024LBA', 'CS026LBA', 'CS028LBA',
-                      'CS030LBA', 'CS031LBA', 'CS032LBA', 'CS101LBA', 'CS103LBA', 'CS201LBA', 'CS301LBA',
-                      'CS302LBA', 'CS401LBA', 'CS501LBA', 'RS503LBA', 'RS305LBA', 'RS205LBA', 'RS306LBA',
-                      'RS310LBA', 'RS406LBA', 'RS407LBA', 'RS106LBA', 'RS307LBA', 'RS208LBA', 'RS210LBA',
-                      'RS409LBA', 'RS508LBA', 'RS509LBA',
-                      'DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA',
-                      'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'BG616LBA', 'ST001']
         if ctype == 'international':
             antstr = ['DE601LBA', 'DE602LBA', 'DE603LBA', 'DE604LBA', 'DE605LBA', 'DE609LBA', 'FR606LBA',
                       'SE607LBA', 'UK608LBA', 'PL610LBA', 'PL611LBA', 'PL612LBA', 'IE613LBA', 'LV614LBA', 'BG616LBA']
@@ -323,19 +338,6 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'CS302HBA1', 'CS401HBA1', 'CS501HBA1',
                       'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',
                       'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA']
-        if ctype == 'all':
-            antstr = ['CS001HBA0', 'CS002HBA0', 'CS003HBA0', 'CS004HBA0', 'CS005HBA0', 'CS006HBA0', 'CS007HBA0',
-                      'CS011HBA0', 'CS013HBA0', 'CS017HBA0', 'CS021HBA0', 'CS024HBA0', 'CS026HBA0', 'CS028HBA0',
-                      'CS030HBA0', 'CS031HBA0', 'CS032HBA0', 'CS101HBA0', 'CS103HBA0', 'CS201HBA0', 'CS301HBA0',
-                      'CS302HBA0', 'CS401HBA0', 'CS501HBA0',
-                      'CS001HBA1', 'CS002HBA1', 'CS003HBA1', 'CS004HBA1', 'CS005HBA1', 'CS006HBA1', 'CS007HBA1',
-                      'CS011HBA1', 'CS013HBA1', 'CS017HBA1', 'CS021HBA1', 'CS024HBA1', 'CS026HBA1', 'CS028HBA1',
-                      'CS030HBA1', 'CS031HBA1', 'CS032HBA1', 'CS101HBA1', 'CS103HBA1', 'CS201HBA1', 'CS301HBA1',
-                      'CS302HBA1', 'CS401HBA1', 'CS501HBA1',
-                      'RS503HBA', 'RS305HBA', 'RS205HBA', 'RS306HBA', 'RS310HBA', 'RS406HBA', 'RS407HBA',
-                      'RS106HBA', 'RS307HBA', 'RS208HBA', 'RS210HBA', 'RS409HBA', 'RS508HBA', 'RS509HBA',
-                      'DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA',
-                      'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'BG616HBA', 'ST001']
         if ctype == 'international':
             antstr = ['DE601HBA', 'DE602HBA', 'DE603HBA', 'DE604HBA', 'DE605HBA', 'DE609HBA', 'FR606HBA',
                       'SE607HBA', 'UK608HBA', 'PL610HBA', 'PL611HBA', 'PL612HBA', 'IE613HBA', 'LV614HBA', 'BG616HBA']
@@ -361,17 +363,12 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
             antstr = MeerKAT_antconstraint(ctype='core')
         if ctype == 'remote':
             antstr = MeerKAT_antconstraint(ctype='remote')
-        if ctype == 'all':
-            antstr = MeerKAT_antconstraint(ctype='all')
 
     if telescope == 'GMRT':
         if ctype == 'core':
             antstr = ['C00','C01','C02','C03','C04','C05','C06','C08','C09','C10','C11','C12','C13','C14']    
         if ctype == 'remote':
             antstr = ['E02','E03','E04','E05','E06','S01','S02','S03','S04','S06','W01','W02','W03','W04','W05','W06'] 
-        if ctype == 'all':
-            antstr = ['C00','C01','C02','C03','C04','C05','C06','C08','C09','C10','C11','C12','C13','C14'] + \
-                     ['E02','E03','E04','E05','E06','S01','S02','S03','S04','S06','W01','W02','W03','W04','W05','W06']
 
     if telescope == 'ASKAP':
         if ctype == 'core':
@@ -380,13 +377,16 @@ def antennaconstraintstr(ctype, antennasms, HBAorLBA, useforresetsols=False, tel
                       'ak26','ak29']    
         if ctype == 'remote':
             antstr = ['ak24','ak27','ak28','ak30','ak31','ak32','ak33','ak34','ak35','ak36'] 
-        if ctype == 'all':
-            antstr = ['ak01','ak02','ak03','ak04','ak05','ak06','ak07','ak08','ak09','ak10','ak11','ak12',\
-                      'ak13','ak14','ak15','ak16','ak17','ak18','ak19','ak20','ak21','ak22','ak23','ak24',\
-                      'ak25','ak26','ak27','ak28','ak29','ak30','ak31','ak32','ak33','ak34','ak35','ak36'] 
 
+    if ctype == 'all':
+        antstr = list(antennasms)  # all antennas in the MS, for any telescope
     if ctype == 'superstation':
         antstr = ['ST001']
+    if (ctype != 'core-remote' and antstr is None) or (ctype == 'core-remote' and antstr1 is None):
+        msg = ("antennaconstraint '" + ctype + "' is not defined for telescope " + telescope +
+               ', available: ' + ', '.join(available_antennaconstraints(telescope)))
+        terminal_print(msg)
+        raise Exception(msg)
     if useforresetsols:
         antstrtmp = list(antstr)
         for ant in antstr:
