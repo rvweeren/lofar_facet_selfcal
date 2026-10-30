@@ -81,7 +81,8 @@ from submods.h5_helpers.h5_info import (amplitude_leakage_paramdb,
                                         findrefant_core, force_close,
                                         fulljonesparmdb, has0coordinates,
                                         is_scalar_array_for_wsclean,
-                                        ntimesH5, number_freqchan_h5)
+                                        ntimesH5, number_freqchan_h5,
+                                        set_refant)
 from submods.h5_helpers.modify_amplitude import (get_median_amp,
                                                  normamplitudes,
                                                  normamplitudes_withmatrix,
@@ -266,7 +267,8 @@ from submods.facet_directions import (add_bright_source_to_catalog,
                                       write_compactsource_flux,
                                       write_ds9_regions)
 from submods.ms_info import (check_phaseup_station, checklongbaseline,
-                             get_frequencies_from_ms, is_linear_ms)
+                             choose_refant_from_ms, get_frequencies_from_ms,
+                             is_linear_ms)
 from submods.ms_operations import (_write_stack_imaging_group_manifest,
                                    applycal_restart_di, archive, average,
                                    cleanup, concat_ms_wsclean_facetimaging,
@@ -5116,6 +5118,37 @@ def make_fullpol_image(mslistim, cycle, stackstr, fitsmask, automask, multiscale
               fulljones_h5_facetbeam=not args['single_dual_speedup'])
 
 
+def setup_refant(mslist, args):
+    """
+    Fix one reference antenna for the whole run, so that every solve is referenced to the same antenna.
+
+    Uses --refant if given, otherwise ST001 when --phaseupstations is set, otherwise the choice of an
+    earlier run (misc/refant.txt) when restarting with --start, otherwise the least flagged preferred
+    antenna present in all MSs. The choice is written to misc/refant.txt.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Measurement Sets of the run.
+    args : dict
+        Parsed facetselfcal options.
+    """
+    refantfile = 'misc/refant.txt'
+    if args['refant'] is not None:
+        refant = args['refant']
+    elif args['phaseupstations'] is not None:
+        refant = 'ST001'
+    elif args['start'] != 0 and os.path.isfile(refantfile):
+        with open(refantfile) as f:
+            refant = f.read().strip()
+    else:
+        refant = choose_refant_from_ms(mslist, args['telescope'])
+    with open(refantfile, 'w') as f:
+        f.write(refant + '\n')
+    set_refant(refant)
+    terminal_print('Reference antenna for all solves:', refant)
+
+
 ###############################
 ############## MAIN ###########
 ###############################
@@ -5203,6 +5236,7 @@ def main():
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
     shutil.copy(submodpath + '/parang.py', '.')
+    shutil.copy(submodpath + '/xfsolve.py', '.')
 
     facetselfcal_version = '21.0.0'
     print_title(facetselfcal_version)
@@ -5415,6 +5449,7 @@ def main():
     # SETUP VARIOUS PARAMETERS
     longbaseline, LBA, HBAorLBA, freq, fitsmask, maskthreshold_selfcalcycle, \
         automaskthreshold_selfcalcycle, outtarname = basicsetup(mslist)
+    setup_refant(mslist, args)
     # basicsetup fills in automatic choices (--auto solve settings, pixelscale,
     # niter, stop, ...); record the settings that will actually be used.
     _write_full_config(args)
@@ -6075,6 +6110,7 @@ def main():
     # CLEAN UP SOME FILES TO AVOID CLUTTER
     Path('polconv.py').unlink(missing_ok=True)
     Path('parang.py').unlink(missing_ok=True)
+    Path('xfsolve.py').unlink(missing_ok=True)
 
     # ARCHIVE DATA AFTER SELFCAL if requested
     if not longbaseline and not args['noarchive']:

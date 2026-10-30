@@ -939,6 +939,15 @@ def inputchecker(args, mslist):
             terminal_print(msg)
             raise Exception(msg)
 
+    # the reference antenna must be in every MS (ST001 is created later with --phaseupstations)
+    if args['refant'] is not None and not (args['refant'] == 'ST001' and args['phaseupstations'] is not None):
+        for ms in mslist:
+            with table(ms + '::ANTENNA', ack=False) as t:
+                if args['refant'] not in t.getcol('NAME'):
+                    msg = '--refant ' + args['refant'] + ' is not an antenna of ' + ms
+                    terminal_print(msg)
+                    raise Exception(msg)
+
     for soltype in args['soltype_list']:
         if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude',
                            'amplitudeonly', 'phaseonly', 'fulljones', 'rotation',

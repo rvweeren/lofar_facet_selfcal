@@ -212,6 +212,10 @@ def option_parser():
                                    help="Phase up to a superstation. Possible input: 'core' or 'superterp'. The default is None.",
                                    default=None,
                                    type=str)
+    calibrationparser.add_argument('--refant',
+                                   help="Reference antenna for all solves (phase referencing, resetting solutions and plots), for example 'ea10'. By default one reference antenna is chosen at the start of the run, the least flagged of the preferred (core) antennas present in all MSs (ST001 if --phaseupstations is set), and used for the whole run. A fixed reference antenna keeps the cross-hand (R-L, X-Y) phase consistent between solves, which matters for polarisation calibration. The default is None.",
+                                   default=None,
+                                   type=str)
     calibrationparser.add_argument('--phaseshiftbox',
                                    help="DS9 region file to shift the phasecenter to. This is by default None.",
                                    default=None,

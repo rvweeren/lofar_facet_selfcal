@@ -1,10 +1,11 @@
 """Read-only queries on Measurement Sets: antennas, channel frequencies,
-observation IDs, phased-up stations and long baselines."""
+observation IDs, phased-up stations, long baselines and the reference antenna."""
 import os
 
 import numpy as np
 from casacore.tables import table  # type: ignore
 
+from submods.h5_helpers.h5_info import refant_candidates
 from submods.runtime_utils import terminal_print
 
 
@@ -167,3 +168,52 @@ def checklongbaseline(ms):
     haslongbaselines = any(substr in mystring for mystring in antennasms)
     terminal_print('Contains long baselines?', haslongbaselines)
     return haslongbaselines
+
+
+def choose_refant_from_ms(mslist, telescope, maxrows=20000, maxchan=64):
+    """
+    Choose one reference antenna for a whole run: the preferred antenna (see refant_candidates)
+    that is present in all Measurement Sets and has the most unflagged data.
+
+    The flags are sampled (at most about maxrows rows and maxchan channels per MS) to keep this fast
+    for large data sets. ST001 is chosen if all Measurement Sets contain it, as findrefant_core does.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Paths to the Measurement Sets.
+    telescope : str
+        Telescope name as in the MS OBSERVATION table.
+    maxrows : int, optional
+        Approximate number of rows to read per MS.
+    maxchan : int, optional
+        Approximate number of channels to read per MS.
+
+    Returns
+    -------
+    str
+        Name of the reference antenna.
+    """
+    unflagged = {}  # antenna name -> summed unflagged fraction of its baselines
+    common = None
+    for ms in mslist:
+        with table(ms + '::ANTENNA', ack=False) as t:
+            names = list(t.getcol('NAME'))
+        with table(ms, ack=False) as t:
+            rowincr = max(1, t.nrows() // maxrows)
+            nchan, ncorr = t.getcell('FLAG', 0).shape
+            flags = t.getcolslice('FLAG', blc=[0, 0], trc=[nchan - 1, ncorr - 1],
+                                  inc=[max(1, nchan // maxchan), 1], rowincr=rowincr)
+            ant1 = t.getcol('ANTENNA1', rowincr=rowincr)
+            ant2 = t.getcol('ANTENNA2', rowincr=rowincr)
+        good = 1. - flags.mean(axis=(1, 2))
+        per_ant = np.bincount(ant1, good, len(names)) + np.bincount(ant2, good, len(names))
+        for name, value in zip(names, per_ant):
+            unflagged[name] = unflagged.get(name, 0.) + value
+        common = set(names) if common is None else common & set(names)
+
+    ants = [name for name in unflagged if name in common]
+    if 'ST001' in ants:
+        return 'ST001'
+    candidates = refant_candidates(ants, telescope=telescope)
+    return ants[candidates[np.argmax([unflagged[ants[i]] for i in candidates])]]

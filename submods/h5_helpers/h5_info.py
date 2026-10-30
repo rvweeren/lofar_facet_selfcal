@@ -317,45 +317,44 @@ def has0coordinates(h5):
     return False
 
 
-def findrefant_core(H5file, telescope='LOFAR'):
-    """
-    Select a reference antenna from the core or preferred antennas.
+_fixed_refant = None  # set with set_refant(), then findrefant_core returns it whenever possible
 
-    The function opens the ``sol000`` solution set, selects a suitable
-    solution table, and chooses the candidate antenna with the greatest sum
-    of unflagged weights. For LOFAR, the core stations are preferred, with
-    remote stations used as a fallback. Other supported telescopes use their
-    predefined preferred-antenna lists.
+
+def set_refant(refant):
+    """
+    Fix the reference antenna returned by findrefant_core for the rest of the run.
 
     Parameters
     ----------
-    H5file : str or pathlib.Path
-        Path to the H5 calibration file.
+    refant : str or None
+        Antenna name, or None to go back to choosing the reference antenna per H5 file.
+    """
+    global _fixed_refant
+    _fixed_refant = refant
+
+
+def refant_candidates(ants, telescope='LOFAR'):
+    """
+    Indices of the preferred reference antennas of a telescope among the given antenna names.
+
+    For LOFAR, the core stations are preferred, with remote stations used as a fallback.
+    Other supported telescopes use their predefined preferred-antenna lists. If none of the
+    names match, all antennas are candidates (with a warning).
+
+    Parameters
+    ----------
+    ants : list of str
+        Antenna names.
     telescope : str, optional
-        Telescope whose preferred antennas should
-        be used. Supported values include ``'LOFAR'``, ``'MeerKAT'``,
-        ``'GMRT'``, ``'ASKAP'``, ``'EVLA'``, and ``'MWA'``.
+        Telescope name as in the MS OBSERVATION table. Supported values include ``'LOFAR'``,
+        ``'MeerKAT'``, ``'GMRT'``, ``'ASKAP'``, ``'EVLA'``/``'VLA'``, and ``'MWA'``.
 
     Returns
     -------
-    str
-        Name of the selected reference antenna.
+    numpy.ndarray
+        Indices into ``ants``.
     """
-    H = h5parm.h5parm(H5file)
-    solset = H.getSolset('sol000')
-    soltabs = solset.getSoltabNames()
-    for st in soltabs:
-        # Find a reasonable soltab to use
-        if 'phase000' in st or 'rotation000' in st or 'tec000' in st or 'rotationmeasure000' in st or 'delay000' in st:
-            break
-    soltab = solset.getSoltab(st)
-
-    # Find core stations
-    ants = soltab.getValues()[1]['ant']
-    if 'ST001' in ants:
-        H.close()
-        return 'ST001'
-    
+    cs_indices = []
     if telescope == 'LOFAR':
         # try core stations first
         cs_indices = np.where(['CS' in ant for ant in ants])[0]
@@ -374,7 +373,7 @@ def findrefant_core(H5file, telescope='LOFAR'):
         possible_refants = ['ak01','ak02','ak03','ak04','ak05','ak06','ak07','ak08','ak09','ak10','ak11','ak12','ak13','ak14']
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
 
-    if telescope == 'EVLA':
+    if telescope in ['EVLA', 'VLA']:
         possible_refants = ['ea02','ea03','ea04','ea05','ea06','ea07','ea08','ea09','ea10','ea11','ea12','ea13','ea14', 'ea15','ea16','ea17','ea18','ea19','ea20','ea21','ea22','ea23','ea24','ea25','ea26','ea27','ea28']
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
 
@@ -409,17 +408,66 @@ def findrefant_core(H5file, telescope='LOFAR'):
             telescope,
         )
         cs_indices = np.arange(len(ants))
+    return np.asarray(cs_indices)
+
+
+def findrefant_core(H5file, telescope='LOFAR'):
+    """
+    Select a reference antenna from the core or preferred antennas.
+
+    If a reference antenna was fixed with set_refant (facetselfcal does this at the start of a run,
+    see --refant), that antenna is returned, unless it is not in the H5 file or all its solutions
+    are flagged; then the choice below is used with a warning.
+    Otherwise the function opens the ``sol000`` solution set, selects a suitable
+    solution table, and chooses the candidate antenna (see refant_candidates) with the greatest sum
+    of unflagged weights.
+
+    Parameters
+    ----------
+    H5file : str or pathlib.Path
+        Path to the H5 calibration file.
+    telescope : str, optional
+        Telescope whose preferred antennas should
+        be used. Supported values include ``'LOFAR'``, ``'MeerKAT'``,
+        ``'GMRT'``, ``'ASKAP'``, ``'EVLA'``/``'VLA'``, and ``'MWA'``.
+
+    Returns
+    -------
+    str
+        Name of the selected reference antenna.
+    """
+    H = h5parm.h5parm(H5file)
+    solset = H.getSolset('sol000')
+    soltabs = solset.getSoltabNames()
+    for st in soltabs:
+        # Find a reasonable soltab to use
+        if 'phase000' in st or 'rotation000' in st or 'tec000' in st or 'rotationmeasure000' in st or 'delay000' in st:
+            break
+    soltab = solset.getSoltab(st)
+    ants = list(soltab.getValues()[1]['ant'])
 
     # Find the antennas and which dimension that corresponds to
     ant_index = np.where(np.array(soltab.getAxesNames()) == 'ant')[0][0]
+    weights = soltab.getValues(weight=True)[0]
+
+    def weightsum(idx):
+        return np.nansum(np.take(weights, idx, axis=ant_index))
+
+    if _fixed_refant is not None:
+        if _fixed_refant in ants and weightsum(ants.index(_fixed_refant)) > 0:
+            H.close()
+            return _fixed_refant
+        terminal_print(f'\033[91mWarning: fixed reference antenna {_fixed_refant} is not in {H5file} '
+                       'or all its solutions are flagged, choosing another one for this H5 file\033[0m')
+        get_logger().warning('Fixed reference antenna %s not usable for %s, choosing another one.',
+                             _fixed_refant, H5file)
+
+    if 'ST001' in ants:
+        H.close()
+        return 'ST001'
 
     # Find the antenna with the least flagged datapoint
-    weightsum = []
-    ndims = soltab.getValues()[0].ndim
-    for cs in cs_indices:
-        slc = [slice(None)] * ndims
-        slc[ant_index] = cs
-        weightsum.append(np.nansum(soltab.getValues(weight=True)[0][tuple(slc)]))
-    maxant = np.argmax(weightsum)
+    cs_indices = refant_candidates(ants, telescope=telescope)
+    maxant = np.argmax([weightsum(cs) for cs in cs_indices])
     H.close()
-    return ants[maxant]
+    return ants[cs_indices[maxant]]
