@@ -5202,6 +5202,7 @@ def main():
     datapath = os.path.dirname(os.path.abspath(__file__))
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
     shutil.copy(submodpath + '/polconv.py', '.')
+    shutil.copy(submodpath + '/parang.py', '.')
 
     facetselfcal_version = '21.0.0'
     print_title(facetselfcal_version)
@@ -6073,6 +6074,7 @@ def main():
 
     # CLEAN UP SOME FILES TO AVOID CLUTTER
     Path('polconv.py').unlink(missing_ok=True)
+    Path('parang.py').unlink(missing_ok=True)
 
     # ARCHIVE DATA AFTER SELFCAL if requested
     if not longbaseline and not args['noarchive']:
