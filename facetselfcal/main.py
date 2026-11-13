@@ -25,6 +25,7 @@
 #read_MeerKAT_wscleanmodel_5spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J1939-6342_L.txt','J1939-6342_L.skymodel')
 #read_MeerKAT_wscleanmodel_4spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J0408-6545_UHF.txt','J0408-6545_UHF.skymodel')
 #read_MeerKAT_wscleanmodel_3spix('/net/lofar4/data2/rvweeren/MeerKAT/calibrated/J0408-6545_L.txt','J0408-6545_L.skymodel')
+# S-band J1939-6342_S.skymodel and J0408-6545_S.skymodel: written with write_logpolynomial_skymodel, see their References
 
 
 # example:
@@ -41,6 +42,7 @@ import multiprocessing
 import os
 import os.path
 import re
+import resource
 import shutil
 import subprocess
 import sys
@@ -48,8 +50,13 @@ import tempfile
 from functools import wraps
 from pathlib import Path
 
-# avoid numexpr warning when cpu_count() exceeds its default NUMEXPR_MAX_THREADS (64)
-os.environ.setdefault('NUMEXPR_MAX_THREADS', str(multiprocessing.cpu_count()))
+# avoid numexpr warning when cpu_count() exceeds its default NUMEXPR_MAX_THREADS (64); use the cores this
+# process may run on (CPU affinity, e.g. a Slurm allocation) so numexpr does not start a thread per node core
+try:
+    _NCPU_AFFINITY = len(os.sched_getaffinity(0))
+except (AttributeError, OSError):
+    _NCPU_AFFINITY = multiprocessing.cpu_count()
+os.environ.setdefault('NUMEXPR_MAX_THREADS', str(_NCPU_AFFINITY))
 
 import math
 import time
@@ -119,6 +126,7 @@ from submods.source_selection.phasediff_output import \
     generate_csv as generate_phasediff_csv
 from submods.source_selection.selfcal_selection import get_images_solutions
 from submods.runtime_utils import (_log_machine_info, _run_predict_command,
+                                   allocated_cpu_count,
                                    _track_resource_phase,
                                    _with_run_directory_lock,
                                    get_resource_monitor, print_title, run,
@@ -132,7 +140,14 @@ from submods.ms_fixes import (fix_antenna_info_gmrt, fix_bad_weightspectrum,
                               getVarianceRRLL, remove_flagged_data_startend,
                               remove_syspower, set_metadata_compression,
                               updateCrosshand)
+from submods.telescopes import (EVERYBEAM_TELESCOPES, describe_telescopes,
+                                group_by_telescope, is_mixed,
+                                mslist_of_telescope, pbcor_function_name,
+                                single_telescope, telescope_of,
+                                telescopes_of, unique_telescopes)
 from submods.fits_utils import flatten
+from submods.blcal import plot_solutions as plot_blcal_solutions
+from submods.blcal import read_solutions as read_blcal_solutions
 from submods.calibrator_models import setjy_casa, setjy_dp3
 from submods.data_import import download_MWA_beam_model
 from submods.vla_helpers import get_vla_configuration, get_vla_maxconfiguration
@@ -189,7 +204,7 @@ from submods.antenna_constraints import (  # noqa: F401
     filter_baseline_str_removestations)
 from submods.flagging import (  # noqa: F401
     return_antennas_highflaggingpercentage)
-from submods.ms_columns import _get_stack_groups, mscolexist  # noqa: F401
+from submods.ms_columns import _get_stack_groups, check_stack_frequency_axes, mscolexist  # noqa: F401
 from submods.skymodels import getregioncenter  # noqa: F401
 from submods.ms_info import (  # noqa: F401
     get_chan_freqs, getAntennas, number_of_unique_obsids)
@@ -207,7 +222,7 @@ from submods.ms_fixes import (  # noqa: F401
     check_equidistant_times, fix_twopol_ms, is_two_pol_ms,
     parse_bad_freq_ranges, remove_antennas)
 from submods.plotting import (  # noqa: F401
-    plot_ms_time_coverage, plotimage_aplpy, selfcal_animatedgif)
+    backfill_plot_variants, plot_ms_time_coverage, plotimage_aplpy, selfcal_animatedgif)
 from submods.skymodels import (  # noqa: F401
     getGSM, makeBBSmodelforFITS, makeBBSmodelforTGSS, makeBBSmodelforVLASS,
     mslist_return_stack)
@@ -218,7 +233,7 @@ from submods.smearing import (  # noqa: F401
 from submods.solints import (  # noqa: F401
     find_nearest, getms_amp_stats, getms_phase_stats, getmsmodelinfo,
     return_soltype_index)
-from submods.plotting import (check_large_timegaps_ms,
+from submods.plotting import (check_large_timegaps_ms, check_noise_divergence,
                               create_Ateam_seperation_plots, plot_UV_coverage,
                               plotimage, plotimage_astropy)
 from submods.image_utils import (checkforzerocleancomponents,
@@ -243,6 +258,7 @@ from submods.model_columns import (create_empty_fitsimage,
                                    updatemodelcols_includedir)
 from submods.input_checks import (check_antenna_factors, check_applyfacetbeam,
                                   check_equidistant_freqs,
+                                  check_faradayrotation_basis,
                                   check_for_highmem_longsolint,
                                   check_if_ms_exists, check_pointing_centers,
                                   check_valid_ms, inputchecker)
@@ -250,8 +266,10 @@ from submods.imaging_params import (autodetect_highDR, calculate_restoringbeam,
                                     makemaskthresholdlist, multiscale_trigger,
                                     niter_from_imsize, set_channelsout,
                                     set_fitsmask_restart, set_fitspectralpol,
+                                    auto_tapertukey_blocker,
                                     update_channelsout, update_fitsmask,
-                                    update_fitspectralpol, update_uvmin)
+                                    update_fitspectralpol, update_tapertukey,
+                                    update_uvmin, update_ddpsfgrid)
 from submods.facet_directions import (add_bright_source_to_catalog,
                                       add_peak_total_flux_to_catalog,
                                       add_source_to_catalog,
@@ -275,7 +293,8 @@ from submods.ms_operations import (_write_stack_imaging_group_manifest,
                                    create_splitted_ms, get_startchan_nchan,
                                    makemslist, nested_mslistforimaging,
                                    phaseup, split_multidir_ms)
-from submods.antenna_constraints import antennaconstraintstr
+from submods.antenna_constraints import (antennaconstraintstr,
+                                         available_antennaconstraints)
 from submods.h5_helpers.solution_tools import (compute_markersize,
                                                 find_bad_deviating_antennas)
 from submods.applycal import (applycal, build_applycal_dde_cmd,
@@ -299,6 +318,7 @@ from submods.flagging import (aoflagger_column, clip_DATA,
                               flag_uGMRT_badfreqs)
 
 # Modules
+from facetselfcal.plotting.plot_single_solution import plot_single_solution
 from submods.losoto_helpers import create_losoto_delayparset, create_losoto_fastphaseparset, create_losoto_FRparset, create_losoto_FRparsetplotfit, create_losoto_tecandphaseparset, create_losoto_rotationparset, tecandphaseplotter, create_losoto_tecparset, create_losoto_flag_apgridparset, create_losoto_bandpassparset, create_losoto_mediumsmoothparset, create_losoto_flag_ap_only
 from submods.treemf.command import treemf_command, treemfphasediff_command
 
@@ -314,9 +334,11 @@ logger.setLevel(logging.DEBUG)
 set_logger(logger)  # run() in submods.runtime_utils logs via this logger
 
 _REPORT_RUN_INITIALIZED = False
+# set when --stop-noise-increase-factor stopped selfcal; shown in the final HTML report
+_NOISE_DIVERGENCE_MESSAGE = None
 
 _RUN_MODE_MARKER = "facetselfcal_mode.txt"
-_RUN_MODES = frozenset(("bandpass", "DDE", "standard"))
+_RUN_MODES = frozenset(("bandpass", "DDE", "standard", "meerkatcal", "vlacal"))
 
 
 def _run_mode_from_args(args):
@@ -326,6 +348,16 @@ def _run_mode_from_args(args):
         raise ValueError("The DDE and bandpass mode flags must be booleans.")
     if dde and bandpass:
         raise ValueError("--DDE and --bandpass cannot be used together.")
+    if args.get("meerkatcal", False) and args.get("vlacal", False):
+        raise ValueError("--meerkatcal and --vlacal cannot be used together.")
+    if args.get("meerkatcal", False):
+        if dde or bandpass:
+            raise ValueError("--meerkatcal cannot be used together with --DDE or --bandpass.")
+        return "meerkatcal"
+    if args.get("vlacal", False):
+        if dde or bandpass:
+            raise ValueError("--vlacal cannot be used together with --DDE or --bandpass.")
+        return "vlacal"
     if bandpass:
         return "bandpass"
     if dde:
@@ -339,7 +371,7 @@ def _run_mode_from_config(config_path):
         for line in config_file:
             key, separator, value = line.partition("=")
             key = key.strip()
-            if not separator or key not in ("DDE", "bandpass"):
+            if not separator or key not in ("DDE", "bandpass", "meerkatcal", "vlacal"):
                 continue
             try:
                 mode_flags[key] = ast.literal_eval(value.strip())
@@ -754,6 +786,8 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
     logger.info('Pixelscale [arcsec]:       ' + str(args['pixelscale']))
     logger.info('Niter:                     ' + str(args['niter']))
     logger.info('Uvmin:                     ' + str(args['uvmin']))
+    logger.info('Auto Tukey taper:          ' + str(args['auto_tapertukey']))
+    logger.info('Auto dd-psf-grid:          ' + str(args['auto_ddpsfgrid']))
     logger.info('Multiscale:                ' + str(args['multiscale']))
     logger.info('Beam correction:           ' + str(args['beamcor']))
     logger.info('IDG:                       ' + str(args['idg']))
@@ -771,21 +805,23 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
         
     for ms in mslist:
         logger.info(' === ' + ms + ' ===')
-        logger.info('Telescope:                 ' + args['telescope'])
-        if get_telescope_from_ms(ms) == 'EVLA' or get_telescope_from_ms(ms) == 'VLA':
+        logger.info('Telescope:                 ' + telescope_of(ms))
+        if telescope_of(ms) in ['EVLA', 'VLA']:
             logger.info('VLA configuration:         ' + get_vla_configuration(ms))
         with table(ms, readonly=True, ack=False) as t:            
             time = np.unique(t.getcol('TIME'))
             logger.info('Integration time [s]:      {:.2f}'.format(np.abs(time[1] - time[0])))
             logger.info('Observation duration [hr]: {:.2f}'.format((np.max(time)-np.min(time))/3600.))
         with table(ms + '::SPECTRAL_WINDOW', readonly=True, ack=False) as t:
-            chanw = np.median(t.getcol('CHAN_WIDTH'))
+            chanws = np.abs(t.getcol('CHAN_WIDTH')[0])
+            chanw = np.median(chanws)
             freqs = t.getcol('CHAN_FREQ')[0]
-            nfreq = len(t.getcol('CHAN_FREQ')[0])
+            nfreq = len(freqs)
             logger.info('Number of channels:        {:d}'.format(nfreq))
-            logger.info('Bandwidth [MHz]:           {:.2f}'.format((np.max(freqs)-np.min(freqs))/1e6))
+            # sum of channel widths (max-min of channel centres misses one channel width, 0 for a single channel)
+            logger.info('Bandwidth [MHz]:           {:.2f}'.format(np.sum(chanws)/1e6))
             logger.info('Channel width [kHz]:       {:.2f}'.format(chanw/1e3))
-            logger.info('Start frequnecy [MHz]:     {:.2f}'.format(np.min(freqs)/1e6))      
+            logger.info('Start frequency [MHz]:     {:.2f}'.format(np.min(freqs)/1e6))
             logger.info('End frequency [MHz]:       {:.2f}'.format(np.max(freqs)/1e6))
         logger.info('================')
     return
@@ -1481,15 +1517,9 @@ def check_frequency_averaging_steps(mslist, options):
 
         requested_nchan = resolved_options["msinnchan"]
         start_channel = resolved_options["msinstartchan"]
-        if (
-            backup_will_run
-            and not backup_will_create_copy
-            and options["msinnchan"] is not None
-        ):
-            # The preview clears input selection, but the requested selection
-            # still applies when validating the channels used by averaging.
-            requested_nchan = options["msinnchan"]
-            start_channel = options["msinstartchan"]
+        # On a restart (start > 0) the .copy MS already carries the
+        # --msinnchan/--msinstartchan selection and main() does not apply it
+        # again, so validate against all channels of the .copy.
         selected_metadata = {}
 
         for spw_id in active_spw_ids:
@@ -1685,7 +1715,7 @@ def create_residual_data_column(mslist, imagebasename, pixsize, imsize,
     # write new data column with residuals
     for ms in mslist:
         # check if outcol exists, if not create it with DP3
-        with table(ms) as t:
+        with table(ms, ack=False) as t:
             colnames = t.colnames()
         if outcol not in colnames:
             cmd = 'DP3 msin=' + ms + ' msout=. steps=[] msout.datacolumn=' + outcol + ' '
@@ -1695,7 +1725,7 @@ def create_residual_data_column(mslist, imagebasename, pixsize, imsize,
                 cmd += 'msout.storagemanager.weightbitrate=16 '
             terminal_print('Command:', cmd)
             run(cmd)
-        t = table(ms, readonly=False)
+        t = table(ms, readonly=False, ack=False)
         if t.nrows() < stepsize: stepsize = t.nrows()
         for row in range(0, t.nrows(), stepsize):
             terminal_print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
@@ -1924,7 +1954,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                          skymodelpointsource=None, wscleanskymodel=None, skymodelsetjy=False,
                          mslist_beforephaseup=None,
                          modeldatacolumns=[], dde_skymodel=None,
-                         DDE_predict='WSCLEAN', telescope='LOFAR',
+                         DDE_predict='WSCLEAN',
                          mslist_beforeremoveinternational=None):
     """
     Solve and apply calibration solutions to Measurement Sets.
@@ -1995,8 +2025,6 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
         Grouped sky model used for direction-dependent prediction.
     DDE_predict : str, optional
         Prediction backend for direction-dependent calibration.
-    telescope : str, optional
-        Telescope name used to configure calibration behavior.
     mslist_beforeremoveinternational : list of str or None, optional
         Measurement Set paths before international stations were removed.
 
@@ -2137,7 +2165,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
 
                 runDPPPbase(ms, solint_list[soltypenumber][msnumber], nchan_list[soltypenumber][msnumber], parmdb,
                             soltype,
-                            uvmin=args['uvmin'],
+                            uvmin=solve_uvmin(ms),
                             SMconstraint=smoothnessconstraint_list[soltypenumber][msnumber],
                             SMconstraintreffreq=smoothnessreffrequency_list[soltypenumber][msnumber],
                             SMconstraintspectralexponent=smoothnessspectralexponent_list[soltypenumber][msnumber],
@@ -2307,8 +2335,9 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
             merge_h5(h5_out=parmdbmergename, h5_tables=parmdbmergelist[msnumber][::-1], ms_files=ms,
                      convert_tec=True, merge_all_in_one=merge_all_in_one,
                      propagate_weights=True, single_pol=single_pol_merge)
-        # add CS stations back for superstation
-        if mslist_beforephaseup is not None:
+        # add CS stations back for superstation (only LOFAR MSs are phased up)
+        phasedup_ms = mslist_beforephaseup is not None and telescope_of(ms) == 'LOFAR'
+        if phasedup_ms:
             terminal_print('mslist_beforephaseup: ' + mslist_beforephaseup[msnumber])
             if is_scalar_array_for_wsclean([parmdbmergename]):
                 single_pol_merge = True
@@ -2329,7 +2358,7 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
                 merge_h5(h5_out=parmdbmergename_pc, h5_tables=parmdbmergename, circ2lin=True,
                          propagate_weights=True)
             # add CS stations back for superstation
-            if mslist_beforephaseup is not None:
+            if phasedup_ms:
                 merge_h5(h5_out=parmdbmergename_pc.replace("selfcalcycle",
                                                            "addCS_selfcalcycle"),
                          h5_tables=parmdbmergename_pc,
@@ -2343,15 +2372,30 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
 
         # plot merged solution file
         # print('single_pol_merge',single_pol_merge)
-        losotoparset = create_losoto_flag_apgridparset(ms, flagging=False,
-                                                       medamp=get_median_amp(parmdbmergename),
-                                                       outplotname=
-                                                       parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0],
-                                                       refant=findrefant_core(parmdbmergename, telescope=telescope),
-                                                       fulljones=fulljonesparmdb(parmdbmergename),
-                                                       onepol=is_scalar_array_for_wsclean([parmdbmergename]), 
-                                                       skip_solution_plotting=args["skip_solution_plotting"])
-        run('losoto ' + parmdbmergename + ' ' + losotoparset)
+        # a single frequency channel (e.g. one-channel VLA data) or time slot needs a 2D plot, losoto's
+        # time-frequency plot fails on a length-1 axis; with both of length 1 losoto cannot plot at all
+        merged_onechannel = number_freqchan_h5(parmdbmergename) == 1
+        merged_onetime = ntimesH5(parmdbmergename) == 1
+        merged_outplotname = parmdbmergename.split('_' + os.path.basename(ms) + '.h5')[0]
+        if merged_onechannel and merged_onetime:
+            if not args["skip_solution_plotting"]:
+                outfile = 'solution_plots_' + os.path.basename(ms) + '/' + os.path.basename(merged_outplotname) + '_nolosoto.png'
+                try:
+                    plot_single_solution(parmdbmergename, outfile,
+                                         refant=findrefant_core(parmdbmergename, telescope=telescope_of(ms)))
+                except Exception as e:  # a missing plot should not stop the calibration
+                    logger.warning('Per-antenna solution plot failed for ' + parmdbmergename + ': ' + str(e))
+        else:
+            losotoparset = create_losoto_flag_apgridparset(ms, flagging=False,
+                                                           medamp=get_median_amp(parmdbmergename),
+                                                           outplotname=merged_outplotname,
+                                                           refant=findrefant_core(parmdbmergename, telescope=telescope_of(ms)),
+                                                           fulljones=fulljonesparmdb(parmdbmergename),
+                                                           onepol=is_scalar_array_for_wsclean([parmdbmergename]),
+                                                           onechannel=merged_onechannel, onetime=merged_onetime,
+                                                           markersize=compute_markersize(parmdbmergename),
+                                                           skip_solution_plotting=args["skip_solution_plotting"])
+            run('losoto ' + parmdbmergename + ' ' + losotoparset)
         force_close(parmdbmergename)
         _refresh_html_overview()  # show the merged solution plot
 
@@ -2657,7 +2701,8 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     ms_ntimes = len(np.unique(t.getcol('TIME')))
     t.close()
 
-    if args['telescope'] == 'LOFAR':
+    telescope = telescope_of(ms)  # per MS: a run can combine MSs from different telescopes
+    if telescope == 'LOFAR':
         if freq > 100e6:
             HBAorLBA = 'HBA'
         else:
@@ -2666,6 +2711,24 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     else:
         HBAorLBA = 'other'
     terminal_print('Measurement set', os.path.basename(ms.rstrip('/')), 'contains antennas:', antennasms)
+
+    def antennagroup_available(ctype, option):
+        """True if antenna group ctype exists for the telescope of this MS, otherwise warn.
+
+        A run can combine telescopes, and an antenna group of one telescope (e.g. the LOFAR
+        'alldutch') is then skipped for the MSs of the other telescopes."""
+        if ctype in available_antennaconstraints(telescope):
+            return True
+        msg = (f"{option} '{ctype}' is not defined for {telescope}, so it is not used for "
+               + os.path.basename(ms.rstrip('/')))
+        terminal_print(msg)
+        logger.warning(msg)
+        return False
+
+    if antennaconstraint is not None and not antennagroup_available(antennaconstraint, 'antennaconstraint'):
+        antennaconstraint = None
+    if resetsols is not None and not antennagroup_available(resetsols, 'resetsols'):
+        resetsols = None
 
     # determine if phases needs to be included, important if slowgains do not contain phase solutions
     includesphase = True
@@ -2692,7 +2755,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         terminal_print('H5 file exists  ', parmdb)
         Path(parmdb).unlink(missing_ok=True)
 
-    cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), ncpu_max])) + \
+    cmd = 'DP3 numthreads=' + str(np.min([allocated_cpu_count(), ncpu_max])) + \
           ' msin=' + ms + ' msout=. '
     
     if solve_msinnchan != 'all':
@@ -2817,7 +2880,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
         if DDE_predict == 'DP3':
             cmd += 'ddecal.sourcedb=' + dde_skymodel + ' '
-            if args['telescope'] == 'LOFAR':  # predict with array factor for LOFAR data
+            if telescope == 'LOFAR':  # predict with array factor for LOFAR data
                 cmd += 'ddecal.usebeammodel=True '
                 cmd += 'ddecal.usechannelfreq=True ddecal.beammode=array_factor '
                 cmd += 'ddecal.beamproximitylimit=' + str(beamproximitylimit) + ' '
@@ -2884,7 +2947,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         groupstr_all = []
         antenna_averaging_factors_new = [] 
         for antgroup in antenna_averaging_factors_splitstr:
-            groupstr = antennaconstraintstr(antgroup.split(':')[0], antennasms, HBAorLBA, telescope=args['telescope'], useforresetsols=True)
+            if not antennagroup_available(antgroup.split(':')[0], 'antenna_averaging_factors group'):
+                continue  # its antennas get factor 1 (complement below)
+            groupstr = antennaconstraintstr(antgroup.split(':')[0], antennasms, HBAorLBA, telescope=telescope, useforresetsols=True)
             groupstr_all = groupstr_all + groupstr
             antenna_averaging_factors_new.append('[' + ','.join(map(str, groupstr)) + ']:' + antgroup.split(':')[1])
                 
@@ -2926,7 +2991,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if antennaconstraint is not None:
         cmd += 'ddecal.antennaconstraint=' + antennaconstraintstr(antennaconstraint, antennasms, HBAorLBA,
-                                                                  telescope=args['telescope']) + ' '
+                                                                  telescope=telescope) + ' '
 
     # format antenna_smoothness_factors
     if antenna_smoothness_factors is not None:
@@ -2939,8 +3004,9 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         smoothness_factors_float = list(map(float, smoothness_factors))
         antenna_smoothness_factors_new = [] 
         for antgroup in antenna_smoothness_factors_splitstr:
-
-            groupstr = antennaconstraintstr(antgroup.split(':')[0], antennasms, HBAorLBA, telescope=args['telescope'], useforresetsols=True)
+            if not antennagroup_available(antgroup.split(':')[0], 'antenna_smoothness_factors group'):
+                continue  # its antennas join the complement group below
+            groupstr = antennaconstraintstr(antgroup.split(':')[0], antennasms, HBAorLBA, telescope=telescope, useforresetsols=True)
             groupstr_all = groupstr_all + groupstr
             if np.max(smoothness_factors_float) <= 1.0:
                 antenna_smoothness_factors_new.append('[' + ','.join(map(str, groupstr)) + ']:' + antgroup.split(':')[1])
@@ -3161,7 +3227,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    'rotation+scalar', 'rotation+scalaramplitude', 'rotation+scalarphase']:
         remove_nans(parmdb, 'rotation000')
         fix_weights_rotationh5(parmdb)
-        refant = findrefant_core(parmdb, telescope=args['telescope'])
+        refant = findrefant_core(parmdb, telescope=telescope)
         force_close(parmdb)
         fix_rotationreference(parmdb, refant)
 
@@ -3170,21 +3236,21 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    'faradayrotation+scalar', 'faradayrotation+scalaramplitude', 'faradayrotation+scalarphase']:
         remove_nans(parmdb, 'rotationmeasure000')
         fix_weights_rotationmeasureh5(parmdb)
-        refant = findrefant_core(parmdb, telescope=args['telescope'])
+        refant = findrefant_core(parmdb, telescope=telescope)
         force_close(parmdb)
         fix_rotationmeasurereference(parmdb, refant)
 
     # tec checking
     if soltype in ['tec', 'tecandphase', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf']:
         remove_nans(parmdb, 'tec000')
-        refant = findrefant_core(parmdb, telescope=args['telescope'])
+        refant = findrefant_core(parmdb, telescope=telescope)
         fix_tecreference(parmdb, refant)
         force_close(parmdb)
 
     # delay checking
     if soltype in ['tec+delay', 'tec+phase+delay', 'treemf', 'delay']:
         remove_nans(parmdb, 'delay000')
-        refant = findrefant_core(parmdb, telescope=args['telescope'])
+        refant = findrefant_core(parmdb, telescope=telescope)
         fix_delayreference(parmdb, refant)
         force_close(parmdb)    
 
@@ -3194,7 +3260,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                    'scalarcomplexgain', 'complexgain', 'scalarphase',
                    'phaseonly', 'faradayrotation+diagonal', 'faradayrotation+scalar', 'faradayrotation+diagonalphase', 'faradayrotation+scalarphase']:
         remove_nans(parmdb, 'phase000')
-        refant = findrefant_core(parmdb, telescope=args['telescope'])
+        refant = findrefant_core(parmdb, telescope=telescope)
         fix_phasereference(parmdb, refant)
         force_close(parmdb)
 
@@ -3206,7 +3272,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     if incol == 'DATA_CIRCULAR_PHASEDIFF':
         terminal_print('Manually updating H5 to get the phase difference correct')
-        refant = findrefant_core(parmdb, telescope=args['telescope'])  # phase matrix plot
+        refant = findrefant_core(parmdb, telescope=telescope)  # phase matrix plot
         force_close(parmdb)
         makephasediffh5(parmdb, refant)
     if incol == 'DATA_CIRCULAR_PHASEDIFF' and soltypein == 'scalarphasediffFR':
@@ -3214,11 +3280,11 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         # work with copies H5 because losoto changes the format splitting off the length 1 direction axis creating issues
         # with H5merge (also add additional solution talbes which we do not want)
         shutil.copy(parmdb, 'FRcopy' + parmdb)
-        losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb, telescope=args['telescope']), outplotname=outplotname,dejump=dejumpFR,skip_solution_plotting=args["skip_solution_plotting"])
+        losoto_parsetFR = create_losoto_FRparset(ms, refant=findrefant_core(parmdb, telescope=telescope), outplotname=outplotname,dejump=dejumpFR,skip_solution_plotting=args["skip_solution_plotting"])
         run('losoto ' + 'FRcopy' + parmdb + ' ' + losoto_parsetFR)
         rotationmeasure_to_phase('FRcopy' + parmdb, parmdb, dejump=dejumpFR)
         if not args["skip_solution_plotting"]:
-            run('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb, telescope=args['telescope']),
+            run('losoto ' + parmdb + ' ' + create_losoto_FRparsetplotfit(ms, refant=findrefant_core(parmdb, telescope=telescope),
                                                                      outplotname=outplotname))
         force_close(parmdb)
 
@@ -3238,12 +3304,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
                        'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', \
                        'tec+phase+delay', 'treemf', 'delay']:
-            refant = findrefant_core(parmdb, telescope=args['telescope'])
+            refant = findrefant_core(parmdb, telescope=telescope)
             force_close(parmdb)
         else:
             refant = None
         resetsolsforstations(parmdb, antennaconstraintstr(resetsols, antennasms, HBAorLBA, useforresetsols=True,
-                                                          telescope=args['telescope']), refant=refant, telescope=args['telescope'])
+                                                          telescope=telescope), refant=refant, telescope=telescope)
 
     if resetdir is not None:
         if soltype in ['phaseonly', 'scalarphase', 'tecandphase', 'tec', 'rotation', 'fulljones', \
@@ -3254,12 +3320,12 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude',\
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
                        'faradayrotation+scalarphase', 'leakage', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf', 'delay']:
-            refant = findrefant_core(parmdb, telescope=args['telescope'])
+            refant = findrefant_core(parmdb, telescope=telescope)
             force_close(parmdb)
         else:
             refant = None
 
-        resetsolsfordir(parmdb, resetdir, refant=refant, telescope=args['telescope'])
+        resetsolsfordir(parmdb, resetdir, refant=refant, telescope=telescope)
 
     if number_freqchan_h5(parmdb) > 1:
         onechannel = False
@@ -3316,7 +3382,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
 
     # find bad antennas based on solution stats
     if auto_flag_antennas:
-        if args['telescope'] == 'MeerKAT': # only MeerKAT for now
+        if telescope == 'MeerKAT': # only MeerKAT for now
             if soltype in ['scalarcomplexgain', 'complexgain', 'amplitudeonly', 'scalaramplitude']:
                 flag_ant_list = find_bad_deviating_antennas(parmdb, ms)
                 for ant in flag_ant_list:
@@ -3341,7 +3407,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                        'faradayrotation+diagonalphase', 'faradayrotation+diagonalamplitude', \
                        'faradayrotation+scalar', 'faradayrotation+scalaramplitude', \
                        'faradayrotation+scalarphase', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf', 'delay']:
-            refant = findrefant_core(parmdb, telescope=args['telescope'])
+            refant = findrefant_core(parmdb, telescope=telescope)
             force_close(parmdb)
         else:
             refant = None
@@ -3368,20 +3434,22 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         # make a backup of the parmdb before resetting all solutions
         shutil.copy(parmdb, parmdb + '.allresetsolbackup')
         resetsolsforstations(parmdb, antennaconstraintstr(resetsols, antennasms, HBAorLBA, useforresetsols=True,
-                                                          telescope=args['telescope']), refant=refant, telescope=args['telescope'])
+                                                          telescope=telescope), refant=refant, telescope=telescope)
 
     # ---------------------------------
     # ---------------------------------
     # makes plots and do LOSOTO flagging
+    # losoto cannot plot one time slot with one channel, use plot_single_solution instead
+    single_solution_plot = False
     if soltype in ['rotation', 'rotation+diagonal', 'rotation+diagonalamplitude',
                    'rotation+scalar', 'rotation+scalaramplitude',
                    'rotation+scalarphase', 'rotation+diagonalphase'] and not args["skip_solution_plotting"]:
             losotoparset_rotation = create_losoto_rotationparset(ms, onechannel=onechannel, outplotname=outplotname + 'ROT',
-                                                                 refant=findrefant_core(parmdb, telescope=args['telescope']))  # phase matrix plot
+                                                                 refant=findrefant_core(parmdb, telescope=telescope))  # phase matrix plot
             force_close(parmdb)
             cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_rotation
             if onechannel and (ntimesH5(parmdb) == 1): 
-                terminal_print('Skipping losoto rotation plot because only one time and one frequency channel')
+                single_solution_plot = True
             else:
                 terminal_print('LoSoTo command:', cmdlosoto)
                 logger.info(cmdlosoto)
@@ -3390,13 +3458,13 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if soltype in ['rotation+scalarphase', 'rotation+diagonalphase', 'faradayrotation+scalarphase','faradayrotation+diagonalphase'] and not args["skip_solution_plotting"]:
             losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                                outplotname=outplotname,
-                                                               refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
+                                                               refant=findrefant_core(parmdb, telescope=telescope), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
             cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
             force_close(parmdb)
 
             # cannot plot if only one time AND one frequency channel
             if onechannel and (ntimesH5(parmdb) == 1): 
-                terminal_print('Skipping losoto phase plot for rotation+scalarphase or rotation+diagonalphase because only one time and one frequency channel')
+                single_solution_plot = True
             else:
                 terminal_print('LoSoTo command:', cmdlosoto)
                 logger.info(cmdlosoto)
@@ -3405,23 +3473,23 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     if soltype in ['phaseonly', 'scalarphase'] and not args['phasediff_only'] and not args["skip_solution_plotting"]:
             losotoparset_phase = create_losoto_fastphaseparset(ms, onechannel=onechannel, onepol=onepol,
                                                                outplotname=outplotname,
-                                                               refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
+                                                               refant=findrefant_core(parmdb, telescope=telescope), onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb))  # phase matrix plot
             cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_phase
             force_close(parmdb)
             if onechannel and (ntimesH5(parmdb) == 1): 
-                terminal_print('Skipping losoto phase plot for phaseonly or scalarphase because only one time and one frequency channel')
+                single_solution_plot = True
             else:
                 terminal_print('LoSoTo command:', cmdlosoto)
                 logger.info(cmdlosoto)
                 run(cmdlosoto)
 
     if soltype in ['tecandphase', 'tec', 'tec+phase', 'tec+delay', 'tec+phase+delay', 'treemf', 'delay'] and not args['skip_solution_plotting']:
-        tecandphaseplotter(parmdb, ms, telescope=args['telescope'],
+        tecandphaseplotter(parmdb, ms, telescope=telescope,
                            outplotname=outplotname)  # use own plotter because losoto cannot add tec and phase
 
     if soltype in ['tec'] and not args["skip_solution_plotting"]:
         losotoparset_tec = create_losoto_tecparset(ms, outplotname=outplotname,
-                                                   refant=findrefant_core(parmdb, telescope=args['telescope']),
+                                                   refant=findrefant_core(parmdb, telescope=telescope),
                                                    markersize=compute_markersize(parmdb))
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset_tec
         terminal_print('LoSoTo command:', cmdlosoto)
@@ -3444,13 +3512,13 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                                                maxrmsphase=flagslowphaserms,
                                                                includesphase=includesphase, onechannel=onechannel,
                                                                medamp=medamp, flagphases=flagslowphases, onepol=onepol,
-                                                               outplotname=outplotname, refant=findrefant_core(parmdb, telescope=args['telescope']), onetime=ntimesH5(parmdb)==1, markersize=compute_markersize(parmdb), skip_solution_plotting=args["skip_solution_plotting"])
+                                                               outplotname=outplotname, refant=findrefant_core(parmdb, telescope=telescope), onetime=ntimesH5(parmdb)==1, markersize=compute_markersize(parmdb), skip_solution_plotting=args["skip_solution_plotting"])
                 force_close(parmdb)
         else:
             losotoparset = create_losoto_flag_apgridparset(ms, flagging=False, includesphase=includesphase,
                                                            onechannel=onechannel, medamp=medamp, onepol=onepol,
                                                            outplotname=outplotname,
-                                                           refant=findrefant_core(parmdb, telescope=args['telescope']),
+                                                           refant=findrefant_core(parmdb, telescope=telescope),
                                                            fulljones=(fulljonesparmdb(parmdb) or amplitude_leakage_paramdb(parmdb)),onetime=ntimesH5(parmdb)==1,markersize=compute_markersize(parmdb), skip_solution_plotting=args["skip_solution_plotting"])
             force_close(parmdb)
 
@@ -3458,13 +3526,23 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
         if flagging:
             shutil.copy(parmdb, parmdb + '.backup')
         cmdlosoto = 'losoto ' + parmdb + ' ' + losotoparset
-        if onechannel and (ntimesH5(parmdb) == 1): 
-            terminal_print('Skipping losoto amplitude plot because only one time and one frequency channel')
+        if onechannel and (ntimesH5(parmdb) == 1):
+            single_solution_plot = not args["skip_solution_plotting"]
         else:
             terminal_print('LoSoTo command:', cmdlosoto)
             logger.info(cmdlosoto)
             run(cmdlosoto)
-    
+
+    if single_solution_plot:
+        outfile = 'solution_plots_' + os.path.basename(ms) + '/' + os.path.basename(outplotname) + '_nolosoto.png'
+        terminal_print('Only one time slot and one frequency channel, losoto cannot plot this; plotting per antenna:', outfile)
+        logger.info('Single time/channel solutions, plotting per antenna: ' + outfile)
+        try:
+            plot_single_solution(parmdb, outfile, refant=findrefant_core(parmdb, telescope=telescope))
+        except Exception as e:  # a missing plot should not stop the calibration
+            logger.warning('Per-antenna solution plot failed for ' + parmdb + ': ' + str(e))
+        force_close(parmdb)
+
     if is_multidir(parmdb):
         same_weights_multidir(parmdb)
     
@@ -3476,6 +3554,105 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     for h5add in glob.glob("add_dir_*.h5") + glob.glob("add_dir.h5"):
         Path(h5add).unlink(missing_ok=True)
     return
+
+
+def run_blcal(mslist, selfcalcycle):
+    """
+    Baseline-based calibration (closure-error correction) after the antenna-based calibration of a cycle.
+
+    The model of this cycle is predicted again into MODEL_DATA (after the solves it can hold the model
+    corrupted with the first solutions), then for every MS of the selected telescopes (--blcal-telescopes)
+    the DP3 Python step blcal.py solves one complex factor per baseline and parallel hand (per
+    --blcal-solint and --blcal-nchan) from CORRECTED_DATA against MODEL_DATA, and divides the factors
+    into DATA and CORRECTED_DATA. The factors are time-constant within a solution interval and per baseline,
+    so they commute with the antenna gains: later cycles solve and image on the corrected DATA.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Measurement Sets of the run.
+    selfcalcycle : int
+        Current selfcal cycle (its model images are used).
+    """
+    telescopes = args['blcal_telescopes']
+    blcal_mslist = [ms for ms in mslist if telescopes is None or telescope_of(ms) in telescopes]
+    if len(blcal_mslist) == 0:
+        terminal_print('Baseline-based calibration: no MS of telescope(s)', telescopes)
+        return
+    imagebase = args['imagename'] + str(selfcalcycle).zfill(3)
+    # predict the model of this cycle into MODEL_DATA, for all MSs together so the channel division is
+    # the same as in the imaging (the model images were gzipped after the imaging)
+    for gz in glob.glob(imagebase + '-????-model.fits.gz') + glob.glob(imagebase + '-model.fits.gz'):
+        subprocess.run(['gunzip', '-f', gz], check=True)
+    channelsout = max(1, len(glob.glob(imagebase + '-????-model.fits')))
+    makeimage(mslist, imagebase, args['pixelscale'], args['imsize'], channelsout, onlypredict=True, idg=False)
+    gzip_model_images(imagebase)
+
+    os.makedirs('blcal', exist_ok=True)
+    step = 'bl.type=PythonDPPP bl.python.module=blcal bl.python.class=BlCal '
+    for ms in blcal_mslist:
+        base = 'blcal_selfcalcycle' + str(selfcalcycle).zfill(3)
+        suffix = ''
+        rerun = 0
+        while os.path.exists('blcal/' + base + suffix + '_' + os.path.basename(ms) + '.h5'):
+            rerun += 1  # restart of this cycle: the data are already corrected, keep the first solutions
+            suffix = '_rerun' + str(rerun)
+        solfile = 'blcal/' + base + suffix + '_' + os.path.basename(ms) + '.h5'
+        solint = 0 if args['blcal_solint'] is None else int(format_solint(args['blcal_solint'], ms))
+        cmd = 'DP3 msin=' + ms + ' msin.datacolumn=CORRECTED_DATA msin.extradatacolumns=[MODEL_DATA] msout= '
+        cmd += 'steps=[bl] ' + step + 'bl.mode=solve bl.solutions=' + solfile + ' '
+        cmd += 'bl.solint=' + str(solint) + ' bl.nchan=' + str(args['blcal_nchan']) + ' '
+        cmd += 'bl.minsnr=' + str(args['blcal_minsnr']) + ' bl.maxdev=' + str(args['blcal_maxdev'])
+        terminal_print('Baseline-based calibration solve:', cmd)
+        run(cmd)
+        sol = read_blcal_solutions(solfile)
+        valid = sol['valid']
+        summary = ('Baseline-based calibration ' + os.path.basename(ms) + ': ' + str(int(valid.sum())) + ' of '
+                   + str(int(np.isfinite(sol['raw']).sum())) + ' factors applied')
+        if valid.any():
+            summary += ', median |B-1| amplitude {:.3f}%, phase {:.3f} deg'.format(
+                100 * np.median(np.abs(np.abs(sol['gain'][valid]) - 1)),
+                np.degrees(np.median(np.abs(np.angle(sol['gain'][valid])))))
+        terminal_print(summary)
+        logger.info(summary)
+        try:
+            os.makedirs('solution_plots_' + os.path.basename(ms), exist_ok=True)
+            plot_blcal_solutions(solfile, 'solution_plots_' + os.path.basename(ms) + '/' + base + suffix + '.png')
+        except Exception as e:  # a missing plot should not stop the calibration
+            logger.warning('Baseline-based calibration plot failed for ' + solfile + ': ' + str(e))
+        for column in ['DATA', 'CORRECTED_DATA']:
+            cmd = 'DP3 msin=' + ms + ' msin.datacolumn=' + column + ' msout=. msout.datacolumn=' + column + ' '
+            cmd += 'steps=[bl] ' + step + 'bl.mode=apply bl.solutions=' + solfile
+            terminal_print('Baseline-based calibration apply:', cmd)
+            run(cmd)
+    _refresh_html_overview()
+
+
+def primary_beam_fwhm_deg(telescope, freq):
+    """
+    Approximate FWHM of the primary beam, used to size the region kept by --remove-outside-center auto.
+
+    Parameters
+    ----------
+    telescope : str
+        Telescope name (MeerKAT, GMRT, ASKAP, EVLA, VLA; other telescopes get 1 degree).
+    freq : float
+        Frequency in Hz.
+
+    Returns
+    -------
+    float
+        FWHM in degrees.
+    """
+    if telescope == 'MeerKAT':
+        return (57.5/60)*(1.5e9/freq)  # MeerKAT FWHM primary beam in degr
+    if telescope == 'GMRT':
+        return (32.25/60)*(1.08e9/freq)  # GMRT FWHM primary beam in degr
+    if telescope == 'ASKAP':
+        return 1.83*(850e6/freq)  # ASKAP FWHM primary beam in degr
+    if telescope in ['EVLA', 'VLA']:
+        return (30.0/60)*(1.4e9/freq)  # EVLA/VLA FWHM primary beam in degr
+    return 1.0  # degr
 
 
 def remove_outside_box(mslist, imagebasename, pixsize, imsize,
@@ -3568,16 +3745,13 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     if userbox == 'auto':
         if args['remove_outside_center_auto_minboxsize'] is not None:
             min_extract_size = args['remove_outside_center_auto_minboxsize']
-        elif args['telescope'] == 'MeerKAT':
-            min_extract_size = (57.5/60)*(1.5e9/header['CRVAL3'])  # MeerKAT FWHM primary beam in degr
-        elif args['telescope'] == 'GMRT':
-            min_extract_size = (32.25/60)*(1.08e9/header['CRVAL3'])  # GMRT FWHM primary beam in degr
-        elif args['telescope'] == 'ASKAP':
-            min_extract_size = 1.83*(850e6/header['CRVAL3'])  # ASKAP FWHM primary beam in degr
-        elif args['telescope'] == 'EVLA' or args['telescope'] == 'VLA':
-            min_extract_size = (30.0/60)*(1.4e9/header['CRVAL3'])  # EVLA/VLA FWHM primary beam in degr
+        elif not is_mixed(mslist):
+            min_extract_size = primary_beam_fwhm_deg(telescope_of(mslist[0]), header['CRVAL3'])
         else:
-            min_extract_size = 1.0  # degr     
+            # several telescopes: the largest primary beam, each telescope at its own frequency
+            min_extract_size = max(primary_beam_fwhm_deg(telescope, np.median([np.median(get_frequencies_from_ms(ms))
+                                                                                for ms in group]))
+                                   for telescope, group in group_by_telescope(mslist).items())
         boxsize = auto_determine_extractregion(imagebasename + '-MFS-image.fits', min_extract_size=min_extract_size)
         userbox = 'templatebox.reg' # set this as we are going to use the template region file
     # create square box file templatebox.reg
@@ -3638,7 +3812,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         
         for ms in mslist:
             # check if outcol exists, if not create it with DP3
-            t = table(ms)
+            t = table(ms, ack=False)
             colnames = t.colnames()
             t.close()
             if outcol not in colnames:
@@ -3649,7 +3823,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                     cmd += 'msout.storagemanager.weightbitrate=16 '
                 terminal_print('Command:', cmd)
                 run(cmd)
-            t = table(ms, readonly=False)
+            t = table(ms, readonly=False, ack=False)
             if t.nrows() < stepsize: stepsize = t.nrows()
             for row in range(0, t.nrows(), stepsize):
                 terminal_print("Doing {} out of {}, (step: {})".format(row, t.nrows(), stepsize))
@@ -3688,11 +3862,11 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                 time.sleep(2)  # wait for the directory to be removed
             applycal(ms + '.extracted',h5list[ms_id], find_closestdir=True, 
                      msout=ms + '.extracted_ddcor', dysco=dysco, metadata_compression=metadata_compression)
-            with table(ms + '.extracted') as t:
+            with table(ms + '.extracted', ack=False) as t:
                 if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if WEIGHT_SPECTRUM_SOLVE is present otherwise this is not needed
                     terminal_print('Going to copy over WEIGHT_SPECTRUM_SOLVE')
                     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-                    with table(ms + '.extracted_ddcor', readonly=False) as t2:
+                    with table(ms + '.extracted_ddcor', readonly=False, ack=False) as t2:
                         terminal_print('Adding WEIGHT_SPECTRUM_SOLVE')
                         addcol(t2, 'WEIGHT_SPECTRUM', 'WEIGHT_SPECTRUM_SOLVE')
                         imweights = t.getcol('WEIGHT_SPECTRUM_SOLVE')
@@ -3864,7 +4038,18 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         model columns are produced.
     """
     
-    if args['telescope'] in ['MeerKAT', 'GMRT']:
+    # the telescopes of the MSs imaged together. A run can combine telescopes; WSClean (EveryBeam)
+    # then applies the beam of each MS, which is only possible if every telescope has a beam model.
+    image_telescopes = unique_telescopes(mslist)
+    beam_supported = image_telescopes <= EVERYBEAM_TELESCOPES
+    has_lofar = 'LOFAR' in image_telescopes
+    if not beam_supported and len(image_telescopes) > 1 and image_telescopes & EVERYBEAM_TELESCOPES \
+            and not (disable_primarybeam_image and disable_primarybeam_predict):
+        terminal_print('No primary beam correction in WSClean for this combination of telescopes ('
+                       + describe_telescopes(image_telescopes) + '): not all have a beam model in EveryBeam')
+        logger.warning('No WSClean primary beam for telescopes ' + describe_telescopes(image_telescopes))
+
+    if image_telescopes <= {'MeerKAT', 'GMRT'}:
         # static primary beam, this should speed up the imaging
         facet_beam_update_time = 12*3600 # set an 12 hr
 
@@ -3906,7 +4091,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
     #if telescope != 'LOFAR' and not onlypredict and facetregionfile is not None:
     #    nosmallinversion = True
-    if args['telescope'] != 'LOFAR':
+    if image_telescopes != {'LOFAR'}:
         nosmallinversion = True  
 
     #  --- DI predict only without facets ---
@@ -3944,7 +4129,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             if idg:
                 cmd += '-gridder idg -idg-mode cpu '
                 if not disable_primarybeam_predict:
-                    if args['telescope'] == 'LOFAR':
+                    if image_telescopes == {'LOFAR'}:
                         cmd += '-grid-with-beam -use-differential-lofar-beam '
                         cmd += '-beam-aterm-update ' + str(facet_beam_update_time) + ' '
                 # cmd += '-pol iquv '
@@ -4004,7 +4189,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if idg:
             cmd += '-gridder idg -idg-mode cpu '
             if not disable_primarybeam_predict:
-                if args['telescope'] == 'LOFAR':
+                if image_telescopes == {'LOFAR'}:
                     cmd += '-grid-with-beam -use-differential-lofar-beam '
                     cmd += '-beam-aterm-update ' + str(facet_beam_update_time) + ' '
             # cmd += '-pol iquv '
@@ -4030,10 +4215,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 cmd += '-scalar-visibilities '  # scalar solutions
 
-        if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA']:
+        # EveryBeam has the (E)VLA beam only for TELESCOPE_NAME 'EVLA': historical VLA data ('VLA', CASA
+        # importvla) get no WSClean beam (WSClean stops with "telescope type VLA is not implemented") and
+        # the images are corrected afterwards with the AIPS VLA beam (VLA_pbcor)
+        if beam_supported:
             if not disable_primarybeam_predict:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
-                if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
+                if has_lofar: cmd += '-use-differential-lofar-beam '
 
         if args['modelstoragemanager'] is not None:
             cmd += '-model-storage-manager ' + modelstoragemanagerwsclean + ' '
@@ -4091,7 +4279,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             if idg:
                 cmd += '-gridder idg -idg-mode cpu '
                 if not disable_primarybeam_predict:
-                    if args['telescope'] == 'LOFAR':
+                    if image_telescopes == {'LOFAR'}:
                         cmd += '-grid-with-beam -use-differential-lofar-beam '
                         cmd += '-beam-aterm-update ' + str(facet_beam_update_time) + ' '
                 # cmd += '-pol iquv '
@@ -4109,13 +4297,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             # NEW CODE FOR SPEEDUP
             if singlefacetpredictspeedup:
                 cmd += '-facet-regions ' + dirofinput + '/facet' + str(facet_id) + '.reg' + ' '
-                if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA']:
+                if beam_supported:
                     if not disable_primarybeam_predict:
                         # check if -model-fpb.fits is there for image000 (in case image000 was made without facets)
                         if selfcalcycle == 0:
                             fix_fpb_images(imageout)    
                         cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
-                        if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
+                        if has_lofar: cmd += '-use-differential-lofar-beam '
                         if not fulljones_h5_facetbeam:
                             # cmd += '-diagonal-visibilities ' # different XX and YY solutions
                             cmd += '-scalar-visibilities '  # scalar solutions
@@ -4224,10 +4412,14 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             else:
                 terminal_print('fitsmask: ', fitsmask, 'does not exist')
                 raise Exception('fitsmask does not exist')
+        if uvtaper is None and args['tapergaussian'] is not None:  # an explicit uvtaper (ILT 1.2" image) wins
+            uvtaper = str(args['tapergaussian']) + 'asec'
         if uvtaper is not None:
             cmd += '-taper-gaussian ' + uvtaper + ' '
         if args['taperinnertukey'] is not None:
             cmd += '-taper-inner-tukey ' + str(args['taperinnertukey']) + ' '
+        if args['tapertukey'] is not None and uvmaxim is not None:  # WSClean applies it inside -maxuv-l
+            cmd += '-taper-tukey ' + str(args['tapertukey']) + ' '
 
         if (fitspectralpol > 0) and not (fullpol):
             cmd += '-save-source-list '
@@ -4240,7 +4432,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         if idg:
             cmd += '-gridder idg -idg-mode cpu '
             if not disable_primarybeam_image:
-                if args['telescope'] == 'LOFAR':
+                if image_telescopes == {'LOFAR'}:
                     cmd += '-grid-with-beam -use-differential-lofar-beam '
                     cmd += '-beam-aterm-update ' + str(facet_beam_update_time) + ' '
             # cmd += '-pol iquv -link-polarizations i '
@@ -4279,99 +4471,77 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 else:
                     cmd += '-scalar-visibilities '  # scalar solutions
 
-            if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA']:
+            if beam_supported:
                 if not disable_primarybeam_image:
                     cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
-                    if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
+                    if has_lofar: cmd += '-use-differential-lofar-beam '
         elif forceimagingwithfacets and facetregionfile is not None:  # so h5list is zero, but we still want facet imaging
             if args['groupms_h5facetspeedup'] and len(mslist) > 1:
                 mslist_concat, h5list_concat_tmp = concat_ms_wsclean_facetimaging(mslist, concatms=selfcalcycle is not None and ((selfcalcycle+1 in args['aoflagger_correcteddata_selfcalcycle_list']) or (selfcalcycle+1 in args['aoflagger_residualdata_selfcalcycle_list'])))
             cmd += '-facet-regions ' + facetregionfile + ' '
             if sharedfacetreads: cmd += '-shared-facet-reads -shared-facet-writes '
-            if args['telescope'] in ['LOFAR', 'MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA'] and not disable_primarybeam_image:
+            if beam_supported and not disable_primarybeam_image:
                 cmd += '-apply-facet-beam -facet-beam-update ' + str(facet_beam_update_time) + ' '
-                if args['telescope'] == 'LOFAR': cmd += '-use-differential-lofar-beam '
+                if has_lofar: cmd += '-use-differential-lofar-beam '
                 if not fulljones_h5_facetbeam and not fullpol:  # full-pol needs all correlations
                     # cmd += '-diagonal-visibilities ' # different XX and YY solutions
                     cmd += '-scalar-visibilities '  # scalar solutions
         else:
-            if args['telescope'] == 'LOFAR' and not check_phaseup_station(mslist[0]) and not idg:
-                if not disable_primarybeam_image:
-                    cmd += '-apply-primary-beam -use-differential-lofar-beam '
-                    cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
-            if args['telescope'] in ['MeerKAT', 'GMRT', 'VLA', 'EVLA', 'MWA'] and not idg and not disable_primarybeam_image:
+            if beam_supported and has_lofar and not idg:
+                # no beam for phased-up LOFAR stations (superstation)
+                if not any(check_phaseup_station(ms) for ms in mslist if telescope_of(ms) == 'LOFAR'):
+                    if not disable_primarybeam_image:
+                        cmd += '-apply-primary-beam -use-differential-lofar-beam '
+                        cmd += '-facet-beam-update ' + str(facet_beam_update_time) + ' '
+            elif beam_supported and not idg and not disable_primarybeam_image:
                 cmd += '-apply-primary-beam '
 
 
         cmd += '-name ' + imageout + ' -scale ' + str(pixsize) + 'arcsec '
+        nmiter = args['nmiter']
+        if isinstance(nmiter, list):  # one value per self-calibration cycle, the last one for later cycles
+            nmiter = nmiter[min(selfcalcycle, len(nmiter) - 1)] if selfcalcycle is not None else nmiter[-1]
         if args['groupms_h5facetspeedup'] and len(mslist) > 1 and facetregionfile is not None:
             msliststring_concat = ' '.join(map(str, mslist_concat))
-            terminal_print('WSCLEAN IMAGING: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
-            logger.info('WSCLEAN IMAGING: ' + cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
-            run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
+            terminal_print('WSCLEAN IMAGING: ', cmd + '-nmiter ' + str(nmiter) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
+            logger.info('WSCLEAN IMAGING: ' + cmd + '-nmiter ' + str(nmiter) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
+            run(cmd + ' -nmiter ' + str(nmiter) + ' -niter ' + str(niter) + ' ' + msliststring_concat)
         else:
-            terminal_print('WSCLEAN IMAGING: ', cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
-            logger.info('WSCLEAN IMAGING: ' + cmd + '-nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
+            terminal_print('WSCLEAN IMAGING: ', cmd + '-nmiter ' + str(nmiter) + ' -niter ' + str(niter) + ' ' + msliststring)
+            logger.info('WSCLEAN IMAGING: ' + cmd + '-nmiter ' + str(nmiter) + ' -niter ' + str(niter) + ' ' + msliststring)
             #if imageout != 'imageDD_auto_003':
-            run(cmd + ' -nmiter ' + str(args['nmiter']) + ' -niter ' + str(niter) + ' ' + msliststring)
+            run(cmd + ' -nmiter ' + str(nmiter) + ' -niter ' + str(niter) + ' ' + msliststring)
 
         clean_up_images(imageout)
 
-        # do manual  pbcor for MeerKAT/GMRT images if -applybeam or -apply-facet-beam was not used
-        if args['telescope'] in ['MeerKAT', 'GMRT', 'VLA', 'EVLA']:
+        # do manual pbcor for MeerKAT/GMRT/VLA images if -applybeam or -apply-facet-beam was not used.
+        # Only possible if all MSs share one correction (e.g. VLA + EVLA); an image that combines
+        # telescopes with different primary beams cannot be corrected with one beam.
+        pbcor_name = pbcor_function_name(image_telescopes)
+        if '-apply-facet-beam' not in cmd and '-apply-primary-beam' not in cmd and \
+                pbcor_name is None and len(image_telescopes) > 1:
+            terminal_print('No manual primary beam correction for an image that combines '
+                           + describe_telescopes(image_telescopes))
+        if pbcor_name is not None:
             if '-apply-facet-beam' not in cmd and '-apply-primary-beam' not in cmd:
-                terminal_print('Doing manual primary beam correction for MeerKAT/GMRT image')
+                terminal_print('Doing manual primary beam correction for the ' + describe_telescopes(image_telescopes) + ' image')
+                pbcor = {'MeerKAT_pbcor': MeerKAT_pbcor, 'uGMRT_pbcor': uGMRT_pbcor, 'VLA_pbcor': VLA_pbcor}[pbcor_name]
                 if os.path.isfile(imageout + '-MFS-image-pb.fits'):
-                    outfile = (imageout + '-MFS-image-pb.fits').replace('-MFS-image-pb.fits', '-MFS-image-manualpb.fits')
-                    if args['telescope'] == 'MeerKAT':
-                        MeerKAT_pbcor(imageout + '-MFS-image-pb.fits', outfile, ms=mslist[0])
-                    elif args['telescope'] == 'GMRT':
-                        uGMRT_pbcor(imageout + '-MFS-image-pb.fits', outfile, ms=mslist[0])
-                    elif args['telescope'] in ['VLA', 'EVLA']:
-                        VLA_pbcor(imageout + '-MFS-image-pb.fits', outfile, ms=mslist[0])    
-                else: #so this must be a run without facets
-                    if fullpol:
-                        outfile = (imageout + '-MFS-I-image.fits').replace('-MFS-I-image.fits', '-MFS-I-image-manualpb.fits')
-                        if args['telescope'] == 'MeerKAT':
-                            MeerKAT_pbcor(imageout + '-MFS-I-image.fits', outfile, ms=mslist[0])
-                        elif args['telescope'] == 'GMRT':
-                            uGMRT_pbcor(imageout + '-MFS-I-image.fits', outfile, ms=mslist[0])
-                        elif args['telescope'] in ['VLA', 'EVLA']:
-                            VLA_pbcor(imageout + '-MFS-I-image.fits', outfile, ms=mslist[0])
-                        outfile = (imageout + '-MFS-Q-image.fits').replace('-MFS-Q-image.fits', '-MFS-Q-image-manualpb.fits')
-                        if args['telescope'] == 'MeerKAT':
-                            MeerKAT_pbcor(imageout + '-MFS-Q-image.fits', outfile, ms=mslist[0])
-                        elif args['telescope'] == 'GMRT':
-                            uGMRT_pbcor(imageout + '-MFS-Q-image.fits', outfile, ms=mslist[0])
-                        elif args['telescope'] in ['VLA', 'EVLA']:
-                            VLA_pbcor(imageout + '-MFS-Q-image.fits', outfile, ms=mslist[0])    
-                        outfile = (imageout + '-MFS-U-image.fits').replace('-MFS-U-image.fits', '-MFS-U-image-manualpb.fits')
-                        if args['telescope'] == 'MeerKAT':
-                            MeerKAT_pbcor(imageout + '-MFS-U-image.fits', outfile, ms=mslist[0])
-                        elif args['telescope'] == 'GMRT':
-                            uGMRT_pbcor(imageout + '-MFS-U-image.fits', outfile, ms=mslist[0])
-                        elif args['telescope'] in ['VLA', 'EVLA']:
-                            VLA_pbcor(imageout + '-MFS-U-image.fits', outfile, ms=mslist[0])        
-                        outfile = (imageout + '-MFS-V-image.fits').replace('-MFS-V-image.fits', '-MFS-V-image-manualpb.fits')
-                        if args['telescope'] == 'MeerKAT':
-                            MeerKAT_pbcor(imageout + '-MFS-V-image.fits', outfile, ms=mslist[0])
-                        elif args['telescope'] == 'GMRT':
-                            uGMRT_pbcor(imageout + '-MFS-V-image.fits', outfile, ms=mslist[0])
-                        elif args['telescope'] in ['VLA', 'EVLA']:
-                            VLA_pbcor(imageout + '-MFS-V-image.fits', outfile, ms=mslist[0])  
-
-                    else:
-                        outfile = (imageout + '-MFS-image.fits').replace('-MFS-image.fits', '-MFS-image-manualpb.fits')
-                        if args['telescope'] == 'MeerKAT':
-                            MeerKAT_pbcor(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
-                        elif args['telescope'] == 'GMRT':
-                            uGMRT_pbcor(imageout + '-MFS-image.fits', outfile, ms=mslist[0])
-                        elif args['telescope'] in ['VLA', 'EVLA']:
-                            VLA_pbcor(imageout + '-MFS-image.fits', outfile, ms=mslist[0])    
+                    suffixes = ['image-pb']
+                else:  # so this must be a run without facets
+                    suffixes = ['I-image', 'Q-image', 'U-image', 'V-image'] if fullpol else ['image']
+                for suffix in suffixes:
+                    # WSClean writes <name>-MFS-<suffix>.fits, or <name>-<suffix>.fits for a single output channel
+                    infile = imageout + '-MFS-' + suffix + '.fits'
+                    if not os.path.isfile(infile) and os.path.isfile(imageout + '-' + suffix + '.fits'):
+                        infile = imageout + '-' + suffix + '.fits'
+                    outfile = infile.replace('-image-pb.fits', '-image-manualpb.fits') if suffix == 'image-pb' \
+                        else infile.replace('-image.fits', '-image-manualpb.fits')
+                    pbcor(infile, outfile, ms=mslist[0])
 
         # write info about how the primary beam correction was done to the FITS header and processing history
         write_processing_history(' '.join(map(str, sys.argv)), facetselfcal_version, imageout)
-        write_primarybeam_info(cmd, imageout, telescope=args['telescope'])
+        write_primarybeam_info(cmd, imageout, telescope=image_telescopes)
         
         # REMOVE nagetive model components, these are artifacts (only for Stokes I)
         if removenegativecc:
@@ -4418,7 +4588,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                     cmd += '-gap-channel-division '
             if idg:
                 cmd += '-gridder idg -idg-mode cpu '
-                if args['telescope'] == 'LOFAR':
+                if image_telescopes == {'LOFAR'}:
                     if not disable_primarybeam_predict:
                         cmd += '-grid-with-beam -use-differential-lofar-beam '
                         cmd += '-beam-aterm-update ' + str(facet_beam_update_time) + ' '
@@ -4438,7 +4608,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 # if h5 is not None:
                 #     cmd += '-facet-regions ' + facetregionfile + ' '
                 #     cmd += '-apply-facet-solutions ' + h5 + ' amplitude000,phase000 '
-                #     if args['telescope'] == 'LOFAR':
+                #     if image_telescopes == {'LOFAR'}:
                 #         cmd += '-apply-facet-beam -facet-beam-update 600 -use-differential-lofar-beam '
                 #         cmd += '-diagonal-solutions '
                 if args['modelstoragemanager'] is not None:
@@ -4479,6 +4649,164 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 # to remove H5/h5 and other files out of a wildcard selection if needed
 
 
+def default_uvmin(telescope, freq, LBA, longbaseline):
+    """
+    Default inner uv-cut (in lambda) for the solves.
+
+    Parameters
+    ----------
+    telescope : str
+        Telescope name.
+    freq : float
+        Central frequency in Hz.
+    LBA : bool
+        LOFAR LBA data.
+    longbaseline : bool
+        LOFAR data with international stations.
+
+    Returns
+    -------
+    float
+        uvmin in lambda.
+    """
+    if longbaseline:
+        return 20000.
+    if LBA:
+        return 80. if freq >= 40e6 else 60.
+    if telescope in ['EVLA', 'VLA']:
+        return 1.  # assume we can use all baselines
+    if telescope == 'MWA':
+        return 250.
+    return 350.
+
+
+def solve_uvmin(ms):
+    """
+    Inner uv-cut (in lambda) for the solves on one MS: --uvmin, or the default for its telescope.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set.
+
+    Returns
+    -------
+    float or list
+        uvmin in lambda.
+    """
+    if args['uvmin'] is not None:
+        return args['uvmin']
+    return args['uvmin_per_telescope'][telescope_of(ms)]
+
+
+def default_pixelscale(telescope, freq, mslist, LBA, longbaseline):
+    """
+    Default pixel scale for imaging the data of one telescope.
+
+    Parameters
+    ----------
+    telescope : str
+        Telescope name.
+    freq : float
+        Central frequency in Hz.
+    mslist : list of str
+        The MSs of this telescope (for the VLA array configuration).
+    LBA : bool
+        LOFAR LBA data.
+    longbaseline : bool
+        LOFAR data with international stations.
+
+    Returns
+    -------
+    float or None
+        Pixel scale in arcsec, or None if it cannot be determined.
+    """
+    if telescope == 'LOFAR':
+        if LBA:
+            return 0.08 if longbaseline else np.rint(3.0 * 54e6 / freq)
+        return 0.04 if longbaseline else 1.5
+    if telescope == 'MeerKAT':
+        if freq < 1e9:  # UHF-band
+            return 1.8
+        elif freq < 2e9:  # L-band
+            return 1.
+        elif freq < 4e9:  # S-band
+            return 0.5
+        return None
+    if telescope == 'ASKAP':
+        if freq < 1e9:  # UHF-band
+            return 2.0
+        elif freq < 1.4e9:  # L-band-low
+            return 1.5
+        elif freq < 2.0e9:  # L-band-high
+            return 1.0
+        return None
+    if telescope == 'GMRT':
+        if freq < 250e6:  # band2
+            return 3.0
+        elif freq >= 250e6 and freq < 500e6:  # band3
+            return 1.25
+        elif freq >= 500e6 and freq < 1e9:  # band4
+            return 0.75
+        return 0.35  # band5
+    if telescope in ['EVLA', 'VLA']:
+        # get the configuration
+        res_factor = {'A': 1.0, 'B': 3.0, 'C': 9.0, 'D': 27.0}[get_vla_maxconfiguration(mslist)]
+        if freq > 50e6 and freq < 100e6:  # 4-band, 74 MHz centre
+            return 6.0*res_factor
+        elif freq > 200e6 and freq < 500e6:  # P-band, 350 MHz centre
+            return 1.3*res_factor
+        elif freq > 1e9 and freq < 2e9:  # L-band, 1.5 GHz centre
+            return 0.3*res_factor
+        elif freq >= 2e9 and freq < 4e9:  # S-band, 3.0 GHz centre
+            return 0.15*res_factor
+        elif freq >= 4e9 and freq < 8e9:  # C-band, 6.0 GHz centre
+            return 0.075*res_factor
+        elif freq >= 8e9 and freq < 12e9:  # X-band, 10 GHz centre
+            return 0.045*res_factor
+        elif freq >= 12e9 and freq < 18e9:  # Ku-band, 15 GHz centre
+            return 0.03*res_factor
+        elif freq >= 18e9 and freq < 26e9:  # K-band, 22 GHz centre
+            return 0.020*res_factor
+        elif freq >= 26e9 and freq < 40e9:  # Ka-band, 33 GHz centre
+            return 0.014*res_factor
+        elif freq >= 40e9 and freq < 50e9:  # Q-band, 45 GHz centre
+            return 0.01*res_factor
+        return None
+    return None
+
+
+def default_robust(telescope, freq):
+    """
+    Default Briggs robust weighting for the data of one telescope.
+
+    Parameters
+    ----------
+    telescope : str
+        Telescope name.
+    freq : float
+        Central frequency in Hz.
+
+    Returns
+    -------
+    float
+        Briggs robust value.
+    """
+    if telescope == 'LOFAR':
+        return -0.5
+    if telescope == 'MeerKAT':
+        return 0.0 if freq > 1.7e9 else -0.5  # S-band: 0.0
+    if telescope == 'ASKAP':
+        return -0.5
+    if telescope == 'GMRT':
+        return -0.0
+    if telescope in ['EVLA', 'VLA']:
+        return 0.0
+    if telescope == 'MWA':
+        return -0.5
+    return 0.0
+
+
 def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
     """
     Perform basic setup and metadata checks for input MSs.
@@ -4508,7 +4836,15 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
     if args['compute_weightspectrum']:
         args['createresidualdatacolumn'] = True  # force creation of residual data column if weight spectrum is computed
 
-    longbaseline = checklongbaseline(mslist[0])
+    # a run can combine MSs from different telescopes; the defaults below are then derived per
+    # telescope (from the MSs of that telescope) and combined. telescope is None for such a run, so
+    # the single-telescope presets (auto modes, which inputchecker refuses for a mixed run) are skipped.
+    telescopes = unique_telescopes(mslist)
+    telescope = single_telescope(mslist)
+    mixed_telescopes = len(telescopes) > 1
+    lofar_mslist = mslist_of_telescope(mslist, 'LOFAR')
+
+    longbaseline = checklongbaseline(lofar_mslist[0]) if len(lofar_mslist) > 0 else False
     if args['removeinternational']:
         terminal_print('Forcing longbaseline to False as --removeinternational has been specified')
         longbaseline = False
@@ -4523,17 +4859,21 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
         chan_width = np.median(chan_widths)
     freq = np.median(freqs)
 
+    # central frequency per telescope (of its first MS, as freq is for the first MS of the run)
+    freq_telescope = {tel: (freq if group[0] == mslist[0] else np.median(get_frequencies_from_ms(group[0])))
+                      for tel, group in group_by_telescope(mslist).items()}
+
     if args['multiscale'] is not None:
         # do not allow update_multiscale to be set automatically further below if multiscale is specified
         args['update_multiscale'] = False
    
-    if args['telescope'] == 'LOFAR':
-        if freq < 100e6:
+    if 'LOFAR' in telescopes:
+        if freq_telescope['LOFAR'] < 100e6:
             LBA = True
-            HBAorLBA = 'HBA'
+            HBAorLBA = 'LBA'
         else:
             LBA = False
-            HBAorLBA = 'LBA'
+            HBAorLBA = 'HBA'
     else:
         HBAorLBA = 'other'
         LBA = False
@@ -4541,121 +4881,45 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
 
     if args['DDE']: args['forwidefield'] = True  # force widefield imaging if DDE
 
-    if args['telescope'] != 'LOFAR':
-        args['noarchive'] = True  # force noarchive for these telescopes
+    if telescope != 'LOFAR':
+        args['noarchive'] = True  # force noarchive for these telescopes (and for a mixed-telescope run)
 
     # set some default values if not provided
     if args['uvmin'] is None:
-        if longbaseline:
-            args['uvmin'] = 20000.
+        if not mixed_telescopes:
+            args['uvmin'] = default_uvmin(telescope, freq, LBA, longbaseline)
         else:
-            if LBA:
-                if freq >= 40e6:
-                    args['uvmin'] = 80.
-                if freq < 40e6:
-                    args['uvmin'] = 60.
-            elif args['telescope'] == 'EVLA' or args['telescope'] == 'VLA':
-                args['uvmin'] = 1. # assume we can use all baselines
-            else:
-                args['uvmin'] = 350.
+            # solves are per MS: each MS gets the default of its telescope (see solve_uvmin)
+            args['uvmin_per_telescope'] = {tel: default_uvmin(tel, freq_telescope[tel], LBA and tel == 'LOFAR',
+                                                              longbaseline and tel == 'LOFAR')
+                                           for tel in telescopes}
+            terminal_print('Default uvmin for the solves per telescope:', args['uvmin_per_telescope'])
 
     if type(args['uvminim']) is not list:
         if args['uvminim'] is None:
-            if args['telescope'] == 'LOFAR':
+            if telescope == 'LOFAR':
                 if args['DDE']:
                     args['uvminim'] = 10.  # for DDE we want to go to smaller scales
                 else:
                     args['uvminim'] = 80.  # the default since a long time so keep it for now, but could be reduced for HBA in the future 
             else:
-                args['uvminim'] = 10.  # MeerKAT/uGMRT/EVLA/ASKAP for example
+                args['uvminim'] = 10.  # MeerKAT/uGMRT/EVLA/ASKAP for example, and a mixed-telescope run
 
-    if args['pixelscale'] is None and args['telescope'] == 'LOFAR':
-        if LBA:
-            if longbaseline:
-                args['pixelscale'] = 0.08
-            else:
-                args['pixelscale'] = np.rint(3.0 * 54e6 / freq)
-        else:
-            if longbaseline:
-                args['pixelscale'] = 0.04
-            else:
-                args['pixelscale'] = 1.5
-    elif args['pixelscale'] is None and args['telescope'] == 'MeerKAT':
-        if freq < 1e9:  # UHF-band
-            args['pixelscale'] = 1.8
-        elif freq < 2e9:  # L-band
-            args['pixelscale'] = 1.
-        elif freq < 4e9:  # S-band
-            args['pixelscale'] = 0.5
-    elif args['pixelscale'] is None and args['telescope'] == 'ASKAP':
-        if freq < 1e9:  # UHF-band
-            args['pixelscale'] = 2.0
-        elif freq < 1.4e9:  # L-band-low
-            args['pixelscale'] = 1.5
-        elif freq < 2.0e9:  # L-band-high
-            args['pixelscale'] = 1.0
-    elif args['pixelscale'] is None and args['telescope'] == 'GMRT':
-        if freq < 250e6:  # band2
-            args['pixelscale'] = 3.0
-        elif freq >= 250e6 and freq < 500e6:  # band3
-            args['pixelscale'] = 1.25
-        elif freq >= 500e6 and freq < 1e9:  # band4
-            args['pixelscale']  = 0.75
-        elif freq >= 1e9:  # band5
-            args['pixelscale'] = 0.35
-    elif args['pixelscale'] is None and (args['telescope'] == 'EVLA' or args['telescope'] == 'VLA'):
-        # get the configuration
-        if get_vla_maxconfiguration(mslist) == 'A':
-            res_factor = 1.0
-        if get_vla_maxconfiguration(mslist) == 'B':
-            res_factor = 3.0
-        if get_vla_maxconfiguration(mslist) == 'C':
-            res_factor = 9.0
-        if get_vla_maxconfiguration(mslist) == 'D':
-            res_factor = 27.0
-        if freq > 50e6 and freq < 100e6:  # 4-band, 74 MHz centre
-            args['pixelscale'] = 6.0*res_factor
-        elif freq > 200e6 and freq < 500e6:  # P-band, 350 MHz centre
-            args['pixelscale'] = 1.3*res_factor
-        elif freq > 1e9 and freq < 2e9:  # L-band, 1.5 GHz centre
-            args['pixelscale'] = 0.3*res_factor
-        elif freq >= 2e9 and freq < 4e9:  # S-band, 3.0 GHz centre
-            args['pixelscale'] = 0.15*res_factor
-        elif freq >= 4e9 and freq < 8e9:  # C-band, 6.0 GHz centre
-            args['pixelscale'] = 0.075*res_factor
-        elif freq >= 8e9 and freq < 12e9:  # X-band, 10 GHz centre
-            args['pixelscale'] = 0.045*res_factor
-        elif freq >= 12e9 and freq < 18e9:  # Ku-band, 15 GHz centre
-            args['pixelscale'] = 0.03*res_factor
-        elif freq >= 18e9 and freq < 26e9:  # K-band, 22 GHz centre
-            args['pixelscale'] = 0.020*res_factor
-        elif freq >= 26e9 and freq < 40e9:  # Ka-band, 33 GHz centre
-            args['pixelscale'] = 0.014*res_factor
-        elif freq >= 40e9 and freq < 50e9:  # Q-band, 45 GHz centre
-            args['pixelscale'] = 0.01*res_factor
-
-    elif args['pixelscale'] is None:
-        terminal_print('pixelscale not set and cannot be determined for telescope', args['telescope'])
-        raise Exception('pixelscale not set and cannot be determined for telescope')    
+    if args['pixelscale'] is None:
+        # the finest pixel scale of the telescopes in the run (each from its own MSs and frequency)
+        pixelscales = {tel: default_pixelscale(tel, freq_telescope[tel], group, LBA, longbaseline)
+                       for tel, group in group_by_telescope(mslist).items()}
+        if any(value is None for value in pixelscales.values()):
+            terminal_print('pixelscale not set and cannot be determined for telescope',
+                           ', '.join(tel for tel, value in pixelscales.items() if value is None))
+            raise Exception('pixelscale not set and cannot be determined for telescope')
+        args['pixelscale'] = min(pixelscales.values())
+        if mixed_telescopes:
+            terminal_print('Default pixelscale per telescope:', pixelscales, '-> using', args['pixelscale'])
 
     if args['robust'] is None:
-        if args['telescope'] == 'LOFAR':
-            args['robust'] = -0.5
-        elif args['telescope'] == 'MeerKAT':
-            if freq > 1.7e9:  # S-band
-                args['robust'] = 0.0
-            else:
-                args['robust'] = -0.5
-        elif args['telescope'] == 'ASKAP':
-            args['robust'] = -0.5
-        elif args['telescope'] == 'GMRT':
-            args['robust'] = -0.0
-        elif args['telescope'] == 'EVLA' or args['telescope'] == 'VLA':    
-            args['robust'] = 0.0
-        elif args['telescope'] == 'MWA':
-            args['robust'] = -0.5 
-        else:
-            args['robust'] = 0.0       
+        args['robust'] = default_robust(telescope, freq) if not mixed_telescopes else -0.5
+
 
     # if imsize is a filename (so a string) then read the imsize for there
     if isinstance(args['imsize'], str):
@@ -4672,7 +4936,7 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
         else:
             args['imsize'] = getimsize(args['boxfile'], args['pixelscale'])
     
-    if args['auto'] and args['telescope'] == 'MeerKAT' and not args['DDE']:
+    if args['auto'] and telescope == 'MeerKAT' and not args['DDE']:
         if args['imsize'] is None:
             if args['bandpass']: 
                 args['imsize'] = 1024 # default for MeerKAT when doing bandpass
@@ -4680,9 +4944,7 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
                 args['imsize'] = 12000 # default for MeerKAT in DI auto mode 
 
     if args['paralleldeconvolution'] == 0: # means determine automatically
-        if args['imsize'] > 1600 and args['telescope'] == 'MeerKAT':
-            args['paralleldeconvolution'] = 1200
-        elif args['imsize'] > 1600 and args['telescope'] == 'GMRT':
+        if args['imsize'] > 1600 and telescopes & {'MeerKAT', 'GMRT'}:
             args['paralleldeconvolution'] = 1200
         elif args['imsize'] > 1600: 
             args['paralleldeconvolution'] =  np.min([1800, int(args['imsize'] / 2)])
@@ -4690,7 +4952,7 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
     if args['niter'] is None:
         args['niter'] = niter_from_imsize(args['imsize'], args['paralleldeconvolution'])
 
-    if args['auto'] and args['telescope'] == 'LOFAR' and not longbaseline:
+    if args['auto'] and telescope == 'LOFAR' and not longbaseline:
         if args['update_uvmin'] is None: # so not set by user, so we can set it to True in auto
             args['update_uvmin'] = True
         args['usemodeldataforsolints'] = True
@@ -4726,7 +4988,7 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
             args['forwidefield'] = True
 
     # MeerkAT auto settings
-    if args['auto'] and args['telescope'] == 'MeerKAT':
+    if args['auto'] and telescope == 'MeerKAT':
         if isinstance(args['channelsout'], str) and args['channelsout'] == 'auto':
             args['channelsout'] = set_channelsout(mslist, args)
         if isinstance(args['fitspectralpol'], str) and args['fitspectralpol'] == 'auto':
@@ -5070,7 +5332,7 @@ def compute_phasediffstat(mslist, args, nchan='1953.125kHz', solint='10min'):
         S = GetSolint(parmdb, optimal_score=optimal_score, ref_solint=ref_solint)
 
         # Write to STAT SCORE to original MS DATA-col header mslist_input
-        with table(mslist_input[ms_id], readonly=False) as t:
+        with table(mslist_input[ms_id], readonly=False, ack=False) as t:
             t.putcolkeyword('DATA', 'SCALARPHASEDIFF_STAT', S.cstd)
 
         if args['phasediff_only']:
@@ -5126,6 +5388,9 @@ def setup_refant(mslist, args):
     earlier run (misc/refant.txt) when restarting with --start, otherwise the least flagged preferred
     antenna present in all MSs. The choice is written to misc/refant.txt.
 
+    When the MSs come from different telescopes there is one reference antenna per telescope
+    (--refant then takes a comma-separated list, one name per telescope), stored one per line.
+
     Parameters
     ----------
     mslist : list of str
@@ -5135,18 +5400,21 @@ def setup_refant(mslist, args):
     """
     refantfile = 'misc/refant.txt'
     if args['refant'] is not None:
-        refant = args['refant']
-    elif args['phaseupstations'] is not None:
-        refant = 'ST001'
+        refants = [name.strip() for name in args['refant'].split(',') if name.strip()]
     elif args['start'] != 0 and os.path.isfile(refantfile):
         with open(refantfile) as f:
-            refant = f.read().strip()
+            refants = [line.strip() for line in f if line.strip()]
     else:
-        refant = choose_refant_from_ms(mslist, args['telescope'])
+        refants = []
+        for telescope, group in group_by_telescope(mslist).items():
+            if args['phaseupstations'] is not None and telescope == 'LOFAR':
+                refants.append('ST001')
+            else:
+                refants.append(choose_refant_from_ms(group, telescope))
     with open(refantfile, 'w') as f:
-        f.write(refant + '\n')
-    set_refant(refant)
-    terminal_print('Reference antenna for all solves:', refant)
+        f.write('\n'.join(refants) + '\n')
+    set_refant(refants)
+    terminal_print('Reference antenna for all solves:', ', '.join(refants))
 
 
 ###############################
@@ -5218,6 +5486,12 @@ def main():
         logger.warning("Could not start resource monitor: %s", exc)
         set_resource_monitor(None)
     
+    # telescope of each input MS (sorted like args['ms'] at the start of the run), for logging, the
+    # config file and the report (set before the first config write, so the report header shows the
+    # telescope photos from the start). Decisions use the telescope of the MSs they act on
+    # (telescope_of, unique_telescopes), since the MS list changes during the run (splitting,
+    # averaging, phase-up). Missing MSs are skipped here and reported by inputchecker.
+    args |= {'telescope': telescopes_of([ms for ms in sorted(args['ms']) if os.path.isdir(ms)])}
     _write_full_config(args)
     _REPORT_RUN_INITIALIZED = True
 
@@ -5229,20 +5503,40 @@ def main():
         if args['setjy_method'] == 'casa':
             args['dysco'] = False  # no dysco compression allowed as CASA does not work with dysco compression
         args['modelstoragemanager'] = None  # no model compression: CASA cannot write it, and the polarised 3C286 model needs all four correlations
-    args |= {'telescope': get_telescope_from_ms(sorted(args['ms']))} # get telescope from MS and add to args
     
     global submodpath, datapath, facetselfcal_version
     datapath = os.path.dirname(os.path.abspath(__file__))
     submodpath = '/'.join(datapath.split('/')[0:-1])+'/submods'
+    # raise the open-file limit to the hard limit (inherited by DP3 and WSClean): an MS split at its time
+    # gaps gives many chunk MSs per WSClean call, each with ~30 open table files, and the usual soft limit
+    # of 1024 then stops WSClean with "Too many open files" (32 chunks of a VLA observation)
+    nofile_soft, nofile_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if nofile_soft != resource.RLIM_INFINITY and (nofile_hard == resource.RLIM_INFINITY or nofile_soft < nofile_hard):
+        # an unlimited hard limit cannot be used as soft limit (above the kernel nr_open): use a large value
+        nofile_target = nofile_hard if nofile_hard != resource.RLIM_INFINITY else 1048576
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (nofile_target, nofile_hard))
+        except (ValueError, OSError):
+            pass
     shutil.copy(submodpath + '/polconv.py', '.')
     shutil.copy(submodpath + '/parang.py', '.')
     shutil.copy(submodpath + '/xfsolve.py', '.')
+    shutil.copy(submodpath + '/blcal.py', '.')
 
-    facetselfcal_version = '21.0.0'
+    facetselfcal_version = '22.0.0'
     print_title(facetselfcal_version)
     _write_html_overview(
         Path.cwd(), status="running", announce_browser=True
     )
+
+    if args['meerkatcal']:
+        from submods.meerkat_cal.pipeline import run_meerkatcal
+        run_meerkatcal(sorted(args['ms']), args)
+        return
+    if args['vlacal']:
+        from submods.vla_cal.pipeline import run_vlacal
+        run_vlacal(sorted(args['ms']), args)
+        return
 
     # copy h5s locally
     for h5parm_id, h5parmdb in enumerate(args['preapplyH5_list']):
@@ -5352,13 +5646,10 @@ def main():
  
     if args['timesplitbefore'] is None: # in this case we let facetselfcal decide by itself whether to split or not
         os.makedirs('plots', exist_ok=True)
-        args['timesplitbefore'] = check_large_timegaps_ms(
-            mslist[0],
-            skip_time_coverage_plotting=args['skip_time_coverage_plotting'])
-        for ms in mslist[1:]:
-            check_large_timegaps_ms(
-                ms,
-                skip_time_coverage_plotting=args['skip_time_coverage_plotting'])
+        timegaps = {ms: check_large_timegaps_ms(ms, skip_time_coverage_plotting=args['skip_time_coverage_plotting'])
+                    for ms in mslist}
+        # decided on the first MS of each telescope (a run can combine telescopes)
+        args['timesplitbefore'] = any(timegaps[group[0]] for group in group_by_telescope(mslist).values())
 
     if args['timesplitbefore']:
         mslist, args['skipbackup'] = fix_equidistant_times(mslist, args['start'] != 0, args, 
@@ -5368,7 +5659,7 @@ def main():
     if args['remove_flagged_from_startend']:
         mslist = sorted(remove_flagged_data_startend(mslist))
 
-    if args['auto'] and args['telescope'] == 'MeerKAT' and not args['DDE']:
+    if args['auto'] and single_telescope(mslist) == 'MeerKAT' and not args['DDE']:
         if args['removemostlyflaggedstations'] is None:  # not set by user, so we can decide based on auto settings
             args['removemostlyflaggedstations'] = True  # for MeerKAT auto remove mostly flagged stations
 
@@ -5449,6 +5740,8 @@ def main():
     # SETUP VARIOUS PARAMETERS
     longbaseline, LBA, HBAorLBA, freq, fitsmask, maskthreshold_selfcalcycle, \
         automaskthreshold_selfcalcycle, outtarname = basicsetup(mslist)
+    # after basicsetup, which can switch on --docircular
+    check_faradayrotation_basis(args, mslist)
     setup_refant(mslist, args)
     # basicsetup fills in automatic choices (--auto solve settings, pixelscale,
     # niter, stop, ...); record the settings that will actually be used.
@@ -5485,7 +5778,7 @@ def main():
         )
 
     # SET MODEL STORAGE MANAGER
-    args['modelstoragemanager'] = set_modelstoragemanager(args['telescope'], args)
+    args['modelstoragemanager'] = set_modelstoragemanager(unique_telescopes(mslist), args)
 
     # avgfreqstep was planned and validated before the first average() call.
 
@@ -5516,7 +5809,8 @@ def main():
                      metadata_compression=args['metadata_compression'], flag_antennas=args['flag_antenna_list'])
 
     for ms in mslist:
-        compute_distance_to_pointingcenter(ms, HBAorLBA=HBAorLBA, warn=longbaseline, returnval=False)
+        compute_distance_to_pointingcenter(ms, HBAorLBA=HBAorLBA if telescope_of(ms) == 'LOFAR' else 'other',
+                                           warn=longbaseline, returnval=False)
 
     # this needs to be done after averaging because of time averaging changing the intervals
     if args['facetdirections'] is not None:
@@ -5540,8 +5834,15 @@ def main():
 
     # LOG INPUT SETTINGS
     if args['stack']:
+        check_stack_frequency_axes(mslist)  # after averaging, before any stack output
         _write_stack_imaging_group_manifest(mslist)
     logbasicinfo(args, fitsmask, mslist, facetselfcal_version, sys.argv)
+    # on a restart, add the plot variants that the HTML overview uses to the cycles imaged before
+    # (by an older facetselfcal version they may be missing)
+    if args['start'] > 0:
+        for msim_id, _ in enumerate(nested_mslistforimaging(mslist, stack=args['stack'])):
+            backfill_plot_variants(args['start'], args,
+                                   stackstr='_stack' + str(msim_id).zfill(2) if args['stack'] else '')
     _write_html_overview(Path.cwd(), status="running", quiet=True)
 
     # Make starting skymodel from TGSS or VLASS survey if requested
@@ -5574,8 +5875,8 @@ def main():
             flag_smeared_data(ms)
     
     # flag autocorrelations for MeerKAT (these are not flagged by the SDP pipeline)
-    if args['telescope'] == 'MeerKAT' and args['start'] == 0:
-        flag_autocorr(mslist)
+    if 'MeerKAT' in unique_telescopes(mslist) and args['start'] == 0:
+        flag_autocorr(mslist_of_telescope(mslist, 'MeerKAT'))
   
     wsclean_h5list = []
     facetregionfile = None
@@ -5612,11 +5913,11 @@ def main():
         createresidualdatacolumn_only = False
 
     # check if we can use -apply-facet-beam or disable_primary_beam needs to be set
-    check_applyfacetbeam(mslist, args['imsize'], args['pixelscale'], args['telescope'], args, \
+    check_applyfacetbeam(mslist, args['imsize'], args['pixelscale'], args, \
                          enlarge_safe_FoV_diameter=args['enlarge_safe_FoV_diameter'])
 
     # download MWS primary beam model if needed
-    if args['telescope'] == 'MWA' and not args['disable_primary_beam']:
+    if 'MWA' in unique_telescopes(mslist) and not args['disable_primary_beam']:
         download_MWA_beam_model()
 
     # compute flagging statistics for the MS list and log the results to selfcal.log
@@ -5628,7 +5929,24 @@ def main():
     for ms in mslist:
         insert_history_ms(ms, parse_input_args(options), appver=facetselfcal_version)
 
+    # --auto-tapertukey: record before the loop whether the uv range/taper were set by hand,
+    # so that the values set by the automatic trigger itself do not count as manual
+    auto_tapertukey_user_set = args['uvmaxim'] is not None or args['tapertukey'] is not None
+    args['auto_tapertukey_active'] = False
+    if args['auto_tapertukey']:
+        blocker = auto_tapertukey_blocker(args, auto_tapertukey_user_set)
+        if blocker is not None:
+            logger.info('--auto-tapertukey is not used: ' + blocker)
+            terminal_print('--auto-tapertukey is not used: ' + blocker)
+
+    # --auto-ddpsfgrid: a --ddpsfgrid given by hand wins; remember the parallel deconvolution without the grid
+    auto_ddpsfgrid_user_set = args['ddpsfgrid'] is not None
+    paralleldeconvolution_base = args['paralleldeconvolution']
+
     # ----- START SELFCAL LOOP -----
+    noise_history = {}  # {(stackstr, cycle): image rms} for --stop-noise-increase-factor
+    stop_for_noise_divergence = False
+    stop_for_early_stopping = False
     for i in range(args['start'], 999):  # large number, will break when i == args['stop']-1
         logger.info('Starting self-calibration cycle %d' % i)
         if get_resource_monitor() is not None:
@@ -5640,8 +5958,9 @@ def main():
         if args['autoupdate_removenegativefrommodel'] and args[
             'DDE']:  # never remove negative clean components for a DDE solve
             args['removenegativefrommodel'] = False
-        if args['autoupdate_removenegativefrommodel'] and args['telescope'] == 'MeerKAT':
+        if args['autoupdate_removenegativefrommodel'] and 'MeerKAT' in unique_telescopes(mslist):
             # never remove negative clean components for MeerKAT as the image quality is already very good
+            # (also when MeerKAT data are combined with data from other telescopes)
             args['removenegativefrommodel'] = False
 
         # AUTOMATICALLY PICKUP PREVIOUS MASK (in case of a restart) and trigger multiscale
@@ -5650,11 +5969,17 @@ def main():
             # update to multiscale cleaning if large island is present
             args['multiscale'] = multiscale_trigger(fitsmask, args)
             # update uvmin if allowed/requested
-            update_uvmin(fitsmask, longbaseline, LBA, args)
+            update_uvmin(fitsmask, longbaseline, LBA, args, telescope=single_telescope(mslist))
             # update channelsout
             args['channelsout'] = update_channelsout(i - 1, mslist, args)
             # update fitspectralpol
             args['fitspectralpol'] = update_fitspectralpol(args)
+        # AUTOMATIC IMAGING UPGRADES FROM THE PREVIOUS IMAGE (also on a restart with --start, with or without --fitsmask)
+        if i > 0:
+            # switch on the outer Tukey taper if the dynamic range is high enough
+            update_tapertukey(i - 1, mslist, args, auto_tapertukey_user_set)
+            # direction-dependent PSF grid from the dynamic range and the w coordinates
+            update_ddpsfgrid(i - 1, mslist, args, auto_ddpsfgrid_user_set, paralleldeconvolution_base)
 
         # BEAM CORRECTION AND/OR CONVERT TO CIRCULAR/LINEAR CORRELATIONS
         for ms in mslist:
@@ -5678,7 +6003,7 @@ def main():
                               updateweights=args['preapplybandpassH5_updateweights'])
             # write keyword to MS to indicate bandpass has been applied
             for ms in mslist:
-                with table(ms, readonly=False) as t:
+                with table(ms, readonly=False, ack=False) as t:
                     t.putcolkeyword('DATA', 'BANDPASS_APPLIED', True)
             # read out the keyword FAKE_RLLR for the DATA column if this keyword exists
             for ms in mslist:
@@ -5718,7 +6043,8 @@ def main():
                 modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, candidate_soltypelist_includedir = (
                     prepare_DDE(args['skymodel'], i, mslist,
                                 DDE_predict='DP3', restart=False, skyview=tgssfitsfile,
-                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel']))
+                                wscleanskymodel=args['wscleanskymodel'], skymodel=args['skymodel'],
+                                telescope=single_telescope(mslist)))
 
                 if candidate_solints is not None:
                     solint_list = candidate_solints
@@ -5745,7 +6071,6 @@ def main():
                                                   skymodelpointsource=args['skymodelpointsource'],
                                                   wscleanskymodel=args['wscleanskymodel'], skymodelsetjy=args['skymodelsetjy'],
                                                   mslist_beforephaseup=mslist_beforephaseup,
-                                                  telescope=args['telescope'],
                                                   modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                                   DDE_predict=set_DDE_predict_skymodel_solve(args['wscleanskymodel']),
                                                   mslist_beforeremoveinternational=mslist_beforeremoveinternational)
@@ -5773,7 +6098,7 @@ def main():
            
             modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, candidate_soltypelist_includedir = (
                 prepare_DDE(args['imagename'], i, mslist,
-                            DDE_predict=args['DDE_predict'], restart=True, telescope=args['telescope']))
+                            DDE_predict=args['DDE_predict'], restart=True, telescope=single_telescope(mslist)))
             wsclean_h5list = list(np.load('misc/wsclean_h5list' + str(i-1).zfill(3) + '.npy'))
             # re-create facet_regions/facets.reg here
             # in a restart the number of directions from the previous facet_regions/facets.reg might not match that in the h5
@@ -5871,7 +6196,23 @@ def main():
             # PLOT IMAGE
             plotimage(i, args, stackstr, mask=fitsmask_list[msim_id], regionfile='facet_regions/facets.reg' if (args['DDE'] and facetregionfile is not None) else None)
             _refresh_html_overview()  # show the new cycle image
+
+            # CHECK FOR A DIVERGED CALIBRATION (--stop-noise-increase-factor)
+            if not stop_for_noise_divergence:
+                diverged, noise_ratio, best_cycle, noise_cycles = check_noise_divergence(
+                    i, args, stackstr, noise_history, args['stop_noise_increase_factor'])
+                if noise_ratio is not None:
+                    logger.info('Image noise check%s: cycle %d noise %.3e Jy/beam is %.2f times the lowest '
+                                'earlier noise (cycle %d); limit %g' % (' ' + stackstr if stackstr else '', i,
+                                noise_cycles[i], noise_ratio, best_cycle, args['stop_noise_increase_factor']))
+                if diverged:
+                    stop_for_noise_divergence = True
+                    report_noise_divergence(i, stackstr, noise_ratio, best_cycle, noise_cycles)
         #  --- END IMAGING PART ---
+
+        # STOP IF THE CALIBRATION DIVERGED, before the solve and flagging of this cycle
+        if stop_for_noise_divergence:
+            break
 
         # RUN AOFLAGGER ON THE RESIDUAL DATA COLUMN IF REQUESTED
         if i in args['aoflagger_residualdata_selfcalcycle_list'] and args['aoflagger_residualdata']:
@@ -5888,10 +6229,10 @@ def main():
 
         modeldatacolumns = []
         if args['DDE']:
-            if args['auto_directions']: args['facetdirections'] = auto_direction(i, freq=freq, telescope=args['telescope'])
+            if args['auto_directions']: args['facetdirections'] = auto_direction(i, freq=freq, telescope=single_telescope(mslist))
             modeldatacolumns, dde_skymodel, candidate_solints, candidate_smoothness, \
             candidate_soltypelist_includedir = prepare_DDE(args['imagename'], i, mslist, \
-            DDE_predict=args['DDE_predict'], telescope=args['telescope'])
+            DDE_predict=args['DDE_predict'], telescope=single_telescope(mslist))
 
             if candidate_solints is not None:
                 solint_list = candidate_solints
@@ -5928,7 +6269,10 @@ def main():
             aoflagger_column(mslist, aoflagger_strategy=args['aoflagger_strategy_correcteddata'], column='CORRECTED_DATA')
 
         # CHECK FOR HIGH DYNAMIC RANGE DATA AND ADJUST SETTINGS (DI-SOLVES ONLY)
-        soltypecycles_list, solint_list, smoothnessconstraint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle = autodetect_highDR(i, mslist, args['telescope'], soltypecycles_list, solint_list, smoothnessconstraint_list, args)
+        stop_before_highDR = args['stop']
+        soltypecycles_list, solint_list, smoothnessconstraint_list, automaskthreshold_selfcalcycle, maskthreshold_selfcalcycle = autodetect_highDR(i, mslist, single_telescope(mslist), soltypecycles_list, solint_list, smoothnessconstraint_list, args)
+        if args['stop'] != stop_before_highDR:
+            _write_full_config(args)  # record the new number of cycles (also copied into the merged h5parms)
 
         # REDETERMINE SOLINTS IF REQUESTED
         if (i >= 0) and (args['usemodeldataforsolints']):
@@ -5973,7 +6317,7 @@ def main():
                                               skymodelsetjy=args['skymodelsetjy'] if args['keepusingstartingskymodel'] else False,
                                               longbaseline=longbaseline,
                                               predictskywithbeam=args['predictskywithbeam'], skymodelsource=args['skymodelsource'],                                          
-                                              mslist_beforephaseup=mslist_beforephaseup, telescope=args['telescope'],
+                                              mslist_beforephaseup=mslist_beforephaseup,
                                               modeldatacolumns=modeldatacolumns, dde_skymodel=dde_skymodel,
                                               DDE_predict=args['DDE_predict'],
                                               mslist_beforeremoveinternational=mslist_beforeremoveinternational)
@@ -5991,14 +6335,28 @@ def main():
             if not args['keepmodelcolumns']: remove_model_columns(mslist)
             return
 
+        # BASELINE-BASED CALIBRATION IF REQUESTED
+        if args['blcal_cycles'] is not None and i in args['blcal_cycles']:
+            run_blcal(mslist, i)
+
         # UPDATE UVMIN IF ALLOWED/REQUESTED
-        update_uvmin(fitsmask, longbaseline, LBA, args)
+        update_uvmin(fitsmask, longbaseline, LBA, args, telescope=single_telescope(mslist))
 
         # UPDATE FITSMASK IF ALLOWED/REQUESTED
-        fitsmask, fitsmask_list, imagename = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args, mslist, args['telescope'], longbaseline)
+        # extended-emission mask parameters exist for LOFAR and MeerKAT; with several telescopes use
+        # the LOFAR ones if LOFAR data are included, otherwise MeerKAT
+        mask_telescopes = unique_telescopes(mslist)
+        mask_telescope = next((tel for tel in ['LOFAR', 'MeerKAT'] if tel in mask_telescopes),
+                              single_telescope(mslist))
+        fitsmask, fitsmask_list, imagename = update_fitsmask(fitsmask, maskthreshold_selfcalcycle, i, args, mslist, mask_telescope, longbaseline)
 
         # UPDATE TO MULTISCALE CLEANING IF LARGE ISLAND IS PRESENT
         args['multiscale'] = multiscale_trigger(fitsmask, args)
+
+        # SWITCH ON THE OUTER TUKEY TAPER IF THE DYNAMIC RANGE IS HIGH ENOUGH (--auto-tapertukey)
+        update_tapertukey(i, mslist, args, auto_tapertukey_user_set)
+        # UPDATE THE DIRECTION-DEPENDENT PSF GRID (--auto-ddpsfgrid)
+        update_ddpsfgrid(i, mslist, args, auto_ddpsfgrid_user_set, paralleldeconvolution_base)
 
         # UPDATE CHANNELSOUT
         args['channelsout'] = update_channelsout(i, mslist, args)
@@ -6049,9 +6407,19 @@ def main():
         add_config_to_h5(h5, 'full_config.txt')
         add_version_to_h5(h5, facetselfcal_version)
 
+    # after a diverged calibration the applied solutions are bad: skip the steps that change or archive the data
+    if stop_for_noise_divergence:
+        skipped = [name for name, on in (('--remove-outside-center', args['remove_outside_center']),
+                                         ('--createresidualdatacolumn', args['createresidualdatacolumn']),
+                                         ('archiving', not longbaseline and not args['noarchive'] and not LBA))
+                   if on]
+        if skipped:
+            terminal_print('Calibration diverged, skipping: ' + ', '.join(skipped))
+            logger.warning('Calibration diverged, skipping: ' + ', '.join(skipped))
+
     # remove sources outside central region after selfcal (to prepare for DDE solves)
     # or create RESIDUAL_DATA column if requested
-    if args['remove_outside_center'] or args['createresidualdatacolumn']:
+    if (args['remove_outside_center'] or args['createresidualdatacolumn']) and not stop_for_noise_divergence:
         # make image after calibration so the calibration and images match
         # normally we would finish with calibration and not have the subsequent image, make this i+1 image here
         makeimage(mslistim, args['imagename'] + str(i + 1).zfill(3),
@@ -6111,9 +6479,10 @@ def main():
     Path('polconv.py').unlink(missing_ok=True)
     Path('parang.py').unlink(missing_ok=True)
     Path('xfsolve.py').unlink(missing_ok=True)
+    Path('blcal.py').unlink(missing_ok=True)
 
     # ARCHIVE DATA AFTER SELFCAL if requested
-    if not longbaseline and not args['noarchive']:
+    if not longbaseline and not args['noarchive'] and not stop_for_noise_divergence:
         if not LBA:
             if args['DDE']:
                 mergedh5_i = glob.glob('h5_solutions/merged_selfcalcycle' + str(i).zfill(3) + '*.h5')
@@ -6122,6 +6491,55 @@ def main():
             else:
                 archive(mslist, outtarname, args['boxfile'], fitsmask, imagename, args, dysco=args['dysco'], metadata_compression=args['metadata_compression'])
             cleanup(mslist)
+
+
+def report_noise_divergence(selfcalcycle, stackstr, ratio, best_cycle, noise_cycles):
+    """Log a diverged calibration (--stop-noise-increase-factor) and set the report message.
+
+    Parameters
+    ----------
+    selfcalcycle : int
+        Cycle whose image noise rose above the threshold.
+    stackstr : str
+        Filename suffix of the stacked image that tripped the check ('' without stacking).
+    ratio : float
+        Noise of this cycle divided by the lowest noise of the earlier cycles.
+    best_cycle : int
+        Earlier cycle with the lowest image noise.
+    noise_cycles : dict
+        ``{cycle: rms}`` of the images of this stack.
+
+    Returns
+    -------
+    None
+    """
+    global _NOISE_DIVERGENCE_MESSAGE
+    imagestr = ' (image ' + stackstr.lstrip('_') + ')' if stackstr else ''
+    factor = args['stop_noise_increase_factor']
+    lines = ['Image noise per selfcal cycle' + imagestr + ':']
+    for cycle in sorted(noise_cycles):
+        mark = '  <-- best' if cycle == best_cycle else ('  <-- diverged' if cycle == selfcalcycle else '')
+        lines.append('  cycle %03d: %.3e Jy/beam%s' % (cycle, noise_cycles[cycle], mark))
+    for line in lines:
+        logger.warning(line)
+    print('\n'.join(lines))
+
+    message = ('Image noise of cycle %d%s is %.1f times the lowest noise (cycle %d), more than '
+               '--stop-noise-increase-factor=%g. The calibration diverged, so self-calibration stopped '
+               'before the solve of cycle %d.' % (selfcalcycle, imagestr, ratio, best_cycle, factor, selfcalcycle))
+    if best_cycle == 0:
+        hint = 'The best image is that of cycle 0. Restart with --start 0 and different solve settings.'
+    else:
+        hint = ('The best image (cycle %d) was made with the solutions in '
+                'h5_solutions/merged_selfcalcycle%03d_*.h5. Restart with --start %d and different solve '
+                'settings to continue from there.' % (best_cycle, best_cycle - 1, best_cycle))
+    hint += (' Flags written while the diverged solutions (cycle %d) were applied are not undone.'
+             % (selfcalcycle - 1))
+    terminal_print('SELFCAL STOPPED: ' + message)
+    terminal_print(hint)
+    logger.warning(message)
+    logger.warning(hint)
+    _NOISE_DIVERGENCE_MESSAGE = message + ' ' + hint
 
 
 # end time and duration of the last HTML overview build, for the rate limit in _refresh_html_overview
@@ -6271,7 +6689,11 @@ def _with_html_report(run_function):
             error = f"{type(exc).__name__}: {exc}"
             raise
         else:
-            status = "completed"
+            if _NOISE_DIVERGENCE_MESSAGE:
+                status = "diverged"
+                error = _NOISE_DIVERGENCE_MESSAGE
+            else:
+                status = "completed"
             return result
         finally:
             resource_monitor = get_resource_monitor()

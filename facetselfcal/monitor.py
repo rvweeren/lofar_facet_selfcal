@@ -34,6 +34,15 @@ except ImportError:
     _PSUTIL_AVAILABLE = False
 
 
+
+def _process_memory(proc):
+    """Return the proportional set size (PSS) of a process in bytes, or its RSS when PSS is unavailable."""
+    try:
+        return proc.memory_full_info().pss
+    except (AttributeError, psutil.AccessDenied):
+        # no PSS on this platform, or /proc/<pid>/smaps not readable
+        return proc.memory_info().rss
+
 class ResourceMonitor:
     """Monitors CPU and RAM usage of the current process and all its subprocesses.
 
@@ -93,6 +102,7 @@ class ResourceMonitor:
         self._csv_writer = None
         self._last_tree_cpu_time = None
         self._last_sample_time = None
+        self._ncpu = (psutil.cpu_count() if _PSUTIL_AVAILABLE else None) or 1
         self._parent_process = None
         self._latest_sample = None
         self._resource_samples = deque()
@@ -598,7 +608,13 @@ class ResourceMonitor:
             return False
 
     def _get_tree_cpu_time_and_rss(self):
-        """Calculate total cumulative CPU time and resident memory of the process tree."""
+        """Calculate total cumulative CPU time and resident memory of the process tree.
+
+        Memory is the sum of the proportional set size (PSS) of the processes, which splits pages shared
+        between processes (forked workers, e.g. the LoSoTo plot pool, shared libraries, mapped files) over
+        the processes sharing them. A sum of RSS counts such pages once per process and can exceed the
+        RAM of the node. RSS is used only when PSS is not available.
+        """
         if not _PSUTIL_AVAILABLE or self._parent_process is None:
             return 0.0, 0.0
 
@@ -609,7 +625,7 @@ class ResourceMonitor:
         try:
             pt = self._parent_process.cpu_times()
             total_cpu_time += pt.user + pt.system + getattr(pt, "children_user", 0.0) + getattr(pt, "children_system", 0.0)
-            total_rss += self._parent_process.memory_info().rss
+            total_rss += _process_memory(self._parent_process)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return 0.0, 0.0
 
@@ -619,11 +635,16 @@ class ResourceMonitor:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             children = []
 
+        # include the reaped children of every live process too: when e.g. DP3 exits, its CPU time moves to
+        # the children_* of the shell that started it, and with the shell to the parent's children_*.
+        # Counting only user + system of live processes drops that time and counts it again all at once
+        # when the shell is reaped, a spike of hours of CPU time in one sample
         for child in children:
             try:
                 ct = child.cpu_times()
-                total_cpu_time += ct.user + ct.system
-                total_rss += child.memory_info().rss
+                total_cpu_time += (ct.user + ct.system + getattr(ct, "children_user", 0.0)
+                                   + getattr(ct, "children_system", 0.0))
+                total_rss += _process_memory(child)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
 
@@ -648,7 +669,8 @@ class ResourceMonitor:
             delta_time = now - self._last_sample_time
             delta_cpu = total_cpu_time - self._last_tree_cpu_time
             if delta_time > 0:
-                tree_cpu_pct = max(0.0, (delta_cpu / delta_time) * 100.0)
+                # at most all CPUs (time of descendants reaped by a process outside the tree is lost)
+                tree_cpu_pct = min(max(0.0, (delta_cpu / delta_time) * 100.0), 100.0 * self._ncpu)
 
         self._last_sample_time = now
         self._last_tree_cpu_time = total_cpu_time

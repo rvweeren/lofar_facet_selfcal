@@ -8,8 +8,10 @@ import math
 import os
 import re
 import shlex
+import shutil
 from collections import defaultdict, deque
-from datetime import datetime
+from contextvars import ContextVar
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -37,6 +39,7 @@ from .resource_chart import (
     resource_chart_browser_js,
     resource_chart_data_json,
     downsample_resource_samples,
+    wsclean_workflow_step_kind,
 )
 
 _FULL_RESOURCE_CHART_POINT_LIMIT = 300
@@ -50,11 +53,15 @@ _PAGE_NAMES = {
     "extraction.html": "Extraction",
     "directions.html": "Directions",
     "calibration.html": "Calibration",
+    "solutions.html": "Solution intervals",
     "bandpass.html": "Bandpass",
+    "polarisation.html": "Polarisation",
     "datasets.html": "Measurement sets",
     "run-details.html": "Run details",
 }
-_OPTIONAL_PAGES = frozenset({"extraction.html", "directions.html", "bandpass.html"})
+_OPTIONAL_PAGES = frozenset({
+    "extraction.html", "directions.html", "bandpass.html", "polarisation.html", "solutions.html",
+})
 
 _SUMMARY_KEYS = (
     "telescope",
@@ -159,7 +166,15 @@ a { color: var(--teal-dark); text-underline-offset: 3px; }
 a:hover { color: var(--teal-deep); }
 .site-header { background: var(--teal-deep); color: #f8fafc; border-bottom: 1px solid #115e59; }
 .masthead, nav, main, footer { width: min(1320px, calc(100% - 40px)); margin: 0 auto; }
-.masthead { padding: 22px 0 18px; }
+.masthead { padding: 22px 0 18px; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.masthead-text { min-width: 0; flex: 1 1 auto; }
+.masthead-telescopes { flex: 0 1 auto; display: flex; gap: 10px; margin: 0; min-width: 0; }
+.telescope-photo { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; }
+.telescope-photo img { display: block; height: 104px; width: auto; max-width: 100%; aspect-ratio: 480 / 274; object-fit: cover; border-radius: 6px; border: 1px solid #2dd4bf55; box-shadow: 0 2px 10px #0003; }
+.telescope-credit { margin-top: 4px; color: #99f6e4; font-size: 10px; line-height: 1.3; text-align: right; }
+.telescope-credit a { color: inherit; }
+.masthead-telescopes.compact { flex-wrap: wrap; justify-content: flex-end; }
+.masthead-telescopes.compact .telescope-photo img { height: 72px; }
 .eyebrow { margin: 0 0 6px; color: #5eead4; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 h1, h2, h3 { line-height: 1.25; color: var(--ink); }
 h1 { margin: 0; font-size: 28px; font-weight: 700; color: #ffffff; }
@@ -270,6 +285,9 @@ pre { max-width: 100%; margin: 0; padding: 12px 14px; overflow: auto; background
 .pill-btn:hover { background: var(--surface-alt); border-color: var(--muted); }
 .pill-btn.active { background: var(--teal-dark); color: white; border-color: var(--teal-dark); }
 .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.solint-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(560px, 100%), 1fr)); gap: 14px; margin: 10px 0; }
+.solint-gallery figure img { height: auto; }
+.solint-flags { margin: 0; padding-left: 16px; font-size: 12px; color: var(--muted); }
 figure { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); overflow: hidden; box-shadow: 0 1px 2px rgba(15,23,42,0.03); }
 figure a { display: block; background: #e2e8f0; }
 figure img { display: block; width: 100%; height: 180px; object-fit: contain; background: #ffffff; }
@@ -287,6 +305,11 @@ figcaption .caption-detail { display: block; color: var(--muted); margin-top: 3p
 .overlay-toggle input { vertical-align: middle; margin: 0 4px 0 0; }
 .blink-preview { margin: 0; }
 .blink-preview img { height: min(65vh, 640px); object-fit: contain; }
+.blink-zoom .blink-viewport { max-height: 85vh; overflow: auto; background: #e2e8f0; }
+.blink-zoom .blink-preview img { width: auto; max-width: none; height: auto; margin: 0 auto; image-rendering: pixelated; }
+.blink-zoom .blink-preview img.blink-fit { width: 100%; height: min(80vh, 900px); object-fit: contain; image-rendering: auto; }
+.blink-controls select { padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; color: var(--ink); font: inherit; font-size: 13px; }
+.compare-zoom .compare-views figure img { height: auto; }
 .compare-tool { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 14px; margin: 14px 0; }
 .compare-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 12px; }
 .compare-controls label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ink-secondary); }
@@ -451,6 +474,7 @@ details > .data-table, details > .file-list { margin: 0 0 12px; }
 footer { border-top: 1px solid var(--line); padding: 18px 0 26px; color: var(--muted); font-size: 12px; }
 @media (max-width: 850px) { .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .bandpass-range-group { grid-template-columns: minmax(0, 1fr); flex-basis: 100%; max-width: none; } }
+@media (max-width: 720px) { .masthead { flex-wrap: wrap; } .telescope-photo img { height: 80px; } .telescope-photo { align-items: flex-start; } .telescope-credit { text-align: left; } }
 @media (max-width: 600px) {
   .masthead, nav, main, footer { width: min(100% - 24px, 1320px); }
   .masthead { padding-top: 18px; }
@@ -481,6 +505,27 @@ def _report_css():
     return _CSS.replace(marker, phase_colors, 1) + """
 .workflow-step-outcome { display: block; font-size: 10px; font-weight: 500; }
 .direction-table .direction-varies { background: var(--blue-pale); }
+.section-note { margin: 8px 0 12px; color: var(--muted); font-size: 13px; max-width: 960px; }
+.dircut-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 14px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.dircut-controls label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.dircut-controls label span { display: flex; align-items: center; gap: 6px; }
+.dircut-controls output { color: var(--ink); font-weight: 600; white-space: nowrap; }
+.dircut-controls select { padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; color: var(--ink); font: inherit; font-size: 13px; }
+.dircut-slider input { width: min(260px, 50vw); }
+.dircut-controls button { min-height: 36px; border: 1px solid var(--teal-dark); border-radius: 4px; padding: 6px 14px; color: white; background: var(--teal-dark); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.dircut-controls button:hover { background: var(--teal-deep); }
+.dircut-controls .dircut-step { padding: 6px 10px; color: var(--teal-dark); background: var(--surface); }
+.dircut-controls .dircut-step:hover { color: white; }
+.dircut-play { min-width: 76px; }
+.dircut-grid { --dircut-size: 260px; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--dircut-size), 100%), 1fr)); gap: 12px; }
+.dircut-grid.dircut-native { grid-template-columns: repeat(auto-fill, minmax(min(var(--dircut-size), 100%), max-content)); }
+.dircut-tile { position: relative; }
+.dircut-tile a { background: #0f172a; }
+.dircut-tile img { width: 100%; height: auto; aspect-ratio: 1 / 1; object-fit: contain; background: #0f172a; }
+.dircut-native .dircut-tile img { width: auto; max-width: 100%; }
+.dircut-tile.dircut-empty img { visibility: hidden; }
+.dircut-missing { position: absolute; top: 40%; left: 0; right: 0; color: #cbd5e1; font-size: 12px; text-align: center; }
+.dircut-badge { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 8px; background: var(--amber); color: #1f2937; font-size: 11px; font-weight: 600; }
 .dirmap { margin: 6px 0 0; }
 .dirmap-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 6px; }
 .dirmap-cycle-select { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ink-secondary); }
@@ -503,7 +548,11 @@ def _report_css():
 .dirmap-marker.dirmap-new circle { fill: var(--amber); }
 .dirmap-marker text { fill: var(--ink); font-size: 12px; font-weight: 700; paint-order: stroke; stroke: white; stroke-width: 3px; }
 .dirmap-marker:hover circle, .dirmap-marker:focus circle, .dirmap-marker.dirmap-selected circle { stroke: var(--ink); stroke-width: 2.5; fill-opacity: 1; }
-.dirmap-popup { position: absolute; z-index: 5; width: min(300px, 90%); padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); box-shadow: 0 6px 18px rgba(15,23,42,0.18); font-size: 12px; }
+.dirmap-popup { position: absolute; z-index: 5; width: min(340px, 92%); max-height: min(520px, 90%); overflow-y: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); box-shadow: 0 6px 18px rgba(15,23,42,0.18); font-size: 12px; }
+.dirmap-popup-subhead { margin: 8px 0 4px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); font-weight: 600; }
+.dirmap-popup-links { display: flex; flex-wrap: wrap; gap: 4px; max-height: 150px; overflow-y: auto; }
+.dirmap-popup-links a { padding: 1px 7px; border: 1px solid #cbd5e1; border-radius: 10px; background: var(--surface-alt); color: var(--teal-dark); font-size: 11px; text-decoration: none; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.dirmap-popup-links a:hover { border-color: var(--teal-dark); background: var(--surface); }
 .dirmap-popup h3 { margin: 0 24px 6px 0; font-size: 15px; }
 .dirmap-popup table { width: 100%; border-collapse: collapse; }
 .dirmap-popup th { padding: 2px 8px 2px 0; color: var(--muted); font-weight: 600; text-align: left; vertical-align: top; white-space: nowrap; }
@@ -513,6 +562,43 @@ def _report_css():
 .gallery-group-heading { grid-column: 1 / -1; margin: 12px 0 0; padding-bottom: 4px; border-bottom: 1px solid var(--line); font-size: 15px; }
 .direction-layout { grid-template-columns: minmax(0, 720px); }
 .workflow-step-failed { color: var(--red); border: 1px solid var(--red-border); background: var(--red-pale); }
+.bandpass-chart-card h3, .bandpass-chart-card h4 { margin: 0 0 2px; font-size: 15px; }
+.overlay-view { margin-top: 26px; }
+.overlay-layout { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 14px; align-items: start; }
+.overlay-charts { min-width: 0; }
+.overlay-panel { position: sticky; top: 10px; display: flex; flex-direction: column; max-height: 680px; margin: 14px 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.overlay-panel-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.overlay-panel-head strong { margin-right: auto; color: var(--ink-secondary); font-size: 13px; }
+.overlay-panel-buttons { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.overlay-panel-buttons button { border: 1px solid #cbd5e1; border-radius: 14px; padding: 3px 10px; background: var(--surface); color: var(--ink-secondary); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.overlay-panel-buttons button:hover { background: var(--surface-alt); border-color: var(--muted); }
+.overlay-list { min-height: 0; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.overlay-list li { border-radius: 4px; }
+.overlay-list li.is-highlighted { background: var(--teal-light); }
+.overlay-list label { display: flex; align-items: center; gap: 6px; padding: 2px 4px; color: var(--ink); font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.overlay-list li.is-flagged label { color: var(--muted); }
+.overlay-swatch { flex: 0 0 auto; width: 16px; height: 4px; border-radius: 2px; }
+.overlay-name { min-width: 0; overflow-wrap: anywhere; }
+.overlay-flag { display: inline-block; margin-left: auto; padding: 0 5px; border: 1px solid var(--red-border); border-radius: 3px; background: var(--red-pale); color: var(--red); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+.overlay-line { fill: none; stroke-width: 1.2; stroke-opacity: .85; stroke-linecap: round; stroke-linejoin: round; }
+.overlay-line.overlay-line-bold { stroke-width: 2.6; stroke-opacity: 1; }
+.overlay-hit { fill: none; stroke: transparent; stroke-width: 9; pointer-events: stroke; cursor: crosshair; }
+.overlay-highlighting .overlay-line { stroke-opacity: .12; }
+.overlay-highlighting .overlay-line.is-highlighted { stroke-opacity: 1; stroke-width: 2.8; }
+.overlay-hover-label { fill: var(--ink); font-size: 13px; font-weight: 700; }
+.series-line { fill: none; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.series-line.series-dashed { stroke-dasharray: 6 4; }
+.series-errorbar { stroke-width: 1.3; }
+.series-zero { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.pol-chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 0 14px; }
+.pol-subheading { margin: 18px 0 8px; font-size: 15px; }
+.pol-calibrator { margin: 18px 0; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-alt); }
+.pol-calibrator > h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 8px; }
+.pol-details { margin: 12px 0; }
+.pol-details summary { color: var(--teal-dark); font-size: 13px; font-weight: 600; cursor: pointer; }
+.pol-table-scroll { max-height: 520px; overflow-y: auto; }
+.pol-table tbody th { width: auto; }
+@media (max-width: 760px) { .overlay-layout { grid-template-columns: minmax(0, 1fr); } .overlay-panel { position: static; max-height: 320px; } }
 """
 
 
@@ -739,8 +825,34 @@ document.addEventListener("DOMContentLoaded", function () {
         var image = tool.querySelector("[data-blink-image]");
         var caption = tool.querySelector("[data-blink-caption]");
         var overlayToggle = tool.querySelector("[data-overlay-toggle]");
+        var scaleSelect = tool.querySelector("[data-blink-scale]");
+        var viewport = tool.querySelector(".blink-viewport");
+        var scaled = false;
         var timer = null;
         var frameIndex = 0;
+        // Zoomed view: show the image at a fixed pixel scale, centred in a scrollable viewport
+        var applyScale = function () {
+            if (!scaleSelect) return;
+            var fit = scaleSelect.value === "fit";
+            image.classList.toggle("blink-fit", fit);
+            if (fit) {
+                image.style.width = "";
+            } else if (image.naturalWidth) {
+                image.style.width = (image.naturalWidth * Number(scaleSelect.value)) + "px";
+            } else {
+                return;
+            }
+            scaled = true;
+            if (viewport) {
+                viewport.scrollLeft = (viewport.scrollWidth - viewport.clientWidth) / 2;
+                viewport.scrollTop = (viewport.scrollHeight - viewport.clientHeight) / 2;
+            }
+        };
+        if (scaleSelect) {
+            scaleSelect.addEventListener("change", applyScale);
+            image.addEventListener("load", function () { if (!scaled) applyScale(); });
+            if (image.complete) applyScale();
+        }
         var render = function () {
             var frame = frames[frameIndex];
             if (!frame) return;
@@ -1350,6 +1462,109 @@ document.addEventListener("DOMContentLoaded", function () {
 document.addEventListener("DOMContentLoaded", function () {
     // Direction map: cycle selector and a pop-up with the details of the
     // clicked direction.
+    document.querySelectorAll("[data-dircut]").forEach(function (player) {
+        var cycles = JSON.parse(player.getAttribute("data-dircut-cycles") || "[]");
+        var grid = player.querySelector("[data-dircut-grid]");
+        var slider = player.querySelector("[data-dircut-slider]");
+        var cycleOutput = player.querySelector("[data-dircut-cycle]");
+        var play = player.querySelector("[data-dircut-play]");
+        var interval = player.querySelector("[data-dircut-interval]");
+        var intervalOutput = player.querySelector("[data-dircut-interval-output]");
+        var size = player.querySelector("[data-dircut-size]");
+        var tiles = Array.from(player.querySelectorAll("[data-dircut-tile]")).map(function (tile) {
+            return {
+                element: tile,
+                frames: JSON.parse(tile.getAttribute("data-frames") || "{}"),
+                added: tile.getAttribute("data-added"),
+                image: tile.querySelector("[data-dircut-image]"),
+                link: tile.querySelector("[data-dircut-link]"),
+                missing: tile.querySelector("[data-dircut-missing]"),
+                badge: tile.querySelector("[data-dircut-badge]")
+            };
+        });
+        var index = cycles.length - 1;
+        var timer = null;
+        var preloaded = false;
+        if (!cycles.length || !tiles.length) return;
+
+        var show = function (newIndex) {
+            index = (newIndex + cycles.length) % cycles.length;
+            var cycle = cycles[index];
+            slider.value = String(index);
+            cycleOutput.textContent = "Cycle " + cycle;
+            tiles.forEach(function (tile) {
+                var src = tile.frames[cycle];
+                tile.element.classList.toggle("dircut-empty", !src);
+                tile.missing.hidden = Boolean(src);
+                if (src) {
+                    tile.image.src = src;
+                    tile.image.alt = tile.image.alt.replace(/cycle \S+$/, "cycle " + cycle);
+                    tile.link.href = src;
+                }
+                tile.badge.hidden = !(tile.added && Number(cycle) < Number(tile.added));
+            });
+        };
+        var preload = function () {
+            if (preloaded) return;
+            preloaded = true;
+            tiles.forEach(function (tile) {
+                Object.keys(tile.frames).forEach(function (cycle) {
+                    var image = new Image();
+                    image.src = tile.frames[cycle];
+                });
+            });
+        };
+        var schedule = function () {
+            // hold the last cycle a little longer before starting over
+            var delay = Number(interval.value) * (index === cycles.length - 1 ? 2 : 1);
+            timer = window.setTimeout(function () {
+                show(index + 1);
+                schedule();
+            }, delay);
+        };
+        var stop = function () {
+            if (timer !== null) window.clearTimeout(timer);
+            timer = null;
+            play.textContent = "Play";
+            play.setAttribute("aria-pressed", "false");
+        };
+        var start = function () {
+            preload();
+            play.textContent = "Pause";
+            play.setAttribute("aria-pressed", "true");
+            if (timer !== null) window.clearTimeout(timer);
+            schedule();
+        };
+        play.addEventListener("click", function () {
+            if (timer === null) start();
+            else stop();
+        });
+        player.querySelectorAll("[data-dircut-step]").forEach(function (button) {
+            button.addEventListener("click", function () {
+                stop();
+                show(index + Number(button.getAttribute("data-dircut-step")));
+            });
+        });
+        slider.addEventListener("input", function () {
+            stop();
+            show(Number(slider.value));
+        });
+        interval.addEventListener("input", function () {
+            intervalOutput.textContent = interval.value + " ms";
+            if (timer !== null) start();
+        });
+        size.addEventListener("change", function () {
+            var native = size.value === "native";
+            grid.classList.toggle("dircut-native", native);
+            grid.style.setProperty("--dircut-size", native ? "120px" : size.value + "px");
+        });
+        show(index);
+        if (cycles.length > 1 && !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) {
+            show(0);
+            start();
+        }
+    });
+
     document.querySelectorAll("[data-dirmap]").forEach(function (map) {
         var data = JSON.parse(map.getAttribute("data-dirmap-directions") || "{}");
         var select = map.querySelector("[data-dirmap-cycle]");
@@ -1405,16 +1620,20 @@ document.addEventListener("DOMContentLoaded", function () {
             });
             popup.appendChild(table);
             if (record.links.length) {
-                var list = document.createElement("ul");
+                var linkHeading = document.createElement("p");
+                linkHeading.className = "dirmap-popup-subhead";
+                linkHeading.textContent = record.links.length > 1
+                    ? "Solution plots per measurement set (" + record.links.length + ")"
+                    : "Solution plots";
+                popup.appendChild(linkHeading);
+                var list = document.createElement("div");
+                list.className = "dirmap-popup-links";
                 record.links.forEach(function (link) {
-                    var item = document.createElement("li");
                     var anchor = document.createElement("a");
                     anchor.href = link[1];
-                    anchor.textContent = record.links.length > 1
-                        ? "Solution plots: " + link[0]
-                        : "Solution plots of " + record.name;
-                    item.appendChild(anchor);
-                    list.appendChild(item);
+                    anchor.title = link[2] || link[0];
+                    anchor.textContent = record.links.length > 1 ? link[0] : "Open solution plots of " + record.name;
+                    list.appendChild(anchor);
                 });
                 popup.appendChild(list);
             }
@@ -1463,6 +1682,744 @@ document.addEventListener("DOMContentLoaded", function () {
 """
 
 
+# Reusable inline-SVG chart helpers (all-antenna overlays with an include /
+# exclude checklist, and series charts with error bars), plus the scripts of
+# the bandpass overlay view and the Polarisation page.
+_CHART_OVERLAY_JS = r"""
+var FacetselfcalCharts = (function () {
+    "use strict";
+    var svgNamespace = "http://www.w3.org/2000/svg";
+    var margin = { left: 76, right: 22, top: 30, bottom: 58 };
+
+    var append = function (parent, tag, attributes, text) {
+        var element = document.createElementNS(svgNamespace, tag);
+        Object.keys(attributes || {}).forEach(function (name) {
+            var value = attributes[name];
+            if (value !== undefined && value !== null) element.setAttribute(name, value);
+        });
+        if (text !== undefined) element.textContent = text;
+        parent.appendChild(element);
+        return element;
+    };
+    var isNumber = function (value) {
+        return typeof value === "number" && isFinite(value);
+    };
+    var formatTick = function (value, span) {
+        if (Math.abs(value) < Math.abs(span) * 1e-9) value = 0;
+        return Number(value.toPrecision(4)).toString();
+    };
+    // Distinct colours for many curves (golden-angle hue steps).
+    var curveColor = function (index) {
+        var hue = (index * 137.508) % 360;
+        var lightness = index % 2 ? 36 : 46;
+        return "hsl(" + hue.toFixed(1) + ", 68%, " + lightness + "%)";
+    };
+    // Average consecutive samples so that at most maxPoints remain. With a
+    // period (degrees), values are averaged as angles.
+    var decimate = function (xs, ys, maxPoints, period) {
+        var count = Math.min(xs.length, ys.length);
+        if (!maxPoints || count <= maxPoints) {
+            return { x: xs.slice(0, count), y: ys.slice(0, count) };
+        }
+        var block = Math.ceil(count / maxPoints);
+        var outX = [];
+        var outY = [];
+        for (var start = 0; start < count; start += block) {
+            var stop = Math.min(count, start + block);
+            var sumX = 0, sumY = 0, sumCos = 0, sumSin = 0, used = 0, allX = 0, allCount = 0;
+            for (var index = start; index < stop; index += 1) {
+                var xv = xs[index];
+                var yv = ys[index];
+                if (!isNumber(xv)) continue;
+                allX += xv;
+                allCount += 1;
+                if (!isNumber(yv)) continue;
+                used += 1;
+                sumX += xv;
+                if (period) {
+                    var angle = yv / period * 2 * Math.PI;
+                    sumCos += Math.cos(angle);
+                    sumSin += Math.sin(angle);
+                } else {
+                    sumY += yv;
+                }
+            }
+            if (!used) {
+                outX.push(allCount ? allX / allCount : null);
+                outY.push(null);
+                continue;
+            }
+            outX.push(sumX / used);
+            outY.push(period ? Math.atan2(sumSin, sumCos) / (2 * Math.PI) * period : sumY / used);
+        }
+        return { x: outX, y: outY };
+    };
+    var prepare = function (svg, width, height, label) {
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+        svg.setAttribute("role", "img");
+        if (label) svg.setAttribute("aria-label", label);
+        svg.classList.remove("overlay-highlighting");
+        svg._overlay = null;
+        return {
+            width: width,
+            height: height,
+            plotWidth: width - margin.left - margin.right,
+            plotHeight: height - margin.top - margin.bottom
+        };
+    };
+    var emptyMessage = function (svg, frame, text) {
+        append(svg, "text", {
+            x: frame.width / 2, y: frame.height / 2,
+            "text-anchor": "middle", class: "bandpass-empty"
+        }, text);
+    };
+    var valueRange = function (values, padFraction, fixedMin, fixedMax, nonNegative) {
+        var low = Infinity;
+        var high = -Infinity;
+        values.forEach(function (value) {
+            if (value < low) low = value;
+            if (value > high) high = value;
+        });
+        if (!isFinite(low)) {
+            low = 0;
+            high = 1;
+        }
+        var pad = (high - low) * padFraction;
+        if (!(pad > 0)) pad = Math.max(Math.abs(high) * 0.05, 0.5);
+        if (nonNegative && low >= 0) low = Math.max(0, low - pad); else low -= pad;
+        high += pad;
+        if (isNumber(fixedMin)) low = fixedMin;
+        if (isNumber(fixedMax)) high = fixedMax;
+        if (!(high > low)) high = low + 1;
+        return [low, high];
+    };
+    var drawFrame = function (svg, frame, xRange, yRange, xLabel, yLabel) {
+        var x = function (value) {
+            return margin.left + (value - xRange[0]) / (xRange[1] - xRange[0]) * frame.plotWidth;
+        };
+        var y = function (value) {
+            return margin.top + (yRange[1] - value) / (yRange[1] - yRange[0]) * frame.plotHeight;
+        };
+        var clipId = (svg.id || "chart") + "-clip";
+        var clip = append(append(svg, "defs"), "clipPath", {
+            id: clipId, clipPathUnits: "userSpaceOnUse"
+        });
+        append(clip, "rect", {
+            x: margin.left, y: margin.top, width: frame.plotWidth, height: frame.plotHeight
+        });
+        for (var tick = 0; tick <= 4; tick += 1) {
+            var fraction = tick / 4;
+            var xTick = xRange[0] + fraction * (xRange[1] - xRange[0]);
+            append(svg, "line", {
+                x1: x(xTick), y1: margin.top, x2: x(xTick), y2: margin.top + frame.plotHeight,
+                class: "bandpass-grid"
+            });
+            append(svg, "text", {
+                x: x(xTick), y: margin.top + frame.plotHeight + 22,
+                "text-anchor": "middle", class: "bandpass-axis"
+            }, formatTick(xTick, xRange[1] - xRange[0]));
+            var yTick = yRange[1] - fraction * (yRange[1] - yRange[0]);
+            append(svg, "line", {
+                x1: margin.left, y1: y(yTick), x2: margin.left + frame.plotWidth, y2: y(yTick),
+                class: "bandpass-grid"
+            });
+            append(svg, "text", {
+                x: margin.left - 10, y: y(yTick), "text-anchor": "end",
+                "dominant-baseline": "middle", class: "bandpass-axis"
+            }, formatTick(yTick, yRange[1] - yRange[0]));
+        }
+        append(svg, "text", {
+            x: margin.left + frame.plotWidth / 2, y: frame.height - 8,
+            "text-anchor": "middle", class: "bandpass-axis-title"
+        }, xLabel || "");
+        var middle = margin.top + frame.plotHeight / 2;
+        append(svg, "text", {
+            x: 18, y: middle, transform: "rotate(-90 18 " + middle + ")",
+            "text-anchor": "middle", class: "bandpass-axis-title"
+        }, yLabel || "");
+        return { x: x, y: y, clip: "url(#" + clipId + ")" };
+    };
+    // SVG path data; breaks at missing samples and (with a period) at wraps.
+    var pathData = function (xs, ys, scale, period) {
+        var segments = [];
+        var current = [];
+        var previous = null;
+        var flush = function () {
+            if (current.length) segments.push(current);
+            current = [];
+        };
+        for (var index = 0; index < xs.length; index += 1) {
+            var xv = xs[index];
+            var yv = ys[index];
+            if (!isNumber(xv) || !isNumber(yv)) {
+                flush();
+                previous = null;
+                continue;
+            }
+            if (period && previous !== null && Math.abs(yv - previous) > period / 2) flush();
+            current.push(scale.x(xv).toFixed(1) + " " + scale.y(yv).toFixed(1));
+            previous = yv;
+        }
+        flush();
+        return segments.map(function (segment) {
+            // a single sample is drawn as a dot (zero-length segment, round cap)
+            return "M" + segment.join(" L") + (segment.length === 1 ? " l0 0" : "");
+        }).join(" ");
+    };
+
+    // options: curves [{key, label, color, x: [], y: [], bold}], xLabel, yLabel,
+    // yMin, yMax (fixed axis limits), nonNegative (no padding below zero),
+    // period (wrap in degrees), maxPoints,
+    // emptyText, onHover(key or null), highlight (key), ariaLabel.
+    var drawOverlay = function (svg, options) {
+        var frame = prepare(svg, options.width || 940, options.height || 330, options.ariaLabel);
+        var maxPoints = options.maxPoints || 1000;
+        var curves = (options.curves || []).map(function (curve) {
+            var reduced = decimate(curve.x || [], curve.y || [], maxPoints, options.period);
+            return {
+                key: curve.key, label: curve.label || curve.key, color: curve.color,
+                bold: Boolean(curve.bold), x: reduced.x, y: reduced.y
+            };
+        }).filter(function (curve) {
+            return curve.y.some(isNumber);
+        });
+        if (!curves.length) {
+            emptyMessage(svg, frame, options.emptyText || "No valid samples for this selection.");
+            return;
+        }
+        var xs = [];
+        var ys = [];
+        curves.forEach(function (curve) {
+            curve.x.forEach(function (xv, index) {
+                if (isNumber(xv) && isNumber(curve.y[index])) {
+                    xs.push(xv);
+                    ys.push(curve.y[index]);
+                }
+            });
+        });
+        var xRange = [Infinity, -Infinity];
+        xs.forEach(function (value) {
+            if (value < xRange[0]) xRange[0] = value;
+            if (value > xRange[1]) xRange[1] = value;
+        });
+        if (xRange[0] === xRange[1]) xRange = [xRange[0] - 0.5, xRange[1] + 0.5];
+        var yRange = valueRange(ys, 0.06, options.yMin, options.yMax, options.nonNegative);
+        var scale = drawFrame(svg, frame, xRange, yRange, options.xLabel, options.yLabel);
+        var lineGroup = append(svg, "g", { "clip-path": scale.clip });
+        var hitGroup = append(svg, "g", { "clip-path": scale.clip });
+        var lines = {};
+        var labels = {};
+        curves.forEach(function (curve) {
+            var d = pathData(curve.x, curve.y, scale, options.period);
+            lines[curve.key] = append(lineGroup, "path", {
+                d: d, stroke: curve.color, "data-curve": curve.key,
+                class: "overlay-line" + (curve.bold ? " overlay-line-bold" : "")
+            });
+            labels[curve.key] = curve.label;
+            var hit = append(hitGroup, "path", { d: d, class: "overlay-hit", "data-curve": curve.key });
+            append(hit, "title", {}, curve.label);
+            hit.addEventListener("mouseenter", function () {
+                if (options.onHover) options.onHover(curve.key);
+            });
+            hit.addEventListener("mouseleave", function () {
+                if (options.onHover) options.onHover(null);
+            });
+        });
+        var hoverLabel = append(svg, "text", {
+            x: margin.left + frame.plotWidth, y: 18, "text-anchor": "end",
+            class: "overlay-hover-label"
+        });
+        svg._overlay = { lines: lines, labels: labels, lineGroup: lineGroup, hoverLabel: hoverLabel };
+        if (options.highlight) highlight(svg, options.highlight);
+    };
+    var highlight = function (svg, key) {
+        var state = svg && svg._overlay;
+        if (!state) return;
+        var active = Boolean(key && state.lines[key]);
+        svg.classList.toggle("overlay-highlighting", active);
+        Object.keys(state.lines).forEach(function (name) {
+            state.lines[name].classList.toggle("is-highlighted", name === key);
+        });
+        if (active) state.lineGroup.appendChild(state.lines[key]);
+        state.hoverLabel.textContent = active ? state.labels[key] : "";
+    };
+    // Include/exclude list. items: [{key, label, color, flagged, flagText,
+    // checked}]; options: title, onChange(), onHover(key or null).
+    var checklist = function (container, items, options) {
+        options = options || {};
+        while (container.firstChild) container.removeChild(container.firstChild);
+        var head = document.createElement("div");
+        head.className = "overlay-panel-head";
+        var title = document.createElement("strong");
+        title.textContent = options.title || "Antennas";
+        var count = document.createElement("span");
+        head.appendChild(title);
+        head.appendChild(count);
+        var buttons = document.createElement("div");
+        buttons.className = "overlay-panel-buttons";
+        var list = document.createElement("ul");
+        list.className = "overlay-list";
+        var boxes = {};
+        var entries = {};
+        var selected = function () {
+            return items.filter(function (item) { return boxes[item.key].checked; })
+                .map(function (item) { return item.key; });
+        };
+        var updateCount = function () {
+            count.textContent = selected().length + " / " + items.length;
+        };
+        var changed = function () {
+            updateCount();
+            if (options.onChange) options.onChange();
+        };
+        items.forEach(function (item) {
+            var entry = document.createElement("li");
+            entry.setAttribute("data-curve", item.key);
+            if (item.flagged) entry.classList.add("is-flagged");
+            var label = document.createElement("label");
+            var box = document.createElement("input");
+            box.type = "checkbox";
+            box.checked = item.checked !== false;
+            box.addEventListener("change", changed);
+            var swatch = document.createElement("span");
+            swatch.className = "overlay-swatch";
+            swatch.style.background = item.color;
+            var name = document.createElement("span");
+            name.className = "overlay-name";
+            name.textContent = item.label || item.key;
+            label.appendChild(box);
+            label.appendChild(swatch);
+            label.appendChild(name);
+            if (item.flagged) {
+                var flag = document.createElement("span");
+                flag.className = "overlay-flag";
+                flag.textContent = item.flagText || "flagged";
+                label.appendChild(flag);
+            }
+            entry.appendChild(label);
+            entry.addEventListener("mouseenter", function () {
+                if (options.onHover) options.onHover(item.key);
+            });
+            entry.addEventListener("mouseleave", function () {
+                if (options.onHover) options.onHover(null);
+            });
+            list.appendChild(entry);
+            boxes[item.key] = box;
+            entries[item.key] = entry;
+        });
+        [
+            ["All", function () { return true; }],
+            ["None", function () { return false; }],
+            ["Invert", function (box) { return !box.checked; }]
+        ].forEach(function (action) {
+            var button = document.createElement("button");
+            button.type = "button";
+            button.textContent = action[0];
+            button.addEventListener("click", function () {
+                Object.keys(boxes).forEach(function (key) {
+                    boxes[key].checked = action[1](boxes[key]);
+                });
+                changed();
+            });
+            buttons.appendChild(button);
+        });
+        container.appendChild(head);
+        container.appendChild(buttons);
+        container.appendChild(list);
+        updateCount();
+        return {
+            selected: selected,
+            highlight: function (key) {
+                Object.keys(entries).forEach(function (name) {
+                    entries[name].classList.toggle("is-highlighted", name === key);
+                });
+            }
+        };
+    };
+    // options: series [{label, color, points: [{x, y, err}], line, markers,
+    // hollow, dashed}], xLabel, yLabel, zeroLine, width, height, emptyText.
+    var drawSeries = function (svg, options) {
+        var frame = prepare(svg, options.width || 600, options.height || 280, options.ariaLabel);
+        var series = (options.series || []).map(function (item) {
+            return Object.assign({}, item, {
+                points: (item.points || []).filter(function (point) {
+                    return point && isNumber(point.x) && isNumber(point.y);
+                })
+            });
+        }).filter(function (item) { return item.points.length; });
+        if (!series.length) {
+            emptyMessage(svg, frame, options.emptyText || "No valid samples.");
+            return;
+        }
+        var xs = [];
+        var ys = [];
+        series.forEach(function (item) {
+            item.points.forEach(function (point) {
+                xs.push(point.x);
+                ys.push(point.y);
+                if (item.errors && isNumber(point.err)) {
+                    ys.push(point.y - point.err);
+                    ys.push(point.y + point.err);
+                }
+            });
+        });
+        if (options.zeroLine) ys.push(0);
+        var xRange = valueRange(xs, 0.04, null, null);
+        var yRange = valueRange(ys, 0.08, options.yMin, options.yMax);
+        var scale = drawFrame(svg, frame, xRange, yRange, options.xLabel, options.yLabel);
+        if (options.zeroLine && yRange[0] < 0 && yRange[1] > 0) {
+            append(svg, "line", {
+                x1: margin.left, x2: margin.left + frame.plotWidth,
+                y1: scale.y(0), y2: scale.y(0), class: "series-zero"
+            });
+        }
+        var group = append(svg, "g", { "clip-path": scale.clip });
+        var legendX = margin.left;
+        series.forEach(function (item) {
+            if (item.line) {
+                append(group, "path", {
+                    d: pathData(
+                        item.points.map(function (point) { return point.x; }),
+                        item.points.map(function (point) { return point.y; }),
+                        scale, null
+                    ),
+                    stroke: item.color,
+                    class: "series-line" + (item.dashed ? " series-dashed" : "")
+                });
+            }
+            item.points.forEach(function (point) {
+                if (item.errors && isNumber(point.err) && point.err > 0) {
+                    append(group, "line", {
+                        x1: scale.x(point.x), x2: scale.x(point.x),
+                        y1: scale.y(point.y - point.err), y2: scale.y(point.y + point.err),
+                        stroke: item.color, class: "series-errorbar"
+                    });
+                }
+                if (item.markers) {
+                    var marker = append(group, "circle", {
+                        cx: scale.x(point.x), cy: scale.y(point.y), r: 3.6,
+                        fill: item.hollow ? "var(--surface)" : item.color,
+                        stroke: item.color, "stroke-width": 1.6
+                    });
+                    append(marker, "title", {}, item.label + ": " +
+                        Number(point.y.toPrecision(4)) +
+                        (isNumber(point.err) ? " ± " + Number(point.err.toPrecision(3)) : "") +
+                        " at " + Number(point.x.toPrecision(6)));
+                }
+            });
+            if (item.line) {
+                append(svg, "line", {
+                    x1: legendX, y1: 14, x2: legendX + 20, y2: 14, stroke: item.color,
+                    class: "series-line" + (item.dashed ? " series-dashed" : "")
+                });
+            }
+            if (item.markers) {
+                append(svg, "circle", {
+                    cx: legendX + 10, cy: 14, r: 3.6,
+                    fill: item.hollow ? "var(--surface)" : item.color,
+                    stroke: item.color, "stroke-width": 1.6
+                });
+            }
+            var legendText = append(svg, "text", { x: legendX + 26, y: 18, class: "bandpass-axis" }, item.label);
+            // next entry after this label (its measured width, or an estimate while the chart is hidden)
+            var labelWidth = legendText.getComputedTextLength ? legendText.getComputedTextLength() : 0;
+            legendX += 26 + (labelWidth > 0 ? labelWidth : 6.2 * String(item.label).length) + 18;
+        });
+    };
+    return {
+        curveColor: curveColor,
+        decimate: decimate,
+        drawOverlay: drawOverlay,
+        highlight: highlight,
+        checklist: checklist,
+        drawSeries: drawSeries
+    };
+})();
+
+document.addEventListener("DOMContentLoaded", function () {
+    // Bandpass detail page: all antennas overlaid.
+    var amplitudeSvg = document.getElementById("bandpass-overlay-amplitude");
+    var phaseSvg = document.getElementById("bandpass-overlay-phase");
+    var panelNode = document.getElementById("bandpass-overlay-antennas");
+    var dataNode = document.getElementById("bandpass-data");
+    if (!amplitudeSvg || !phaseSvg || !panelNode || !dataNode) return;
+    var charts = FacetselfcalCharts;
+    var data = JSON.parse(dataNode.textContent || "{}");
+    var amplitude = data.amplitude || null;
+    var phase = data.phase || null;
+    var polarizationSelect = document.getElementById("bandpass-overlay-polarization");
+    var referenceSelect = document.getElementById("bandpass-reference-antenna");
+    var directionSelect = document.getElementById("bandpass-direction");
+    var union = function (lists) {
+        var result = [];
+        lists.forEach(function (values) {
+            (values || []).forEach(function (value) {
+                if (result.indexOf(value) < 0) result.push(value);
+            });
+        });
+        return result;
+    };
+    var antennas = union([amplitude && amplitude.antennas, phase && phase.antennas]);
+    var polarizations = union([amplitude && amplitude.polarizations, phase && phase.polarizations]);
+    polarizations.forEach(function (name) {
+        var option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        polarizationSelect.appendChild(option);
+    });
+    if (polarizations.length < 2) polarizationSelect.parentElement.hidden = true;
+    var hasData = function (solution, antenna) {
+        if (!solution) return false;
+        return solution.directions.some(function (direction) {
+            var values = solution.series[direction] && solution.series[direction][antenna];
+            return Boolean(values) && Object.keys(values).some(function (pol) {
+                return values[pol].some(function (value) { return value !== null; });
+            });
+        });
+    };
+    var colors = {};
+    var items = antennas.map(function (name, index) {
+        colors[name] = charts.curveColor(index);
+        return {
+            key: name, label: name, color: colors[name],
+            flagged: !hasData(amplitude, name) && !hasData(phase, name),
+            flagText: "flagged"
+        };
+    });
+    var panel = null;
+    var hover = function (key) {
+        charts.highlight(amplitudeSvg, key);
+        charts.highlight(phaseSvg, key);
+        if (panel) panel.highlight(key);
+    };
+    var curvesFor = function (solution, isPhase, selected) {
+        if (!solution) return [];
+        var polarization = polarizationSelect.value;
+        var direction = directionSelect && solution.series[directionSelect.value]
+            ? directionSelect.value
+            : solution.directions[0];
+        var block = solution.series[direction] || {};
+        var reference = referenceSelect ? referenceSelect.value : "";
+        var referenceValues = isPhase && reference && block[reference]
+            ? (block[reference][polarization] || [])
+            : null;
+        return selected.map(function (name) {
+            var values = block[name] && block[name][polarization] ? block[name][polarization] : [];
+            return {
+                key: name, label: name, color: colors[name], x: solution.frequencies_mhz,
+                y: values.map(function (value, channel) {
+                    if (value === null || value === undefined) return null;
+                    if (!isPhase) return value;
+                    if (referenceValues) {
+                        var referenceValue = referenceValues[channel];
+                        if (referenceValue === null || referenceValue === undefined) return null;
+                        value -= referenceValue;
+                    }
+                    return Math.atan2(Math.sin(value), Math.cos(value)) * 180 / Math.PI;
+                })
+            };
+        });
+    };
+    var render = function () {
+        var selected = panel ? panel.selected() : antennas;
+        charts.drawOverlay(amplitudeSvg, {
+            curves: curvesFor(amplitude, false, selected),
+            xLabel: "Frequency (MHz)", yLabel: "Gain amplitude", nonNegative: true,
+            ariaLabel: "Bandpass amplitude of all selected antennas",
+            emptyText: "No amplitude solutions for this selection.", onHover: hover
+        });
+        charts.drawOverlay(phaseSvg, {
+            curves: curvesFor(phase, true, selected),
+            xLabel: "Frequency (MHz)", yLabel: "Relative phase (degrees)",
+            yMin: -180, yMax: 180, period: 360,
+            ariaLabel: "Bandpass phase of all selected antennas",
+            emptyText: "No phase solutions for this selection.", onHover: hover
+        });
+    };
+    panel = charts.checklist(panelNode, items, { title: "Antennas", onChange: render, onHover: hover });
+    [polarizationSelect, referenceSelect, directionSelect].forEach(function (select) {
+        if (select) select.addEventListener("change", render);
+    });
+    render();
+});
+
+document.addEventListener("DOMContentLoaded", function () {
+    // Polarisation page (--meerkatcal).
+    var dataNode = document.getElementById("polarisation-data");
+    if (!dataNode) return;
+    var charts = FacetselfcalCharts;
+    var data = JSON.parse(dataNode.textContent || "{}");
+
+    var leakage = data.leakage;
+    var leakageAmplitude = document.getElementById("leakage-amplitude");
+    var leakagePhase = document.getElementById("leakage-phase");
+    var leakagePanelNode = document.getElementById("leakage-antennas");
+    var termSelect = document.getElementById("leakage-term");
+    if (leakage && leakageAmplitude && leakagePhase && leakagePanelNode && termSelect) {
+        var leakageColors = {};
+        var leakageItems = leakage.antennas.map(function (name, index) {
+            leakageColors[name] = charts.curveColor(index);
+            return {
+                key: name, label: name, color: leakageColors[name],
+                flagged: leakage.flagged.indexOf(name) >= 0, flagText: "flagged"
+            };
+        });
+        var leakagePanel = null;
+        var leakageHover = function (key) {
+            charts.highlight(leakageAmplitude, key);
+            charts.highlight(leakagePhase, key);
+            if (leakagePanel) leakagePanel.highlight(key);
+        };
+        var renderLeakage = function () {
+            var term = termSelect.value;
+            var series = leakage.series[term] || { amplitude: {}, phase: {} };
+            var selected = leakagePanel ? leakagePanel.selected() : leakage.antennas;
+            var curves = function (quantity) {
+                return selected.map(function (name) {
+                    return {
+                        key: name, label: name, color: leakageColors[name],
+                        x: leakage.frequencies_mhz, y: series[quantity][name] || []
+                    };
+                });
+            };
+            var termLabel = term === "dY" ? "d_Y" : "d_X";
+            charts.drawOverlay(leakageAmplitude, {
+                curves: curves("amplitude"), xLabel: "Frequency (MHz)",
+                yLabel: "|" + termLabel + "| (%)", nonNegative: true, onHover: leakageHover,
+                ariaLabel: "Leakage amplitude " + termLabel + " of all selected antennas",
+                emptyText: "No leakage solutions for this selection."
+            });
+            charts.drawOverlay(leakagePhase, {
+                curves: curves("phase"), xLabel: "Frequency (MHz)",
+                yLabel: "arg " + termLabel + " (degrees)", yMin: -180, yMax: 180, period: 360,
+                onHover: leakageHover,
+                ariaLabel: "Leakage phase " + termLabel + " of all selected antennas",
+                emptyText: "No leakage solutions for this selection."
+            });
+        };
+        leakagePanel = charts.checklist(leakagePanelNode, leakageItems, {
+            title: "Antennas", onChange: renderLeakage, onHover: leakageHover
+        });
+        termSelect.addEventListener("change", renderLeakage);
+        renderLeakage();
+    }
+
+    var xf = data.xf;
+    var xfSvg = document.getElementById("xf-theta");
+    var xfPanelNode = document.getElementById("xf-curves");
+    if (xf && xfSvg && xfPanelNode) {
+        var xfColors = {};
+        var scanIndex = 0;
+        var xfItems = xf.curves.map(function (curve) {
+            xfColors[curve.key] = curve.applied ? "#0f172a" : charts.curveColor(scanIndex++);
+            return { key: curve.key, label: curve.label, color: xfColors[curve.key] };
+        });
+        var xfPanel = null;
+        var xfHover = function (key) {
+            charts.highlight(xfSvg, key);
+            if (xfPanel) xfPanel.highlight(key);
+        };
+        var renderXf = function () {
+            var selected = xfPanel ? xfPanel.selected() : [];
+            charts.drawOverlay(xfSvg, {
+                curves: xf.curves.filter(function (curve) {
+                    return selected.indexOf(curve.key) >= 0;
+                }).map(function (curve) {
+                    return {
+                        key: curve.key, label: curve.label, color: xfColors[curve.key],
+                        bold: curve.applied, x: curve.frequencies_mhz, y: curve.theta_deg
+                    };
+                }),
+                xLabel: "Frequency (MHz)", yLabel: "Cross-hand phase (degrees)",
+                yMin: -180, yMax: 180, period: 360, onHover: xfHover,
+                ariaLabel: "Cross-hand phase versus frequency",
+                emptyText: "No cross-hand phase solutions selected."
+            });
+        };
+        xfPanel = charts.checklist(xfPanelNode, xfItems, {
+            title: "Solutions", onChange: renderXf, onHover: xfHover
+        });
+        renderXf();
+    }
+
+    var measuredColor = "#2563eb";
+    var modelColor = "#c2410c";
+    var uncorrColor = "#7c3aed";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-pol-chart]"), function (svg) {
+        var kind = svg.getAttribute("data-pol-chart");
+        var key = svg.getAttribute("data-key");
+        if (kind === "rm") {
+            var rm = data.rm && data.rm[key];
+            if (!rm) return;
+            charts.drawSeries(svg, {
+                width: 600, height: 260,
+                xLabel: "Time since " + rm.start + " (h)", yLabel: "RM (rad/m²)",
+                ariaLabel: "Ionospheric rotation measure versus time for " + key,
+                series: [{
+                    label: "ionospheric RM", color: "#0f766e", line: true,
+                    markers: rm.points.length <= 80, errors: true, points: rm.points
+                }]
+            });
+            return;
+        }
+        var rows = data.polcheck && data.polcheck[key];
+        if (!rows) return;
+        var points = function (field, errorField, scale) {
+            return rows.map(function (row) {
+                var value = row[field];
+                var error = errorField ? row[errorField] : null;
+                return {
+                    x: row.freq_mhz,
+                    y: value === null || value === undefined ? null : value * scale,
+                    err: error === null || error === undefined ? null : error * scale
+                };
+            });
+        };
+        if (kind === "pfrac") {
+            charts.drawSeries(svg, {
+                xLabel: "Frequency (MHz)", yLabel: "Polarisation fraction (%)",
+                ariaLabel: "Polarisation fraction versus frequency",
+                series: [
+                    { label: "measured", color: measuredColor, markers: true, errors: true,
+                      points: points("pfrac", "pfrac_err", 100) },
+                    { label: "model", color: modelColor, line: true, dashed: true, markers: true,
+                      hollow: true, points: points("pfrac_model", null, 100) }
+                ]
+            });
+        } else if (kind === "evpa") {
+            var uncorrLabel = svg.getAttribute("data-uncorr-label");
+            var hasUncorr = uncorrLabel && rows.some(function (row) { return row.evpa_uncorr_plot !== null; });
+            var evpaSeries = [
+                { label: hasUncorr ? "measured, corrected" : "measured", color: measuredColor, markers: true,
+                  errors: true, points: points("evpa_plot", "evpa_err", 1) }
+            ];
+            if (hasUncorr) {
+                evpaSeries.push({ label: uncorrLabel, color: uncorrColor, markers: true, hollow: true,
+                                  errors: true, points: points("evpa_uncorr_plot", "evpa_err", 1) });
+            }
+            evpaSeries.push({ label: "model", color: modelColor, line: true, dashed: true, markers: true,
+                              hollow: true, points: points("evpa_model", null, 1) });
+            charts.drawSeries(svg, {
+                xLabel: "Frequency (MHz)", yLabel: "EVPA (degrees)",
+                ariaLabel: "Polarisation angle versus frequency",
+                series: evpaSeries
+            });
+        } else if (kind === "vfrac") {
+            charts.drawSeries(svg, {
+                xLabel: "Frequency (MHz)", yLabel: "V/I (%)", zeroLine: true,
+                ariaLabel: "Circular polarisation fraction versus frequency",
+                series: [
+                    { label: "measured", color: measuredColor, markers: true,
+                      points: points("vfrac", null, 100) }
+                ]
+            });
+        }
+    });
+});
+"""
+
+
 def _escape(value):
     return html.escape(str(value), quote=True)
 
@@ -1485,6 +2442,42 @@ def _dde_enabled(config):
     return config.get("DDE") is True
 
 
+def _meerkatcal_enabled(config):
+    """--meerkatcal or --vlacal (both write the calibration report JSON the pages read)."""
+    for key in ("meerkatcal", "vlacal"):
+        value = config.get(key)
+        if isinstance(value, str) and value.strip().casefold() == "true":
+            return True
+        if value is True:
+            return True
+    return False
+
+
+class _RunConfig(dict):
+    """Parsed full_config.txt plus report inputs found in the run directory.
+
+    The extra attributes are not configuration keys, so they do not show up
+    in the configuration tables.
+    """
+
+    meerkatcal_report = None
+    meerkatcal_bandpass = None
+    solution_settings = None
+
+
+def _meerkatcal_report(config):
+    report = getattr(config, "meerkatcal_report", None)
+    return report if isinstance(report, dict) else None
+
+
+def _polarisation_enabled(config):
+    """The Polarisation page applies when --meerkatcal or --vlacal solved leakage or xfsolve."""
+    report = _meerkatcal_report(config)
+    if report is None:
+        return False
+    return isinstance(report.get("leakage"), dict) or _report_xfsolve(report) is not None
+
+
 def _optional_pages(config):
     """Return the optional report pages that apply to this run."""
     pages = set()
@@ -1492,8 +2485,12 @@ def _optional_pages(config):
         pages.add("extraction.html")
     if _dde_enabled(config):
         pages.add("directions.html")
-    if _bandpass_enabled(config):
+    if _bandpass_enabled(config) or getattr(config, "meerkatcal_bandpass", None) is not None:
         pages.add("bandpass.html")
+    if _polarisation_enabled(config):
+        pages.add("polarisation.html")
+    if isinstance(getattr(config, "solution_settings", None), dict):
+        pages.add("solutions.html")
     return frozenset(pages)
 
 
@@ -1620,6 +2617,77 @@ def _relative_url(path, base_dir):
     return quote(Path(relative).as_posix(), safe="/._-()")
 
 
+# Header photos: crops of docs/assets/telescope-montage.jpg (credits in docs/assets/ATTRIBUTIONS.md).
+_TELESCOPE_PHOTOS = {
+    "lofar": ("LOFAR", "lofar.jpg", "LOFAR / ASTRON", "CC BY 3.0",
+              "https://creativecommons.org/licenses/by/3.0/"),
+    "meerkat": ("MeerKAT", "meerkat.jpg", "SKAO / SARAO", "CC BY 3.0",
+                "https://creativecommons.org/licenses/by/3.0/"),
+    "askap": ("ASKAP", "askap.jpg", "Dave DeBoer, CSIRO", "CC BY 3.0",
+              "https://creativecommons.org/licenses/by/3.0/"),
+    "vla": ("VLA", "vla.jpg", "Mihaisiscanu", "CC BY-SA 4.0",
+            "https://creativecommons.org/licenses/by-sa/4.0/"),
+    "gmrt": ("GMRT", "gmrt.jpg", "Megan Argo", "CC BY 2.0",
+             "https://creativecommons.org/licenses/by/2.0/"),
+    "mwa": ("MWA", "mwa.jpg", "Natasha Hurley-Walker", "CC BY-SA 3.0",
+            "https://creativecommons.org/licenses/by-sa/3.0/"),
+}
+_TELESCOPE_ALIASES = {
+    "lofar": "lofar", "meerkat": "meerkat", "meerkat+": "meerkat", "askap": "askap",
+    "vla": "vla", "evla": "vla", "jvla": "vla", "gmrt": "gmrt", "ugmrt": "gmrt", "mwa": "mwa",
+}
+_TELESCOPE_PHOTO_DIR = Path(__file__).resolve().parent / "data" / "telescopes"
+_MAX_HEADER_TELESCOPES = len(_TELESCOPE_PHOTOS)
+_header_telescopes = ContextVar("report_header_telescopes", default=())
+
+
+def _telescope_photo_key(name):
+    return _TELESCOPE_ALIASES.get(str(name or "").strip().casefold())
+
+
+def _run_telescope_keys(config, run_root):
+    """Photo keys of the telescopes in this run (config first, then the MS metadata), deduplicated."""
+    names = list(_as_list(config.get("telescope")))
+    if _meerkatcal_report(config):
+        names.append(_report_telescope(_meerkatcal_report(config)))
+    names.extend(meta.get("Telescope") for meta in _measurement_set_metadata(run_root).values())
+    keys = []
+    for name in names:
+        key = _telescope_photo_key(name)
+        if key and key not in keys and (_TELESCOPE_PHOTO_DIR / _TELESCOPE_PHOTOS[key][1]).is_file():
+            keys.append(key)
+    return tuple(keys[:_MAX_HEADER_TELESCOPES])
+
+
+def _copy_telescope_photos(keys, asset_dir):
+    for key in keys:
+        filename = _TELESCOPE_PHOTOS[key][1]
+        try:
+            asset_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(_TELESCOPE_PHOTO_DIR / filename, asset_dir / filename)
+        except OSError as exc:
+            report_warning("Telescope header photo {} could not be copied: {}".format(filename, exc))
+
+
+def _telescope_header_html(prefix):
+    figures = []
+    for key in _header_telescopes.get():
+        label, filename, credit, license_name, license_url = _TELESCOPE_PHOTOS[key]
+        figures.append(
+            '<div class="telescope-photo"><img src="{prefix}assets/{file}" alt="{label}" '
+            'title="{label} (photo: {credit}, {lic})" loading="lazy">'
+            '<span class="telescope-credit">{label} &middot; {credit} &middot; <a href="{url}">{lic}</a></span>'
+            "</div>".format(
+                prefix=prefix, file=_escape(filename), label=_escape(label),
+                credit=_escape(credit), lic=_escape(license_name), url=_escape(license_url),
+            )
+        )
+    if not figures:
+        return ""
+    size_class = " compact" if len(figures) > 2 else ""
+    return '\n  <div class="masthead-telescopes{}">{}</div>'.format(size_class, "".join(figures))
+
+
 def _page_shell(
     title,
     active_page,
@@ -1654,9 +2722,11 @@ def _page_shell(
 <body>
 <header class="site-header">
   <div class="masthead">
-    <p class="eyebrow">facetselfcal / processing report</p>
-    <h1>{title}</h1>
-    <p class="header-subtitle">{subtitle}</p>
+    <div class="masthead-text">
+      <p class="eyebrow">facetselfcal / processing report</p>
+      <h1>{title}</h1>
+      <p class="header-subtitle">{subtitle}</p>
+    </div>{telescopes}
   </div>
   <nav aria-label="Report pages">{nav}</nav>
 </header>
@@ -1668,6 +2738,7 @@ def _page_shell(
         title=_escape(title),
         prefix=prefix,
         subtitle=_escape(subtitle),
+        telescopes=_telescope_header_html(prefix),
         nav="\n    ".join(nav),
         body=body,
     )
@@ -1924,10 +2995,23 @@ def _is_dde_diagnostic(value):
 
 
 _PLAIN_PLOT_SUFFIX = "-plain.png"
+# "<plot>-zoom.png": the image centre at full resolution (see plotimage_zoom)
+_ZOOM_PLOT_SUFFIX = "-zoom.png"
+# Cutouts around the DDE directions per cycle (see plot_direction_cutouts)
+_DIRECTION_CUTOUT_DIR = Path("plots") / "direction_cutouts"
 
 
 def _is_plain_plot(path):
     return path.name.lower().endswith(_PLAIN_PLOT_SUFFIX)
+
+
+def _is_zoom_plot(path):
+    return path.name.lower().endswith(_ZOOM_PLOT_SUFFIX)
+
+
+def _is_plot_variant(path):
+    """Plain and zoom PNGs are views of another plot, not plots of their own."""
+    return _is_plain_plot(path) or _is_zoom_plot(path)
 
 
 def _is_ateam_plot(path):
@@ -1977,18 +3061,26 @@ def _scan_artifacts(
             p, run_started_at, start_cycle, stack_mode=stack_mode
         )
     }
+    zoom_plots = {
+        p.name[: -len(_ZOOM_PLOT_SUFFIX)].casefold(): p
+        for p in all_raw_plots
+        if _is_zoom_plot(p)
+        and _include_image_artifact(
+            p, run_started_at, start_cycle, stack_mode=stack_mode
+        )
+    }
     all_overview_plots = [
         p for p in all_raw_plots
         if not _is_ms_plot(p)
         and not _is_dde_diagnostic(p)
-        and not _is_plain_plot(p)
+        and not _is_plot_variant(p)
         and _include_image_artifact(
             p, run_started_at, start_cycle, stack_mode=stack_mode
         )
     ]
     overview_plots = [
         p for p in raw_plots
-        if not _is_ms_plot(p) and not _is_dde_diagnostic(p) and not _is_plain_plot(p)
+        if not _is_ms_plot(p) and not _is_dde_diagnostic(p) and not _is_plot_variant(p)
     ]
     all_ms_plot_files = [p for p in all_raw_plots if _is_ms_plot(p)]
     ms_plot_files = [
@@ -2110,6 +3202,11 @@ def _scan_artifacts(
         "ms_directories": ms_directories,
         "dde_plots": dde_plots,
         "plain_plots": plain_plots,
+        "zoom_plots": zoom_plots,
+        "direction_cutout_manifests": sorted(
+            path for path in (run_root / _DIRECTION_CUTOUT_DIR).glob("cutouts*.json")
+            if path.is_file()
+        ) if (run_root / _DIRECTION_CUTOUT_DIR).is_dir() else [],
         "dde_errormap_files": current_files("errormaps_dd", "*.fits"),
         "dde_direction_files": current_files("directions", "directions_*.txt"),
         "dde_region_files": current_files("facet_regions", "*.reg"),
@@ -2613,6 +3710,11 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
         ):
             return
 
+        wsclean_kind = wsclean_workflow_step_kind(command)
+        if wsclean_kind is not None:
+            record_wsclean_execution_start(execution_id, command, wsclean_kind)
+            return
+
         step_kinds = dp3_workflow_step_kinds(command)
         destination = (
             cycles[current_cycle]["steps"]
@@ -2658,12 +3760,47 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
 
         dp3_execution_steps[execution_id] = execution_steps
 
+    def record_wsclean_execution_start(execution_id, command, kind):
+        # The WSClean step itself comes from the logged command line just
+        # before the marker (compared up to whitespace: main.py logs the
+        # imaging command with one space less than it runs). Outside stack mode a cycle shows one step per
+        # kind, which then carries the outcome of all its WSClean runs; only
+        # the run that created it sets its end time.
+        if current_cycle is None:
+            return
+        candidates = [
+            candidate
+            for candidate in cycles[current_cycle]["steps"]
+            if candidate["kind"] == kind
+        ]
+        step = next(
+            (
+                candidate
+                for candidate in reversed(candidates)
+                if candidate.get("execution_id") is None
+                and str(candidate.get("command", "")).split() == command.split()
+            ),
+            None,
+        )
+        if step is not None:
+            step["execution_id"] = execution_id
+        elif candidates and not stack_mode:
+            step = candidates[0]
+        else:
+            return
+        if step.get("outcome") != "failed":
+            step["outcome"] = "in-progress"
+        dp3_execution_steps[execution_id] = [step]
+
     def record_dp3_execution_end(payload, timestamp):
         execution_id = payload.get("id")
         if not isinstance(execution_id, str) or timestamp is None:
             return
         for step in dp3_execution_steps.get(execution_id, ()):
-            step["end_time"] = timestamp
+            if step.get("execution_id") == execution_id:
+                step["end_time"] = timestamp
+            if step.get("outcome") == "failed":
+                continue
             returncode = payload.get("returncode")
             if isinstance(returncode, int) and not isinstance(returncode, bool):
                 step["returncode"] = returncode
@@ -2750,6 +3887,8 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
                             host_info["host"] = message.split(":", 1)[1].strip()
                         elif message.startswith("Operating system:"):
                             host_info["os"] = message.split(":", 1)[1].strip()
+                        elif message.startswith("Container image:"):
+                            host_info["container"] = message.split(":", 1)[1].strip()
                         elif message.startswith("CPU count:"):
                             host_info["cpu"] = message.split(":", 1)[1].strip()
                         elif message.startswith("RAM:"):
@@ -4105,7 +5244,8 @@ def _overlay_toggle_html(paths, plain_plots):
     )
 
 
-def _blink_controls(paths, base_dir, plain_plots=None):
+def _blink_controls(paths, base_dir, plain_plots=None, zoom=False):
+    """Blink between images; ``zoom`` shows them at a selectable pixel scale in a scrollable view."""
     if len(paths) < 2:
         return ""
 
@@ -4117,29 +5257,38 @@ def _blink_controls(paths, base_dir, plain_plots=None):
             frame["plain"] = _relative_url(plain, base_dir)
         frames.append(frame)
     first_href = frames[0].get("plain", frames[0]["src"])
+    scale_control = (
+        '<label>Display scale<select data-blink-scale>'
+        '<option value="1" selected>1:1 (one image pixel per screen pixel)</option>'
+        '<option value="2">2:1</option>'
+        '<option value="fit">Fit to window</option>'
+        '</select></label>'
+    ) if zoom else ""
     return (
-        '<div class="blink-tool" data-blink-tool data-blink-images="{}">'
+        '<div class="blink-tool{}" data-blink-tool data-blink-images="{}">'
         '<div class="blink-controls">'
         '<label class="blink-rate">Blink interval'
         '<span><input type="range" min="100" max="2000" step="100" value="500" '
         'data-blink-interval aria-label="Blink interval in milliseconds">'
         '<output data-blink-interval-output>500 ms</output></span></label>'
         '<button type="button" data-blink-toggle aria-pressed="false">Start blinking</button>'
-        '{}'
+        '{}{}'
         '</div>'
-        '<figure class="blink-preview"><img data-blink-image src="{}" alt="{}">'
+        '<figure class="blink-preview"><div class="blink-viewport"><img data-blink-image src="{}" alt="{}"></div>'
         '<figcaption><code data-blink-caption>{}</code></figcaption></figure>'
         '</div>'
     ).format(
+        " blink-zoom" if zoom else "",
         _escape(json.dumps(frames, separators=(",", ":"))),
         _overlay_toggle_html(paths, plain_plots),
+        scale_control,
         _escape(first_href),
         _escape(paths[0].stem),
         _escape(paths[0].stem),
     )
 
 
-def _compare_controls(paths, base_dir, plain_plots=None):
+def _compare_controls(paths, base_dir, plain_plots=None, zoom=False):
     if len(paths) < 2:
         return ""
 
@@ -4161,7 +5310,7 @@ def _compare_controls(paths, base_dir, plain_plots=None):
     first_href = _relative_url(first_plain or paths[0], base_dir)
     last_href = _relative_url(last_plain or paths[-1], base_dir)
     return (
-        '<div class="compare-tool" data-compare-tool>'
+        '<div class="compare-tool{}" data-compare-tool>'
         '<div class="compare-controls">'
         '<label><span>Reference image</span><select data-compare-select-a>{}</select></label>'
         '<label><span>Comparison image</span><select data-compare-select-b>{}</select></label>'
@@ -4175,6 +5324,7 @@ def _compare_controls(paths, base_dir, plain_plots=None):
         '</div>'
         '</div>'
     ).format(
+        " compare-zoom" if zoom else "",
         options_a,
         options_b,
         _overlay_toggle_html(paths, plain_plots),
@@ -4189,6 +5339,27 @@ def _compare_controls(paths, base_dir, plain_plots=None):
     )
 
 
+def _zoom_sections(paths, base_dir, zoom_plots, open_blink=True):
+    """Blink and side-by-side tools for the full-resolution image centres of ``paths``."""
+    zoom_paths = [
+        zoom_plots[path.stem.casefold()]
+        for path in paths
+        if path.stem.casefold() in (zoom_plots or {})
+    ]
+    if len(zoom_paths) < 2:
+        return []
+    return [
+        '<details data-filter-group{}><summary>Image centre at full resolution: blinking</summary>'
+        '<p class="section-note">The central part of each image without averaging, '
+        "with the same display range as the full images. Scroll inside the view to pan.</p>{}</details>".format(
+            " open" if open_blink else "", _blink_controls(zoom_paths, base_dir, zoom=True)
+        ),
+        '<details data-filter-group><summary>Image centre at full resolution: side-by-side</summary>{}</details>'.format(
+            _compare_controls(zoom_paths, base_dir, zoom=True)
+        ),
+    ]
+
+
 def _status(status):
     value = (status or "unknown").lower()
     if value == "running":
@@ -4201,7 +5372,15 @@ def _status(status):
         return "Interrupted", "interrupted"
     if value == "stopped":
         return "Stopped early", "stopped"
+    if value == "diverged":
+        return "Stopped: calibration diverged", "failed"
     return "Status not recorded", "unknown"
+
+
+def _error_notice(status, error):
+    """Return the HTML notice for a run error or a diverged calibration."""
+    title = "Calibration diverged" if (status or "").lower() == "diverged" else "Run error"
+    return '<div class="notice error"><strong>{}</strong><p>{}</p></div>'.format(_escape(title), _escape(error))
 
 
 def _render_log_events(events, total_count, is_error=False):
@@ -4631,13 +5810,15 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
     progression_config.update(logs.get("effective_cycle_config", {}))
     status_text, status_class = _status(status)
     ms_inputs = _as_list(config.get("ms"))
-    telescope_val = config.get("telescope")
-    if not telescope_val:
-        for meta in _measurement_set_metadata(run_root).values():
-            t = meta.get("Telescope")
-            if t:
-                telescope_val = t
-                break
+    # Combined runs can mix telescopes: list every distinct one.
+    telescope_names = []
+    for name in _as_list(config.get("telescope")) + [
+        meta.get("Telescope") for meta in _measurement_set_metadata(run_root).values()
+    ]:
+        name = str(name or "").strip()
+        if name and name.casefold() not in {n.casefold() for n in telescope_names}:
+            telescope_names.append(name)
+    telescope_val = ", ".join(telescope_names)
     if not telescope_val:
         telescope_val = "Unknown"
 
@@ -4712,6 +5893,9 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         status_detail = "The run was interrupted."
     elif status == "stopped":
         status_detail = "The workflow stopped early by request."
+    elif status == "diverged":
+        status_detail = ("The image noise rose above --stop-noise-increase-factor times the best cycle, "
+                         "so self-calibration stopped before the next solve.")
 
     body_parts = [
         '<p class="page-intro">Summary of the products and logs currently present in this run directory. The report uses local files and does not require a network connection.</p>',
@@ -4727,11 +5911,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
         )
 
     if error:
-        body_parts.append(
-            '<div class="notice error"><strong>Run error</strong><p>{}</p></div>'.format(
-                _escape(error)
-            )
-        )
+        body_parts.append(_error_notice(status, error))
     if logs["invocations"] > 1:
         body_parts.append(
             '<div class="notice info"><strong>Combined run history</strong><p>The saved self-calibration log contains {} command records. This report summarizes the current output directory; some products may come from different run segments.</p></div>'.format(
@@ -4989,7 +6169,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
 
     subtitle_parts = ["Run overview", run_root.name]
     if telescope_val and telescope_val != "Unknown":
-        subtitle_parts.append("Telescope: {}".format(telescope_val))
+        subtitle_parts.append("{}: {}".format("Telescopes" if len(telescope_names) > 1 else "Telescope", telescope_val))
     if logs.get("total_elapsed"):
         subtitle_parts.append("Elapsed: {}".format(logs["total_elapsed"]))
 
@@ -5009,6 +6189,7 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
     stack_groups = logs.get("stack_groups", {})
     plots = artifacts.get("all_overview_plots", artifacts["overview_plots"])
     plain_plots = artifacts.get("plain_plots", {})
+    zoom_plots = artifacts.get("zoom_plots", {})
     fits_files = artifacts.get("all_fits_files", artifacts["fits_files"])
     stacked_progression = defaultdict(list)
     if stack_mode:
@@ -5083,6 +6264,7 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
                         _blink_controls(group_paths, site_dir, plain_plots)
                     )
                 )
+                stack_sections.extend(_zoom_sections(group_paths, site_dir, zoom_plots, open_blink=False))
             stack_sections.append(
                 '<div class="gallery">{}</div>'.format(figures)
             )
@@ -5111,6 +6293,7 @@ def _imaging_page(site_dir, run_root, config, artifacts, logs):
                     blink_controls
                 )
             )
+            sections.extend(_zoom_sections(progression, site_dir, zoom_plots))
             sections.append(
                 '<details data-filter-group open><summary>Image progression gallery ({})</summary><div class="gallery">{}</div></details>'.format(
                     len(progression), figures
@@ -5665,6 +6848,11 @@ def _read_bandpass_soltab(solset, solution_name, np):
         )
 
     values = np.asarray(children["val"][:], dtype=float)
+    # H5parms record their axis order in val.attrs['AXES']; put the axes in
+    # the time, freq, ant, (dir,) pol order assumed below.
+    axis_permutation = _standard_axis_permutation(_soltab_axes(children["val"]), values.ndim)
+    if axis_permutation is not None:
+        values = np.transpose(values, axis_permutation)
     expected_shape = (
         len(times),
         len(frequencies),
@@ -5686,6 +6874,8 @@ def _read_bandpass_soltab(solset, solution_name, np):
     weights = None
     if "weight" in children:
         weights = np.asarray(children["weight"][:], dtype=float)
+        if axis_permutation is not None and weights.ndim == len(axis_permutation):
+            weights = np.transpose(weights, axis_permutation)
         if weights.ndim == 4 and not has_direction_axis:
             weights = np.expand_dims(weights, axis=3)
         if weights.shape != expected_shape:
@@ -5758,6 +6948,36 @@ def _read_bandpass_soltab(solset, solution_name, np):
         "valid_count": valid_count,
         "total_count": total_count,
     }
+
+
+_STANDARD_SOLTAB_AXES = ("time", "freq", "ant", "dir", "pol")
+
+
+def _soltab_axes(value_node):
+    """Axis names from an h5parm value array's AXES attribute, or None."""
+    try:
+        axes = value_node.attrs["AXES"]
+    except (KeyError, AttributeError):
+        return None
+    if isinstance(axes, bytes):
+        axes = axes.decode("utf-8", errors="replace")
+    names = [name.strip() for name in str(axes).split(",") if name.strip()]
+    return names or None
+
+
+def _standard_axis_permutation(axes, ndim):
+    """Transpose order that puts known axes in time, freq, ant, dir, pol order.
+
+    Returns None when the order already matches or the axes are not usable.
+    """
+    if not axes or len(axes) != ndim or len(set(axes)) != len(axes):
+        return None
+    if not set(axes) <= set(_STANDARD_SOLTAB_AXES):
+        return None
+    target = [axis for axis in _STANDARD_SOLTAB_AXES if axis in axes]
+    if target == list(axes):
+        return None
+    return [axes.index(axis) for axis in target]
 
 
 def _decode_bandpass_label(value):
@@ -6027,6 +7247,28 @@ def _bandpass_detail_page(
         '<p>Phase relative to the selected reference antenna, wrapped to [-180, 180] degrees. The reference itself is zero.</p>'
         '<svg id="bandpass-phase" class="bandpass-chart" viewBox="0 0 940 330"></svg></div>'
     )
+    overlay_html = (
+        '<section class="overlay-view" aria-labelledby="bandpass-overlay-heading">'
+        '<div class="section-heading"><h2 id="bandpass-overlay-heading">All antennas</h2></div>'
+        '<p class="bandpass-note">Amplitude and phase of all antennas overlaid for one polarization. '
+        'Phases are relative to the phase reference antenna selected above. '
+        'Use the antenna list to include or exclude antennas; hover a curve or '
+        'list entry to highlight that antenna.</p>'
+        '<div class="bandpass-controls">'
+        '<label for="bandpass-overlay-polarization">Polarization'
+        '<select id="bandpass-overlay-polarization"></select></label>'
+        '</div>'
+        + _overlay_layout_html(
+            (
+                ("bandpass-overlay-amplitude", "Amplitude, all antennas",
+                 "Dimensionless gain amplitude versus frequency."),
+                ("bandpass-overlay-phase", "Phase, all antennas",
+                 "Phase relative to the selected reference antenna, wrapped to [-180, 180] degrees."),
+            ),
+            "bandpass-overlay-antennas",
+        )
+        + '</section>'
+    )
     note = (
         "Each curve is one antenna and polarization. Time samples are collapsed "
         "to a median amplitude and circular-mean phase. The phase plot subtracts "
@@ -6037,12 +7279,7 @@ def _bandpass_detail_page(
     )
     if not summary["weights_available"]:
         note += " At least one solution table has no weight/flag axis, so only non-finite samples can be omitted."
-    data_json = json.dumps(solutions, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
-    data_json = (
-        data_json.replace("<", "\\u003c")
-        .replace(">", "\\u003e")
-        .replace("&", "\\u0026")
-    )
+    data_json = _script_json(solutions)
     body = (
         '<p class="page-intro"><a href="../bandpass.html">&larr; Back to Bandpass index</a> / {}.</p>'.format(
             _escape(dataset_name)
@@ -6051,6 +7288,7 @@ def _bandpass_detail_page(
         + controls_html
         + charts_html
         + '<p class="bandpass-note">{}</p>'.format(_escape(note))
+        + overlay_html
         + '<script type="application/json" id="bandpass-data">{}</script>'.format(
             data_json
         )
@@ -6072,8 +7310,25 @@ def _bandpass_page(site_dir, run_root, config, artifacts):
     optional_pages = _optional_pages(config)
     rows = []
     ms_inputs = _as_list(config.get("ms"))
-    for index, path in enumerate(artifacts.get("bandpass_files", []), start=1):
-        dataset_name = _bandpass_label(path, ms_inputs)
+    bandpass_entries = [
+        (path, _bandpass_label(path, ms_inputs))
+        for path in artifacts.get("bandpass_files", [])
+    ]
+    meerkatcal_bandpass = getattr(config, "meerkatcal_bandpass", None)
+    if meerkatcal_bandpass is not None and meerkatcal_bandpass not in [
+        path for path, _ in bandpass_entries
+    ]:
+        calibrators = _string_list(
+            _mapping((_meerkatcal_report(config) or {}).get("roles")).get("bpcal")
+        )
+        bandpass_entries.append((
+            meerkatcal_bandpass,
+            "{} bandpass{}".format(
+                _report_telescope(_meerkatcal_report(config)),
+                " ({})".format(", ".join(calibrators)) if calibrators else ""
+            ),
+        ))
+    for index, (path, dataset_name) in enumerate(bandpass_entries, start=1):
         try:
             solutions = _read_bandpass_h5(path)
         except _BandpassDataError as exc:
@@ -6136,13 +7391,13 @@ def _bandpass_page(site_dir, run_root, config, artifacts):
     body = (
         '<p class="page-intro">Select a measurement set to inspect its bandpass. '
         'Each detail page shows one-dimensional amplitude and phase curves versus '
-        'frequency for a selected antenna and polarization.</p>\n'
+        'frequency for a selected antenna and polarization, and all antennas overlaid.</p>\n'
         + _section(
             "Bandpass solutions",
             solutions_html,
             "{} H5 product{} found.".format(
-                len(artifacts.get("bandpass_files", [])),
-                "" if len(artifacts.get("bandpass_files", [])) == 1 else "s",
+                len(bandpass_entries),
+                "" if len(bandpass_entries) == 1 else "s",
             ),
         )
     )
@@ -6152,6 +7407,1672 @@ def _bandpass_page(site_dir, run_root, config, artifacts):
         "bandpass.html",
         body,
         subtitle="Bandpass solutions / {}".format(run_root.name),
+        optional_pages=optional_pages,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Calibration modes (--meerkatcal, --vlacal): Polarisation page
+# ---------------------------------------------------------------------------
+
+_MEERKATCAL_REPORT_JSON = Path("misc") / "meerkatcal_report.json"
+# written by --vlacal (historical VLA), same keys plus VLA-specific ones
+_VLACAL_REPORT_JSON = Path("misc") / "vlacal_report.json"
+_OVERLAY_MAX_POINTS = 1000
+_XF_PERSCAN_WARNING_DEG = 5.0
+_MJD_UNIX_OFFSET_SECONDS = 40587 * 86400.0
+_MEERKATCAL_LEVELS = {
+    "standard": "delay, bandpass and gains",
+    "leakage": "delay, bandpass, gains and leakage",
+    "full": "delay, bandpass, gains, leakage and polarisation angle (xfsolve, cross-hand phase)",
+}
+# --vlacal levels (historical VLA: no delay solve, flux scale from the flux calibrator gains)
+_VLACAL_LEVELS = {
+    "none": "gain curve, flux scale (bandpass) and gains, no polarisation calibration",
+    "leakage": "gain curve, flux scale (bandpass), gains and leakage (D+QU)",
+    "full": "gain curve, flux scale (bandpass), gains, leakage (D+QU) and polarisation angle (R-L phase, xfsolve)",
+}
+_MEERKATCAL_ANGLES = {
+    "celestial": "celestial: model of the polarisation calibrator (3C286 / 3C138)",
+    "diode": "noise diode",
+    "nullv": "Stokes V = 0 on a polarised source",
+}
+_MEERKATCAL_FLAG_STAGES = ("prepare", "bandpass", "leakage", "phasecal", "targets")
+
+
+def _mapping(value):
+    return value if isinstance(value, dict) else {}
+
+
+def _string_list(value):
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if item is not None and str(item)]
+    return []
+
+
+def _float_or_none(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _format_number(value, spec="{:.2f}", scale=1.0, suffix=""):
+    number = _float_or_none(value)
+    if number is None:
+        return "n/a"
+    return spec.format(number * scale) + suffix
+
+
+def _script_json(data):
+    """Strict JSON for a <script type="application/json"> block."""
+    text = json.dumps(data, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+    return (
+        text.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
+def _run_relative_file(run_root, value):
+    """An existing file named in meerkatcal_report.json (relative to the run directory)."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    path = Path(value.strip())
+    if not path.is_absolute():
+        path = run_root / path
+    try:
+        return path if path.is_file() else None
+    except OSError:
+        return None
+
+
+def _report_telescope(report):
+    """Telescope of a calibration report JSON (meerkatcal_report.json has no telescope key)."""
+    return str(_mapping(report).get("telescope") or "MeerKAT")
+
+
+def _attach_meerkatcal_report(config, run_root):
+    """Load misc/meerkatcal_report.json (--meerkatcal) or misc/vlacal_report.json (--vlacal), written at the
+    end of every run."""
+    path = run_root / _MEERKATCAL_REPORT_JSON
+    if not path.is_file():
+        path = run_root / _VLACAL_REPORT_JSON
+    if not path.is_file():
+        return
+    try:
+        report = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError) as exc:
+        report_warning("Could not read {}: {}".format(path, exc))
+        return
+    if not isinstance(report, dict):
+        report_warning("Ignoring {}: expected a JSON object.".format(path))
+        return
+    config.meerkatcal_report = report
+    config.meerkatcal_bandpass = _run_relative_file(run_root, report.get("bandpass_h5"))
+
+
+_SOLUTION_SETTINGS_JSON = Path("misc") / "solution_settings.json"
+
+
+def _attach_solution_settings(config, run_root):
+    """Load misc/solution_settings.json (submods/h5_helpers/solution_settings.py), if present."""
+    path = run_root / _SOLUTION_SETTINGS_JSON
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError) as exc:
+        report_warning("Could not read {}: {}".format(path, exc))
+        return
+    if not isinstance(data, dict) or not isinstance(data.get("solves"), list):
+        report_warning("Ignoring {}: expected a JSON object with a 'solves' list.".format(path))
+        return
+    config.solution_settings = data
+
+
+def _solint_quantity_format(quantity):
+    """(scale, unit) for displaying errors of a quantity: phase in mrad, log amplitude in %."""
+    return (1e3, " mrad") if quantity == "phase" else (100.0, " %")
+
+
+def _solint_value(value, quantity, spec="{:.3g}"):
+    scale, unit = _solint_quantity_format(quantity)
+    number = _float_or_none(value)
+    if number is not None and abs(number * scale) < 1e-4:
+        return "0" + unit
+    return _format_number(value, spec, scale, unit)
+
+
+def _solint_seconds(value):
+    number = _float_or_none(value)
+    if number is None:
+        return "n/a"
+    if number >= 600:
+        return "{:.3g} min".format(number / 60.0)
+    return "{:.3g} s".format(number)
+
+
+def _solint_triplet(values, formatter):
+    values = values if isinstance(values, (list, tuple)) and len(values) == 3 else (None, None, None)
+    if _float_or_none(values[1]) is None:
+        return "n/a"
+    return '{} <span class="muted">({} - {})</span>'.format(
+        _escape(formatter(values[1])), _escape(formatter(values[0])), _escape(formatter(values[2]))
+    )
+
+
+def _solint_solve_label(rec):
+    return "{}{}".format(rec.get("soltype", "?"), rec.get("slot", ""))
+
+
+def _solint_settings_text(rec):
+    settings = _mapping(rec.get("settings"))
+    parts = []
+    smooth = _float_or_none(settings.get("smoothness_hz"))
+    if smooth:
+        parts.append("smoothness {:g} MHz".format(smooth / 1e6))
+    if settings.get("antennaconstraint"):
+        parts.append("antennaconstraint {}".format(settings.get("antennaconstraint")))
+    return ", ".join(parts) if parts else "n/a"
+
+
+def _solint_noise_text(summ, quantity):
+    noise = _float_or_none((summ.get("noise_rms") or [None, None, None])[1])
+    n_valid = int(summ.get("n_valid") or 0)
+    n_upper = int(summ.get("n_upper_limit") or 0) - int(summ.get("n_hidden_fast") or 0)
+    if noise is not None and not (n_valid and n_upper > n_valid / 2):
+        return _solint_value(noise, quantity)
+    upper = _float_or_none((summ.get("noise_rms_upper") or [None, None, None])[1])
+    if upper is not None:
+        return "< " + _solint_value(upper, quantity)
+    return "n/a"
+
+
+def _solint_summary_rows(solves):
+    rows = []
+    for rec in solves:
+        quantities = _mapping(rec.get("quantities"))
+        for quantity in ("phase", "amplitude"):
+            summ = _mapping(quantities.get(quantity))
+            if not summ:
+                continue
+            n_valid = int(summ.get("n_valid") or 0)
+            n_upper = int(summ.get("n_upper_limit") or 0)
+            n_lower = int(summ.get("n_lower_limit") or 0)
+            n_xxyy = sum(
+                1 for e in summ.get("per_antenna", [])
+                if isinstance(e, dict) and e.get("valid") and e.get("noise_source", "fit") not in ("fit", "frequency bound")
+            )
+            n_fbound = sum(
+                1 for e in summ.get("per_antenna", [])
+                if isinstance(e, dict) and e.get("valid") and e.get("noise_source") == "frequency bound"
+            )
+            n_capped = sum(
+                1 for e in summ.get("per_antenna", [])
+                if isinstance(e, dict) and e.get("valid")
+                and any(str(f).startswith("polarisation-difference noise exceeds") for f in e.get("flags") or [])
+            )
+            n_fast = int(summ.get("n_hidden_fast") or 0)
+            limit_bits = []
+            if n_fast:
+                limit_bits.append("{} change faster than the interval".format(n_fast))
+            if n_upper - n_fast:
+                limit_bits.append("{} upper limit".format(n_upper - n_fast))
+            if n_lower:
+                limit_bits.append("{} lower limit".format(n_lower))
+            if n_xxyy:
+                limit_bits.append("{} noise from the polarisation difference".format(n_xxyy))
+            if n_capped:
+                limit_bits.append("{} of those capped by the frequency bound (polarisation difference contains "
+                                  "real XX/YY changes)".format(n_capped))
+            if n_fbound:
+                limit_bits.append("{} noise limit from the frequency direction".format(n_fbound))
+            used = _float_or_none(rec.get("solint_s"))
+            suggested = summ.get("m_opt_bounded")
+            suggested_s = [None if _float_or_none(v) is None or used is None else v * used
+                           for v in (suggested or [None, None, None])]
+            err_now = (summ.get("err_rms_now") or [None, None, None])[1]
+            err_opt = (summ.get("err_rms_opt") or [None, None, None])[1]
+            qa = _mapping(rec.get("qa"))
+            qa_text = _qa_text(qa) if qa and "error" not in qa else ("error: {}".format(qa.get("error")) if qa else "-")
+            search = "cycle {} {} {}".format(rec.get("cycle"), _solint_solve_label(rec), quantity)
+            rows.append(
+                '<tr class="solint-row" data-search="{search}">'
+                '<td class="numeric">{cycle}</td><td><code>{solve}</code></td><td>{quantity}</td>'
+                '<td class="numeric">{used}</td><td>{settings}</td>'
+                '<td class="numeric">{noise}</td><td class="numeric">{var}</td><td class="numeric">{beta}</td>'
+                '<td>{suggested}</td><td class="numeric">{err}</td><td>{limits}</td><td>{qa}</td></tr>'.format(
+                    search=_escape(search),
+                    cycle=_escape(rec.get("cycle")),
+                    solve=_escape(_solint_solve_label(rec)),
+                    quantity=_escape(quantity),
+                    used=_escape(_solint_seconds(used)),
+                    settings=_escape(_solint_settings_text(rec)),
+                    noise=_escape(_solint_noise_text(summ, quantity)),
+                    var=_escape(_solint_value((summ.get("var_rms_now") or [None] * 3)[1], quantity)),
+                    beta=_escape(_format_number((summ.get("beta") or [None] * 3)[1], "{:.2f}")),
+                    suggested=("&ge; " if n_valid and n_lower > n_valid / 2 else
+                               "&le; " if n_valid and n_upper > n_valid / 2 else "")
+                    + _solint_triplet(suggested_s, _solint_seconds),
+                    err="{} &rarr; {}".format(
+                        _escape(_solint_value(err_now, quantity)), _escape(_solint_value(err_opt, quantity))
+                    ),
+                    limits=_escape("of {} antennas: {}".format(n_valid, ", ".join(limit_bits))
+                                   if limit_bits else "none"),
+                    qa=_escape(qa_text),
+                )
+            )
+    return rows
+
+
+def _solint_antenna_table(rec, quantity):
+    summ = _mapping(_mapping(rec.get("quantities")).get(quantity))
+    ants = rec.get("ants") or []
+    dists = rec.get("ant_dist_m") or []
+    used = _float_or_none(rec.get("solint_s"))
+    rows = []
+    for index, entry in enumerate(summ.get("per_antenna", [])):
+        if not isinstance(entry, dict):
+            continue
+        name = ants[index] if index < len(ants) else str(index)
+        dist = dists[index] if index < len(dists) else None
+        if not entry.get("valid"):
+            rows.append('<tr><td><code>{}</code></td><td colspan="7" class="muted">no valid fit</td></tr>'.format(
+                _escape(name)))
+            continue
+        noise = entry.get("noise_rms")
+        noise_text = (_solint_value(noise, quantity) if noise is not None
+                      else "< " + _solint_value(entry.get("noise_rms_upper"), quantity))
+        m = _float_or_none(entry.get("m_opt_bounded"))
+        prefix = "&le; " if entry.get("limit") == "upper" else ("&ge; " if entry.get("limit") == "lower" else "")
+        suggested = prefix + _escape(_solint_seconds(None if m is None or used is None else m * used))
+        flags = entry.get("flags") or []
+        rows.append(
+            '<tr><td><code>{}</code></td><td class="numeric">{}</td><td class="numeric">{}</td><td>{}</td>'
+            '<td class="numeric">{}</td><td class="numeric">{}</td><td>{}</td><td>{}</td></tr>'.format(
+                _escape(name), _escape(_format_number(dist, "{:.2f}", 1e-3, " km")), _escape(noise_text),
+                _escape(entry.get("noise_source", "fit")),
+                _escape(_solint_value(entry.get("var_rms_now"), quantity)),
+                _escape(_format_number(entry.get("beta"), "{:.2f}")), suggested,
+                '<ul class="solint-flags">{}</ul>'.format("".join("<li>{}</li>".format(_escape(f)) for f in flags))
+                if flags else "-",
+            )
+        )
+    return (
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Antenna</th>'
+        '<th scope="col">Distance from centre</th><th scope="col">Noise per solution</th><th scope="col">Noise from</th>'
+        '<th scope="col">Variability within used interval</th><th scope="col">&beta;</th>'
+        '<th scope="col">Suggested interval</th><th scope="col">Flags</th></tr></thead><tbody>{}</tbody></table></div>'
+    ).format("".join(rows))
+
+
+def _solint_mhz(value):
+    number = _float_or_none(value)
+    if number is None:
+        return "n/a"
+    if number <= 0:
+        return "none"
+    return "{:.3g} MHz".format(number / 1e6)
+
+
+def _solint_freq_rows(solves):
+    rows = []
+    for rec in solves:
+        fr = _mapping(rec.get("frequency"))
+        for quantity in ("phase", "amplitude"):
+            summ = _mapping(_mapping(fr.get("quantities")).get(quantity))
+            if not summ:
+                continue
+            n_valid = int(summ.get("n_valid") or 0)
+            n_upper = int(summ.get("n_upper_limit") or 0)
+            n_lower = int(summ.get("n_lower_limit") or 0)
+            counts = _mapping(summ.get("flag_counts"))
+            n_capped = sum(v for k, v in counts.items() if str(k).startswith("re-smoothing check: a wider"))
+            n_tested = sum(v for k, v in counts.items() if str(k).startswith("re-smoothing check passes"))
+            n_pol = sum(v for k, v in counts.items() if str(k).startswith("noise from"))
+            bits = []
+            if n_upper:
+                bits.append("{} upper limit".format(n_upper))
+            if n_lower:
+                bits.append("{} lower limit".format(n_lower))
+            if n_capped:
+                bits.append("{} limited by the re-smoothing check".format(n_capped))
+            if n_tested:
+                bits.append("{} at the widest kernel tested".format(n_tested))
+            if n_pol:
+                bits.append("{} noise from the polarisation difference".format(n_pol))
+            prefix = ("&ge; " if n_valid and n_lower > n_valid / 2 else
+                      "&le; " if n_valid and n_upper > n_valid / 2 else "")
+            noise = (summ.get("noise_sol_rms") or [None] * 3)[1]
+            rows.append(
+                '<tr class="solint-freq-row" data-search="{search}">'
+                '<td class="numeric">{cycle}</td><td><code>{solve}</code></td><td>{quantity}</td>'
+                '<td class="numeric">{used}</td><td class="numeric">{noise}</td><td class="numeric">{var}</td>'
+                '<td class="numeric">{beta}</td><td>{suggested}</td><td class="numeric">{check}</td>'
+                '<td class="numeric">{err}</td><td>{limits}</td></tr>'.format(
+                    search=_escape("cycle {} {} {}".format(rec.get("cycle"), _solint_solve_label(rec), quantity)),
+                    cycle=_escape(rec.get("cycle")),
+                    solve=_escape(_solint_solve_label(rec)),
+                    quantity=_escape(quantity),
+                    used=_escape(_solint_mhz(fr.get("kernel_hz_used"))),
+                    noise=_escape(_solint_value(noise, quantity) if _float_or_none(noise) else "n/a"),
+                    var=_escape(_solint_value((summ.get("var_rms_now") or [None] * 3)[1], quantity)),
+                    beta=_escape(_format_number((summ.get("beta") or [None] * 3)[1], "{:.2f}")),
+                    suggested=prefix + _solint_triplet(summ.get("kernel_opt_hz"), _solint_mhz),
+                    check=_escape(_solint_mhz((summ.get("kernel_check_max_hz") or [None] * 3)[1])),
+                    err="{} &rarr; {}".format(
+                        _escape(_solint_value((summ.get("err_rms_now") or [None] * 3)[1], quantity)),
+                        _escape(_solint_value((summ.get("err_rms_opt") or [None] * 3)[1], quantity))),
+                    limits=_escape("of {} antennas: {}".format(n_valid, ", ".join(bits)) if bits else "none"),
+                )
+            )
+    return rows
+
+
+def _solint_freq_antenna_table(rec, quantity):
+    fr = _mapping(rec.get("frequency"))
+    summ = _mapping(_mapping(fr.get("quantities")).get(quantity))
+    ants = rec.get("ants") or []
+    rows = []
+    for index, entry in enumerate(summ.get("per_antenna", [])):
+        if not isinstance(entry, dict):
+            continue
+        name = ants[index] if index < len(ants) else str(index)
+        if not entry.get("valid"):
+            rows.append('<tr><td><code>{}</code></td><td colspan="6" class="muted">no valid fit</td></tr>'.format(
+                _escape(name)))
+            continue
+        noise = entry.get("noise_ch_rms")
+        noise_text = (_solint_value(noise, quantity) if noise is not None
+                      else "< " + _solint_value(entry.get("noise_ch_rms_upper"), quantity))
+        prefix = "&le; " if entry.get("limit") == "upper" else ("&ge; " if entry.get("limit") == "lower" else "")
+        flags = entry.get("flags") or []
+        rows.append(
+            '<tr><td><code>{}</code></td><td class="numeric">{}</td><td class="numeric">{}</td>'
+            '<td class="numeric">{}</td><td>{}</td><td class="numeric">{}</td><td>{}</td></tr>'.format(
+                _escape(name), _escape(noise_text), _escape(_solint_value(entry.get("var_rms_now"), quantity)),
+                _escape(_format_number(entry.get("beta"), "{:.2f}")),
+                prefix + _escape(_solint_mhz(entry.get("kernel_opt_hz"))),
+                _escape(_solint_mhz(entry.get("kernel_check_max_hz"))),
+                '<ul class="solint-flags">{}</ul>'.format("".join("<li>{}</li>".format(_escape(f)) for f in flags))
+                if flags else "-",
+            )
+        )
+    return (
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Antenna</th>'
+        '<th scope="col">Noise per channel (unsmoothed)</th><th scope="col">Structure smoothed away (used kernel)</th>'
+        '<th scope="col">&beta;</th><th scope="col">Suggested kernel</th><th scope="col">Re-smoothing check allows up to</th>'
+        '<th scope="col">Flags</th></tr></thead><tbody>{}</tbody></table></div>'
+    ).format("".join(rows))
+
+
+def _solutions_page(site_dir, run_root, config):
+    """Solution intervals: data-driven diagnostics of the solution intervals per solve (read-only)."""
+    data = getattr(config, "solution_settings", None) or {}
+    title = str(config.get("imagename") or run_root.name)
+    optional_pages = _optional_pages(config)
+    solves = [rec for rec in data.get("solves", []) if isinstance(rec, dict)]
+    solves.sort(key=lambda rec: (rec.get("cycle", 0), rec.get("slot", 0)))
+
+    def fig(rel, caption, detail=None):
+        if not rel:
+            return ""
+        path = run_root / rel
+        if not path.is_file():
+            return ""
+        return _figure(path, site_dir, caption, detail=detail, item_class="image-entry")
+
+    intro = (
+        '<div class="notice info" role="note"><strong>Diagnostic only.</strong>'
+        '<p>Nothing in this run was changed. The solutions of every solve were read from the h5parms and '
+        'analysed per antenna (generated {generated} by <code>{tool}</code>, {nchan} channels used per solve, '
+        'data integration time {tint}).</p>'
+        '<p>For each solve the page shows how much the solutions change with time (structure function), '
+        'the noise per solution, and the solution interval that would minimise the total error '
+        '(noise, which averages down with a longer interval, plus the change of the corruption within the '
+        'interval, which grows). Intervals are shown as the median over the antennas with the 16-84% range '
+        'in brackets.</p></div>'
+    ).format(
+        generated=_escape(data.get("generated", "unknown")),
+        tool=_escape(data.get("tool", "solution_settings.py")),
+        nchan=_escape(data.get("nchan_used", "n/a")),
+        tint=_escape(_solint_seconds(data.get("integration_time_s"))),
+    )
+    sections = []
+
+    warnings = [str(w) for w in data.get("warnings", []) if w]
+    if warnings:
+        items = "".join("<li>{}</li>".format(_escape(w)) for w in warnings)
+        sections.append(_section(
+            "Warnings",
+            '<div class="notice" role="note"><details{}><summary>{} warnings (applies to at least half of the '
+            'antennas of a solve)</summary><ul>{}</ul></details></div>'.format(
+                " open" if len(warnings) <= 12 else "", len(warnings), items),
+            "Read these before using a suggested interval: limits and extrapolations are marked per antenna "
+            "in the details below.",
+        ))
+
+    rows = _solint_summary_rows(solves)
+    sections.append(_section(
+        "Summary per cycle and solve",
+        _filter_input(".solint-row", "Filter (cycle, solve, phase/amplitude)")
+        + '<div class="table-scroll"><table class="data-table"><thead><tr>'
+        '<th scope="col">Cycle</th><th scope="col">Solve</th><th scope="col">Quantity</th>'
+        '<th scope="col">Used interval</th><th scope="col">Settings</th>'
+        '<th scope="col">Noise per solution</th><th scope="col">Variability within used interval</th>'
+        '<th scope="col">&beta;</th><th scope="col">Suggested interval</th>'
+        '<th scope="col">Total error used &rarr; suggested</th><th scope="col">Limits</th>'
+        '<th scope="col">Solution QA (dry run)</th></tr></thead><tbody>{}</tbody></table></div>'.format("".join(rows)),
+        "Phase in mrad, amplitude as % (from the log amplitude). Values are medians over the antennas. "
+        "'< x' is an upper limit on the noise: the solutions change by more than the noise already between "
+        "neighbouring intervals, so the noise cannot be measured from them, and the suggested interval is then an "
+        "upper limit.",
+    ))
+
+    history = _mapping(data.get("history_plots"))
+    hist_figs = "".join(
+        fig(rel, "Slot {} across cycles".format(slot),
+            "Left: used and suggested interval. Middle: error budget. Right: power-law index.")
+        for slot, rel in sorted(history.items(), key=lambda item: str(item[0]))
+    )
+    if hist_figs:
+        sections.append(_section(
+            "Across cycles",
+            '<div class="solint-gallery">{}</div>'.format(hist_figs),
+            "One row per solve slot (position in the soltype list); a slot can change soltype between restarts. "
+            "A ratchet toward long intervals would show up as the suggested interval following the used one upward.",
+        ))
+
+    freq_rows = _solint_freq_rows(solves)
+    if freq_rows:
+        hist_freq = _mapping(data.get("history_freq_plots"))
+        hist_freq_figs = "".join(
+            fig(rel, "Slot {} across cycles: frequency".format(slot),
+                "Left: used and suggested smoothness kernel. Middle: error budget. Right: power-law index.")
+            for slot, rel in sorted(hist_freq.items(), key=lambda item: str(item[0]))
+        )
+        sections.append(_section(
+            "Frequency direction (smoothness kernel)",
+            _filter_input(".solint-freq-row", "Filter (cycle, solve, phase/amplitude)")
+            + '<div class="table-scroll"><table class="data-table"><thead><tr>'
+            '<th scope="col">Cycle</th><th scope="col">Solve</th><th scope="col">Quantity</th>'
+            '<th scope="col">Used kernel</th><th scope="col">Noise per solution</th>'
+            '<th scope="col">Structure smoothed away</th><th scope="col">&beta;</th>'
+            '<th scope="col">Suggested kernel</th><th scope="col">Re-smoothing check allows up to</th>'
+            '<th scope="col">Total error used &rarr; suggested</th><th scope="col">Limits</th>'
+            '</tr></thead><tbody>{}</tbody></table></div>'.format("".join(freq_rows))
+            + ('<div class="solint-gallery">{}</div>'.format(hist_freq_figs) if hist_freq_figs else ""),
+            "The same analysis along frequency: how much the solutions differ between channels, fitted with "
+            "per-channel noise plus frequency structure, both smoothed by the DP3 kernel that was used. The "
+            "suggested kernel minimises the remaining noise plus the structure smoothed away. A wider kernel is "
+            "only suggested as far as the re-smoothing check allows (see Method). 'none' = no smoothing.",
+        ))
+
+    pair_parts = []
+    for rec in solves:
+        sp = _mapping(rec.get("spatial"))
+        if not sp:
+            continue
+        bins = sp.get("bins") or []
+        bin_rows = "".join(
+            '<tr><td>{}</td><td class="numeric">{}</td><td class="numeric">{}</td></tr>'.format(
+                _escape("{:g}-{} m".format(b.get("min_m", 0), "{:g}".format(b["max_m"]) if b.get("max_m") else "")),
+                _escape(b.get("n")), _escape(_solint_value(b.get("median_excess_rms"), "phase")))
+            for b in bins if isinstance(b, dict)
+        )
+        pair_parts.append(
+            '<h3>Cycle {} <code>{}</code> (running mean {} removed)</h3><div class="solint-gallery">{}'
+            '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Baseline length</th>'
+            '<th scope="col">Pairs</th><th scope="col">Median excess phase scatter</th></tr></thead><tbody>{}'
+            '</tbody></table></div></div>'.format(
+                _escape(rec.get("cycle")), _escape(_solint_solve_label(rec)),
+                _escape(_solint_seconds(sp.get("window_s"))),
+                fig(rec.get("spatial_plot"), "Antenna pairs, cycle {} {}".format(
+                    rec.get("cycle"), _solint_solve_label(rec))),
+                bin_rows,
+            )
+        )
+    if pair_parts:
+        sections.append(_section(
+            "Antenna pairs (antenna constraints)",
+            "".join(pair_parts),
+            "Scatter of the phase difference between two antennas on time scales shorter than the slow solve "
+            "(running mean removed), minus the noise of both. Near zero: the two antennas see the same fast "
+            "corruption, so constraining them to one solution would cost little. Clearly above the noise: an antenna "
+            "constraint would add that much error.",
+        ))
+
+    detail_parts = []
+    for rec in solves:
+        quantities = _mapping(rec.get("quantities"))
+        tables_html = "".join(
+            "<h4>{}</h4>{}".format(_escape(q), _solint_antenna_table(rec, q))
+            for q in ("phase", "amplitude") if q in quantities
+        )
+        fq = _mapping(_mapping(rec.get("frequency")).get("quantities"))
+        if fq:
+            tables_html += fig(rec.get("freq_plot"), "Frequency direction, cycle {} {}".format(
+                rec.get("cycle"), _solint_solve_label(rec)),
+                "Left: rms difference between channels vs frequency separation per antenna, with the fit. "
+                "Right: suggested smoothness kernel per antenna.")
+            tables_html += "".join(
+                "<h4>{} (frequency)</h4>{}".format(_escape(q), _solint_freq_antenna_table(rec, q))
+                for q in ("phase", "amplitude") if q in fq
+            )
+        detail_parts.append(
+            '<details><summary>Cycle {} <code>{}</code>: used {}, {}, {} time slots, h5parm <code>{}</code></summary>'
+            '<div class="solint-gallery">{}</div>{}</details>'.format(
+                _escape(rec.get("cycle")), _escape(_solint_solve_label(rec)),
+                _escape(_solint_seconds(rec.get("solint_s"))), _escape(_solint_settings_text(rec)),
+                _escape(rec.get("ntimes")), _escape(rec.get("h5")),
+                fig(rec.get("plot"), "Structure functions, cycle {} {}".format(
+                    rec.get("cycle"), _solint_solve_label(rec)),
+                    "Left: rms difference between solutions vs lag per antenna, with the fit. "
+                    "Right: suggested interval per antenna vs distance from the array centre."),
+                tables_html or '<p class="empty">{}</p>'.format(_escape(rec.get("note") or "No quantities analysed.")),
+            )
+        )
+    sections.append(_section(
+        "Per solve and antenna",
+        "".join(detail_parts) or '<p class="empty">No solves analysed.</p>',
+        "Open a solve for its structure-function plot and the values per antenna. '&le;'/'&ge;' mark upper/lower "
+        "limits.",
+    ))
+
+    sections.append(_section(
+        "Method and caveats",
+        "<ul>"
+        "<li>Phases are referenced to the circular mean over the antennas; amplitudes are analysed as log "
+        "amplitude (fractional changes).</li>"
+        "<li>The structure function (robust mean squared difference between solutions k intervals apart, pooled "
+        "over channels and polarisations) is fitted up to 16 intervals with a noise floor plus a power law "
+        "(index &beta;). The averaging of the solutions over one interval is modelled in the fit, so the "
+        "inferred variability does not depend on the interval that was used.</li>"
+        "<li>Total error for an interval m times the used one: noise&sup2;/m + A m<sup>&beta;</sup>/((&beta;+1)"
+        "(&beta;+2)); the suggested interval minimises it. It is bounded by the data integration time and by the "
+        "largest measured lag (never longer than what the data show).</li>"
+        "<li>Noise: for two-polarisation solves it comes from the XX-YY phase difference or the XX/YY amplitude "
+        "ratio (lag 1), in which any change common to both polarisations cancels; the fit then uses it as a fixed "
+        "noise floor. A real change of XX relative to YY (e.g. one not corrected by an earlier scalar solve in "
+        "the chain) adds to it, so it is an upper limit on the noise; a 'no variability' result is then not "
+        "reliable. Without it (scalar solves), noise and variability are each tested for significance: when the "
+        "noise floor is not measurable (interval longer than optimal), the result is an upper limit; when no "
+        "variability is measurable, it is a lower limit.</li>"
+        "<li>Noise bound from the frequency direction: noise in different channels is independent and anything "
+        "else adds to the differences between channels, so the frequency structure function gives an upper limit "
+        "on the noise per solution for every solve, scalar ones included. It caps the polarisation-difference noise "
+        "(where that is larger, the polarisation difference contains real XX/YY changes) and tightens the upper "
+        "limits of the time direction.</li>"
+        "<li>Changes faster than the interval: a change with a correlation time shorter than the interval "
+        "decorrelates between neighbouring solutions and looks exactly like noise in the structure function. "
+        "Where the solutions look more than 2x noisier than the polarisation-difference noise, they are flagged "
+        "'change faster than the interval': the optimum is then shorter than the used interval, not longer. For "
+        "scalar solves this check is not possible.</li>"
+        "<li>Not covered yet: the expected noise from the visibilities and model, frequency-dependent kernels "
+        "(smoothnessreffrequency), per-antenna kernel factors, and time-variable intervals. Chained solves (e.g. a slow gain after a fast phase "
+        "solve) see data already corrected by the earlier solve, so each is analysed on its own.</li>"
+        "<li>Frequency direction: the solutions on all channels of ~48 time slots, differences between channels "
+        "as a function of their separation, fitted with per-channel white noise plus a power law, both smoothed "
+        "by the DP3 smoothness kernel that was used (exp(-9 (&Delta;&nu;/B)&sup2;), truncated at &plusmn;B/2). "
+        "Noise of two-polarisation solves comes from the polarisation difference (time direction), converted to "
+        "per-channel noise with the kernel. Structure finer than the used kernel is smoothed away and cannot be "
+        "seen, so a narrower suggestion is extrapolated.</li>"
+        "<li>Re-smoothing check (model-free, for wider kernels): the solutions are smoothed once more (the used "
+        "kernel followed by an extra Gaussian is a wider kernel), and the real structure this removes (after "
+        "subtracting the known noise part) is compared with the noise reduction it gives. A wider kernel is "
+        "suggested only as far as the removed structure stays below the noise reduction (noise: the lower of the "
+        "polarisation-difference and the fitted value, 0 if not measurable). Smooth structure across the band "
+        "(delays, ionosphere) is not a power law; this check covers it.</li>"
+        "<li>Solution QA: <code>qa_gains</code> along time (running median window 9, 5&sigma;) in dry-run "
+        "mode, on the last cycle of each solve type; no flags were written.</li>"
+        "</ul>",
+    ))
+
+    body = intro + "\n".join(sections)
+    _write_page(
+        site_dir / "solutions.html",
+        title,
+        "solutions.html",
+        body,
+        subtitle="Solution intervals / {}".format(run_root.name),
+        optional_pages=optional_pages,
+    )
+
+
+def _overlay_layout_html(charts, panel_id, heading="h2"):
+    """Chart cards for the overlay helper in report.js, with an item checklist beside them."""
+    cards = "".join(
+        '<div class="bandpass-chart-card"><{h}>{}</{h}><p>{}</p>'
+        '<svg id="{}" class="bandpass-chart" viewBox="0 0 940 330"></svg></div>'.format(
+            _escape(title), _escape(caption), _escape(chart_id), h=heading
+        )
+        for chart_id, title, caption in charts
+    )
+    return (
+        '<div class="overlay-layout"><div class="overlay-charts">{}</div>'
+        '<div id="{}" class="overlay-panel" aria-label="Curves to show"></div></div>'
+    ).format(cards, _escape(panel_id))
+
+
+def _import_numpy_tables():
+    try:
+        import numpy as np
+        import tables
+    except ImportError as exc:
+        raise _BandpassDataError("Reading H5parm files requires NumPy and PyTables.") from exc
+    return np, tables
+
+
+def _soltab_standard(solset, name, np):
+    """Values and validity of a soltab with the axes in time, freq, ant, dir, pol order.
+
+    Missing axes are added with length one. Samples are invalid when the value
+    is not finite or the weight is zero or not finite. Returns None if the
+    soltab does not exist.
+    """
+    if name not in solset._v_children:
+        return None
+    children = solset._v_children[name]._v_children
+    if "val" not in children:
+        raise _BandpassDataError("{} has no value array.".format(name))
+    values = np.asarray(children["val"][:], dtype=float)
+    axes = _soltab_axes(children["val"]) or [
+        axis for axis in _STANDARD_SOLTAB_AXES if axis in children
+    ]
+    if (
+        len(axes) != values.ndim
+        or len(set(axes)) != len(axes)
+        or not set(axes) <= set(_STANDARD_SOLTAB_AXES)
+    ):
+        raise _BandpassDataError(
+            "{} has axes {} for a {}-dimensional value array.".format(
+                name, ",".join(axes), values.ndim
+            )
+        )
+    valid = np.isfinite(values)
+    if "weight" in children:
+        weights = np.asarray(children["weight"][:], dtype=float)
+        if weights.shape != values.shape:
+            raise _BandpassDataError(
+                "{} has weight shape {}, expected {}.".format(name, weights.shape, values.shape)
+            )
+        valid &= np.isfinite(weights) & (weights > 0)
+    present = [axis for axis in _STANDARD_SOLTAB_AXES if axis in axes]
+    order = [axes.index(axis) for axis in present]
+    values = np.transpose(values, order)
+    valid = np.transpose(valid, order)
+    for index, axis in enumerate(_STANDARD_SOLTAB_AXES):
+        if axis not in axes:
+            values = np.expand_dims(values, index)
+            valid = np.expand_dims(valid, index)
+    labels = {}
+    for index, axis in enumerate(_STANDARD_SOLTAB_AXES):
+        if axis in axes and axis in children:
+            raw = children[axis][:]
+            if len(raw) != values.shape[index]:
+                raise _BandpassDataError(
+                    "{} has {} {} labels for an axis of length {}.".format(
+                        name, len(raw), axis, values.shape[index]
+                    )
+                )
+            labels[axis] = raw
+        else:
+            labels[axis] = None
+    if labels["freq"] is None:
+        raise _BandpassDataError("{} has no frequency axis.".format(name))
+    antennas = (
+        [_decode_bandpass_label(value) for value in labels["ant"]]
+        if labels["ant"] is not None
+        else ["ant{}".format(index) for index in range(values.shape[2])]
+    )
+    polarizations = (
+        [_decode_bandpass_label(value) for value in labels["pol"]]
+        if labels["pol"] is not None
+        else []
+    )
+    return {
+        "values": values,
+        "valid": valid,
+        "freq": np.asarray(labels["freq"], dtype=float),
+        "ant": antennas,
+        "pol": polarizations,
+    }
+
+
+def _read_soltabs(path, names):
+    """Read soltabs of sol000 (see _soltab_standard), raising _BandpassDataError on failure."""
+    np, tables = _import_numpy_tables()
+    try:
+        with tables.open_file(str(path), mode="r") as handle:
+            if "sol000" not in handle.root._v_children:
+                raise _BandpassDataError("H5Parm has no sol000 solution set.")
+            solset = handle.root._v_children["sol000"]
+            return np, {name: _soltab_standard(solset, name, np) for name in names}
+    except _BandpassDataError:
+        raise
+    except (
+        tables.HDF5ExtError,
+        tables.NoSuchNodeError,
+        OSError,
+        ValueError,
+        TypeError,
+        AttributeError,
+        IndexError,
+        KeyError,
+    ) as exc:
+        raise _BandpassDataError("Could not read {}: {}".format(Path(path).name, exc)) from exc
+
+
+def _frequency_order(frequencies, np):
+    finite = np.flatnonzero(np.isfinite(frequencies))
+    if not finite.size:
+        raise _BandpassDataError("The H5parm has no finite frequency values.")
+    return finite[np.argsort(frequencies[finite])]
+
+
+def _block_mean(frequencies, values, valid, max_points, np):
+    """Average along axis 0 (frequency) in blocks so that at most max_points remain.
+
+    Invalid samples are ignored; a block without valid samples is invalid.
+    Returns the block frequencies, the block means and their validity.
+    """
+    count = len(frequencies)
+    block = max(1, int(math.ceil(count / float(max_points))))
+    blocks = int(math.ceil(count / float(block)))
+    padding = blocks * block - count
+    if padding:
+        frequencies = np.concatenate([frequencies, np.full(padding, np.nan)])
+        values = np.concatenate(
+            [values, np.zeros((padding,) + values.shape[1:], dtype=values.dtype)]
+        )
+        valid = np.concatenate([valid, np.zeros((padding,) + valid.shape[1:], dtype=bool)])
+    frequencies = frequencies.reshape(blocks, block)
+    frequency_valid = np.isfinite(frequencies)
+    block_frequencies = (
+        np.where(frequency_valid, frequencies, 0.0).sum(axis=1)
+        / np.maximum(frequency_valid.sum(axis=1), 1)
+    )
+    shape = (blocks, block) + values.shape[1:]
+    values = values.reshape(shape)
+    valid = valid.reshape(shape)
+    counts = valid.sum(axis=1)
+    means = np.where(valid, values, 0).sum(axis=1) / np.maximum(counts, 1)
+    return block_frequencies, means, counts > 0
+
+
+def _rounded(values, valid, digits):
+    return [
+        round(float(value), digits) if ok and math.isfinite(float(value)) else None
+        for value, ok in zip(values, valid)
+    ]
+
+
+def _read_leakage_h5(path):
+    """|d| (%) and arg d (deg) per antenna for d_X (XY) and d_Y (YX), plus per-antenna stats."""
+    cache = DerivedDataCache(path, "meerkatcal-leakage-v1")
+    saved = cache.load()
+    if (
+        saved is not None
+        and isinstance(saved.get("antennas"), list)
+        and isinstance(saved.get("series"), dict)
+        and isinstance(saved.get("stats"), dict)
+    ):
+        return saved
+    np, soltabs = _read_soltabs(path, ("amplitude000", "phase000"))
+    amplitude, phase = soltabs["amplitude000"], soltabs["phase000"]
+    if amplitude is None or phase is None:
+        raise _BandpassDataError("A leakage H5parm needs amplitude000 and phase000.")
+    if amplitude["values"].shape != phase["values"].shape:
+        raise _BandpassDataError("amplitude000 and phase000 have different shapes.")
+    polarizations = amplitude["pol"]
+    if "XY" not in polarizations or "YX" not in polarizations:
+        raise _BandpassDataError("The leakage H5parm has no XY and YX polarizations.")
+    valid = amplitude["valid"] & phase["valid"]
+    jones = np.where(
+        valid, amplitude["values"] * np.exp(1j * np.where(valid, phase["values"], 0.0)), 0
+    )
+    # First direction; complex mean over the time slots (normally one).
+    jones = jones[:, :, :, 0, :]
+    valid = valid[:, :, :, 0, :]
+    time_count = valid.sum(axis=0)
+    jones = jones.sum(axis=0) / np.maximum(time_count, 1)
+    valid = time_count > 0
+    order = _frequency_order(amplitude["freq"], np)
+    frequencies = amplitude["freq"][order]
+    jones = jones[order]
+    valid = valid[order]
+    antennas = amplitude["ant"]
+    terms = (("dX", polarizations.index("XY")), ("dY", polarizations.index("YX")))
+
+    stats = {}
+    flagged = []
+    for antenna_index, antenna in enumerate(antennas):
+        entry = {}
+        maxima = []
+        both = valid[:, antenna_index, terms[0][1]] & valid[:, antenna_index, terms[1][1]]
+        for term, pol_index in terms:
+            ok = valid[:, antenna_index, pol_index]
+            magnitudes = np.abs(jones[ok, antenna_index, pol_index])
+            entry["median_" + term] = float(np.median(magnitudes)) if magnitudes.size else None
+            if magnitudes.size:
+                maxima.append(float(np.max(magnitudes)))
+        entry["max"] = max(maxima) if maxima else None
+        entry["flagged_fraction"] = float(1.0 - np.mean(both)) if both.size else None
+        stats[antenna] = entry
+        if not np.any(both):
+            flagged.append(antenna)
+
+    series = {}
+    block_frequencies = None
+    for term, pol_index in terms:
+        leakage = jones[:, :, pol_index]
+        ok = valid[:, :, pol_index]
+        magnitude = np.abs(leakage)
+        nonzero = magnitude > 0
+        phasor = np.where(nonzero, leakage / np.where(nonzero, magnitude, 1.0), 0)
+        block_frequencies, magnitude_mean, magnitude_ok = _block_mean(
+            frequencies, 100.0 * magnitude, ok, _OVERLAY_MAX_POINTS, np
+        )
+        _, phasor_mean, phasor_ok = _block_mean(
+            frequencies, phasor, ok & nonzero, _OVERLAY_MAX_POINTS, np
+        )
+        phasor_ok &= np.abs(phasor_mean) > 1e-8
+        phase_degrees = np.degrees(np.angle(phasor_mean))
+        series[term] = {
+            "amplitude": {
+                antenna: _rounded(magnitude_mean[:, index], magnitude_ok[:, index], 4)
+                for index, antenna in enumerate(antennas)
+            },
+            "phase": {
+                antenna: _rounded(phase_degrees[:, index], phasor_ok[:, index], 2)
+                for index, antenna in enumerate(antennas)
+            },
+        }
+    result = {
+        "frequencies_mhz": [round(float(value) / 1e6, 6) for value in block_frequencies],
+        "channels": int(len(frequencies)),
+        "antennas": antennas,
+        "flagged": flagged,
+        "stats": stats,
+        "series": series,
+    }
+    cache.save(result)
+    return result
+
+
+def _read_xf_h5(path):
+    """Cross-hand phase theta(nu) in degrees: XX phase of phase000, circular mean over antennas."""
+    cache = DerivedDataCache(path, "meerkatcal-xf-v1")
+    saved = cache.load()
+    if (
+        saved is not None
+        and isinstance(saved.get("theta_deg"), list)
+        and isinstance(saved.get("frequencies_mhz"), list)
+    ):
+        return saved
+    np, soltabs = _read_soltabs(path, ("phase000",))
+    phase = soltabs["phase000"]
+    if phase is None:
+        raise _BandpassDataError("An xfsolve H5parm needs phase000.")
+    polarizations = phase["pol"]
+    pol_index = polarizations.index("XX") if "XX" in polarizations else 0
+    values = phase["values"][:, :, :, 0, pol_index]
+    valid = phase["valid"][:, :, :, 0, pol_index]
+    phasor = np.where(valid, np.exp(1j * np.where(valid, values, 0.0)), 0).sum(axis=(0, 2))
+    count = valid.sum(axis=(0, 2))
+    ok = (count > 0) & (np.abs(phasor) > 1e-8 * np.maximum(count, 1))
+    phasor = np.where(ok, phasor / np.where(ok, np.abs(phasor), 1.0), 0)
+    order = _frequency_order(phase["freq"], np)
+    block_frequencies, phasor_mean, phasor_ok = _block_mean(
+        phase["freq"][order], phasor[order], ok[order], _OVERLAY_MAX_POINTS, np
+    )
+    phasor_ok &= np.abs(phasor_mean) > 1e-8
+    result = {
+        "frequencies_mhz": [round(float(value) / 1e6, 6) for value in block_frequencies],
+        "theta_deg": _rounded(np.degrees(np.angle(phasor_mean)), phasor_ok, 3),
+        "channels": int(len(order)),
+        "flagged_fraction": float(1.0 - np.mean(ok[order])) if len(order) else None,
+    }
+    cache.save(result)
+    return result
+
+
+def _rm_series(entry):
+    """RM(t) points (hours since the first sample) from an RM_<field>.json entry."""
+    entry = _mapping(entry)
+    times, values = entry.get("times"), entry.get("rm")
+    if not isinstance(times, list) or not isinstance(values, list):
+        return None
+    errors = entry.get("rm_error") if isinstance(entry.get("rm_error"), list) else []
+    samples = []
+    for index, (time_value, rm_value) in enumerate(zip(times, values)):
+        time_value, rm_value = _float_or_none(time_value), _float_or_none(rm_value)
+        if time_value is None or rm_value is None:
+            continue
+        error = _float_or_none(errors[index]) if index < len(errors) else None
+        samples.append((time_value, rm_value, error))
+    if not samples:
+        return None
+    samples.sort(key=lambda sample: sample[0])
+    first = samples[0][0]
+    # MJD in seconds (as written by the pipeline); accept MJD in days too.
+    scale = 86400.0 if first < 1e7 else 1.0
+    start = "the first sample"
+    try:
+        start = datetime.fromtimestamp(
+            first * scale - _MJD_UNIX_OFFSET_SECONDS, tz=timezone.utc
+        ).strftime("%Y-%m-%d %H:%M UTC")
+    except (OverflowError, OSError, ValueError):
+        pass
+    rm_values = [rm_value for _, rm_value, _ in samples]
+    return {
+        "source": str(entry.get("source") or "unknown"),
+        "start": start,
+        "minimum": min(rm_values),
+        "maximum": max(rm_values),
+        "points": [
+            {"x": round((time_value - first) * scale / 3600.0, 5), "y": rm_value, "err": error}
+            for time_value, rm_value, error in samples
+        ],
+    }
+
+
+_POLCHECK_FIELDS = (
+    "I", "I_rms", "Q", "U", "V", "pfrac", "pfrac_err", "pfrac_model", "evpa",
+    "evpa_err", "evpa_model", "dev_evpa", "vfrac", "rm_correction", "evpa_uncorr", "dev_evpa_uncorr",
+)
+
+
+def _median(values):
+    """Median of a list of numbers, None for an empty list."""
+    values = sorted(values)
+    if not values:
+        return None
+    middle = len(values) // 2
+    return values[middle] if len(values) % 2 else 0.5 * (values[middle - 1] + values[middle])
+
+
+def _polcheck_rows(result):
+    rows = []
+    chunks = result.get("chunks")
+    for chunk in chunks if isinstance(chunks, list) else []:
+        if not isinstance(chunk, dict):
+            continue
+        frequency = _float_or_none(chunk.get("freq_mhz"))
+        if frequency is None:
+            continue
+        row = {key: _float_or_none(chunk.get(key)) for key in _POLCHECK_FIELDS}
+        row["freq_mhz"] = frequency
+        # The EVPA is defined modulo 180 degrees: plot the measurement within
+        # 90 degrees of the model.
+        if row["evpa_model"] is not None and row["dev_evpa"] is not None:
+            row["evpa_plot"] = row["evpa_model"] + row["dev_evpa"]
+        else:
+            row["evpa_plot"] = row["evpa"]
+        # older reports stored the model with the ionospheric correction applied instead
+        model_rmcorr = _float_or_none(chunk.get("evpa_model_rmcorr"))
+        if row["rm_correction"] is None and model_rmcorr is not None and row["evpa_model"] is not None:
+            row["rm_correction"] = model_rmcorr - row["evpa_model"]
+        if row["rm_correction"] is not None and row["evpa_plot"] is not None:
+            # the measurement with the ionospheric Faraday rotation correction undone
+            row["evpa_uncorr_plot"] = row["evpa_plot"] - row["rm_correction"]
+            if row["evpa_model"] is not None:
+                row["dev_evpa_uncorr"] = (row["evpa_uncorr_plot"] - row["evpa_model"] + 90.0) % 180.0 - 90.0
+                row["evpa_uncorr_plot"] = row["evpa_model"] + row["dev_evpa_uncorr"]
+        else:
+            row["evpa_uncorr_plot"] = None
+        rows.append(row)
+    rows.sort(key=lambda row: row["freq_mhz"])
+    return rows
+
+
+def _report_xfsolve(report):
+    """The xfsolve (cross-hand phase) entry; older reports called it 'xf'."""
+    for key in ("xfsolve", "xf"):
+        if isinstance(report.get(key), dict):
+            return report[key]
+    return None
+
+
+def _check_badge(passed, pass_text="Pass", warn_text="Warning"):
+    if passed:
+        return '<span class="status status-completed">{}</span>'.format(_escape(pass_text))
+    return '<span class="status status-stopped">{}</span>'.format(_escape(warn_text))
+
+
+def _note_html(text, kind="info"):
+    return '<div class="notice {}" role="note"><p>{}</p></div>'.format(
+        _escape(kind), _escape(text)
+    )
+
+
+def _qa_text(qa):
+    qa = _mapping(qa)
+    before = _float_or_none(qa.get("flagged_before"))
+    after = _float_or_none(qa.get("flagged_after"))
+    if before is None and after is None:
+        return "n/a"
+    text = "flagged {} → {} of the solutions".format(
+        _format_number(before, "{:.1f}", 100.0, "%"),
+        _format_number(after, "{:.1f}", 100.0, "%"),
+    )
+    interpolated = _float_or_none(qa.get("interpolated"))
+    if interpolated:
+        text += " ({} interpolated)".format(_format_number(interpolated, "{:.1f}", 100.0, "%"))
+    antennas = _string_list(qa.get("flagged_antennas"))
+    text += "; flagged antennas: {}".format(", ".join(antennas) if antennas else "none")
+    return text
+
+
+def _mhz_ranges_text(ranges):
+    parts = []
+    for item in ranges if isinstance(ranges, (list, tuple)) else []:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            low, high = _float_or_none(item[0]), _float_or_none(item[1])
+            if low is not None and high is not None:
+                parts.append("{:.0f}".format(low) if high <= low else "{:.0f}–{:.0f}".format(low, high))
+    return ", ".join(parts) if parts else "none"
+
+
+def _names_text(values, empty="none"):
+    names = _string_list(values)
+    return ", ".join(names) if names else empty
+
+
+def _polarisation_summary_html(report):
+    roles = _mapping(report.get("roles"))
+    leakage = report.get("leakage") if isinstance(report.get("leakage"), dict) else None
+    xf = _report_xfsolve(report)
+    rows = []
+
+    def add(label, value_html):
+        rows.append('<tr><th scope="row">{}</th><td>{}</td></tr>'.format(_escape(label), value_html))
+
+    add("Band", _escape(report.get("band") or "n/a"))
+    level = report.get("level")
+    levels = _VLACAL_LEVELS if _report_telescope(report) == "VLA" else _MEERKATCAL_LEVELS
+    add(
+        "Calibration level",
+        "<code>{}</code> {}".format(
+            _escape(level or "n/a"),
+            _escape("({})".format(levels[level]) if level in levels else ""),
+        ),
+    )
+    angle = report.get("angle")
+    if xf is None:
+        angle_text = "not calibrated" + (
+            " (requested: {})".format(_MEERKATCAL_ANGLES.get(angle, angle)) if angle else ""
+        )
+    else:
+        angle_text = _MEERKATCAL_ANGLES.get(angle, str(angle or "n/a"))
+    add("Polarisation angle source", _escape(angle_text))
+    add("Reference antenna", "<code>{}</code>".format(_escape(report.get("refant") or "n/a")))
+    add("Bandpass calibrator(s)", _escape(_names_text(roles.get("bpcal"))))
+    add(
+        "Leakage calibrator(s)",
+        _escape(_names_text(leakage.get("calibrators")) if leakage else "leakage not solved"),
+    )
+    add(
+        "Polarisation calibrator(s)",
+        _escape(_names_text((xf or {}).get("calibrators") or roles.get("polcal"))),
+    )
+    add("Phase calibrator(s)", _escape(_names_text(roles.get("phasecal"))))
+    add("Target(s)", _escape(_names_text(roles.get("targets"))))
+    if leakage:
+        add("Leakage QA", _escape(_qa_text(leakage.get("qa"))))
+        add(
+            "Leakage gauge term (median |c| removed)",
+            _escape(_format_number(leakage.get("gauge_c"), "{:.2f}", 100.0, "%")),
+        )
+    if xf and isinstance(xf.get("diode"), dict):
+        dio = xf["diode"]
+        outliers = _string_list(dio.get("outliers"))
+        add(
+            "Noise diode",
+            _escape("{} diode-on times, {} antennas{}, antenna spread {} (median), diode-to-sky spline {}{}".format(
+                "user-given" if dio.get("source") == "user" else "detected",
+                dio.get("n_antennas", "n/a"),
+                " ({} left out: {})".format(len(outliers), ", ".join(outliers)) if outliers else "",
+                _format_number(dio.get("spread_median_deg"), "{:.1f}", 1.0, "°"),
+                "applied" if dio.get("skyspline") else "not applied",
+                "" if dio.get("convention_verified") else "; convention not yet verified against a celestial calibrator",
+            )),
+        )
+    if xf:
+        add("xfsolve (cross-hand phase) QA", _escape(_qa_text(xf.get("qa"))))
+        xf_warnings = _string_list(xf.get("warnings"))
+        if xf_warnings:
+            add(
+                "xfsolve warnings",
+                '{} <a href="#crosshand">{} warning{}</a>'.format(
+                    _check_badge(False), len(xf_warnings), "" if len(xf_warnings) == 1 else "s"
+                ),
+            )
+        differences = [
+            value for value in (
+                _float_or_none(item) for item in _mapping(xf.get("perscan_median_diff_deg")).values()
+            ) if value is not None
+        ]
+        if differences:
+            worst = max(differences)
+            add(
+                "xfsolve per-scan consistency",
+                "{} {}".format(
+                    _check_badge(worst <= _XF_PERSCAN_WARNING_DEG),
+                    _escape("largest median difference {:.1f}° over {} scan{}".format(
+                        worst, len(differences), "" if len(differences) == 1 else "s"
+                    )),
+                ),
+            )
+    rm = _mapping(report.get("rm"))
+    for field in sorted(rm):
+        series = _rm_series(rm[field])
+        add(
+            "Ionospheric RM, {}".format(field),
+            _escape(
+                "{}: {:.3f} to {:.3f} rad/m²".format(
+                    series["source"], series["minimum"], series["maximum"]
+                ) if series else "no valid samples"
+            ),
+        )
+    if not rm:
+        add("Ionospheric RM", _escape("not applied"))
+    polcheck = report.get("polcheck")
+    if isinstance(polcheck, dict) and polcheck:
+        for name in sorted(polcheck):
+            warnings = _string_list(_mapping(polcheck[name]).get("warnings"))
+            add(
+                "Polarisation check, {}".format(name),
+                "{} {}".format(
+                    _check_badge(not warnings),
+                    _escape(
+                        "{} warning{}".format(len(warnings), "" if len(warnings) == 1 else "s")
+                        if warnings else "within tolerance"
+                    ),
+                ),
+            )
+    else:
+        add("Polarisation check", _escape("not run"))
+    return '<table class="data-table"><tbody>{}</tbody></table>'.format("".join(rows))
+
+
+def _meerkatcal_flagging_html(flagging):
+    flagging = _mapping(flagging)
+    stages = [stage for stage in _MEERKATCAL_FLAG_STAGES if stage in flagging]
+    stages += sorted(stage for stage in flagging if stage not in _MEERKATCAL_FLAG_STAGES)
+    rows = []
+    for stage in stages:
+        values = flagging.get(stage)
+        if not isinstance(values, dict):
+            continue
+        for ms in sorted(values):
+            fraction = _float_or_none(values[ms])
+            if fraction is None or isinstance(values[ms], bool):
+                continue
+            rows.append(
+                '<tr><td>{}</td><td><code>{}</code></td><td class="numeric">{}</td></tr>'.format(
+                    _escape(stage), _escape(Path(str(ms)).name), _escape("{:.1f}%".format(100 * fraction))
+                )
+            )
+    if not rows:
+        return ""
+    return (
+        '<details class="pol-details"><summary>Flagged data per stage and measurement set ({})</summary>'
+        '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Stage</th>'
+        '<th scope="col">Measurement set</th><th scope="col">Flagged</th></tr></thead>'
+        '<tbody>{}</tbody></table></div></details>'
+    ).format(len(rows), "".join(rows))
+
+
+def _leakage_section(report, run_root, data):
+    title = "Leakage"
+    leakage = report.get("leakage")
+    if not isinstance(leakage, dict):
+        return _section(title, _note_html(
+            "Leakage was not solved for this run (level {}).".format(report.get("level") or "unknown")
+        ))
+    path = _run_relative_file(run_root, leakage.get("h5"))
+    if path is None:
+        return _section(title, _note_html(
+            "The leakage solutions ({}) were not found.".format(
+                leakage.get("h5") or "no file recorded in meerkatcal_report.json"
+            ), "error"
+        ))
+    try:
+        leak = _read_leakage_h5(path)
+    except _BandpassDataError as exc:
+        report_warning("Leakage data unavailable for {}: {}".format(path, exc))
+        return _section(title, _note_html("Leakage data unavailable: {}".format(exc), "error"))
+    qa = _mapping(leakage.get("qa"))
+    qa_flagged = set(_string_list(qa.get("flagged_antennas")))
+    data["leakage"] = {
+        "frequencies_mhz": leak["frequencies_mhz"],
+        "antennas": leak["antennas"],
+        "flagged": leak["flagged"],
+        "series": leak["series"],
+    }
+    controls = (
+        '<div class="bandpass-controls">'
+        '<label for="leakage-term">Leakage term<select id="leakage-term">'
+        '<option value="dX">d_X (XY element)</option>'
+        '<option value="dY">d_Y (YX element)</option>'
+        '</select></label></div>'
+    )
+    charts = _overlay_layout_html(
+        (
+            ("leakage-amplitude", "|d|", "Leakage amplitude in percent versus frequency."),
+            ("leakage-phase", "arg d", "Leakage phase in degrees, wrapped to [-180, 180]."),
+        ),
+        "leakage-antennas",
+        heading="h3",
+    )
+    gauge = _float_or_none(leakage.get("gauge_c"))
+    gauge_note = (
+        "Gauge fix: an unpolarised calibrator does not constrain a term common to all "
+        "antennas (d_X → d_X + c, d_Y → d_Y − c* leaves the model "
+        "visibilities unchanged). Per solution cell the common term "
+        "c = −mean(d_X − d_Y*)/2 over the unflagged antennas was removed, so the "
+        "solutions shown have zero mean d_X − d_Y*."
+    )
+    if gauge is not None:
+        gauge_note += " Median |c| removed: {:.2f}%.".format(100.0 * gauge)
+    rows = []
+    for antenna in leak["antennas"]:
+        stats = _mapping(leak["stats"].get(antenna))
+        flagged_fraction = _float_or_none(stats.get("flagged_fraction"))
+        status = (
+            '<span class="overlay-flag">QA flagged</span>' if antenna in qa_flagged
+            else ('<span class="overlay-flag">no data</span>' if antenna in leak["flagged"] else "")
+        )
+        rows.append(
+            '<tr><th scope="row"><code>{}</code></th><td class="numeric">{}</td>'
+            '<td class="numeric">{}</td><td class="numeric">{}</td><td class="numeric">{}</td>'
+            '<td>{}</td></tr>'.format(
+                _escape(antenna),
+                _escape(_format_number(stats.get("median_dX"), "{:.2f}", 100.0)),
+                _escape(_format_number(stats.get("median_dY"), "{:.2f}", 100.0)),
+                _escape(_format_number(stats.get("max"), "{:.2f}", 100.0)),
+                _escape(_format_number(flagged_fraction, "{:.1f}", 100.0)),
+                status,
+            )
+        )
+    table = (
+        '<div class="table-scroll pol-table-scroll"><table class="data-table pol-table"><thead><tr>'
+        '<th scope="col">Antenna</th><th scope="col">Median |d_X| (%)</th>'
+        '<th scope="col">Median |d_Y| (%)</th><th scope="col">Max |d| (%)</th>'
+        '<th scope="col">Flagged channels (%)</th><th scope="col">QA</th>'
+        '</tr></thead><tbody>{}</tbody></table></div>'
+    ).format("".join(rows))
+    calibrators = _names_text(leakage.get("calibrators"), "unknown")
+    nchan = leakage.get("nchan")
+    intro = (
+        "Leakage solved on {} ({} channels in the solutions{}). Curves with more than {} "
+        "channels are averaged in blocks of adjacent channels for display; the table uses "
+        "all channels."
+    ).format(
+        calibrators,
+        leak["channels"],
+        ", {} input channel{} per solution".format(nchan, "" if nchan == 1 else "s")
+        if isinstance(nchan, int) and not isinstance(nchan, bool) else "",
+        _OVERLAY_MAX_POINTS,
+    )
+    return _section(
+        title,
+        controls + charts + '<p class="bandpass-note">{}</p>'.format(_escape(gauge_note))
+        + '<h3 class="pol-subheading">Per-antenna statistics</h3>' + table,
+        intro,
+        section_id="leakage",
+    )
+
+
+def _xf_section(report, run_root, data):
+    title = "xfsolve (cross-hand phase)"
+    xf = _report_xfsolve(report)
+    level = report.get("level")
+    if not isinstance(xf, dict):
+        if report.get("angle") == "diode" and report.get("angle_skipped"):
+            text = (
+                "No noise diode firing was found in the autocorrelations of the calibrator scans, so the "
+                "polarisation angle was not calibrated and the targets were calibrated at level leakage "
+                "(the diode-on times can be given with --meerkatcal-diode-times)."
+            )
+        elif level in ("standard", "leakage"):
+            text = "The polarisation angle (cross-hand phase) is not calibrated at level {}.".format(level)
+        else:
+            text = "No xfsolve (cross-hand phase) solution was recorded (the polarisation angle stage did not finish)."
+        return _section(title, _note_html(text))
+    curves = []
+    errors = []
+    applied = _run_relative_file(run_root, xf.get("h5"))
+    entries = [("applied", "Applied (all scans combined)", applied, xf.get("h5"))]
+    for index, name in enumerate(_string_list(xf.get("perscan_h5")), start=1):
+        entries.append(
+            ("scan-{}".format(index), Path(name).stem, _run_relative_file(run_root, name), name)
+        )
+    for key, label, path, name in entries:
+        if path is None:
+            if name:
+                errors.append("{} was not found.".format(name))
+            continue
+        try:
+            solution = _read_xf_h5(path)
+        except _BandpassDataError as exc:
+            report_warning("xfsolve data unavailable for {}: {}".format(path, exc))
+            errors.append("{}: {}".format(path.name, exc))
+            continue
+        curves.append({
+            "key": key,
+            "label": label,
+            "applied": key == "applied",
+            "frequencies_mhz": solution["frequencies_mhz"],
+            "theta_deg": solution["theta_deg"],
+        })
+    parts = []
+    xf_warnings = _string_list(xf.get("warnings"))
+    if xf_warnings:
+        parts.append('<div class="notice" role="status"><strong>Warnings</strong><ul>{}</ul></div>'.format(
+            "".join("<li>{}</li>".format(_escape(item)) for item in xf_warnings)
+        ))
+    if curves:
+        data["xf"] = {"curves": curves}
+        parts.append(_overlay_layout_html(
+            (("xf-theta", "Cross-hand phase θ(ν)",
+              "XX phase of the xfsolve solution (the same for all antennas), in degrees. "
+              "The applied solution is drawn in black."),),
+            "xf-curves",
+            heading="h3",
+        ))
+    if errors:
+        parts.append(_note_html(" ".join(errors), "error"))
+    differences = _mapping(xf.get("perscan_median_diff_deg"))
+    ordered = [name for name in _string_list(xf.get("perscan_h5")) if name in differences]
+    ordered += sorted(name for name in differences if name not in ordered)
+    unconstrained = _mapping(xf.get("perscan_unconstrained_mhz"))
+    rows = []
+    for name in ordered:
+        value = _float_or_none(differences[name])
+        rows.append(
+            '<tr><th scope="row"><code>{}</code></th><td class="numeric">{}</td><td>{}</td><td>{}</td></tr>'.format(
+                _escape(Path(name).name),
+                _escape(_format_number(value, "{:.2f}")),
+                _check_badge(value is not None and value <= _XF_PERSCAN_WARNING_DEG)
+                if value is not None else "",
+                _escape(_mhz_ranges_text(unconstrained.get(name)) if name in unconstrained else "n/a"),
+            )
+        )
+    if rows:
+        parts.append(
+            '<h3 class="pol-subheading">Per-scan consistency</h3>'
+            '<div class="table-scroll"><table class="data-table"><thead><tr>'
+            '<th scope="col">Per-scan solution</th><th scope="col">Median |Δθ| (deg)</th>'
+            '<th scope="col">Status</th><th scope="col">Not constrained by the model (MHz)</th>'
+            '</tr></thead><tbody>{}</tbody></table></div>'
+            '<p class="bandpass-note">{}</p>'.format(
+                "".join(rows),
+                _escape(
+                    "Median absolute difference between each per-scan solution and the applied "
+                    "solution, over the frequencies the scan constrains; differences above {:.0f} "
+                    "degrees are flagged. Large differences point to errors in the ionospheric RM, "
+                    "poor parallactic angle coverage or flagging. Where little of the model "
+                    "polarisation is in the feed-frame cross-hands (Stokes U near zero) the scan "
+                    "does not fix the sign of the cross-hand phase and can be off by 180 degrees; "
+                    "those frequencies have little weight in the applied solution.".format(_XF_PERSCAN_WARNING_DEG)
+                ),
+            )
+        )
+    if not curves and not rows:
+        parts.append(_note_html("No xfsolve (cross-hand phase) solutions were found.", "error"))
+    nchan = xf.get("nchan")
+    intro = "Solved on {}{}. QA: {}.".format(
+        _names_text(xf.get("calibrators"), "unknown"),
+        " with {} input channel{} per solution".format(nchan, "" if nchan == 1 else "s")
+        if isinstance(nchan, int) and not isinstance(nchan, bool) else "",
+        _qa_text(xf.get("qa")),
+    )
+    return _section(title, "".join(parts), intro, section_id="crosshand")
+
+
+def _rm_section(report, data):
+    title = "Ionospheric Faraday rotation"
+    rm = _mapping(report.get("rm"))
+    series = {}
+    for field in sorted(rm):
+        entry = _rm_series(rm[field])
+        if entry is not None:
+            series[field] = entry
+    if not series:
+        return _section(title, _note_html(
+            "No ionospheric rotation measure was recorded (the correction is off, or not computed yet)."
+        ))
+    data["rm"] = {field: {"start": entry["start"], "points": entry["points"]} for field, entry in series.items()}
+    cards = "".join(
+        '<div class="bandpass-chart-card"><h3>{}</h3><p>{}</p>'
+        '<svg id="rm-chart-{}" class="bandpass-chart" data-pol-chart="rm" data-key="{}" '
+        'viewBox="0 0 600 260"></svg></div>'.format(
+            _escape(field),
+            _escape("Source: {}; {:.3f} to {:.3f} rad/m².".format(
+                entry["source"], entry["minimum"], entry["maximum"]
+            )),
+            index,
+            _escape(field),
+        )
+        for index, (field, entry) in enumerate(series.items())
+    )
+    return _section(
+        title,
+        '<div class="pol-chart-grid">{}</div>'.format(cards),
+        "Ionospheric rotation measure versus time towards each field, applied to the "
+        "calibrator models and the target data.",
+        section_id="rm",
+    )
+
+
+def _polcheck_section(report, run_root, site_dir, data):
+    title = "Polarisation calibrator check"
+    polcheck = report.get("polcheck")
+    if not isinstance(polcheck, dict) or not polcheck:
+        if report.get("level") != "full":
+            text = "The polarisation calibrator check needs level full."
+        elif _report_xfsolve(report) is None:
+            text = "The polarisation calibrator check needs the cross-hand phase solution."
+        else:
+            text = "The polarisation calibrator check did not run (or has not finished)."
+        return _section(title, _note_html(text))
+    independence = (
+        "The cross-hand phase was solved on the same calibrator, so agreement of the EVPA "
+        "with the model is not an independent test of the absolute polarisation angle; it "
+        "checks the rest of the chain (leakage, Faraday rotation, parallactic angle and the "
+        "frequency dependence)."
+    )
+    data["polcheck"] = {}
+    blocks = []
+    for index, name in enumerate(sorted(polcheck)):
+        result = _mapping(polcheck[name])
+        rows = _polcheck_rows(result)
+        key = "pc{}".format(index)
+        data["polcheck"][key] = rows
+        warnings = _string_list(result.get("warnings"))
+        stats = (
+            ("Model", str(result.get("source") or "n/a")),
+            ("Chunks measured", str(len(rows))),
+            ("Median |ΔEVPA|", _format_number(result.get("median_abs_dev_evpa"), "{:.2f}", suffix="°")),
+            ("Fitted RM", _format_number(result.get("rm"), "{:.2f}", suffix=" rad/m²")),
+            ("Intrinsic EVPA", _format_number(result.get("evpa0_deg"), "{:.1f}", suffix="°")),
+            ("Residual RM", _format_number(result.get("residual_rm"), "{:.2f}", suffix=" rad/m²")),
+            ("Ionospheric RM (mean, corrected)", _format_number(result.get("rm_ion"), "{:.2f}", suffix=" rad/m²")),
+            ("Median |V/I|", _format_number(result.get("median_abs_vfrac"), "{:.2f}", 100.0, "%")),
+            ("Median |p/p_model − 1|", _format_number(result.get("median_rel_dev_pfrac"), "{:.1f}", 100.0, "%")),
+        )
+        stats_html = '<div class="bandpass-summary">{}</div>'.format("".join(
+            '<div class="bandpass-stat"><strong>{}</strong><span>{}</span></div>'.format(
+                _escape(label), _escape(value)
+            )
+            for label, value in stats
+        ))
+        if warnings:
+            verdict = '<div class="notice" role="status"><strong>Warnings</strong><ul>{}</ul></div>'.format(
+                "".join("<li>{}</li>".format(_escape(item)) for item in warnings)
+            )
+        else:
+            verdict = '<div class="notice success" role="status"><p>All checks within tolerance.</p></div>'
+        rm_source = str(result.get("rm_ion_source") or "ionospheric RM")
+        uncorr_rows = [row for row in rows if row["evpa_uncorr_plot"] is not None]
+        uncorr_label = "measured, uncorrected" if uncorr_rows else ""
+        evpa_caption = "Measured and model, in degrees; the measurements are shown within 90 degrees of the model."
+        if uncorr_rows:
+            evpa_caption += (
+                " Corrected: as calibrated, with the ionospheric Faraday rotation correction (−RM·λ², mean {} "
+                "RM {}) applied. Uncorrected: the same measurement with that correction undone ({} at the "
+                "lowest and {} at the highest frequency). If the correction is right, the corrected points "
+                "are the closer ones to the model (median |ΔEVPA| {} corrected, {} uncorrected).".format(
+                    rm_source.capitalize(), _format_number(result.get("rm_ion"), "{:.2f}", suffix=" rad/m²"),
+                    _format_number(uncorr_rows[0]["rm_correction"], "{:+.1f}", suffix="°"),
+                    _format_number(uncorr_rows[-1]["rm_correction"], "{:+.1f}", suffix="°"),
+                    _format_number(_median([abs(row["dev_evpa"]) for row in uncorr_rows
+                                            if row["dev_evpa"] is not None]), "{:.1f}", suffix="°"),
+                    _format_number(_median([abs(row["dev_evpa_uncorr"]) for row in uncorr_rows]),
+                                   "{:.1f}", suffix="°"),
+                )
+            )
+        charts = '<div class="pol-chart-grid">{}</div>'.format("".join(
+            '<div class="bandpass-chart-card"><h4>{}</h4><p>{}</p>'
+            '<svg id="polcheck-{}-{}" class="bandpass-chart" data-pol-chart="{}" data-key="{}"{} '
+            'viewBox="0 0 600 280"></svg></div>'.format(
+                _escape(chart_title), _escape(caption), kind, index, kind, key,
+                ' data-uncorr-label="{}"'.format(_escape(uncorr_label)) if kind == "evpa" and uncorr_label else ""
+            )
+            for kind, chart_title, caption in (
+                ("pfrac", "Polarisation fraction", "Measured (with error bars) and model, in percent."),
+                ("evpa", "EVPA", evpa_caption),
+                ("vfrac", "V/I", "Circular polarisation fraction, in percent."),
+            )
+        ))
+        table_rows = "".join(
+            '<tr><td class="numeric">{}</td><td class="numeric">{}</td><td class="numeric">{}</td>'
+            '<td class="numeric">{}</td><td class="numeric">{}</td><td class="numeric">{}</td>'
+            '<td class="numeric">{}</td><td class="numeric">{}</td><td class="numeric">{}</td></tr>'.format(
+                _escape(_format_number(row["freq_mhz"], "{:.1f}")),
+                _escape("{} ± {}".format(
+                    _format_number(row["I"], "{:.3f}"), _format_number(row["I_rms"], "{:.3f}")
+                )),
+                _escape("{} ± {}".format(
+                    _format_number(row["pfrac"], "{:.2f}", 100.0),
+                    _format_number(row["pfrac_err"], "{:.2f}", 100.0),
+                )),
+                _escape(_format_number(row["pfrac_model"], "{:.2f}", 100.0)),
+                _escape("{} ± {}".format(
+                    _format_number(row["evpa"], "{:.1f}"), _format_number(row["evpa_err"], "{:.1f}")
+                )),
+                _escape(_format_number(row["evpa_model"], "{:.1f}")),
+                _escape(_format_number(row["dev_evpa"], "{:+.1f}")),
+                _escape(_format_number(row["dev_evpa_uncorr"], "{:+.1f}")),
+                _escape(_format_number(row["vfrac"], "{:+.2f}", 100.0)),
+            )
+            for row in rows
+        )
+        table = (
+            '<div class="table-scroll"><table class="data-table pol-table"><thead><tr>'
+            '<th scope="col">Frequency (MHz)</th><th scope="col">I (Jy)</th>'
+            '<th scope="col">p measured (%)</th><th scope="col">p model (%)</th>'
+            '<th scope="col">EVPA measured (deg)</th><th scope="col">EVPA model (deg)</th>'
+            '<th scope="col">ΔEVPA corrected (deg)</th><th scope="col">ΔEVPA uncorrected (deg)</th>'
+            '<th scope="col">V/I (%)</th>'
+            '</tr></thead><tbody>{}</tbody></table></div>'
+        ).format(table_rows) if rows else '<p class="empty">No chunk with a significant Stokes I detection.</p>'
+        thumbnails = [
+            path for path in (
+                _run_relative_file(run_root, value) for value in _string_list(result.get("thumbnails"))
+            ) if path is not None
+        ]
+        thumbnails_html = (
+            '<h4 class="pol-subheading">Images per chunk (Stokes I and P)</h4>'
+            '<div class="gallery">{}</div>'.format("".join(
+                _figure(path, site_dir, path.name) for path in thumbnails
+            ))
+            if thumbnails else ""
+        )
+        images = [
+            path for path in (
+                _run_relative_file(run_root, value) for value in _string_list(result.get("images"))
+            ) if path is not None
+        ]
+        images_html = (
+            '<details class="pol-details"><summary>FITS images ({})</summary>'
+            '<ul class="file-list">{}</ul></details>'.format(
+                len(images),
+                "".join(
+                    '<li>{}<span class="file-size">{}</span></li>'.format(
+                        _link(path, site_dir), _escape(_artifact_size(path))
+                    )
+                    for path in images
+                ),
+            )
+            if images else ""
+        )
+        blocks.append(
+            '<article class="pol-calibrator"><h3>{} {}</h3>{}{}{}{}{}{}</article>'.format(
+                _escape(name),
+                _check_badge(not warnings),
+                verdict,
+                stats_html,
+                charts,
+                table,
+                thumbnails_html,
+                images_html,
+            )
+        )
+    return _section(
+        title,
+        '<p class="bandpass-note">{}</p>'.format(_escape(independence)) + "".join(blocks),
+        "The calibrated polarisation calibrator imaged in Stokes I, Q, U and V per frequency "
+        "chunk and compared with its model.",
+        section_id="polcheck",
+    )
+
+
+def _polarisation_page(site_dir, run_root, config, artifacts):
+    title = str(config.get("imagename") or run_root.name)
+    optional_pages = _optional_pages(config)
+    report = _meerkatcal_report(config) or {}
+    data = {}
+    summary = _section(
+        "Summary",
+        _polarisation_summary_html(report) + _meerkatcal_flagging_html(report.get("flagging")),
+        "Settings and quality checks of the {} polarisation calibration.".format(_report_telescope(report)),
+        section_id="summary",
+    )
+    sections = [
+        summary,
+        _leakage_section(report, run_root, data),
+        _xf_section(report, run_root, data),
+        _rm_section(report, data),
+        _polcheck_section(report, run_root, site_dir, data),
+    ]
+    body = (
+        ('<p class="page-intro">Polarisation calibration of the historical VLA data (--vlacal): '
+         'instrumental leakage solved with the calibrator polarisation (D+QU), xfsolve (R-L phase, '
+         'polarisation angle) and a check on the polarisation calibrator.</p>\n'
+         if _report_telescope(report) == "VLA" else
+         '<p class="page-intro">Polarisation calibration of the MeerKAT data (--meerkatcal): '
+         'instrumental leakage, xfsolve (cross-hand phase, polarisation angle), ionospheric '
+         'Faraday rotation and a check on the polarisation calibrator.</p>\n')
+        + "\n".join(sections)
+        + '<script type="application/json" id="polarisation-data">{}</script>'.format(
+            _script_json(data)
+        )
+    )
+    _write_page(
+        site_dir / "polarisation.html",
+        title,
+        "polarisation.html",
+        body,
+        subtitle="Polarisation calibration / {}".format(run_root.name),
         optional_pages=optional_pages,
     )
 
@@ -6362,8 +9283,12 @@ def _datasets_page(site_dir, run_root, config, artifacts, logs=None):
             )
             if len(basename_matches) == 1:
                 flagging_record = basename_matches[0][1]
+        # the config holds one telescope per input MS (a list); only fall back on it when it names
+        # a single telescope, since a mixed run cannot tell which one belongs to this MS
+        config_telescopes = {str(name).strip() for name in _as_list(config.get("telescope")) if name}
         telescope = (
-            metadata.get("Telescope") or config.get("telescope") or ""
+            metadata.get("Telescope")
+            or (next(iter(config_telescopes)) if len(config_telescopes) == 1 else "")
         ).strip().upper()
         search_text = " ".join([path, entry["role"]] + list(metadata.values()))
         metadata_cells = "".join(
@@ -6858,6 +9783,7 @@ def _render_extraction_visualization(
     run_started_at,
     extracted_image_size,
     image_metrics,
+    pixel_scale_setting=None,
 ):
     image_path = _latest_pre_extraction_image(config, artifacts)
     reference = None
@@ -6889,10 +9815,7 @@ def _render_extraction_visualization(
             if not wcs.has_celestial:
                 raise ValueError("the FITS image has no celestial WCS")
             image_height, image_width = image.shape
-            try:
-                pixel_scale = float(config["pixelscale"])
-            except (KeyError, TypeError, ValueError, OverflowError):
-                pixel_scale = None
+            pixel_scale = pixel_scale_setting
             image_frequency = image_header.get("CRVAL3")
             background_note = "Background image: {}".format(image_path.name)
         except (OSError, ValueError, TypeError, IndexError) as exc:
@@ -6908,7 +9831,7 @@ def _render_extraction_visualization(
         try:
             image_width = int(float(config["imsize"]))
             image_height = image_width
-            pixel_scale = float(config["pixelscale"])
+            pixel_scale = float(pixel_scale_setting)
         except (KeyError, TypeError, ValueError, OverflowError):
             report_warning(
                 "Cannot draw the extraction field outline without valid imsize and pixelscale settings."
@@ -7117,6 +10040,20 @@ def _render_extraction_visualization(
     return plot_path, detail
 
 
+def _effective_pixel_scale(config, logs):
+    """Pixel scale [arcsec] used by the run: full_config.txt, or else the value logbasicinfo logged
+    after facetselfcal chose it automatically (full_config.txt then has pixelscale = None)."""
+    logged = (logs or {}).get("effective_settings", {}).get("pixelscale")
+    for value in (config.get("pixelscale"), logged):
+        try:
+            scale = float(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if math.isfinite(scale) and scale > 0:
+            return scale
+    return None
+
+
 def _extraction_page(
     site_dir, run_root, config, artifacts, run_started_at, logs
 ):
@@ -7135,7 +10072,7 @@ def _extraction_page(
     settings_html = _config_table(options, keys=[label for label, _ in option_keys])
 
     extracted_image_size = _extraction_image_size(run_root, run_started_at)
-    pixel_scale = config.get("pixelscale", "Unavailable")
+    pixel_scale = _effective_pixel_scale(config, logs)
     if extracted_image_size is None:
         image_size_text = "Pending"
     else:
@@ -7178,6 +10115,7 @@ def _extraction_page(
         run_started_at,
         extracted_image_size,
         logs.get("image_metrics", []),
+        pixel_scale_setting=pixel_scale,
     )
     if plot_path is None:
         visualization_html = _quality_plot_placeholder(
@@ -7506,6 +10444,29 @@ def _angular_distance_deg(ra1, dec1, ra2, dec2):
     return math.degrees(math.acos(max(-1.0, min(1.0, value))))
 
 
+def _distinct_name_parts(names):
+    """Return the part of each name that differs between the names.
+
+    The common prefix and suffix are cut at ``.``, ``_`` or ``-`` boundaries, so
+    ``obs.ms.fieldA_chunk_001.ms.avg`` and ``obs.ms.fieldB_chunk_002.ms.avg`` become
+    ``fieldA_chunk_001`` and ``fieldB_chunk_002``. A single name is returned unchanged.
+    """
+    if len(names) < 2:
+        return list(names)
+    separators = "._-"
+    prefix = os.path.commonprefix(names)
+    prefix_length = max(prefix.rfind(char) for char in separators) + 1
+    reversed_suffix = os.path.commonprefix([name[::-1] for name in names])
+    suffix = reversed_suffix[::-1]
+    cut = min((suffix.find(char) for char in separators if char in suffix), default=len(suffix))
+    suffix_length = len(suffix) - cut
+    parts = []
+    for name in names:
+        part = name[prefix_length:len(name) - suffix_length] if len(name) > prefix_length + suffix_length else ""
+        parts.append(part.strip(separators) or name)
+    return parts if len(set(parts)) == len(parts) else list(names)
+
+
 def _direction_map_html(site_dir, artifacts, directions_by_cycle, cycle_keys, first_seen, catalogs):
     """Interactive SVG map of the directions per cycle on an RA/Dec grid."""
     geometry = _direction_map_wcs(artifacts)
@@ -7604,12 +10565,15 @@ def _direction_map_html(site_dir, artifacts, directions_by_cycle, cycle_keys, fi
             ))
         return "".join(shapes)
 
+    ms_names = [
+        directory.name.removeprefix("solution_plots_")
+        for directory, _ in artifacts.get("calibration_sets", [])
+    ]
     calibration_links = [
-        (
-            directory.name.removeprefix("solution_plots_"),
-            "calibration/ms-{:02d}-all.html".format(index),
+        (short, "calibration/ms-{:02d}-all.html".format(index), name)
+        for index, (name, short) in enumerate(
+            zip(ms_names, _distinct_name_parts(ms_names)), start=1
         )
-        for index, (directory, _) in enumerate(artifacts.get("calibration_sets", []), start=1)
     ]
 
     keys = cycle_keys or ["all"]
@@ -7651,8 +10615,8 @@ def _direction_map_html(site_dir, artifacts, directions_by_cycle, cycle_keys, fi
                 "aflux": _format_jy_value(aflux) if aflux is not None else None,
                 "tflux": _format_jy_value(tflux) if tflux is not None else None,
                 "links": [
-                    [name, "{}#sort=cycle&filter=dir-{:02d}".format(href, direction_index)]
-                    for name, href in calibration_links
+                    [short, "{}#sort=cycle&filter=dir-{:02d}".format(href, direction_index), name]
+                    for short, href, name in calibration_links
                 ] if direction_index is not None else [],
             }
             records.append(record)
@@ -7745,6 +10709,131 @@ def _direction_map_html(site_dir, artifacts, directions_by_cycle, cycle_keys, fi
     )
 
 
+def _read_cutout_manifest(path):
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        report_warning("Could not read direction cutout manifest {}: {}".format(path, exc))
+        return None
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("directions"), list):
+        report_warning("Invalid direction cutout manifest: {}".format(path))
+        return None
+    return manifest
+
+
+def _direction_cutouts_html(site_dir, manifest_path, directions, first_seen):
+    """Animated grid of the cutouts around each direction, one frame per cycle.
+
+    ``plot_direction_cutouts`` (submods/plotting.py) writes the PNGs and a
+    manifest with the position, size, display range and frames of each
+    direction. ``directions`` gives the names for the positions.
+    """
+    manifest = _read_cutout_manifest(manifest_path)
+    if manifest is None:
+        return ""
+    entries = [
+        entry for entry in manifest["directions"]
+        if isinstance(entry, dict) and entry.get("frames")
+    ]
+    if not entries:
+        return ""
+    cycles = sorted(
+        {cycle for entry in entries for cycle in entry["frames"]}, key=_cycle_sort_key
+    )
+    tiles = []
+    for entry in sorted(entries, key=lambda item: item.get("index", 0)):
+        name = None
+        try:
+            position = (float(entry["ra"]), float(entry["dec"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        for direction in directions:
+            if _same_position(position, (direction["ra"], direction["dec"]), tolerance_deg=2.0 / 3600.0):
+                name = direction["name"]
+                break
+        if name is None:
+            name = "Dir{:02d}".format(int(entry.get("index", len(tiles))))
+        frames = {
+            cycle: _relative_url(manifest_path.parent / filename, site_dir)
+            for cycle, filename in entry["frames"].items()
+            if (manifest_path.parent / filename).is_file()
+        }
+        if not frames:
+            continue
+        added = first_seen.get(name)
+        added_cycle = added.split()[-1] if added else None
+        details = []
+        try:
+            details.append("{:.1f}′ box".format(
+                float(entry["size"]) * float(entry["pixel_arcsec"]) / 60.0
+            ))
+        except (KeyError, TypeError, ValueError):
+            pass
+        if added_cycle:
+            details.append("direction since cycle {}".format(added_cycle))
+        latest = max(frames, key=_cycle_sort_key)
+        tiles.append(
+            '<figure class="dircut-tile" data-dircut-tile data-frames="{frames}"{added}>'
+            '<a href="{src}" target="_blank" rel="noopener" title="Open this frame" data-dircut-link>'
+            '<img src="{src}" alt="{name} cycle {latest}" data-dircut-image loading="lazy"></a>'
+            '<span class="dircut-missing" data-dircut-missing hidden>No image for this cycle</span>'
+            '<figcaption><strong>{name}</strong> <span class="dircut-badge" data-dircut-badge hidden>not yet a direction</span>'
+            '<span class="caption-detail">{position} · {details}</span></figcaption>'
+            "</figure>".format(
+                frames=_escape(json.dumps(frames, separators=(",", ":"))),
+                added=' data-added="{}"'.format(_escape(added_cycle)) if added_cycle else "",
+                src=_escape(frames[latest]),
+                name=_escape(name),
+                latest=_escape(latest),
+                position=_escape("{} {}".format(
+                    _format_sexagesimal(position[0], hours=True), _format_sexagesimal(position[1])
+                )),
+                details=_escape(" · ".join(details)),
+            )
+        )
+    if not tiles:
+        return ""
+    last = len(cycles) - 1
+    controls = (
+        '<div class="dircut-controls">'
+        '<button type="button" class="dircut-play" data-dircut-play aria-pressed="false">Play</button>'
+        '<button type="button" class="dircut-step" data-dircut-step="-1" aria-label="Previous cycle">&#9664;</button>'
+        '<label class="dircut-slider">Self-calibration cycle'
+        '<span><input type="range" min="0" max="{last}" step="1" value="{last}" data-dircut-slider '
+        'aria-label="Self-calibration cycle"><output data-dircut-cycle>Cycle {latest}</output></span></label>'
+        '<button type="button" class="dircut-step" data-dircut-step="1" aria-label="Next cycle">&#9654;</button>'
+        '<label class="blink-rate">Frame interval'
+        '<span><input type="range" min="200" max="2000" step="100" value="700" data-dircut-interval '
+        'aria-label="Frame interval in milliseconds"><output data-dircut-interval-output>700 ms</output></span></label>'
+        '<label>Tile size<select data-dircut-size>'
+        '<option value="180">Small</option><option value="260" selected>Medium</option>'
+        '<option value="380">Large</option><option value="native">Full resolution</option>'
+        "</select></label>"
+        "</div>"
+    ).format(last=last, latest=_escape(cycles[-1]))
+    try:
+        display_range = " ({} to {}/beam)".format(
+            _format_jy_value(float(manifest["vmin"])), _format_jy_value(float(manifest["vmax"]))
+        )
+    except (KeyError, TypeError, ValueError):
+        display_range = ""
+    note = (
+        "Each frame is the image of that cycle around the direction, at full resolution with "
+        "north up. All cutouts share the linear display range of the images on the Imaging "
+        "page{}: -3σ to 10σ, with σ the noise of the cycle 000 image. Click a tile to open "
+        "that frame."
+    ).format(display_range)
+    return (
+        '<div class="dircut" data-dircut data-dircut-cycles="{}">{}<p class="section-note">{}</p>'
+        '<div class="dircut-grid" data-dircut-grid>{}</div></div>'
+    ).format(
+        _escape(json.dumps(cycles, separators=(",", ":"))),
+        controls,
+        _escape(note),
+        "".join(tiles),
+    )
+
+
 def _directions_page(site_dir, run_root, config, artifacts):
     title = str(config.get("imagename") or run_root.name)
     optional_pages = _optional_pages(config)
@@ -7780,6 +10869,19 @@ def _directions_page(site_dir, run_root, config, artifacts):
                 direction_map,
                 "Direction positions within the image area for the selected cycle.",
             ))
+
+        latest_directions = directions_by_cycle[(cycle_keys or ["all"])[-1]]
+        for manifest_path in artifacts.get("direction_cutout_manifests", []):
+            cutouts = _direction_cutouts_html(
+                site_dir, manifest_path, latest_directions, first_seen if cycle_keys else {}
+            )
+            if cutouts:
+                stack_label = manifest_path.stem[len("cutouts"):].strip("_")
+                sections.append(_section(
+                    "Direction cutouts per cycle" + (" ({})".format(stack_label) if stack_label else ""),
+                    cutouts,
+                    "How the image around each direction changes over the self-calibration cycles.",
+                ))
 
         tables = []
         for index, cycle in enumerate(reversed(cycle_keys or ["all"])):
@@ -8011,7 +11113,7 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_recor
         status_class, _escape(status_text)
     )
     if error:
-        status_block += '<div class="notice error"><strong>Run error</strong><p>{}</p></div>'.format(_escape(error))
+        status_block += _error_notice(status, error)
     if logs["invocations"] > 1:
         status_block += '<div class="notice info"><strong>Combined log</strong><p>{} command-line invocation records were found. The log may span multiple processing segments.</p></div>'.format(logs["invocations"])
 
@@ -8030,6 +11132,8 @@ def _run_details_page(site_dir, run_root, config, artifacts, logs, command_recor
             env_cards.append('<div class="env-card"><strong>Disk at Start</strong><span>{}</span></div>'.format(_escape(host_info["disk"])))
         if "os" in host_info:
             env_cards.append('<div class="env-card"><strong>Operating System</strong><span>{}</span></div>'.format(_escape(host_info["os"])))
+        if "container" in host_info:
+            env_cards.append('<div class="env-card"><strong>Container</strong><span>{}</span></div>'.format(_escape(host_info["container"])))
         if "version" in host_info:
             env_cards.append('<div class="env-card"><strong>facetselfcal Version</strong><span>{}</span></div>'.format(_escape(host_info["version"])))
         res = logs.get("resources")
@@ -8111,7 +11215,8 @@ def generate_html_overview(run_directory=".", status="unknown", error=None, outp
     site_dir.mkdir(parents=True, exist_ok=True)
     asset_dir = site_dir / "assets"
     with report_context(site_dir / ".cache") as (diagnostics, pages):
-        _build_html_overview(run_root, site_dir, status, error)
+        telescope_keys = _build_html_overview(run_root, site_dir, status, error)
+        _copy_telescope_photos(telescope_keys, asset_dir)
         notice = ""
         if diagnostics:
             notice = (
@@ -8119,7 +11224,10 @@ def generate_html_overview(run_directory=".", status="unknown", error=None, outp
                 '<ul>{}</ul></aside>'
             ).format("".join("<li>{}</li>".format(_escape(item)) for item in diagnostics))
         atomic_write_text(asset_dir / "report.css", _report_css())
-        atomic_write_text(asset_dir / "report.js", resource_chart_browser_js() + "\n" + _JS)
+        atomic_write_text(
+            asset_dir / "report.js",
+            resource_chart_browser_js() + "\n" + _JS + "\n" + _CHART_OVERLAY_JS,
+        )
         generation = datetime.now().isoformat()
         for path, content in sorted(
             pages.items(), key=lambda item: (item[0] == site_dir / "index.html", str(item[0]))
@@ -8132,7 +11240,20 @@ def generate_html_overview(run_directory=".", status="unknown", error=None, outp
 
 
 def _build_html_overview(run_root, site_dir, status, error):
-    config = _parse_config(run_root / "full_config.txt")
+    config = _RunConfig(_parse_config(run_root / "full_config.txt"))
+    if _meerkatcal_enabled(config):
+        _attach_meerkatcal_report(config, run_root)
+    _attach_solution_settings(config, run_root)
+    telescope_keys = _run_telescope_keys(config, run_root)
+    token = _header_telescopes.set(telescope_keys)
+    try:
+        _build_html_pages(run_root, site_dir, config, status, error)
+    finally:
+        _header_telescopes.reset(token)
+    return telescope_keys
+
+
+def _build_html_pages(run_root, site_dir, config, status, error):
     stack_mode = _stack_enabled(config)
     stack_groups = _load_stack_imaging_groups(run_root) if stack_mode else {}
     run_started_at, current_run_cycles = _current_run_context(run_root)
@@ -8188,8 +11309,12 @@ def _build_html_overview(run_root, site_dir, status, error):
     if _dde_enabled(config):
         _directions_page(site_dir, run_root, config, artifacts)
     _calibration_page(site_dir, run_root, config, artifacts)
-    if _bandpass_enabled(config):
+    if "bandpass.html" in _optional_pages(config):
         _bandpass_page(site_dir, run_root, config, artifacts)
+    if _polarisation_enabled(config):
+        _polarisation_page(site_dir, run_root, config, artifacts)
+    if "solutions.html" in _optional_pages(config):
+        _solutions_page(site_dir, run_root, config)
     _datasets_page(site_dir, run_root, config, artifacts, logs)
     _run_details_page(site_dir, run_root, config, artifacts, logs, command_record, status, error)
 
@@ -8210,7 +11335,7 @@ def main(argv=None):
     )
     parser.add_argument(
         "--status",
-        choices=("unknown", "completed", "failed", "interrupted", "stopped"),
+        choices=("unknown", "completed", "failed", "interrupted", "stopped", "diverged"),
         default="unknown",
         help="optional known status for an existing run",
     )

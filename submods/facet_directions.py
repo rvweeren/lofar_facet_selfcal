@@ -1282,7 +1282,6 @@ def MeerKAT_autodetect_highDR(fitsimage):
         terminal_print('=== Brightest source is below 0.05 Jy, no high DR settings needed ===')
         get_logger().info('Brightest source is below 0.05 Jy, no high DR settings needed')
         return False, catalog['Peak_flux'][0]  # no high DR settings needed
-    terminal_print('HERE')
     # check that the brightest source is within the primary beam FWHM/4
     ra_center = fits.getheader(fitsimage)['CRVAL1']
     dec_center = fits.getheader(fitsimage)['CRVAL2']

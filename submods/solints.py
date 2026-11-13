@@ -10,6 +10,7 @@ from casacore.tables import table, taql  # type: ignore
 
 from submods.runtime_utils import get_logger, terminal_print
 from submods.smearing import get_uvwmax
+from submods.telescopes import telescope_of
 
 
 def tweak_solints(solints, solvalthresh=11, ms_ntimes=None, verbose=False):
@@ -397,7 +398,12 @@ def setinitial_solint(mslist, options):
             #  uvmaxim = None
 
             # soltypecycles
+            # TEMPORARY, for testing only (not documented): an entry can be a dict per telescope, e.g.
+            # {'MeerKAT': 15}, the soltype then starts at that cycle for the MSs of that telescope and is not
+            # used for the others. The design of per-telescope/per-MS solve settings is still to be decided.
             soltypecycles = options.soltypecycles_list[soltype_id]
+            if isinstance(soltypecycles, dict):
+                soltypecycles = soltypecycles.get(telescope_of(ms), 999)
 
             # force nchan 1 for tec(andphase) solve and in case smoothnessconstraint is invoked
             # if soltype == 'tec' or  soltype == 'tecandphase' or smoothnessconstraint > 0.0:

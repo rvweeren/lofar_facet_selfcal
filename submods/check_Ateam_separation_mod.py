@@ -72,10 +72,10 @@ def main(ms_input, min_separation = 30, outputimage = None):
     me = pm.measures()
 
     # Open the measurement set and the antenna and pointing table
-    ms = pt.table(msname)  
+    ms = pt.table(msname, ack=False)  
 
     # Get the position of the first antenna and set it as reference frame
-    ant_table = pt.table(msname + '::ANTENNA')  
+    ant_table = pt.table(msname + '::ANTENNA', ack=False)  
     ant_no = 0
     pos = ant_table.getcol('POSITION')
     x = qa.quantity( pos[ant_no,0], 'm' )
@@ -86,7 +86,7 @@ def main(ms_input, min_separation = 30, outputimage = None):
     ant_table.close()
 
     # Get the first pointing of the first antenna
-    field_table = pt.table(msname + '::FIELD')
+    field_table = pt.table(msname + '::FIELD', ack=False)
     field_no = 0
     direction = field_table.getcol('PHASE_DIR')
     ra = direction[ ant_no, field_no, 0 ]

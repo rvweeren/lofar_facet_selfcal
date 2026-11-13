@@ -1,0 +1,8 @@
+Format = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation
+# References:
+# Flux model: "A revised flux scale for the AT compact array", Reynolds 1994 (= CASA Stevens-Reynolds 2016 at these frequencies),
+#   log10(S/Jy) = -30.7667 + 26.4908 L - 7.0977 L^2 + 0.605334 L^3, L = log10(nu/MHz), valid 408-8640 MHz
+#   (katsdpcal J1939-6342_S.txt uses the same model), rewritten exactly as a logarithmic spectral index
+# Position from the B. Hugo UHF/L-band model
+# Point source: field sources are negligible at S-band (SARAO knowledge base, Flux and bandpass calibration)
+prim, POINT, 19:39:25.02671, -63.42.45.6255, 10.70015372120197, [-0.8152362691528126, -0.8885543388819555, 0.605334], true, 2625000000.0,,,

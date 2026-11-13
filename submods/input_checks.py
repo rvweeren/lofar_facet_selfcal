@@ -4,6 +4,7 @@ checks, and model-type compatibility."""
 import glob
 import math
 import os
+import re
 import sys
 
 import astropy.units as units
@@ -14,11 +15,11 @@ from casacore.tables import table  # type: ignore
 
 from submods.antenna_constraints import available_antennaconstraints, max_in_str
 from submods.facet_directions import parse_facetdirections
-from submods.ms_fixes import get_telescope_from_ms
 from submods.ms_info import check_phaseup_station, checklongbaseline
 from submods.runtime_utils import get_logger, terminal_print, which
 from submods.smearing import compute_distance_to_pointingcenter
 from submods.solints import format_solint, remove_bad_endrounding, tweak_solints
+from submods.telescopes import telescope_of
 
 # facetselfcal package directory (holds flagging_strategies/ and data/), same as datapath in main.py
 datapath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'facetselfcal')
@@ -106,7 +107,7 @@ def check_pointing_centers(mslist, args):
     return align
 
 
-def check_applyfacetbeam(mslist, imsize, pixsize, telescope, args, enlarge_safe_FoV_diameter=1.0):
+def check_applyfacetbeam(mslist, imsize, pixsize, args, enlarge_safe_FoV_diameter=1.0):
     """
     Checks whether the image field of view (FoV) for MeerKAT/GMRT data is too large to safely use the -apply-facet-beam/-apply-primary-beam option in WSClean, and enforces the --disable-primary-beam option if necessary.
 
@@ -118,8 +119,6 @@ def check_applyfacetbeam(mslist, imsize, pixsize, telescope, args, enlarge_safe_
         Image size in pixels.
     pixsize : float
         Pixel size in arcseconds.
-    telescope : str
-        Name of the telescope. Function only applies checks if this is 'MeerKAT' or 'GMRT'.
     args : dict
         Parsed facetselfcal options; ``disable_primary_beam`` is set to True in
         place if the field of view is too large.
@@ -138,13 +137,18 @@ def check_applyfacetbeam(mslist, imsize, pixsize, telescope, args, enlarge_safe_
     - Exits after the first MS that violates the safe FoV criterion.
     - The safe diameter is calculated based on the maximum frequency across all MSs in mslist.
     - The function also assumes the presence of 'compute_distance_to_pointingcenter' and 'table' utilities.
+    - The check uses the telescope of each MS (GMRT, MeerKAT, VLA, EVLA, MWA; other telescopes such as
+      LOFAR are not checked), so a run that combines telescopes checks the MSs of each.
     """
-    if telescope not in ['GMRT', 'MeerKAT', 'VLA', 'EVLA', 'MWA']:
+    checked_telescopes = ['GMRT', 'MeerKAT', 'VLA', 'EVLA', 'MWA']
+    mslist = [ms for ms in mslist if telescope_of(ms) in checked_telescopes]
+    if len(mslist) == 0:
         return
 
     # Calculate safe diameter for each MS based on its frequency characteristics
     safe_diameters = []
     for ms in mslist:
+        telescope = telescope_of(ms)
         with table(ms + "::SPECTRAL_WINDOW", ack=False) as t:
             chan_freqs = t.getcol("CHAN_FREQ")
             max_freq = chan_freqs.max()
@@ -195,6 +199,15 @@ def check_applyfacetbeam(mslist, imsize, pixsize, telescope, args, enlarge_safe_
     return
 
 
+def _includes_lofar(telescope):
+    """True if telescope (one name, or a collection of names for a mixed-telescope run) includes LOFAR."""
+    if telescope is None:
+        return False
+    if isinstance(telescope, str):
+        return telescope == 'LOFAR'
+    return 'LOFAR' in telescope
+
+
 def is_stokesdiagonal_modeltype_allowed(args, telescope):
     """
     Determine if Diagonal sisco compression is allowed for MODEL_DATA-type columns.
@@ -204,15 +217,15 @@ def is_stokesdiagonal_modeltype_allowed(args, telescope):
     args : dict
         Dictionary of arguments, including 'single_dual_speedup',
         'disable_primary_beam', and 'soltype_list'.
-    telescope : str
-        The telescope name (e.g., 'LOFAR').
+    telescope : str or collection of str
+        The telescope name (e.g., 'LOFAR'), or the names of all MSs in a mixed-telescope run.
 
     Returns
     -------
     bool
         True if Diagonal sisco compression is allowed, False otherwise.
     """
-    if telescope == 'LOFAR': 
+    if _includes_lofar(telescope):  # strictest rule if any MS is LOFAR (one model storage manager for all)
         if not args['single_dual_speedup']:
             if not args['disable_primary_beam']:
                 return False # so in this case we want to keep the primary beam polarization information    
@@ -240,15 +253,15 @@ def is_stokesi_modeltype_allowed(args, telescope):
     args : dict
         Dictionary of arguments, including 'single_dual_speedup',
         'disable_primary_beam', and 'soltype_list'.
-    telescope : str
-        The telescope name (e.g., 'LOFAR').
+    telescope : str or collection of str
+        The telescope name (e.g., 'LOFAR'), or the names of all MSs in a mixed-telescope run.
 
     Returns
     -------
     bool
         True if Stokes I compression is allowed, False otherwise.
     """
-    if telescope == 'LOFAR': 
+    if _includes_lofar(telescope):  # strictest rule if any MS is LOFAR (one model storage manager for all)
         if not args['single_dual_speedup']:
             if not args['disable_primary_beam']:
                 return False # so in this case we want to keep the primary beam polarization information    
@@ -543,6 +556,140 @@ def check_equidistant_freqs(mslist):
     return
 
 
+def h5_has_rotationmeasure(h5parm):
+    """
+    Check whether an h5parm contains a rotationmeasure soltab (in any solset).
+
+    Parameters
+    ----------
+    h5parm : str
+        Path to the h5parm.
+
+    Returns
+    -------
+    bool
+        True if a soltab named rotationmeasure* is present.
+    """
+    import tables
+    with tables.open_file(h5parm, mode='r') as H:
+        for solset in H.root._v_groups.values():
+            if any(name.startswith('rotationmeasure') for name in solset._v_groups):
+                return True
+    return False
+
+
+def check_faradayrotation_basis(args, mslist):
+    """
+    Refuse Faraday-rotation solves (faradayrotation* soltypes) and applying rotationmeasure soltabs
+    on circular data. DP3 does not check CORR_TYPE for these: the faradayrotation constraint fits and
+    imposes a rotation matrix of the linear basis (RotationConstraint::FitRotation/SetRotation), and
+    applycal of a rotationmeasure soltab applies that same rotation matrix. On circular data, where
+    Faraday rotation is a phase difference between RR and LL, the fit returns no rotation and an
+    applied rotation mixes RR and LL.
+
+    The data are circular during the solves if the input is circular and not converted with
+    --dolinear, or if the input is linear and converted with --docircular (which basicsetup also
+    switches on for the long-baseline delay calibration), so call this after basicsetup.
+
+    Parameters
+    ----------
+    args : dict
+        argparse inputs.
+    mslist : list of str
+        Measurement Sets.
+    """
+    soltypes = [s for s in args['soltype_list'] if s.startswith('faradayrotation')]
+    h5list = [h5 for key in ('preapplyH5_list', 'preapplybandpassH5_list')
+              for h5 in (args[key] or []) if h5 is not None]
+    rm_h5list = [h5 for h5 in h5list if os.path.isfile(h5) and h5_has_rotationmeasure(h5)]
+    if not soltypes and not rm_h5list:
+        return
+    for ms in mslist:
+        with table(ms + '::POLARIZATION', ack=False) as t:
+            corr_type = t.getcol('CORR_TYPE')
+        circular = (np.array_equal(np.array([[5, 6, 7, 8]]), corr_type) and not args['dolinear']) or args['docircular']
+        if circular:
+            what = []
+            if soltypes:
+                what.append('solve for ' + ', '.join(sorted(set(soltypes))))
+            if rm_h5list:
+                what.append('apply the rotationmeasure soltab in ' + ', '.join(rm_h5list))
+            terminal_print(ms + ': cannot ' + ' and '.join(what) + ' on circular data (CORR_TYPE ' + str(corr_type) +
+                           ', --docircular ' + str(args['docircular']) + ', --dolinear ' + str(args['dolinear']) + ')')
+            terminal_print('DP3 fits and applies Faraday rotation as a rotation matrix of the linear basis. Use '
+                           '--dolinear, or on circular data the RR-LL phase-difference solves (scalarphasediff, '
+                           'treemfphasediff).')
+            raise Exception(ms + ': faradayrotation solves and rotationmeasure soltabs require linear data')
+    return
+
+
+def check_mixed_telescope_options(args, telescopes):
+    """
+    Refuse options that only work for data from one telescope, when the MSs come from several.
+
+    The automated modes and some prediction modes have telescope-specific presets or beam handling
+    that cannot be applied to a combination of telescopes.
+
+    Parameters
+    ----------
+    args : dict
+        Parsed facetselfcal options.
+    telescopes : set of str
+        Telescope names of the input MSs.
+    """
+    if len(telescopes) <= 1:
+        return
+    names = ' + '.join(sorted(telescopes))
+    refused = [
+        (args['auto'], '--auto'),
+        (args['auto_directions'], '--auto-directions'),
+        (args['delaycal'], '--delaycal'),
+        (args['idg'], '--idg'),
+        (args['DDE'] and args['DDE_predict'] == 'DP3', '--DDE-predict DP3'),
+        (args['stack'], '--stack'),
+        (args['bandpass'], '--bandpass'),
+    ]
+    for used, option in refused:
+        if used:
+            msg = (option + ' cannot be used for MSs from different telescopes (' + names
+                   + '): its settings are specific to one telescope')
+            terminal_print(msg)
+            raise Exception(msg)
+
+
+def check_blcal_options(args, telescopes):
+    """
+    Check the options of the baseline-based calibration (--blcal-cycles and related).
+
+    Parameters
+    ----------
+    args : dict
+        Parsed facetselfcal options.
+    telescopes : set of str
+        Telescope names of the input MSs.
+    """
+    if args['blcal_cycles'] is None:
+        return
+    def fail(msg):
+        terminal_print(msg)
+        raise Exception(msg)
+    if not all(isinstance(c, int) and not isinstance(c, bool) and c >= 0 for c in args['blcal_cycles']):
+        fail('--blcal-cycles must be a list of selfcal cycle numbers (integers >= 0)')
+    for option, used in [('--DDE', args['DDE']), ('--idg', args['idg']), ('--stack', args['stack'])]:
+        if used:
+            fail('--blcal-cycles cannot be used with ' + option + ' (the baseline-based calibration needs a single DI model column)')
+    if args['blcal_telescopes'] is not None:
+        if not any(tel in telescopes for tel in args['blcal_telescopes']):
+            fail('--blcal-telescopes ' + str(args['blcal_telescopes']) + ' matches none of the telescopes of the MSs: '
+                 + ', '.join(sorted(telescopes)))
+    if args['blcal_nchan'] < 0:
+        fail('--blcal-nchan must be >= 0')
+    if args['blcal_minsnr'] < 0 or args['blcal_maxdev'] <= 0:
+        fail('--blcal-minsnr must be >= 0 and --blcal-maxdev > 0')
+    if args['blcal_solint'] is not None and not re.fullmatch(r'\d+|\d+(\.\d+)?(s|sec|m|min|h|hr)', str(args['blcal_solint'])):
+        fail("--blcal-solint must be a number of time slots or a time like '30min', '120s' or '2h'")
+
+
 def inputchecker(args, mslist):
     """
     Check input validity.
@@ -554,6 +701,11 @@ def inputchecker(args, mslist):
     mslist : str list
         list of ms
     """
+
+    # telescopes of the input MSs (args['telescope'] has one name per input MS)
+    telescopes = set([args['telescope']] if isinstance(args['telescope'], str) else args['telescope'])
+    check_mixed_telescope_options(args, telescopes)
+    check_blcal_options(args, telescopes)
 
     if args['remove_outside_center_box'] is not None:
          # carry out checks to see if args['remove_outside_center_box'] is correctly set by user
@@ -596,12 +748,12 @@ def inputchecker(args, mslist):
     # check that the MS has only one FIELD_ID if split_fieldname is not set, otherwise the splitting will be done on the fieldname column
     if args['split_fieldname'] is None:
         for ms in mslist:
-            with table(ms, readonly=True) as t:
+            with table(ms, readonly=True, ack=False) as t:
                 if len(np.unique(t.getcol('FIELD_ID'))) != 1:
                     terminal_print(f"Measurement Set {ms} is already not a single source MS, it contains multiple FIELD_IDs. Please split the MS into single source MSs before running facetselfcal.")
                     raise Exception(f"Measurement Set {ms} is already not a single source MS, it contains multiple FIELD_IDs. Please split the MS into single source MSs before running facetselfcal.")
  
-    if args['telescope'] == 'Meerkat' or args['telescope'] == 'GMRT':
+    if telescopes & {'MeerKAT', 'GMRT'}:
         # prevent users from doing a bandpass correction for a DDE solve
         if (args['preapplybandpassH5_list'][0]) is not None and args['DDE']:
             terminal_print('Pre-applying bandpass correction is not allowed for DDE solve')
@@ -703,7 +855,7 @@ def inputchecker(args, mslist):
        terminal_print('--auto_directions can only be used in combination with --DDE')
        raise Exception('--auto_directions can only be used in combination with --DDE')
 
-    if args['auto_directions'] and args['telescope'] not in ['LOFA','MeeKAT']:
+    if args['auto_directions'] and not (len(telescopes) == 1 and telescopes <= {'LOFAR', 'MeerKAT'}):
        terminal_print('--auto_directions can only be used with LOFAR and MeerKAT observations for now')
        raise Exception('--auto_directions can only be used with LOFAR  and MeerKAT observations for now')
 
@@ -731,7 +883,7 @@ def inputchecker(args, mslist):
             raise Exception('--bandpass cannot be used with --stack or --DDE')
         if args['skymodel'] is None and args['skymodelpointsource'] is None \
             and args['wscleanskymodel'] is None and not args['skymodelsetjy'] \
-            and args['telescope'] != 'MeerKAT':
+            and telescopes != {'MeerKAT'}:
             terminal_print('skymodel, skymodelpointsource, skymodelsetjy, or wscleanskymodel needs to be set')
             raise Exception('skymodel, skymodelpointsource, or wscleanskymodel needs to be set')
 
@@ -854,6 +1006,24 @@ def inputchecker(args, mslist):
         if args['uvminim'] <= 0.0:
             terminal_print('--uvminim needs to be positive and non-zero')
             raise Exception('--uvminim needs to be positive')
+    if args['tapergaussian'] is not None:
+        if args['tapergaussian'] <= 0.0:
+            terminal_print('--tapergaussian needs to be positive')
+            raise Exception('--tapergaussian needs to be positive')
+        if args['imager'] == 'DDFACET':
+            terminal_print('--tapergaussian is only implemented for WSClean, not for DDFacet')
+            raise Exception('--tapergaussian is only implemented for WSClean')
+    if args['tapertukey'] is not None:
+        if args['tapertukey'] <= 0.0:
+            terminal_print('--tapertukey needs to be positive')
+            raise Exception('--tapertukey needs to be positive')
+        if args['uvmaxim'] is None:
+            terminal_print('--tapertukey needs --uvmaxim (the taper rolls off the weights up to --uvmaxim)')
+            raise Exception('--tapertukey needs --uvmaxim')
+        if type(args['uvmaxim']) is not list and args['uvminim'] is not None and type(args['uvminim']) is not list:
+            if args['uvmaxim'] - args['tapertukey'] <= args['uvminim']:
+                terminal_print('--tapertukey is too wide: --uvmaxim minus --tapertukey needs to be larger than --uvminim')
+                raise Exception('--tapertukey is too wide: --uvmaxim minus --tapertukey needs to be larger than --uvminim')
     if args['uvmaxim'] is not None and args['uvminim'] is not None and type(args['uvmaxim']) is not list and type(
             args['uvminim']) is not list:
         if args['uvmaxim'] <= args['uvminim']:
@@ -893,7 +1063,7 @@ def inputchecker(args, mslist):
         terminal_print('beamcor is not auto, yes, or no')
         raise Exception('Invalid input, beamcor is not auto, yes, or no')
 
-    if args['beamcor'] != 'auto' and args['telescope'] != 'LOFAR':
+    if args['beamcor'] != 'auto' and 'LOFAR' not in telescopes:  # (only applied to the LOFAR MSs)
         terminal_print('beamcor is a LOFAR specific option, keep this at "auto"')
         raise Exception('beamcor is a LOFAR specific option, keep this at "auto"')
 
@@ -930,23 +1100,40 @@ def inputchecker(args, mslist):
             raise Exception(
                 'Invalid input, resetsols can only be core, superterp, corebutsuperterp, coreandfirstremotes, remote, alldutch, international, distantremote, alldutchandclosegerman, or all')
 
-    # most antenna constraint types are LOFAR station groups, check what exists for this telescope
-    available = available_antennaconstraints(args['telescope'])
+    # most antenna constraint types are LOFAR station groups, check what exists for the telescopes.
+    # With several telescopes a group only needs to exist for one of them; it is skipped for the MSs
+    # of the others (see runDPPPbase).
     for ctype in args['antennaconstraint_list'] + args['resetsols_list']:
-        if ctype is not None and ctype not in available:
+        if ctype is None:
+            continue
+        has_ctype = [tel for tel in sorted(telescopes) if ctype in available_antennaconstraints(tel)]
+        if len(has_ctype) == 0:
+            available = sorted({c for tel in telescopes for c in available_antennaconstraints(tel)})
             msg = ("antennaconstraint/resetsols '" + ctype + "' is not defined for telescope " +
-                   args['telescope'] + ', available: ' + ', '.join(available))
+                   ', '.join(sorted(telescopes)) + ', available: ' + ', '.join(available))
             terminal_print(msg)
             raise Exception(msg)
+        if len(has_ctype) < len(telescopes):
+            terminal_print("antennaconstraint/resetsols '" + ctype + "' is only defined for " + ', '.join(has_ctype)
+                           + ', it is not used for the MSs of the other telescopes')
 
-    # the reference antenna must be in every MS (ST001 is created later with --phaseupstations)
-    if args['refant'] is not None and not (args['refant'] == 'ST001' and args['phaseupstations'] is not None):
+    # the reference antenna must be in every MS (ST001 is created later with --phaseupstations).
+    # With MSs from several telescopes --refant takes one name per telescope (comma-separated),
+    # and every MS must contain one of them.
+    if args['refant'] is not None:
+        refants = [name.strip() for name in args['refant'].split(',') if name.strip()]
         for ms in mslist:
+            if 'ST001' in refants and args['phaseupstations'] is not None and telescope_of(ms) == 'LOFAR':
+                continue
             with table(ms + '::ANTENNA', ack=False) as t:
-                if args['refant'] not in t.getcol('NAME'):
-                    msg = '--refant ' + args['refant'] + ' is not an antenna of ' + ms
-                    terminal_print(msg)
-                    raise Exception(msg)
+                names = list(t.getcol('NAME'))
+            present = [name for name in refants if name in names]
+            if len(present) != 1:
+                msg = ('--refant ' + args['refant'] + (' is not an antenna of ' if len(present) == 0 else
+                       ' gives more than one antenna of ') + ms
+                       + (' (give one reference antenna per telescope, comma-separated)' if len(telescopes) > 1 else ''))
+                terminal_print(msg)
+                raise Exception(msg)
 
     for soltype in args['soltype_list']:
         if soltype not in ['complexgain', 'scalarcomplexgain', 'scalaramplitude',
@@ -1200,10 +1387,10 @@ def inputchecker(args, mslist):
 
     # Check boxfile and imsize settings
     if args['boxfile'] is None and args['imsize'] is None:
-        if not checklongbaseline(sorted(args['ms'])[0]) and args['telescope'] == 'LOFAR':
+        if not checklongbaseline(sorted(args['ms'])[0]) and telescopes == {'LOFAR'}:
             terminal_print('Incomplete input detected, either boxfile or imsize is required')
             raise Exception('Incomplete input detected, either boxfile or imsize is required')
-        elif args['telescope'] == 'MeerKAT':
+        elif telescopes == {'MeerKAT'}:
             if not args['auto'] or args['DDE']:  # auto will set imsize for MeerKAT
                 terminal_print('Incomplete input detected, either boxfile or imsize is required')
                 raise Exception('Incomplete input detected, either boxfile or imsize is required')
@@ -1234,6 +1421,14 @@ def inputchecker(args, mslist):
         terminal_print('Wrong input detected for option --soltypecycles-list should always start with 0')
         raise Exception('Wrong input detected for option --soltypecycles-list should always start with 0')
 
+    for entry in args['soltypecycles_list']:
+        if isinstance(entry, dict):
+            unknown = sorted(set(entry) - telescopes)
+            if unknown or not all(isinstance(v, int) for v in entry.values()):
+                msg = ('A --soltypecycles-list dict maps telescope names of the MSs (' + ', '.join(sorted(telescopes))
+                       + ') to a start cycle, got ' + str(entry))
+                terminal_print(msg)
+                raise Exception(msg)
     if len(args['soltypecycles_list']) != len(args['soltype_list']):
         terminal_print('Wrong input detected, length soltypecycles-list does not match that of soltype-list')
         raise Exception('Wrong input detected, length soltypecycles-list does not match that of soltype-list')
@@ -1433,7 +1628,7 @@ def check_valid_ms(mslist):
 
     # check that each MS contains only one spectral window (SPW)
     for ms in mslist:
-        with table(ms + '::SPECTRAL_WINDOW', readonly=True) as t:
+        with table(ms + '::SPECTRAL_WINDOW', readonly=True, ack=False) as t:
             n_spws = t.nrows()
         if n_spws != 1:
             terminal_print('Measurement Set:', ms, ' contains more than one spectral window (SPW)')
@@ -1449,7 +1644,7 @@ def check_valid_ms(mslist):
     for ms in mslist:
         t = table(ms, ack=False)
         times = np.unique(t.getcol('TIME'))
-        telescope = get_telescope_from_ms(mslist[0])
+        telescope = telescope_of(ms)
         if (len(times) <= 20) and not (telescope == 'MWA'): # MWA has many very short scans
             terminal_print('---------------------------------------------------------------------------')
             terminal_print('ERROR, ', ms, 'not enough timesteps in ms/too short observation')

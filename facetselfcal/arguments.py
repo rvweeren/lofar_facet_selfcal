@@ -106,9 +106,9 @@ def option_parser():
                                default=0.75,
                                type=float)
     imagingparser.add_argument('--nmiter',
-                               help='Deconvolution --nmiter setting for WSCLean, see WSClean documentation. The default value is 12',
+                               help='Deconvolution --nmiter setting for WSCLean, see WSClean documentation. A list gives one value per self-calibration cycle, the last value is used for the later cycles (e.g. [5,5,12] limits the first two cycles to 5 major iterations). The default value is 12',
                                default=12,
-                               type=int)    
+                               type=int_or_intlist)    
     add_bool_arg(imagingparser, 'multiscale', help='Use multiscale deconvolution (see WSClean documentation; default=None).', default=None)                           
     imagingparser.add_argument('--multiscalescalebias',
                                help='Multiscalescale bias scale parameter for WSClean (see WSClean documentation). This is by default 0.75.',
@@ -138,6 +138,10 @@ def option_parser():
                                help="Use fit-spectral-pol in WSClean (see WSClean documentation) with this order. The default is 3. fit-spectral-pol can be disabled by setting it to a value less than 1",
                                default='auto',
                                type=str_or_int)
+    imagingparser.add_argument('--auto-ddpsfgrid',
+                               help="Choose the WSClean -dd-psf-grid size automatically after each imaging cycle (off by default; --ddpsfgrid set by hand wins). A source at a distance dtheta from the centre of its PSF cell sees the uv coordinates shifted by w*dtheta (non-coplanar baselines), so its PSF differs by about 2 pi w_rms dtheta beam within the main lobe. The allowed error near the brightest source is (5/DR)^(1/3), because PSF errors are corrected iteratively (CLEAN major cycles). The grid size is the smallest odd number (at most 7) of cells of that size over the image; the parallel deconvolution sub-images are set to at most imsize/N, because WSClean only uses direction-dependent PSFs with parallel deconvolution.",
+                               default=False,
+                               action=argparse.BooleanOptionalAction)
     imagingparser.add_argument('--ddpsfgrid',
                                help="Value for option -dd-psf-grid with WSClean (integer, by default this value is None and the option is not used",
                                type=int, default=None)
@@ -148,6 +152,18 @@ def option_parser():
                                help="Value for taper-inner-tukey in WSClean (see WSClean documentation), useful to suppress negative bowls when using --uvminim. Typically values between 1.5 and 4.0 give good results. The default is None.",
                                default=None,
                                type=float)
+    imagingparser.add_argument('--tapertukey',
+                               help="Width in lambda of an outer Tukey taper of the imaging weights (WSClean -taper-tukey). The weights roll off smoothly over this range up to --uvmaxim, which must also be set. Use it to avoid the sharp edge of the uv coverage, where the few outermost visibilities get a large weight with Briggs weighting and the clean model of a bright compact source is least accurate. For example --uvmaxim=45000 --tapertukey=15000 for MeerKAT L-band. The default is None.",
+                               default=None,
+                               type=float)
+    imagingparser.add_argument('--tapergaussian',
+                               help="FWHM in arcsec of a Gaussian taper of the imaging weights (WSClean -taper-gaussian). This lowers the weight of the long baselines and gives a lower resolution image with more sensitivity to extended emission. Increase --pixelscale to match the larger restoring beam (about 4 pixels per beam). Only used with WSClean. The default is None.",
+                               default=None,
+                               type=float)
+    imagingparser.add_argument('--auto-tapertukey',
+                               help="Switch on an outer Tukey taper of the imaging weights automatically (see --tapertukey). After each imaging cycle the dynamic range of the MFS image (peak over clipped rms) is checked. Once it is at least 50000 and the Briggs robust value is 0 or lower (or uniform), the following images use --uvmaxim set to the longest uv distance in the data and --tapertukey set to a third of that, and --niter is doubled. Once switched on, the taper stays on. It is not used if --uvmaxim or --tapertukey is set by hand, with --stack, or with DDFacet. The default is off.",
+                               default=False,
+                               action=argparse.BooleanOptionalAction)
     imagingparser.add_argument('--makeimage-ILTlowres-HBA',
                                help='Make 1.2 arcsec tapered image as quality check of ILT 1 arcsec imaging.',
                                action='store_true')
@@ -213,9 +229,33 @@ def option_parser():
                                    default=None,
                                    type=str)
     calibrationparser.add_argument('--refant',
-                                   help="Reference antenna for all solves (phase referencing, resetting solutions and plots), for example 'ea10'. By default one reference antenna is chosen at the start of the run, the least flagged of the preferred (core) antennas present in all MSs (ST001 if --phaseupstations is set), and used for the whole run. A fixed reference antenna keeps the cross-hand (R-L, X-Y) phase consistent between solves, which matters for polarisation calibration. The default is None.",
+                                   help="Reference antenna for all solves (phase referencing, resetting solutions and plots), for example 'ea10'. By default one reference antenna is chosen at the start of the run, the least flagged of the preferred (core) antennas present in all MSs (ST001 if --phaseupstations is set), and used for the whole run. A fixed reference antenna keeps the cross-hand (R-L, X-Y) phase consistent between solves, which matters for polarisation calibration. For MSs from different telescopes give one antenna per telescope, comma-separated (for example 'm000,ea10'); by default one is chosen per telescope. The default is None.",
                                    default=None,
                                    type=str)
+    calibrationparser.add_argument('--blcal-cycles',
+                                   help="Selfcal cycles after whose (antenna-based) calibration a baseline-based calibration is done, for example [6]. Closure errors that antenna gains cannot absorb (for example from bandpass mismatches in old single-channel VLA continuum data) are solved as one complex factor per baseline and parallel hand (XX/YY or RR/LL; the cross hands get the geometric mean) against the model of that cycle, and divided into DATA and CORRECTED_DATA of the working MSs, so all later cycles use the corrected data. Only use it with a good model, it can absorb model errors. Not for --DDE, --idg or --stack. The solutions are in blcal/, the plots in solution_plots_<ms>/. The default is None (no baseline-based calibration).",
+                                   default=None,
+                                   type=arg_as_list)
+    calibrationparser.add_argument('--blcal-telescopes',
+                                   help="Only do the baseline-based calibration (--blcal-cycles) for the MSs of these telescopes (TELESCOPE_NAME), for example ['VLA']. The default is None (all MSs).",
+                                   default=None,
+                                   type=arg_as_list)
+    calibrationparser.add_argument('--blcal-solint',
+                                   help="Solution interval of the baseline-based calibration, as a number of time slots or a time like '30min' or '2h'. The default is None (one solution for the whole observation, like AIPS BLCAL).",
+                                   default=None,
+                                   type=str)
+    calibrationparser.add_argument('--blcal-nchan',
+                                   help="Channels per baseline-based solution. The default is 0 (one solution for all channels).",
+                                   default=0,
+                                   type=int)
+    calibrationparser.add_argument('--blcal-minsnr',
+                                   help="Baseline-based factors B with |B-1| below this many times their formal error are not applied (set to 1). The default is 3.0.",
+                                   default=3.0,
+                                   type=float)
+    calibrationparser.add_argument('--blcal-maxdev',
+                                   help="Baseline-based factors with |B-1| larger than this are not applied (likely bad data or a model error rather than a closure error). The default is 0.1.",
+                                   default=0.1,
+                                   type=float)
     calibrationparser.add_argument('--phaseshiftbox',
                                    help="DS9 region file to shift the phasecenter to. This is by default None.",
                                    default=None,
@@ -229,7 +269,7 @@ def option_parser():
                                    type=float,
                                    default=None)                                   
     calibrationparser.add_argument('-u', '--uvmin',
-                                   help="Inner uv-cut for calibration in lambda. The default is 80 for LBA and 350 for HBA.",
+                                   help="Inner uv-cut for calibration in lambda. The default is 80 for LBA, 350 for HBA, and 250 for MWA.",
                                    type=floatlist_or_float,
                                    default=None)
     calibrationparser.add_argument('--uvmax',
@@ -240,7 +280,7 @@ def option_parser():
                                    help='Inner uv-cut for scalarphasediff calibration in lambda. The default is equal to input for --uvmin.',
                                    type=float,
                                    default=None)
-    add_bool_arg(calibrationparser, 'update-uvmin', help='Update uvmin automatically for the Dutch array.', default=None)
+    add_bool_arg(calibrationparser, 'update-uvmin', help='Update uvmin automatically when extended emission is found (Dutch LOFAR array and MWA).', default=None)
     add_bool_arg(calibrationparser, 'update-multiscale', help='Switch to multiscale automatically if large islands of emission are present.', default=None)
     calibrationparser.add_argument("--soltype-list",
                                    type=arg_as_list,
@@ -374,6 +414,10 @@ def option_parser():
     calibrationparser.add_argument('--early-stopping',
                                    help='Automatic decision to perform early stopping during self-calibration based on image quality and solution stability. Currently only optimized for LOFAR HBA data for VLBI imaging.',
                                    action='store_true')
+    calibrationparser.add_argument('--stop-noise-increase-factor',
+                                   help='Stop self-calibration when the noise of the image of a selfcal cycle is more than this factor above the lowest noise of the earlier cycles. Such an increase means the calibration diverged. Selfcal then stops before the solve (and any flagging) of that cycle, so the run can be restarted with --start from the best cycle. Set to 0 to switch the check off. The default is 5.0.',
+                                   type=float,
+                                   default=5.0)
     calibrationparser.add_argument('--nn-model-cache',
                                    help='Cache storage for Neural Network model for early stopping. This only works if --early-stopping.',
                                    default='.cache/cortexchange')
@@ -645,7 +689,7 @@ def option_parser():
                                   type=arg_as_str_or_list,
                                   default=None)    
     startmodelparser.add_argument('--skymodelsetjy',
-                                  help='3C48, 3C147, 3C138, 3C286 skymodels following the Perley-Butler 2017 flux density scale, based on the VLA clean-component model images that CASA setjy uses. By default the model is predicted with DP3 (see --setjy-method). For 3C286 polarization information is also included using the model from B. Hugo & R. Perley 2024. Skymodel is automatically selected based on the pointing center of the MS',
+                                  help='3C48, 3C147, 3C138, 3C286 skymodels following the Perley-Butler 2017 flux density scale, based on the VLA clean-component model images that CASA setjy uses. By default the model is predicted with DP3 (see --setjy-method). For 3C286 and 3C138 polarization information is also included: the polarization angle from Perley et al. 2026 (ApJS 283, 82), the polarization fraction of 3C286 from Hugo & Perley 2024 and of 3C138 from Perley et al. 2026. Skymodel is automatically selected based on the pointing center of the MS',
                                   action='store_true')
     startmodelparser.add_argument('--setjy-method',
                                   help='How --skymodelsetjy computes the model: "dp3" predicts the skymodels shipped in facetselfcal/data/setjy with DP3 (no CASA needed), "casa" runs CASA setjy. The default is "dp3".',
@@ -774,6 +818,115 @@ def option_parser():
                         action='store_true')
     parser.add_argument('--bandpass-stop',
                         help='Selfcalcycle after which to stop if --bandpass is used (default 0)', default=0, type=int)
+
+    meerkatcalparser = parser.add_argument_group(
+        "-------------------------MeerKAT calibrator-based calibration (1GC, --meerkatcal) Settings-------------------------")
+    meerkatcalparser.add_argument('--meerkatcal',
+                                  help='Calibrate MeerKAT data from the archive MS (all fields) without CASA: feed swap, flagging, delay (treeMF), bandpass, leakage and polarisation angle (cross-hand phase) calibration, transfer to the target(s), parallactic angle and (optionally) ionospheric Faraday rotation correction. Writes calibrated target MSs (sky frame) for a facetselfcal run. Give one archive MS with all fields (the field roles can be overridden with --meerkatcal-bpcal, --meerkatcal-phasecal, --meerkatcal-polcal and --meerkatcal-targets), or already split MSs: the calibrator MSs with --meerkatcal-bpcal-ms, --meerkatcal-phasecal-ms and --meerkatcal-polcal-ms and the target MSs as input.',
+                                  action='store_true')
+    meerkatcalparser.add_argument('--meerkatcal-level', default='auto', type=str,
+                                  choices=['auto', 'standard', 'leakage', 'full'],
+                                  help="Calibration level: 'standard' (delay, bandpass, gains), 'leakage' (also leakage from the unpolarised bandpass calibrator), 'full' (also the polarisation angle) or 'auto' (the highest level the observed calibrators allow). The default is 'auto'.")
+    meerkatcalparser.add_argument('--meerkatcal-angle', default='auto', type=str,
+                                  choices=['auto', 'celestial', 'diode', 'nullv'],
+                                  help="Source of the polarisation angle (cross-hand phase) calibration for level 'full': 'celestial' (3C286 or 3C138), 'diode' (noise diode autocorrelations), 'nullv' (Stokes V = 0 on a polarised field), or 'auto' (celestial if a polarisation calibrator was observed, else diode if noise diode data is found). The default is 'auto'.")
+    meerkatcalparser.add_argument('--meerkatcal-bpcal', default=None, type=arg_as_list,
+                                  help='Bandpass/flux calibrator field name(s), for example "[\'J1939-6342\']". By default from the scan intents and calibrator positions.')
+    meerkatcalparser.add_argument('--meerkatcal-phasecal', default=None, type=arg_as_list,
+                                  help='Phase (gain) calibrator field name(s). By default from the scan intents.')
+    meerkatcalparser.add_argument('--meerkatcal-polcal', default=None, type=arg_as_list,
+                                  help='Polarisation calibrator field name(s) (3C286 or 3C138). By default from the scan intents and calibrator positions.')
+    meerkatcalparser.add_argument('--meerkatcal-targets', default=None, type=arg_as_list,
+                                  help='Target field name(s). By default all fields with a TARGET scan intent.')
+    meerkatcalparser.add_argument('--meerkatcal-bpcal-ms', default=None, type=arg_as_list,
+                                  help='For already split input instead of the archive MS: the MS(s) with the bandpass/flux calibrator (J1939-6342 or J0408-6545), for example "[\'J0408-6545.ms\']". Every field in these MSs is used as a bandpass calibrator. The target MSs are given as input, the other calibrators with --meerkatcal-phasecal-ms and --meerkatcal-polcal-ms. A field may be spread over several MSs (for example one MS per scan) and an MS may contain several fields of the same role. All MSs must be raw data (feeds not swapped) of one observation, with the same channels and antennas. Required for split input; the field name options (--meerkatcal-bpcal etc.) cannot be used with it.')
+    meerkatcalparser.add_argument('--meerkatcal-phasecal-ms', default=None, type=arg_as_list,
+                                  help='For already split input: the MS(s) with the phase (gain) calibrator(s), see --meerkatcal-bpcal-ms.')
+    meerkatcalparser.add_argument('--meerkatcal-polcal-ms', default=None, type=arg_as_list,
+                                  help='For already split input: the MS(s) with the polarisation calibrator (3C286 or 3C138, matched by position), see --meerkatcal-bpcal-ms.')
+    add_bool_arg(meerkatcalparser, 'meerkatcal-ionorm', default=False,
+                 help='Correct ionospheric Faraday rotation (polarisation angle calibrator and targets) with spinifex, or with --meerkatcal-rmfile (giving that file switches the correction on). Off by default: in tests on MeerKAT data the time variation of the spinifex (IONEX map) RM over a night was not supported by the data and made the 3C286 polarisation angles worse. The default is False.')
+    meerkatcalparser.add_argument('--meerkatcal-rmfile', default=None, type=str,
+                                  help='Text file with the ionospheric rotation measure to use instead of spinifex (for example from ALBUS): columns MJD seconds, RM (rad/m^2), optionally a third column with the field name.')
+    meerkatcalparser.add_argument('--meerkatcal-timeres', default=8., type=float,
+                                  help='Time resolution (s) of the calibrated target MSs: the target scans are averaged in time by the integer factor closest to this resolution divided by the dump time (at least 1, so 8 s dumps are kept and 2 s dumps are averaged by 4). 0 keeps the native resolution. The default is 8.')
+    meerkatcalparser.add_argument('--meerkatcal-nchan', default=2048, type=int,
+                                  help='Maximum number of channels of the calibrated target MSs: the target scans are averaged in frequency by the smallest integer factor that gives at most this many channels (e.g. 32k and 4k to 2k). 0 keeps the native resolution. The default is 2048.')
+    add_bool_arg(meerkatcalparser, 'meerkatcal-target-exactweights', default=False,
+                 help='Keep the weights of the calibrated target MSs exact (uncompressed, separate per correlation). By default the target data and weights are Dysco compressed as facetselfcal writes its MSs, which stores one weight for all correlations and makes the MSs about half the size. The calibrator MSs always keep exact weights (the polarisation solves need them). The default is False.')
+    add_bool_arg(meerkatcalparser, 'meerkatcal-target-concat', default=True,
+                 help='Concatenate the calibrated scans of each target in time into one MS, targets/<target>.cal.ms (the per-scan MSs are removed). The MS has time gaps where other fields were observed; facetselfcal splits it at those gaps itself (see --timesplitbefore). With --no-meerkatcal-target-concat one MS per target scan is written instead, targets/<target>.scanNNN.cal.ms. A restart of a finished run in the same directory concatenates the per-scan MSs it wrote. The default is True.')
+    add_bool_arg(meerkatcalparser, 'meerkatcal-weightgain', default=False,
+                 help='WARNING: normally not to be used. Divide out a time-variable gain that is the same for all antennas, channels and polarisations, measured per dump from the archive weights (WEIGHT_SPECTRUM, which follows the raw system gain): G(t) = sqrt(w_ref / w(t)), applied to the data (divided by G) and the weights (multiplied by G^2) of all calibrator and target scans before any calibration, with w(t) the median weight of a dump after dividing out the channel shape of the weights and w_ref a reference level for the whole observation (so the flux scale still comes from the bandpass calibrator). Only for data with an array-wide gain problem, i.e. target amplitudes that jump or ramp by the same factor on all baselines within and between scans, which the per-scan calibrator solutions cannot follow. In normal data the weights also follow the system temperature (elevation, a bright calibrator in the beam), so the correction then adds gain errors of a few percent, different for calibrators and targets. It must be given from the start of a run (the prepare stage). The default is False.')
+    meerkatcalparser.add_argument('--meerkatcal-calnchan', default=4096, type=int,
+                                  help='Maximum number of channels of the calibrator scans: after flagging at the native resolution, the scans are averaged in frequency by the smallest integer factor that gives at most this many channels (e.g. 32k to 4k or 2k). 0 keeps the native resolution. The default is 4096.')
+    meerkatcalparser.add_argument('--meerkatcal-rfimask', default='sdp', type=str, choices=['sdp', 'caracal', 'none'],
+                                  help="Static RFI mask flagged before AOFlagger on baselines shorter than 1 km (not on autocorrelations): 'sdp' (the MeerKAT SDP pipeline static mask: GSM 935-960 MHz, GNSS 1146-1301 MHz, 1519-1608 MHz), 'caracal' (the more aggressive caracal L-band mask, about 40%% of L-band on those baselines, adding the aviation lines at 1030-1141 MHz, 1462-1492 MHz and Iridium) or 'none'. The band edges and the band-specific ranges are flagged on all baselines regardless. The default is 'sdp'.")
+    meerkatcalparser.add_argument('--meerkatcal-flagcycles', default=2, type=int,
+                                  help='Number of solve and flag cycles on the calibrators (the bandpass calibrator delays are solved in the first cycle only). The default is 2.')
+    meerkatcalparser.add_argument('--meerkatcal-edgefraction', default=0.05, type=float,
+                                  help='Fraction of the band flagged at each edge. The default is 0.05.')
+    meerkatcalparser.add_argument('--meerkatcal-leakage-bandwidth', default=0., type=float,
+                                  help='Bandwidth (MHz) per leakage (D) solution, rounded to whole channels. 0 gives one solution per channel. The default is 0.')
+    meerkatcalparser.add_argument('--meerkatcal-xf-bandwidth', default=10., type=float,
+                                  help="Bandwidth (MHz) per cross-hand phase (Xf) solution, rounded to whole channels. The solutions are interpolated linearly in frequency when applied. 0 gives one solution per channel. The default is 10.")
+    meerkatcalparser.add_argument('--meerkatcal-xf-minfrac', default=None, type=float,
+                                  help='Minimum rms fraction of the model polarisation of the polarisation calibrator in the feed-frame cross-hands (|U|/P, all scans together) for a cross-hand phase solution. Below it the model angle is so close to a zero of the feed-frame Stokes U that a model angle or ionospheric RM error flips the solution by 180 degrees (90 degrees in the polarisation angle), however bright the calibrator, so those solutions are flagged (see --meerkatcal-xf-interpolate). By default it depends on frequency: sin(2 delta) with delta = 1 deg + 0.5 rad/m^2 lambda^2 (a model error plus an ionospheric RM error), e.g. 0.25 at 650 MHz, 0.14 at 925 MHz, 0.08 at 1.4 GHz, 0.05 at 2.5 GHz. A value gives a fixed fraction at all frequencies. The default is None (frequency dependent).')
+    meerkatcalparser.add_argument('--meerkatcal-diode-times', default=None, type=str,
+                                  help="Noise diode-on time ranges for the diode polarisation angle calibration (--meerkatcal-angle diode), instead of finding them in the autocorrelations of the calibrator scans: comma-separated 'start~end' in UTC (YYYY/MM/DD/HH:MM:SS, as CASA, or ISO YYYY-MM-DDTHH:MM:SS) or in MS TIME (MJD seconds), for all antennas. The time ranges can be read from the archive metadata with katdal (sensor <antenna>_dig_<band>_band_noise_diode). By default the diode-on dumps are found automatically.")
+    meerkatcalparser.add_argument('--meerkatcal-diode-minjump', default=0.01, type=float,
+                                  help='Minimum increase of the autocorrelation coherence |XY|/sqrt(XX YY) (median over the channels) of a dump above the diode-off level of its antenna for the automatic noise diode detection. The default is 0.01.')
+    add_bool_arg(meerkatcalparser, 'meerkatcal-diode-skyspline', default=True,
+                 help='Correct the noise diode cross-hand phase to the sky with the per-band diode-to-sky spline of the MeerKAT SDP calibration pipeline (katsdpcal bcross_sky). Without it the cross-hand phase is that of the diode signal path. The default is True.')
+    add_bool_arg(meerkatcalparser, 'meerkatcal-xf-interpolate', default=True,
+                 help='Replace flagged cross-hand phase solutions (not constrained by the model, or outliers from the smooth frequency dependence) by a linear interpolation in frequency of the good solutions on both sides, instead of flagging the data there. The default is True.')
+    add_bool_arg(meerkatcalparser, 'meerkatcal-phasecal-selfcal', default=True,
+                 help='Build the phase calibrator model with a short facetselfcal DI run. If False a point source at the phase centre is used. The default is True.')
+    meerkatcalparser.add_argument('--meerkatcal-phasecal-nchan', default=1024, type=int,
+                                  help='Frequency resolution of the data imaged by the facetselfcal run that builds the phase calibrator model (--meerkatcal-phasecal-selfcal), as a number of channels over the full nominal band (UHF 544 MHz, L 856 MHz, S 875 MHz): the scans are averaged in frequency to about that channel width, e.g. 4x for 4k data and 2x for the 2k archive product with 1024, also when the archive trimmed the band edges (a Stokes I model; a few times faster imaging than at 4k channels, with small bandwidth smearing). The gain solves use the scans at the calibrator resolution (--meerkatcal-calnchan). 0 keeps that resolution. The default is 1024.')
+    meerkatcalparser.add_argument('--meerkatcal-stopafter', default=None, type=str,
+                                  choices=['discover', 'prepare', 'bandpass', 'leakage', 'phasecal', 'polangle', 'polcheck', 'targets'],
+                                  help="Stop after this stage: 'discover', 'prepare', 'bandpass', 'leakage', 'phasecal', 'polangle', 'polcheck' or 'targets'. Finished stages are skipped when the run is restarted in the same directory.")
+
+    vlacalparser = parser.add_argument_group(
+        "-------------------------Historical VLA calibrator-based calibration (1GC, --vlacal) Settings-------------------------")
+    vlacalparser.add_argument('--vlacal',
+                              help='Calibrate historical (pre-2010, VA antennas) VLA data without CASA, from the MS that CASA importvla makes of the archive files (all fields and spectral windows): quack, flagging, VLA gain curve, flux scale and bandpass (Perley-Butler 2017), phase calibrator gains, transfer to the target(s) and parallactic angle correction; optionally (--vlacal-level) leakage with the calibrator polarisation (D+QU) and the polarisation angle (R-L phase) on 3C286/3C138. Writes one calibrated MS (sky frame, no Dysco compression) per target and spectral window for a facetselfcal run. L, C and X band.',
+                              action='store_true')
+    vlacalparser.add_argument('--vlacal-level', default='none', type=str, choices=['none', 'auto', 'leakage', 'full'],
+                              help="Calibration level: 'none' (gains and flux scale only, no polarisation calibration), 'leakage' (also the leakage), 'full' (also the polarisation angle) or 'auto' (the highest level the observed calibrators allow). The default is 'none': polarisation calibration only when asked for, even if suitable calibrators were observed.")
+    vlacalparser.add_argument('--vlacal-band', default=None, type=str, choices=['L', 'C', 'X'],
+                              help='Band to calibrate. Needed for band-switching observations (spectral windows in more than one band): run each band in its own directory. By default the only band in the MS.')
+    vlacalparser.add_argument('--vlacal-fluxcal', default=None, type=arg_as_list,
+                              help='Flux density (and bandpass) calibrator field name(s), for example "[\'0137+331\']". By default the fields at the position of 3C48, 3C138, 3C147 or 3C286.')
+    vlacalparser.add_argument('--vlacal-phasecal', default=None, type=arg_as_list,
+                              help='Phase (gain) calibrator field name(s). By default all other fields with a VLA calibrator code (FIELD CODE not blank). Each target gets the phase calibrator nearest on the sky.')
+    vlacalparser.add_argument('--vlacal-polcal', default=None, type=arg_as_list,
+                              help='Polarisation angle calibrator field name(s) (3C286, or 3C138 at L-band). By default from the calibrator positions.')
+    vlacalparser.add_argument('--vlacal-leakcal', default=None, type=arg_as_list,
+                              help='Leakage calibrator field name(s). By default the unpolarised calibrators (3C84, OQ208, 3C147 at L-band) and the phase calibrators observed over at least --vlacal-min-parang of parallactic angle. The polarisation of a field is solved with the leakage unless it is one of the unpolarised calibrators.')
+    vlacalparser.add_argument('--vlacal-targets', default=None, type=arg_as_list,
+                              help='Target field name(s). By default all fields with a blank VLA calibrator code.')
+    vlacalparser.add_argument('--vlacal-quack', default=10., type=float,
+                              help='Seconds flagged at the start of every scan. The default is 10.')
+    add_bool_arg(vlacalparser, 'vlacal-gaincurve', default=True,
+                 help='Correct the elevation dependence of the antenna gains with the VLA gain curves (the CASA ones). The default is True.')
+    add_bool_arg(vlacalparser, 'vlacal-flag-mixed-baselines', default=True,
+                 help='In EVLA-transition data (VA and EA antennas) flag the VLA-EVLA baselines, which have closure errors in continuum mode. The default is True.')
+    vlacalparser.add_argument('--vlacal-min-parang', default=60., type=float,
+                              help='Minimum parallactic angle range (deg) of a polarised (or unknown) leakage calibrator, to separate its polarisation from the leakage. The default is 60.')
+    vlacalparser.add_argument('--vlacal-leakage-nchan', default=1, type=int,
+                              help='Channels per leakage solution (0: one per spectral window). The default is 1.')
+    vlacalparser.add_argument('--vlacal-flagcycles', default=2, type=int,
+                              help='Number of solve and flag cycles on the calibrators. The default is 2.')
+    vlacalparser.add_argument('--vlacal-timeres', default=0., type=float,
+                              help='Time resolution (s) of the calibrated target MSs (integer averaging factor closest to this resolution divided by the integration time). 0 keeps the native resolution. The default is 0.')
+    vlacalparser.add_argument('--vlacal-target-clip', default=6., type=float,
+                              help='Outlier threshold (robust standard deviations) for flagging the target scans on Stokes V and the cross-hands. The default is 6.')
+    add_bool_arg(vlacalparser, 'vlacal-phasecal-selfcal', default=True,
+                 help='Build the phase calibrator model with a short facetselfcal DI run. If False a point source at the phase centre is used. The default is True.')
+    vlacalparser.add_argument('--vlacal-stopafter', default=None, type=str,
+                              help="Stop after this stage: 'discover', 'prepare', 'fluxcal', 'phasecal', 'leakage', 'polangle', 'polcheck' or 'targets'. Finished stages are skipped when the run is restarted in the same directory.")
     add_bool_arg(parser, 'timesplitbefore', default=None,
                  help='Split the MS in time when the time axis is not contiguous. If this option is not set, facetselfcal automatically splits the MS only when the time gaps are large. This is mainly useful for MeerKAT, uGMRT, and (E)VLA observations.')
     parser.add_argument('--noarchive',
@@ -993,6 +1146,38 @@ def str_or_float(arg):
     if isinstance(arg, str):
         return arg
     raise argparse.ArgumentTypeError("Input must be a float or string")
+
+
+def int_or_intlist(argin):
+    """
+    Parse an argument as an integer or a list of integers.
+
+    Parameters
+    ----------
+    argin : str or int
+        String representation of an integer or a list of integers.
+
+    Returns
+    -------
+    int or list of int
+        Parsed value.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is not an integer or a list of integers.
+    """
+    if isinstance(argin, int):
+        return argin
+    try:
+        arg = ast.literal_eval(str(argin))
+    except (ValueError, SyntaxError):
+        raise argparse.ArgumentTypeError("Argument \"%s\" is not an integer or a list of integers" % (argin))
+    if isinstance(arg, int) and not isinstance(arg, bool):
+        return arg
+    if isinstance(arg, list) and len(arg) > 0 and all(isinstance(item, int) and not isinstance(item, bool) for item in arg):
+        return arg
+    raise argparse.ArgumentTypeError("Argument \"%s\" is not an integer or a list of integers" % (argin))
 
 
 def floatlist_or_float(argin):

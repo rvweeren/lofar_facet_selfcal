@@ -2,7 +2,6 @@
 trimming, archiving, and MS lists for imaging."""
 import glob
 import json
-import multiprocessing
 import os
 import shutil
 import time
@@ -22,8 +21,9 @@ from submods.ms_columns import _get_stack_groups, addcol, mscolexist
 from submods.ms_fixes import fix_uvw, get_telescope_from_ms
 from submods.ms_info import (check_phaseup_station, get_chan_freqs, getAntennas,
                              number_of_unique_obsids)
-from submods.runtime_utils import get_logger, run, terminal_print
+from submods.runtime_utils import allocated_cpu_count, get_logger, run, terminal_print
 from submods.skymodels import getregioncenter
+from submods.telescopes import telescope_of
 from submods.smearing import bandwidthsmearing
 
 # facetselfcal package directory (holds flagging_strategies/), same as datapath in main.py
@@ -156,12 +156,13 @@ def split_multidir_ms(ms, field_names=None, dryrun=False, compressed=False, comp
             if len(np.unique(t.getcol('FIELD_ID'))) == 1:
                 terminal_print(f"Measurement Set {msin} is already a single source MS, no splitting needed.")
                 mslistout.append(msin)
+                continue
             else:
                 terminal_print(f"Splitting multisource Measurement Set {msin} into single source MS...")
-        # get the source names
+        # get the source names, FIELD_ID in the main table is the row number in the FIELD subtable
         with table(msin + '::FIELD', readonly=True, ack=False) as t:
             source_names = t.getcol('NAME')
-            field_ids = t.getcol('SOURCE_ID')
+            field_ids = list(range(t.nrows()))
 
         # check that the field_names provided are in the source_names, if not raise an error
         if field_names is not None:
@@ -435,6 +436,21 @@ def concat_ms_wsclean_facetimaging(mslist, h5list=None, concatms=True):
     groups = []
     for k, g in groupby(MSs_list, keyfunct):
         groups.append(list(g))
+
+    # taql "select from [ms1, ms2, ...]" writes the rows in list order, and WSClean
+    # requires a time-ordered MS, so order each group by start time (the input order,
+    # e.g. alphabetical file names, is not necessarily chronological)
+    time_range_by_ms = {}
+    for ms in mslist:
+        with table(ms, ack=False) as t:
+            times = t.getcol('TIME')
+        time_range_by_ms[ms] = (np.min(times), np.max(times))
+    groups = [sorted(group, key=lambda ms: time_range_by_ms[ms][0]) for group in groups]
+    for group in groups:
+        for ms_a, ms_b in zip(group[:-1], group[1:]):
+            if time_range_by_ms[ms_b][0] <= time_range_by_ms[ms_a][1]:
+                terminal_print(f'WARNING: {ms_a} and {ms_b} overlap in time, the concatenated '
+                               'MS will not be in time order and WSClean may refuse it')
     terminal_print(f"Found {len(groups)} groups of datasets with the same pointing center, antennas, and channel frequencies.")
 
     for i, group in enumerate(groups, start=1):
@@ -517,7 +533,7 @@ def add_dummyms(msfiles):
 
     # Check for wrong REF_FREQUENCY which happens after a DPPP split in frequency
     for ms in msfiles:
-        with table(ms + '::SPECTRAL_WINDOW', readonly=True) as t:
+        with table(ms + '::SPECTRAL_WINDOW', readonly=True, ack=False) as t:
             freq = t.getcol('REF_FREQUENCY')[0]
         freqaxis.append(freq)
     freqaxis = np.sort(np.array(freqaxis))
@@ -527,7 +543,7 @@ def add_dummyms(msfiles):
 
     freqaxis = []
     for ms in msfiles:
-        with table(ms + '::SPECTRAL_WINDOW', readonly=True) as t:
+        with table(ms + '::SPECTRAL_WINDOW', readonly=True, ack=False) as t:
             if keyname == 'CHAN_FREQ':
                 freq = t.getcol(keyname)[0][0]
             else:
@@ -710,6 +726,11 @@ def phaseup(msinlist, datacolumn='DATA', superstation='core', start=0, dysco=Tru
     """
     msoutlist = []
     for ms in msinlist:
+        if telescope_of(ms) != 'LOFAR':
+            # a run can combine telescopes: only LOFAR stations are phased up, other MSs pass unchanged
+            terminal_print('Not phasing up', ms, '(not LOFAR data)')
+            msoutlist.append(ms)
+            continue
         msout = ms + '.phaseup'
         msoutlist.append(msout)
 
@@ -1036,7 +1057,7 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 cmd += 'msin.starttimeslot=' + str(msinstarttimeslot) + ' '
 
             if start == 0:
-                with table(ms) as t:
+                with table(ms, ack=False) as t:
                     if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():  # check if present otherwise this is not needed
                         terminal_print('Average with default WEIGHT_SPECTRUM_SOLVE:', cmd)
                         if os.path.isdir(msouttmp):
@@ -1045,14 +1066,14 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                         run(cmd)
 
                         # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-                        with table(msout, readonly=False) as t2:
+                        with table(msout, readonly=False, ack=False) as t2:
                             terminal_print('Adding WEIGHT_SPECTRUM_SOLVE')
                             #desc = t2.getcoldesc('WEIGHT_SPECTRUM')
                             #desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
                             #t2.addcols(desc)
                             addcol(t2, 'WEIGHT_SPECTRUM', 'WEIGHT_SPECTRUM_SOLVE')
 
-                            with table(msouttmp, readonly=True) as t3:
+                            with table(msouttmp, readonly=True, ack=False) as t3:
                                 imweights = t3.getcol('WEIGHT_SPECTRUM')
                                 t2.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
 
@@ -1202,13 +1223,13 @@ def removestartendms(ms, starttime=None, endtime=None, dysco=True, metadata_comp
 
     # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
     terminal_print('Adding WEIGHT_SPECTRUM_SOLVE')
-    with table(ms + '.cut', readonly=False) as t:
+    with table(ms + '.cut', readonly=False, ack=False) as t:
         #desc = t.getcoldesc('WEIGHT_SPECTRUM')
         #desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
         #t.addcols(desc)
         addcol(t, 'WEIGHT_SPECTRUM', 'WEIGHT_SPECTRUM_SOLVE')
 
-        with table(ms + '.cuttmp', readonly=True) as t2:
+        with table(ms + '.cuttmp', readonly=True, ack=False) as t2:
             imweights = t2.getcol('WEIGHT_SPECTRUM')
         t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
 
@@ -1272,7 +1293,7 @@ def archive(mslist, outtarname, regionfile, fitsmask, imagename, args, dysco=Tru
         if os.path.isdir(msout):
             shutil.rmtree(msout, ignore_errors=True)
             time.sleep(2)  # give it some time to remove
-        cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msout=' + msout + ' steps=[] '
+        cmd = 'DP3 numthreads=' + str(allocated_cpu_count()) + ' msin=' + ms + ' msout=' + msout + ' steps=[] '
         if check_phaseup_station(ms): cmd += 'msout.uvwcompression=False '
         if not args['DDE']: # this works for DDE solves because then the default is DATA
             cmd += 'msin.datacolumn=CORRECTED_DATA '
@@ -1365,7 +1386,7 @@ def create_splitted_ms(ms, columns_to_create, solve_msinnchan, solve_msinstartch
     run("taql" + " 'update " + ms_tmp + " set DATA[,2]=(0+0i)'", taql=True)
     
     for col in columns_to_create:                  
-        cmdcol = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), ncpu_max])) + \
+        cmdcol = 'DP3 numthreads=' + str(np.min([allocated_cpu_count(), ncpu_max])) + \
                     ' msin=' + ms_tmp + ' msout=. '
     
         cmdcol += 'steps=[] msout.datacolumn=' + col + ' '
@@ -1448,7 +1469,7 @@ def nested_mslistforimaging(mslist, stack=False, announce=True):
     else:
         # sort MSs in groups with same phase center
         for msid, ms in enumerate(mslist):
-            with table(f'{ms}::FIELD') as tf:
+            with table(f'{ms}::FIELD', ack=False) as tf:
                 phasecenter = tf[0]['PHASE_DIR'][0]
                 if msid == 0:
                     mslistreturn = [[ms]]

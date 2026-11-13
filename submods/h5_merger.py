@@ -248,7 +248,7 @@ class MergeH5:
                 with ct.taql('SELECT CHAN_FREQ, CHAN_WIDTH FROM ' + os.path.abspath(m) + '::SPECTRAL_WINDOW') as t:
                     self.ax_freq = append(self.ax_freq, t.getcol('CHAN_FREQ')[0])
 
-                with ct.table(m) as t:
+                with ct.table(m, ack=False) as t:
                     self.ax_time = append(self.ax_time, t.getcol('TIME'))
 
             self.ax_time = array(sorted(unique(self.ax_time)))
@@ -2245,6 +2245,10 @@ def check_overlap(h5_tables, check_type='freq'):
                     data_h52 = _get_data(F, check_type)
 
                     if data_h51 is not None and data_h52 is not None:
+                        # a table with one time slot is applied as a constant, nothing is interpolated
+                        # (its time is the centre of the solution interval, which can lie past the data)
+                        if check_type == 'time' and (len(data_h51) == 1 or len(data_h52) == 1):
+                            continue
                         if data_h52.max() < data_h51.min():
                             if check_type == 'freq':
                                 print(f"WARNING: Frequency bands between {h51} and {h52} do not overlap. "

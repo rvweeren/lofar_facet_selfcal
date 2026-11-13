@@ -10,6 +10,7 @@ from losoto import h5parm  # type: ignore
 
 from submods.ms_fixes import fix_uvw
 from submods.runtime_utils import get_logger, run, terminal_print
+from submods.telescopes import telescope_of
 from submods.smearing import (compute_distance_to_pointingcenter,
                               get_time_preavg_factor_LTAdata, smearing_time,
                               smearing_time_ms)
@@ -96,6 +97,92 @@ def aoflagger_column(mslist, aoflagger_strategy=None, column='CORRECTED_DATA'):
         # remove temporary strategy file if it was created
     if aoflagger_strategy is not None and os.path.isfile('tmp.' + os.path.basename(aoflagger_strategy)):
         Path('tmp.' + os.path.basename(aoflagger_strategy)).unlink(missing_ok=True)
+
+
+def meerkat_rfi_ranges(band, include_hi=True):
+    """
+    Frequency ranges (MHz) flagged on all baselines for a MeerKAT band before AOFlagger.
+
+    The ranges are those of GSM in UHF (the GSM downlink is 925-960 MHz, SARAO knowledge base "Radio Frequency
+    Interference (RFI)"), the band edges of L-band (as in oxkat) and resonances and RFI in S-band.
+    Galactic HI (1419.8-1421.3 MHz) is optional, it is flagged on calibrators but should be kept for
+    HI work on targets. The persistent RFI that decorrelates on long baselines is flagged on short
+    baselines only, see meerkat_static_rfimask.
+
+    Parameters
+    ----------
+    band : str
+        'UHF', 'L' or an S-band name ('S', 'S0' ... 'S4'), see meerkat_band.
+    include_hi : bool, optional
+        Also return the Galactic HI range for L-band. Default is True.
+
+    Returns
+    -------
+    list of (float, float)
+        Frequency ranges in MHz.
+    """
+    if band == 'UHF':
+        return [(925., 945.), (950., 960.)]
+    if band == 'L':
+        ranges = [(856., 880.), (1658., 1800.)]
+        if include_hi:
+            ranges.append((1419.8, 1421.3))
+        return ranges
+    if band.startswith('S'):
+        return [(2150., 2161.), (2198., 2203.), (2251.5, 2253.5), (2312., 2324.), (2361., 2366.),
+                (2491.5, 2492.5)]
+    return []
+
+
+# Static RFI masks for MeerKAT: frequency ranges (MHz) flagged on baselines up to MEERKAT_RFIMASK_MAXBL
+# (RFI from satellites and terrestrial transmitters decorrelates on longer baselines).
+# 'sdp': the SDP pipeline static mask (katsdpmodels rfi_mask model "RFI mask previously applied by the
+# katsdpcal package", MeerKAT SDP team, version 1, 2020; https://sdpmodels.kat.ac.za/rfi_mask/): GSM
+# downlink, GNSS (GPS L2/L5, GLONASS L2, Galileo E5/E6) and Inmarsat, GPS L1, GLONASS L1, as listed in
+# the SARAO knowledge base page "Radio Frequency Interference (RFI)". Not applied to autocorrelations.
+# 'caracal': the more aggressive L-band mask meerkat.rfimask.npy of caracal (caracal-pipeline/caracal,
+# data/meerkat_files), converted to ranges at its 32k channel edges; it adds the
+# aviation transponder lines (1030-1141 MHz), 1462-1492 MHz, Iridium and Galactic HI.
+MEERKAT_RFIMASK_MAXBL = 1000.  # m
+MEERKAT_RFIMASKS = {
+    'sdp': [(935.40, 960.05), (1145.85, 1300.90), (1519.35, 1608.30)],
+    'caracal': [(915.76, 960.06), (1029.65, 1030.49), (1040.52, 1041.36), (1051.60, 1052.22),
+                (1085.66, 1086.29), (1087.54, 1088.38), (1088.59, 1091.93), (1099.66, 1100.08),
+                (1101.54, 1102.17), (1102.59, 1103.01), (1103.42, 1104.05), (1105.51, 1106.14),
+                (1106.56, 1107.19), (1107.60, 1108.02), (1111.57, 1111.99), (1112.62, 1113.04),
+                (1122.65, 1123.07), (1126.62, 1127.04), (1127.67, 1128.08), (1129.55, 1130.17),
+                (1134.56, 1135.19), (1135.61, 1136.03), (1137.49, 1138.12), (1139.58, 1140.00),
+                (1140.62, 1141.04), (1145.85, 1300.91), (1420.24, 1422.33), (1462.04, 1492.34),
+                (1519.30, 1626.72)],
+}
+
+
+def meerkat_static_rfimask(name='sdp', include_hi=True):
+    """
+    Frequency ranges (MHz) of a MeerKAT static RFI mask, to be flagged on baselines shorter than
+    MEERKAT_RFIMASK_MAXBL only (see MEERKAT_RFIMASKS for the sources).
+
+    Parameters
+    ----------
+    name : str, optional
+        'sdp' (the SDP pipeline static mask), 'caracal' (the caracal L-band mask) or 'none'.
+        Default is 'sdp'.
+    include_hi : bool, optional
+        Keep ranges that overlap Galactic HI (1419.8-1421.3 MHz). Default is True.
+
+    Returns
+    -------
+    list of (float, float)
+        Frequency ranges in MHz, empty for 'none'.
+    """
+    if name == 'none':
+        return []
+    if name not in MEERKAT_RFIMASKS:
+        raise ValueError(f"Unknown MeerKAT RFI mask '{name}', use one of {list(MEERKAT_RFIMASKS) + ['none']}")
+    ranges = MEERKAT_RFIMASKS[name]
+    if not include_hi:
+        ranges = [(lo, hi) for lo, hi in ranges if hi < 1419.8 or lo > 1421.3]
+    return ranges
 
 
 def flag_shadowed_antenna(mslist): 
@@ -453,13 +540,12 @@ def flag_uGMRT_badfreqs(mslist, args):
     mslist : list of str
         List of Measurement Sets.
     args : dict
-        Parsed facetselfcal options; ``args['telescope']`` is used.
+        Parsed facetselfcal options (not used; the telescope is read from each MS).
     """
-    
-    if args['telescope'] != 'GMRT':
-        return
 
     for ms in mslist:
+        if telescope_of(ms) != 'GMRT':  # per MS: a run can combine telescopes
+            continue
         t = table(ms + '::SPECTRAL_WINDOW', ack=False)
         freq = np.median(t.getcol('CHAN_FREQ')[0]) / 1e6  # in MHz
         t.close()

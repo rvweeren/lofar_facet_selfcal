@@ -148,16 +148,17 @@ def normamplitudes_withmatrix(parmdblist):
         diraxis = axisn.index('dir')
         antaxis = axisn.index('ant')
 
-        # matrix_weights[h5_id,ant_id,dir_id]
-        for antenna in allantenna:
+        # matrix_weights[h5_id,union_id,dir_id]; norm_array is indexed by position in allantenna (union_id),
+        # the solutions by position in this H5 file (ant_id)
+        for union_id, antenna in enumerate(allantenna):
             ant_id = np.where(ants_inh5 == antenna)[0]
             print(h5, antenna)
             if len(ant_id) > 0:
                 ant_id = ant_id[0]
                 for dir_id, direction in enumerate(directions):
-                    print(ant_id, dir_id, norm_array[ant_id, dir_id])
+                    print(ant_id, dir_id, norm_array[union_id, dir_id])
                     slice_obj = get_double_slice(amps, [ant_id, dir_id], [antaxis, diraxis])
-                    amps[slice_obj] = 10 ** (np.log10(amps[slice_obj]) - norm_array[ant_id, dir_id])
+                    amps[slice_obj] = 10 ** (np.log10(amps[slice_obj]) - norm_array[union_id, dir_id])
         H.root.sol000.amplitude000.val[:] = amps
         H.flush()
         H.close()
@@ -685,7 +686,10 @@ def get_matrix_forampnorm(parmdblist):
         antaxis = axisn.index('ant')
         H.close()
 
-        for antenna in allantenna:
+        # the matrix is indexed by the antenna's position in allantenna (the union over all H5 files),
+        # the solutions by its position in this H5 file: these differ when the H5 files have
+        # different antennas (e.g. MSs from different telescopes)
+        for union_id, antenna in enumerate(allantenna):
             ant_id = np.where(ants_inh5 == antenna)[0]
             print(h5, antenna)
             if len(ant_id) > 0:
@@ -698,8 +702,8 @@ def get_matrix_forampnorm(parmdblist):
                     idx = np.where(weights_sel != 0.0)
                     weights_sel[idx] = 1.0
 
-                    matrix_amps[h5_id, ant_id, dir_id] = np.sum(np.log10(amps_sel[idx]))
-                    matrix_weights[h5_id, ant_id, dir_id] = np.sum(weights_sel[idx])
+                    matrix_amps[h5_id, union_id, dir_id] = np.sum(np.log10(amps_sel[idx]))
+                    matrix_weights[h5_id, union_id, dir_id] = np.sum(weights_sel[idx])
                     # print(np.sum(weights_sel[idx]))
                     # matrix_slope[h5_id,ant_id,dir_id] = np.mean(np.diff(np.log10(amps_sel[idx])))
     return matrix_amps, matrix_weights

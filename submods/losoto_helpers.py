@@ -846,7 +846,7 @@ def radec_to_xyz(ra, dec, time):
     return pointing_xyz
 
 
-def tecandphaseplotter(h5, ms, telescope="LOFAR", outplotname="plot.png"):
+def tecandphaseplotter(h5, ms, telescope=None, outplotname="plot.png"):
     """
     Make TEC and phase plots.
 

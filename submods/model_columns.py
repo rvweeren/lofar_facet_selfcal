@@ -1,7 +1,6 @@
 """Model data columns: predicting skymodels into the MS, MODEL_DATA handling for
 direction-dependent solves, the model storage manager, and empty FITS images
 for facet layouts."""
-import multiprocessing
 import pickle
 import re
 import subprocess
@@ -17,7 +16,7 @@ from submods.input_checks import (is_stokesdiagonal_modeltype_allowed,
                                   is_stokesi_modeltype_allowed)
 from submods.ms_columns import remove_column_ms
 from submods.ms_info import get_frequencies_from_ms
-from submods.runtime_utils import get_logger, run, terminal_print
+from submods.runtime_utils import allocated_cpu_count, get_logger, run, terminal_print
 from submods.skymodels import grab_coord_MS
 
 
@@ -198,7 +197,7 @@ def predictsky(ms, skymodel, modeldata='MODEL_DATA', predictskywithbeam=False, s
     None
         The model column is updated on disk.
     """
-    cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msout=. '
+    cmd = 'DP3 numthreads=' + str(allocated_cpu_count()) + ' msin=' + ms + ' msout=. '
     cmd += 'p.sourcedb=' + skymodel + ' steps=[p] p.type=predict msout.datacolumn=' + modeldata + ' '
     if sources is not None:
         cmd += 'p.sources=[' + str(sources) + '] '
@@ -358,13 +357,29 @@ def remove_model_columns(mslist):
     """
     terminal_print('Clean up MODEL_DATA type columns')
     for ms in mslist:
-        t = table(ms)
+        t = table(ms, ack=False)
         colnames = t.colnames()
         t.close()
         collist_del = [xdel for xdel in colnames if re.match('MODEL_DATA*', xdel)]
         for colname_remove in collist_del:
             remove_column_ms(ms, colname_remove)
     return
+
+
+# fewest channels per MS for which --modelstoragemanager=auto uses Sisco compression
+SISCO_MIN_CHANNELS = 4
+
+
+def _min_nchan(mslist):
+    """Smallest number of channels of the MSs (a large number if it cannot be determined)."""
+    nchan = []
+    for ms in (mslist if isinstance(mslist, (list, tuple)) else [mslist] if mslist else []):
+        try:
+            with table(str(ms).rstrip('/') + '::SPECTRAL_WINDOW', ack=False) as t:
+                nchan.append(min(len(t.getcell('CHAN_FREQ', i)) for i in range(t.nrows())))
+        except Exception:  # noqa: BLE001  not readable (yet): no channel information
+            continue
+    return min(nchan) if nchan else 1 << 30
 
 
 def set_modelstoragemanager(telescope, args):
@@ -378,8 +393,9 @@ def set_modelstoragemanager(telescope, args):
 
     Parameters
     ----------
-    telescope : str
-        Telescope name used to check Stokes I model-type compatibility.
+    telescope : str or collection of str
+        Telescope name used to check Stokes I model-type compatibility, or the names of all MSs
+        (one model storage manager is used for all MSs, so the strictest rule applies).
     args : dict
         Parsed facetselfcal options; ``modelstoragemanager`` is read (and may be
         updated in place), and ``args`` is passed to the model-type checks.
@@ -410,7 +426,17 @@ def set_modelstoragemanager(telescope, args):
 
     modelstoragemanager = None
     if args['modelstoragemanager'] == 'auto':
-        if '-model-storage-manager' in wsclean_help:
+        if '-model-storage-manager' in wsclean_help and _min_nchan(args.get('ms')) < SISCO_MIN_CHANNELS:
+            # Sisco predicts each visibility from its neighbouring channels: with one or two channels there
+            # is nothing to compress, and writing is slow (one-channel VLA data: WSClean predict 132 s with
+            # sisco-stokes-i, 13 s with stokes-i, 15 s uncompressed)
+            if is_stokesi_modeltype_allowed(args, telescope):
+                terminal_print(f'auto: fewer than {SISCO_MIN_CHANNELS} channels, using stokes_i model compression (no Sisco)')
+                modelstoragemanager = 'stokes_i'
+            else:
+                terminal_print(f'auto: fewer than {SISCO_MIN_CHANNELS} channels, no model compression (no Sisco)')
+                modelstoragemanager = None
+        elif '-model-storage-manager' in wsclean_help:
             if is_stokesi_modeltype_allowed(args, telescope):
                 if 'sisco-stokes-i' in wsclean_help:
                     terminal_print('auto: Using sisco stokes_i model compression')

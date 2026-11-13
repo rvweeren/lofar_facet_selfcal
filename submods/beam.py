@@ -1,7 +1,6 @@
 """Beam correction and polarisation-basis conversion (linear <-> circular) of
 Measurement Sets with DP3 and losoto."""
 import fnmatch
-import multiprocessing
 import os
 
 import astropy.units as units
@@ -15,7 +14,8 @@ from submods.losoto_helpers import create_losoto_beamcorparset, losotolofarbeam
 from submods.ms_columns import mscolexist, remove_column_ms
 from submods.ms_fixes import fix_uvw
 from submods.ms_info import check_phaseup_station
-from submods.runtime_utils import get_logger, run, terminal_print
+from submods.runtime_utils import allocated_cpu_count, get_logger, run, terminal_print
+from submods.telescopes import telescope_of
 
 
 def set_beamcor(ms, beamcor_var, args):
@@ -121,7 +121,7 @@ def create_beamcortemplate(ms):
     H5name = ms + '_templatejones.h5'
 
     cmd = "DP3 numthreads=" + str(
-        np.min([multiprocessing.cpu_count(), 24])) + " msin=" + ms + " msin.datacolumn=DATA msout=. "
+        np.min([allocated_cpu_count(), 24])) + " msin=" + ms + " msin.datacolumn=DATA msout=. "
     # cmd += 'msin.modelcolumn=DATA '
     cmd += "steps=[ddecal] ddecal.type=ddecal "
     cmd += "ddecal.maxiter=1 ddecal.nchan=1 "
@@ -279,7 +279,7 @@ def beamcor_and_lin2circ(ms, args, msout='.', dysco=True, beam=True, lin2circ=Fa
                         beamlib=losotobeamlib)
 
         phasedup = fixbeam_ST001(H5name)
-        parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name, telescope=args['telescope']))
+        parset = create_losoto_beamcorparset(ms, refant=findrefant_core(H5name, telescope=telescope_of(ms)))
         force_close(H5name)
 
         # print('Phase up dataset, cannot use DPPP beam, do manual correction')
@@ -290,7 +290,7 @@ def beamcor_and_lin2circ(ms, args, msout='.', dysco=True, beam=True, lin2circ=Fa
             run(cmdlosoto)
 
     if usedppp and not phasedup:
-        cmddppp = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
+        cmddppp = 'DP3 numthreads=' + str(allocated_cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
         cmddppp += 'msout=' + msout + ' '
         cmddppp += 'msin.weightcolumn=WEIGHT_SPECTRUM '
         
@@ -350,7 +350,7 @@ def beamcor_and_lin2circ(ms, args, msout='.', dysco=True, beam=True, lin2circ=Fa
             run("DP3 msin=" + ms + " msout=. msin.datacolumn=CORRECTED_DATA msout.datacolumn=DATA steps=[]", log=True)
             remove_column_ms(ms, 'CORRECTED_DATA')  # remove the column so it does not get used in the next step
     else:
-        cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
+        cmd = 'DP3 numthreads=' + str(allocated_cpu_count()) + ' msin=' + ms + ' msin.datacolumn=DATA '
         cmd += 'msout=' + msout + ' '
         if check_phaseup_station(ms): 
             if msout != '.': cmd += 'msout.uvwcompression=False ' # only when writing new MS
@@ -436,7 +436,7 @@ def beam_keywords(ms, args, add_beamkeywords=True):
     ms : str
         Path to the Measurement Set.
     args : dict
-        Parsed facetselfcal options; ``telescope`` is used.
+        Parsed facetselfcal options.
     add_beamkeywords : bool, optional
         Add beam keywords if missing.
 
@@ -467,7 +467,7 @@ def beam_keywords(ms, args, add_beamkeywords=True):
             terminal_print(message)
             get_logger().warning(message)
    
-    if not applybeam_info and add_beamkeywords and args['telescope'] == 'LOFAR':
+    if not applybeam_info and add_beamkeywords and telescope_of(ms) == 'LOFAR':
         with table(ms + '::FIELD', readonly=True, ack=False) as t:
             ref_direction = t.getcol('REFERENCE_DIR').squeeze()
             cmddppp = 'DP3 msin=' + ms + ' msout=. steps=[sb] sb.type=setbeam sb.beammode=default '  
@@ -497,7 +497,7 @@ def beamcormodel(ms, dysco=True):
     if not mscolexist(ms, 'MODEL_DATA'):
         raise ValueError('MODEL_DATA column not found in ' + ms)
 
-    cmd = 'DP3 numthreads=' + str(multiprocessing.cpu_count()) + ' msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. '
+    cmd = 'DP3 numthreads=' + str(allocated_cpu_count()) + ' msin=' + ms + ' msin.datacolumn=MODEL_DATA msout=. '
     cmd += 'msout.datacolumn=MODEL_DATA_BEAMCOR steps=[ac1,ac2] '
     if dysco:
         cmd += 'msout.storagemanager=dysco '

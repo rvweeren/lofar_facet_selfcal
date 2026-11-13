@@ -9,7 +9,7 @@ from .h5_info import (amplitude_leakage_paramdb, check_soltabs, findrefant_core,
                       force_close, fulljonesparmdb)
 
 
-def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
+def resetsolsforstations(h5parm, stationlist, refant=None, telescope=None):
     """
     Reset solutions for stations
 
@@ -349,7 +349,7 @@ def resetsolsforstations(h5parm, stationlist, refant=None, telescope='LOFAR'):
     return
 
 
-def resetsolsfordir(h5parm, dirlist, refant=None, telescope='LOFAR'):
+def resetsolsfordir(h5parm, dirlist, refant=None, telescope=None):
     """
     Reset solutions for directions (DDE solves only)
 

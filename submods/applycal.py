@@ -1,6 +1,5 @@
 """Apply calibration solutions (h5parm) to Measurement Sets with DP3, and match
 solution times to MS times."""
-import multiprocessing
 import os
 import shutil
 import subprocess
@@ -16,7 +15,7 @@ from submods.h5_helpers.h5_info import amplitude_leakage_paramdb, fulljonesparmd
 from submods.h5_helpers.reset_solutions import resetsolsforstations
 from submods.ms_fixes import fix_uvw
 from submods.ms_info import check_phaseup_station
-from submods.runtime_utils import _track_resource_phase, run, terminal_print
+from submods.runtime_utils import _track_resource_phase, allocated_cpu_count, run, terminal_print
 
 
 def find_closest_ddsol(h5, ms):
@@ -248,7 +247,7 @@ def time_match_mstoH5(H5filelist, ms):
     H5filematch : list
         list of h5parms matching the measurement set.
     """
-    with table(ms) as t:
+    with table(ms, ack=False) as t:
         timesms = np.unique(t.getcol('TIME'))
     H5filematch = None
 
@@ -369,125 +368,42 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None)
     return
 
 
-@_track_resource_phase("applycal")
-def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
-             msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
-             find_closestdir=False, updateweights=False, modelstoragemanager=None, 
-             missingantennabehavior='error', metadata_compression=True, timeslotsperparmupdate=200,
-             auto_update_timeslotsperparmupdate=False):
+def applycal_dp3_steps(ms, inparmdblist, invert=True, direction=None, find_closestdir=False,
+                       updateweights=False, missingantennabehavior='error', timeslotsperparmupdate=200,
+                       start=0, interpolation=None):
     """
-    Apply an H5parm to a Measurement Set.
+    DP3 applycal steps (ac<start>, ac<start+1>, ...) for a list of H5parms, as used by applycal.
 
     Parameters
     ----------
     ms : str
-        path to a Measurement Set to apply solutions to.
+        Measurement Set (used to find the closest direction with find_closestdir).
     inparmdblist : list
-        list of H5parms to apply.
-    msincol : str
-        input column to apply solutions to.
-    msoutcol : str
-        output column to store corrected data in.
-    msout : str
-        name of the output Measurement Set.
-    dysco : bool
-        Dysco compress the output Measurement Set.
-    modeldatacolumns : list
-        Model data columns list, if len(modeldatacolumns) > 1 we have a DDE solve
+        list of H5parms to apply, in this order.
     invert : bool
         invert the applycal (if invert is False then = corrupt)
     direction : str
-        Name of the direction in a multi-dir h5 for the applycal (find_closestdir needs to be False in this case)
+        Name of the direction in a multi-dir h5 for the applycal
     find_closestdir : bool
         find closest direction (to phasedir MS) in multi-dir h5 file to apply
     updateweights : bool
         Update WEIGHT_SPECTRUM in DP3
     missingantennabehavior : str
         for DP3, must be error or flag
-    modelstoragemanager : str or None, optional
-        Storage manager used for the output visibility column.
-    metadata_compression : bool, optional
-        Enable Measurement Set metadata compression when writing a new output.
     timeslotsperparmupdate : int, optional
         Number of time slots processed per DP3 parameter update.
-    auto_update_timeslotsperparmupdate : bool, optional
-        Reduce the parameter-update batch size automatically for wide-band data.
+    start : int, optional
+        Number of the first step (ac<start>).
+    interpolation : str or None, optional
+        DP3 applycal interpolation ('nearest' or 'linear'); None leaves the DP3 default.
 
     Returns
     -------
-    None
+    (str, int)
+        The DP3 arguments of the steps and the number of the next step.
     """
-    
-    sisco_modelstoragemanager_modes = ['sisco_stokes_i', 'sisco_diagonal', 'sisco']
-
-    if 'sisco-diagonal' in subprocess.check_output(['wsclean'], text=True):
-        fix_sisco_samecol_issue = False  # if sisco-diagonal is present we have a recent DP3/casacore version where writing and reading from the same column is supported, so we can disable the fix for the sisco same column issue (writing to a temporary column and then copying back) which is time consuming
-    else:
-        fix_sisco_samecol_issue = True
-    
-    # check if we have a fixed shape column MS, otherwise we need to use use fix_sisco_samecol_issue as well
-    # note from May 2026 onwards WSClean will write fixed shape model data columns when DATA also has a fixed shape, before this change WSClean wrote variable shape model data columns (which causes bad performance when writing sisco compressed columns into itself)
-    with table(ms, ack=False) as t:
-        coldesc = t.coldesc(msincol) # type dictionary
-        # check if the the key coldesc['desc']['shape'] exist
-        if 'shape' not in coldesc['desc']:
-            fix_sisco_samecol_issue = True
-
-    # get number of frequency channels in MS and update timeslotsperparmupdate if needed
-    # for large MSs with many frequency channels it smees we need to reduce the timeslotsperparmupdate to avoid segmentation faults
-    # For example GMRT data with nchan=2688 and 3535 results in a segmentation faults with the DP3 default timeslotsperparmupdate=200
-    if auto_update_timeslotsperparmupdate:
-        with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
-            nfreq = len(t.getcol('CHAN_FREQ')[0])
-            if nfreq > 500:  # if more than 500 channels reduce timeslotsperparmupdate
-                timeslotsperparmupdate = 100
-            if nfreq > 1000: 
-                timeslotsperparmupdate = 20
-            if nfreq > 2000:
-                timeslotsperparmupdate = 10
-            if nfreq > 4000:
-                timeslotsperparmupdate = 5
-
-    if find_closestdir and direction is not None:
-        terminal_print('Wrong input, you cannot use find_closestdir and set a direction')
-        raise Exception('Wrong input, you cannot use find_closestdir and set a direction')
-
-    if len(modeldatacolumns) > 1:
-        return
-        # to allow both a list or a single file (string)
-    if not isinstance(inparmdblist, list):
-        inparmdblist = [inparmdblist]
-
-    # sisco compression does not support reading and writing to the same column
-    msoutcol_orig = msoutcol # save original name
-    if msincol == msoutcol and msout == '.' and modelstoragemanager in sisco_modelstoragemanager_modes and fix_sisco_samecol_issue:
-        msoutcol = msoutcol + '_SISCO_TEMP'
-
-    cmd = 'DP3 numthreads=' + str(np.min([multiprocessing.cpu_count(), 8])) + ' msin=' + ms
-    cmd += ' msout=' + msout + ' '
-    
-    if check_phaseup_station(ms): 
-        if msout != '.': cmd += 'msout.uvwcompression=False ' # only invoke when writing new MS
-    cmd += 'msin.datacolumn=' + msincol + ' '
-    if msout == '.':
-        cmd += 'msout.datacolumn=' + msoutcol + ' '
-    if not metadata_compression and msout != '.':
-        cmd += 'msout.uvwcompression=False '
-        cmd += 'msout.antennacompression=False '
-        cmd += 'msout.scalarflags=False '
-    if dysco:
-        cmd += 'msout.storagemanager=dysco '
-        cmd += 'msout.storagemanager.weightbitrate=16 '
-    if modelstoragemanager is not None and not dysco:
-        if modelstoragemanager == 'sisco_stokes_i':
-            cmd += 'msout.storagemanager=sisco '
-            cmd += 'msout.storagemanager.sisco_mode=stokes_i '
-        elif modelstoragemanager == 'sisco_diagonal':
-            cmd += 'msout.storagemanager=sisco '
-            cmd += 'msout.storagemanager.sisco_mode=diagonal '
-        else: 
-            cmd += 'msout.storagemanager=' + modelstoragemanager + ' '
-    count = 0
+    count = start
+    cmd = ''
     for parmdb in inparmdblist:
         if find_closestdir:
             direction = make_utf8(find_closest_ddsol(parmdb, ms))
@@ -618,6 +534,142 @@ def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
                     count = count + 1
 
             H.close()
+    if interpolation is not None:
+        for i in range(start, count):
+            cmd += 'ac' + str(i) + '.interpolation=' + interpolation + ' '
+    return cmd, count
+
+
+@_track_resource_phase("applycal")
+def applycal(ms, inparmdblist, msincol='DATA', msoutcol='CORRECTED_DATA',
+             msout='.', dysco=True, modeldatacolumns=[], invert=True, direction=None,
+             find_closestdir=False, updateweights=False, modelstoragemanager=None, 
+             missingantennabehavior='error', metadata_compression=True, timeslotsperparmupdate=200,
+             auto_update_timeslotsperparmupdate=False, interpolation=None, dysco_weightbitrate=16):
+    """
+    Apply an H5parm to a Measurement Set.
+
+    Parameters
+    ----------
+    ms : str
+        path to a Measurement Set to apply solutions to.
+    inparmdblist : list
+        list of H5parms to apply.
+    msincol : str
+        input column to apply solutions to.
+    msoutcol : str
+        output column to store corrected data in.
+    msout : str
+        name of the output Measurement Set.
+    dysco : bool
+        Dysco compress the output Measurement Set.
+    dysco_weightbitrate : int, optional
+        Dysco bit rate of the weights. Dysco stores one weight for all correlations, so it replaces
+        weights that differ between the correlations; 0 leaves WEIGHT_SPECTRUM uncompressed and
+        exact. Default 16.
+    modeldatacolumns : list
+        Model data columns list, if len(modeldatacolumns) > 1 we have a DDE solve
+    invert : bool
+        invert the applycal (if invert is False then = corrupt)
+    direction : str
+        Name of the direction in a multi-dir h5 for the applycal (find_closestdir needs to be False in this case)
+    find_closestdir : bool
+        find closest direction (to phasedir MS) in multi-dir h5 file to apply
+    updateweights : bool
+        Update WEIGHT_SPECTRUM in DP3
+    missingantennabehavior : str
+        for DP3, must be error or flag
+    modelstoragemanager : str or None, optional
+        Storage manager used for the output visibility column.
+    metadata_compression : bool, optional
+        Enable Measurement Set metadata compression when writing a new output.
+    timeslotsperparmupdate : int, optional
+        Number of time slots processed per DP3 parameter update.
+    auto_update_timeslotsperparmupdate : bool, optional
+        Reduce the parameter-update batch size automatically for wide-band data.
+    interpolation : str or None, optional
+        DP3 applycal interpolation in time and frequency ('nearest' or 'linear'), None for the DP3 default.
+
+    Returns
+    -------
+    None
+    """
+    
+    sisco_modelstoragemanager_modes = ['sisco_stokes_i', 'sisco_diagonal', 'sisco']
+
+    if 'sisco-diagonal' in subprocess.check_output(['wsclean'], text=True):
+        fix_sisco_samecol_issue = False  # if sisco-diagonal is present we have a recent DP3/casacore version where writing and reading from the same column is supported, so we can disable the fix for the sisco same column issue (writing to a temporary column and then copying back) which is time consuming
+    else:
+        fix_sisco_samecol_issue = True
+    
+    # check if we have a fixed shape column MS, otherwise we need to use use fix_sisco_samecol_issue as well
+    # note from May 2026 onwards WSClean will write fixed shape model data columns when DATA also has a fixed shape, before this change WSClean wrote variable shape model data columns (which causes bad performance when writing sisco compressed columns into itself)
+    with table(ms, ack=False) as t:
+        coldesc = t.coldesc(msincol) # type dictionary
+        # check if the the key coldesc['desc']['shape'] exist
+        if 'shape' not in coldesc['desc']:
+            fix_sisco_samecol_issue = True
+
+    # get number of frequency channels in MS and update timeslotsperparmupdate if needed
+    # for large MSs with many frequency channels it smees we need to reduce the timeslotsperparmupdate to avoid segmentation faults
+    # For example GMRT data with nchan=2688 and 3535 results in a segmentation faults with the DP3 default timeslotsperparmupdate=200
+    if auto_update_timeslotsperparmupdate:
+        with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
+            nfreq = len(t.getcol('CHAN_FREQ')[0])
+            if nfreq > 500:  # if more than 500 channels reduce timeslotsperparmupdate
+                timeslotsperparmupdate = 100
+            if nfreq > 1000: 
+                timeslotsperparmupdate = 20
+            if nfreq > 2000:
+                timeslotsperparmupdate = 10
+            if nfreq > 4000:
+                timeslotsperparmupdate = 5
+
+    if find_closestdir and direction is not None:
+        terminal_print('Wrong input, you cannot use find_closestdir and set a direction')
+        raise Exception('Wrong input, you cannot use find_closestdir and set a direction')
+
+    if len(modeldatacolumns) > 1:
+        return
+        # to allow both a list or a single file (string)
+    if not isinstance(inparmdblist, list):
+        inparmdblist = [inparmdblist]
+
+    # sisco compression does not support reading and writing to the same column
+    msoutcol_orig = msoutcol # save original name
+    if msincol == msoutcol and msout == '.' and modelstoragemanager in sisco_modelstoragemanager_modes and fix_sisco_samecol_issue:
+        msoutcol = msoutcol + '_SISCO_TEMP'
+
+    cmd = 'DP3 numthreads=' + str(np.min([allocated_cpu_count(), 8])) + ' msin=' + ms
+    cmd += ' msout=' + msout + ' '
+    
+    if check_phaseup_station(ms): 
+        if msout != '.': cmd += 'msout.uvwcompression=False ' # only invoke when writing new MS
+    cmd += 'msin.datacolumn=' + msincol + ' '
+    if msout == '.':
+        cmd += 'msout.datacolumn=' + msoutcol + ' '
+    if not metadata_compression and msout != '.':
+        cmd += 'msout.uvwcompression=False '
+        cmd += 'msout.antennacompression=False '
+        cmd += 'msout.scalarflags=False '
+    if dysco:
+        cmd += 'msout.storagemanager=dysco '
+        cmd += 'msout.storagemanager.weightbitrate=' + str(dysco_weightbitrate) + ' '
+    if modelstoragemanager is not None and not dysco:
+        if modelstoragemanager == 'sisco_stokes_i':
+            cmd += 'msout.storagemanager=sisco '
+            cmd += 'msout.storagemanager.sisco_mode=stokes_i '
+        elif modelstoragemanager == 'sisco_diagonal':
+            cmd += 'msout.storagemanager=sisco '
+            cmd += 'msout.storagemanager.sisco_mode=diagonal '
+        else: 
+            cmd += 'msout.storagemanager=' + modelstoragemanager + ' '
+    stepcmd, count = applycal_dp3_steps(ms, inparmdblist, invert=invert, direction=direction,
+                                        find_closestdir=find_closestdir, updateweights=updateweights,
+                                        missingantennabehavior=missingantennabehavior,
+                                        timeslotsperparmupdate=timeslotsperparmupdate,
+                                        interpolation=interpolation)
+    cmd += stepcmd
 
     if count < 1:
         terminal_print('Something went wrong, cannot build the applycal command. H5 file is valid?')

@@ -108,6 +108,17 @@ class PolConv(Step):
             except RuntimeError:
                 self.circ2lin=False
 
+        try:
+            self.swapxy = bool(parset.getInt(prefix + "swapxy"))
+        except RuntimeError:
+            self.swapxy = False
+        except AttributeError:
+            # DP3 Python bindings have been renamed.
+            try:
+                self.swapxy = bool(parset.get_int(prefix + "swapxy"))
+            except RuntimeError:
+                self.swapxy = False
+
         if self.lin2circ and self.circ2lin:
             sys.exit("Cannot do both lin2circ and circ2lin."
                      "\nChoose:"
@@ -115,12 +126,16 @@ class PolConv(Step):
                      "\nOR"
                      "\npystep.circ2lin=0 pystep.lin2circ=0")
 
-        elif not self.lin2circ and not self.circ2lin:
-            sys.exit("Cannot do both lin2circ and circ2lin."
-                     "\nChoose:"
+        elif not self.lin2circ and not self.circ2lin and not self.swapxy:
+            sys.exit("Choose one of lin2circ, circ2lin or swapxy:"
                      "\npystep.circ2lin=1 pystep.lin2circ=0"
                      "\nOR"
-                     "\npystep.circ2lin=0 pystep.lin2circ=0")
+                     "\npystep.circ2lin=0 pystep.lin2circ=1"
+                     "\nOR"
+                     "\npystep.swapxy=1")
+
+        elif self.swapxy and (self.lin2circ or self.circ2lin):
+            sys.exit("swapxy cannot be combined with lin2circ or circ2lin")
 
         self.fetch_uvw = True
 
@@ -154,6 +169,8 @@ class PolConv(Step):
             print("\nConverting UV data polarization from linear to circular\n")
         elif self.circ2lin:
             print("\nConverting UV data polarization from circular to linear\n")
+        elif self.swapxy:
+            print("\nSwapping the X and Y feeds (F V F with F = [[0,1],[1,0]], MeerKAT handedness fix)\n")
 
 
     def process(self, dpbuffer):
@@ -167,6 +184,23 @@ class PolConv(Step):
 
         data = np.array(dpbuffer.get_data(), copy=False, dtype=np.complex64)
 
+        if self.swapxy:
+            """
+            swapxy (MeerKAT +X East, +Y North handedness, EVLA Memo 219)
+            XX = YY, XY = YX, YX = XY, YY = XX, also for the flags and weights
+            """
+            data[...] = data[:, :, ::-1].copy()
+            flags = np.array(dpbuffer.get_flags(), copy=False)
+            flags[...] = flags[:, :, ::-1].copy()
+            weights = np.array(dpbuffer.get_weights(), copy=False)
+            weights[...] = weights[:, :, ::-1].copy()
+            if DP3_VERSION>5.3:
+                next_step = self.get_next_step()
+                if next_step is not None:
+                    next_step.process(dpbuffer)
+            else:
+                self.process_next_step(dpbuffer)
+            return
 
         if self.circ2lin:
             """
@@ -221,4 +255,6 @@ class PolConv(Step):
             print('Converted UV data from circular (RR,RL,LR,LL) to linear polarization (XX,XY,YX,YY)')
         elif self.lin2circ:
             print('Converted UV data from linear (XX,XY,YX,YY) to circular polarization (RR,RL,LR,LL)')
+        elif self.swapxy:
+            print('Swapped the X and Y feeds (XX,XY,YX,YY -> YY,YX,XY,XX)', flush=True)
         pass

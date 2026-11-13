@@ -48,8 +48,9 @@ def is_multidir(h5: str = None):
 
 
 def plot_tecdelayphase(
-    h5file: str, outfile: str, telescope: str, plotpoints: bool = False
+    h5file: str, outfile: str, telescope: str = None, plotpoints: bool = False
 ):
+    # telescope None: recognised from the antenna names in the H5 file (see findrefant_core)
     H = tables.open_file(h5file, mode="r")
     soltabs = list(H.root.sol000._v_children.keys())
     print("Found the following soltabs in your H5 file:", soltabs)
@@ -214,7 +215,8 @@ def main():
     parser.add_argument(
         "-p", "--plotpoints", help="Plot points instead of lines", action="store_true"
     )
-    parser.add_argument("--telescope", help="Telescope name", type=str, required=True)
+    parser.add_argument("--telescope", help="Telescope name (default: recognised from the antenna names)",
+                        type=str, default=None)
 
     # parser.add_argument('-f','--freq', help='Frequnecy at which the phase corrections are plotted', type=float, required=True)
     args = vars(parser.parse_args())

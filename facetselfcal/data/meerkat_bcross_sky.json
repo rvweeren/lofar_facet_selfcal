@@ -1,0 +1,19 @@
+{
+ "description": "MeerKAT noise diode to sky cross-hand (H-V) phase correction: cubic B-spline in frequency (MHz), values in degrees, scipy.interpolate.splev(freq_MHz, (knots, coefs, k)). The diode X-Y phase median over the antennas plus this spline is the sky H-V phase (katsdpcal Scan.bcross_to_sky, for 'hv' polarisation order: the gains are divided out as V_hv / (g_h g_v*), BCROSS_DIODE_SKY g_h = median(BCROSS_DIODE) * exp(i spline)).",
+ "source": "katsdpcal (https://github.com/ska-sa/katsdpcal, commit dc1f4e1, 2026-07-24), katsdpcal/conf/pipeline_params/pipeline_parameters_meerkat_{UHF,L,S}_wide.txt, parameters bcross_sky_knots, bcross_sky_coefs, bcross_sky_k. Copyright (c) 2014-2019, National Research Foundation (SARAO), BSD 3-clause licence.",
+ "UHF": {
+  "knots": [544, 544, 544, 544, 563, 571, 578, 612, 680, 816, 870, 899, 914, 952, 971, 986, 1003, 1020, 1050, 1057, 1071, 1088, 1088, 1088, 1088],
+  "coefs": [15.44, 14.86, 14.05, 13.62, 12.5, 11.3, 11.35, 13.57, 13.97, 14.27, 14.88, 15.26, 16.32, 17.01, 17.52, 19.25, 21.14, 23.54, 24.51, 25.83, 26.36, 0.0, 0.0, 0.0, 0.0],
+  "k": 3
+ },
+ "L": {
+  "knots": [856, 856, 856, 856, 963, 1070, 1284, 1525, 1608, 1658, 1711, 1711, 1711, 1711],
+  "coefs": [1.507, 15.957, 13.683, 21.0169, 21.793, 26.879, 32.611, 32.973, 66.216, 16.998, 0, 0, 0, 0],
+  "k": 3
+ },
+ "S": {
+  "knots": [1795, 1795, 1795, 1795, 1812, 1820, 1832, 1838, 1850, 1862, 1888, 1901, 1913, 1938, 1963, 1980, 1993, 2000, 2014, 2026, 2077, 2126, 2177, 2232, 2260, 2285, 2336, 2366, 2391, 2441, 2466, 2493, 2544, 2595, 2644, 2745, 2845, 3045, 3095, 3146, 3196, 3221, 3246, 3296, 3346, 3359, 3372, 3399, 3423, 3448, 3448, 3448, 3448],
+  "coefs": [-178.465, -176.562, -178.050, -180.612, -180.885, -179.992, -179.279, -178.560, -177.640, -178.231, -178.658, -177.303, -179.348, -180.501, -178.381, -178.165, -178.365, -177.937, -178.954, -178.808, -179.599, -179.084, -179.743, -178.946, -180.475, -179.647, -178.793, -180.519, -178.503, -179.0332, -177.983, -179.129, -178.380, -177.285, -178.603, -178.690, -178.376, -179.075, -178.143, -180.012, -176.854, -179.764, -177.091, -179.395, -177.357, -179.148, -178.701, -175.281, -174.551, -360.0, -360.0, -360.0, -360.0],
+  "k": 3
+ }
+}
