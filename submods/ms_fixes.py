@@ -13,6 +13,7 @@ from casacore.tables import table, taql  # type: ignore
 
 from submods.runtime_utils import run, terminal_print
 from submods.split_irregular_timeaxis import regularize_ms, split_ms
+from submods.telescopes import telescope_of, unique_telescopes
 
 
 def remove_syspower(mslist):
@@ -49,17 +50,16 @@ def fix_GMRT_weights(mslist, args):
     mslist : list of str
         Measurement Set paths to update.
     args : dict
-        Parsed facetselfcal options; ``args['telescope']`` is used.
+        Parsed facetselfcal options (not used; the telescope is read from each MS).
 
     Returns
     -------
     None
-        Measurement Sets are modified in place.
+        Measurement Sets are modified in place (GMRT MSs only).
     """
-    if args['telescope'] != 'GMRT':
-        return
-    
     for ms in mslist:
+        if telescope_of(ms) != 'GMRT':
+            continue
         terminal_print('Fixing RL and LR weights in MS', ms)
         run("taql" + " 'update " + ms + " set WEIGHT_SPECTRUM[,1]=WEIGHT_SPECTRUM[,0]'", taql=True) # set RL weights to RR weights
         run("taql" + " 'update " + ms + " set WEIGHT_SPECTRUM[,2]=WEIGHT_SPECTRUM[,3]'", taql=True) # set LR weights to LL weights
@@ -479,13 +479,13 @@ def fix_time_axis_gmrt(mslist, args):
     mslist : list of str
         List of paths to Measurement Sets (MS) to process.
     args : dict
-        Parsed facetselfcal options; ``args['telescope']`` is used.
+        Parsed facetselfcal options (not used; the telescope is read from each MS).
     Notes
     -----
     This function modifies the MS files in place.
     """
     for ms in mslist:
-        if args['telescope'] == 'GMRT': 
+        if telescope_of(ms) == 'GMRT': 
             with table(ms, ack=False, readonly=False) as t:
                times = taql('select distinct TIME from $t').getcol("TIME") 
                intervals = times[1 : ] - times[ : -1]
@@ -513,7 +513,7 @@ def fix_antenna_info_gmrt(mslist, args):
     mslist : list
         List of input Measurement Sets.
     args : dict
-        Parsed facetselfcal options; ``args['telescope']`` is used.
+        Parsed facetselfcal options (not used; the telescope is read from each MS).
 
     Notes
     -----
@@ -525,7 +525,7 @@ def fix_antenna_info_gmrt(mslist, args):
     - The 'remove_antennas' function to perform the actual removal.
     """
     for ms in mslist:
-        if args['telescope'] == 'GMRT':    
+        if telescope_of(ms) == 'GMRT':
             antennas_to_remove = ['C07', 'S05', 'E01'] # these antennas were never built, but are present in the ANTENNA table
             remove_antennas(ms, antennas_to_remove)
 
@@ -558,14 +558,14 @@ def remove_antennas(ms_path, antennas_to_remove):
     Prints information about removed rows or errors encountered.
     """
     
-    with table(f"{ms_path}::POINTING", readonly=False) as pointing_table:
+    with table(f"{ms_path}::POINTING", readonly=False, ack=False) as pointing_table:
         rows_to_remove = [i for i, antenna in enumerate(pointing_table) if antenna['NAME'] in antennas_to_remove]
         terminal_print(f"Rows to remove from POINTING: {rows_to_remove}")
         if len(rows_to_remove) >0:
             pointing_table.removerows(rows_to_remove)
             terminal_print(f"Removed rows from POINTING: {rows_to_remove}")
     
-    with table(f"{ms_path}::ANTENNA", readonly=False) as antenna_table:
+    with table(f"{ms_path}::ANTENNA", readonly=False, ack=False) as antenna_table:
         rows_to_remove = [i for i, antenna in enumerate(antenna_table) if antenna['NAME'] in antennas_to_remove]
         if len(rows_to_remove) > 0:
             antenna_table.removerows(rows_to_remove)
@@ -738,19 +738,18 @@ def set_metadata_compression(mslist, args):
     Parameters
     ----------
     mslist : list of str
-        List of paths to Measurement Sets. The function inspects the first set in the list.
+        List of paths to Measurement Sets.
     args : dict
-        Parsed facetselfcal options; ``args['telescope']`` is read and
-        ``args['metadata_compression']`` may be set to False.
+        Parsed facetselfcal options; ``args['metadata_compression']`` may be set to False.
 
     Notes
     -----
     Side Effects:
-    If the telescope name in the first Measurement Set is not 'LOFAR', sets 'args["metadata_compression"]' to False and prints a message.
+    Unless all Measurement Sets are LOFAR data, sets 'args["metadata_compression"]' to False and prints a message.
     - Requires the 'table' class/function to be imported and available.
     """
  
-    if args['telescope'] != 'LOFAR':
+    if unique_telescopes(mslist) != {'LOFAR'}:
         terminal_print('Not using LOFAR data, setting metadata compression to False')
         args['metadata_compression'] = False
 
@@ -767,10 +766,10 @@ def fix_uvw(mslist):
         Input Measurement Set(s) as a string or a list of strings.
     """
     mslist = [mslist] if isinstance(mslist, str) else mslist
-    if get_telescope_from_ms(mslist[0]) != 'MeerKAT':
-        return    
 
     for ms in mslist:
+        if telescope_of(ms) != 'MeerKAT':  # per MS: a run can combine telescopes
+            continue
         cmd = "taql 'update " + ms + " set UVW=(-1.)*(mscal.UVWJ2000())'"
         terminal_print('Command:', cmd)
         run(cmd, taql=True)
@@ -790,7 +789,7 @@ def fix_equidistant_times(mslist, dryrun, args, dysco=True, metadata_compression
     dryrun : bool
         If True, performs a dry run without making changes.
     args : dict
-        Parsed facetselfcal options; ``args['telescope']`` is used.
+        Parsed facetselfcal options (not used; the telescope is read from each MS).
     dysco : bool, optional
         If True, enables DYSCO compression during splitting. Defaults to True.
     metadata_compression : bool, optional
@@ -806,7 +805,7 @@ def fix_equidistant_times(mslist, dryrun, args, dysco=True, metadata_compression
     mslist_return = []
     mslist_splitting_performed = []
     for ms in mslist:
-        if args['telescope'] != 'LOFAR':
+        if telescope_of(ms) != 'LOFAR':
             if check_equidistant_times([ms], stop=False, return_result=True):
                 terminal_print(ms + ' has a regular time axis')
                 mslist_return.append(ms)
@@ -962,7 +961,7 @@ def fix_bad_weightspectrum(mslist, clipvalue, use_taql=True):
             terminal_print('Running command:', cmdtaql)
             run(cmdtaql, log=True, taql=True)
         else:
-            with table(ms, readonly=False) as t:
+            with table(ms, readonly=False, ack=False) as t:
                 ws = t.getcol('WEIGHT_SPECTRUM')
                 idx = np.where(ws > clipvalue)
                 ws[idx] = 0.0

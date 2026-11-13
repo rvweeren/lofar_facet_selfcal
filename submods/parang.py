@@ -83,8 +83,8 @@ class ParAng(Step):
       feedtype      linear or circular; only needed when the correlations in the DP3 stream
                     differ from those in the MS (e.g. after a polconv step). Default: from the MS.
       swapfeeds     0 (default) or 1: also swap the X and Y feeds, F = [[0,1],[1,0]] (linear feeds only),
-                    and ignore the FEED RECEPTOR_ANGLE. This is the MeerKAT convention fix as in
-                    mepi (lib_ms.py swap_feeds). Rotating by MeerKAT's RECEPTOR_ANGLE = -90 deg instead
+                    and ignore the FEED RECEPTOR_ANGLE. This is the MeerKAT convention fix.
+                    Rotating by MeerKAT's RECEPTOR_ANGLE = -90 deg instead
                     (what CASA does) also exchanges XX and YY, but flips the sign of XY and YX (so of U and V).
                     correct applies P^-1 F^-1 (swap, then derotate), corrupt applies F P.
       frame         apparent (default): parallactic angle with respect to the apparent north pole

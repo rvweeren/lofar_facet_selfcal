@@ -1,0 +1,9 @@
+Format = Name, Type, Ra, Dec, I, SpectralIndex, LogarithmicSI, ReferenceFrequency, MajorAxis, MinorAxis, Orientation
+# References:
+# Flux model: Partridge et al. 2016 (ApJ 821, 61) coefficients as given in the SARAO knowledge base
+#   (Flux and bandpass calibration), stated to be valid over S-band (1.75-3.5 GHz),
+#   log10(S/Jy) = -0.9790 + 3.3662 L - 1.1216 L^2 + 0.0861 L^3, L = log10(nu/MHz), rewritten exactly as a logarithmic spectral index
+#   (the katpoint model in katsdpcal J0408-6545_S.txt is an L-band fit that turns up above 2.5 GHz, 25% higher at 3.06 GHz, so it is not used)
+# Position from the B. Hugo UHF-band model
+# Point source: field sources are negligible at S-band (SARAO knowledge base, Flux and bandpass calibration)
+prim, POINT, 4:08:20.37884, -65.45.09.0806, 7.244112760461522, [-1.2839488620103698, -0.23843889981024768, 0.0861], true, 2625000000.0,,,

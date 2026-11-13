@@ -191,7 +191,7 @@ def add_dummyms(msfiles):
 
     # Check for wrong REF_FREQUENCY which happens after a DPPP split in frequency
     for ms in msfiles:
-        t = pt.table(ms + '/SPECTRAL_WINDOW', readonly=True)
+        t = pt.table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False)
         freq = t.getcol('REF_FREQUENCY')[0]
         t.close()
         freqaxis.append(freq)
@@ -202,7 +202,7 @@ def add_dummyms(msfiles):
 
     freqaxis = []
     for ms in msfiles:
-        t = pt.table(ms + '/SPECTRAL_WINDOW', readonly=True)
+        t = pt.table(ms + '/SPECTRAL_WINDOW', readonly=True, ack=False)
         if keyname == 'CHAN_FREQ':
             freq = t.getcol(keyname)[0][0]
         else:
@@ -321,7 +321,7 @@ def addextraweights(msfiles):
     '''
 
     for ms in msfiles:
-        ts = pt.table(ms, readonly=False)
+        ts = pt.table(ms, readonly=False, ack=False)
         colnames = ts.colnames()
         if 'WEIGHT_SPECTRUM_FROM_IMAGING_WEIGHT' not in colnames:
             #desc = ts.getcoldesc('WEIGHT_SPECTRUM')
@@ -334,7 +334,7 @@ def addextraweights(msfiles):
             print('WEIGHT_SPECTRUM_FROM_IMAGING_WEIGHT already exists')
             ts.close()
 
-        ts = pt.table(ms, readonly=False)
+        ts = pt.table(ms, readonly=False, ack=False)
 
         if 'IMAGING_WEIGHT' in colnames:
             iw = ts.getcol('IMAGING_WEIGHT')
@@ -430,7 +430,7 @@ def flatten(f):
 
 
 def removecolumn(msfile, colname):
-    t = pt.table(msfile, readonly=False)
+    t = pt.table(msfile, readonly=False, ack=False)
     colnames = t.colnames()
     if colname in colnames:
         print('Removing ', colname, 'from ', msfile)
@@ -474,7 +474,7 @@ def getregionboxcenter(regionfile, standardbox=True):
 def mscolexist(ms, colname):
     """ Check if a colname exists in the measurement set ms, returns either True or False """
     if os.path.isdir(ms):
-        t = pt.table(ms, readonly=True)
+        t = pt.table(ms, readonly=True, ack=False)
         colnames = t.colnames()
         if colname in colnames:  # check if the column is in the list
             exist = True
@@ -744,7 +744,7 @@ def main():
         args['column'] = ddfbootstrapcorrection(msfiles, args['column'], args['column'] + '_SCALED',
                                                 dysco=dysco)  # update the colname here because we need to proceed from that
 
-    t = pt.table(msfiles[0] + '/OBSERVATION')
+    t = pt.table(msfiles[0] + '/OBSERVATION', ack=False)
     fieldname = t.getcol('LOFAR_TARGET')['array'][0]
     t.close()
 
@@ -991,14 +991,14 @@ def main():
                 print(cmd)
                 run(cmd)
                 # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-                t = pt.table(msout1, readonly=False)
+                t = pt.table(msout1, readonly=False, ack=False)
                 print('Adding WEIGHT_SPECTRUM_SOLVE')
                 #desc = t.getcoldesc('WEIGHT_SPECTRUM')
                 #desc['name'] = 'WEIGHT_SPECTRUM_SOLVE'
                 #t.addcols(desc)
                 addcol(t, 'WEIGHT_SPECTRUM', 'WEIGHT_SPECTRUM_SOLVE')
 
-                t2 = pt.table(msout2, readonly=True)
+                t2 = pt.table(msout2, readonly=True, ack=False)
                 imweights = t2.getcol('WEIGHT_SPECTRUM')
                 t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
                 # Fill WEIGHT_SPECTRUM with WEIGHT_SPECTRUM from second ms
@@ -1133,7 +1133,7 @@ def main():
                 run(cmd)
 
                 # Make a WEIGHT_SPECTRUM from WEIGHT_SPECTRUM_SOLVE
-                t = pt.table(currentmsoutconcat, readonly=False)
+                t = pt.table(currentmsoutconcat, readonly=False, ack=False)
 
                 print('Adding WEIGHT_SPECTRUM_SOLVE')
                 #desc = t.getcoldesc('WEIGHT_SPECTRUM')
@@ -1141,7 +1141,7 @@ def main():
                 #t.addcols(desc)
                 addcol(t, 'WEIGHT_SPECTRUM', 'WEIGHT_SPECTRUM_SOLVE')
 
-                t2 = pt.table(currentmsoutconcat + '.tmpweight', readonly=True)
+                t2 = pt.table(currentmsoutconcat + '.tmpweight', readonly=True, ack=False)
                 imweights = t2.getcol('WEIGHT_SPECTRUM')
                 t.putcol('WEIGHT_SPECTRUM_SOLVE', imweights)
 
@@ -1168,7 +1168,7 @@ def main():
         if split:
 
             nchanperblock = np.int_(20 / freqstepavg)
-            t = pt.table(currentmsoutconcat + '/SPECTRAL_WINDOW', readonly=True)
+            t = pt.table(currentmsoutconcat + '/SPECTRAL_WINDOW', readonly=True, ack=False)
             nchan = t.getcol('NUM_CHAN')[0]
             t.close()
 

@@ -116,6 +116,15 @@ from submods.treemf.delaytrack import BlockStack, check_bound, interval_maps, to
 from submods.treemf.fitter import C_LIGHT, FftFitter  # noqa: E402
 from submods.treemf.h5out import solution_times, write_h5parm, write_h5parm_phasediff  # noqa: E402
 from submods.treemf.msio import MsInfo, read_slots  # noqa: E402
+try:
+    from submods.runtime_utils import allocated_cpu_count  # noqa: E402
+except ImportError:  # e.g. facetselfcal not importable inside the DP3 Python step
+    def allocated_cpu_count():
+        """Cores in the CPU affinity of this process (fallback: all cores)."""
+        try:
+            return len(os.sched_getaffinity(0)) or 1
+        except (AttributeError, OSError):
+            return os.cpu_count() or 1
 from submods.treemf.prior import Prior, geometric_tec_sigma, geometry  # noqa: E402
 from submods.treemf.solver import (build_nodes, converge, node_snr, noise_var,  # noqa: E402
                                    phasediff_amplitude, treemf)
@@ -185,7 +194,7 @@ def configure(kv):
              uvmmin=float(kv.get(pre + "uvmmin", 0.0)), uvmmax=float(kv.get(pre + "uvmmax", np.inf)),
              aaf=kv.get(pre + "antenna_averaging_factors", ""),
              antcon=kv.get(pre + "antennaconstraint", ""),
-             nproc=int(kv.get("numthreads", os.cpu_count() or 1)),
+             nproc=int(kv.get("numthreads", allocated_cpu_count())),
              startchan=int(kv.get("msin.startchan", 0)), msnchan=int(kv.get("msin.nchan", 0)),
              starttimeslot=int(kv.get("msin.starttimeslot", 0)), ntimes=int(kv.get("msin.ntimes", 0)))
     tm = dict(TREEMF_DEFAULTS)

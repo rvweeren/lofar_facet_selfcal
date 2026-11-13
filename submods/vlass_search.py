@@ -187,7 +187,7 @@ if __name__=="__main__":
     except ValueError:
         pi = 3.14159265358979
         import casacore.tables as pt
-        table = pt.table(sys.argv[1]+"::FIELD")
+        table = pt.table(sys.argv[1]+"::FIELD", ack=False)
         direction = table.getcol('PHASE_DIR').squeeze()
         ra=(direction[0]%(2*pi))/pi*180
         dec=direction[1]/pi*180

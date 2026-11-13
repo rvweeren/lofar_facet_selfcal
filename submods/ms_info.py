@@ -3,10 +3,11 @@ observation IDs, phased-up stations, long baselines and the reference antenna.""
 import os
 
 import numpy as np
-from casacore.tables import table  # type: ignore
+from casacore.tables import table, taql  # type: ignore
 
 from submods.h5_helpers.h5_info import refant_candidates
 from submods.runtime_utils import terminal_print
+from submods.telescopes import group_by_telescope
 
 
 def getAntennas(ms):
@@ -55,6 +56,65 @@ def get_chan_freqs(ms):
     else:
         freq_list = np.array(chan_freqs).ravel()
     return tuple(np.round(freq_list, 1).tolist())
+
+
+def get_w_rms_lambda(mslist, maxrows=500000):
+    """
+    Rms of the w coordinate in wavelengths over a list of Measurement Sets.
+
+    A subset of at most ``maxrows`` rows per MS is read (every n-th row). w is converted with the
+    mean channel frequency of each MS.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Paths to the Measurement Sets.
+    maxrows : int
+        Maximum number of rows read per MS.
+
+    Returns
+    -------
+    float
+        Rms of w in lambda.
+    """
+    c = 299792458.0
+    w2, n = 0.0, 0
+    for ms in mslist:
+        with table(ms, readonly=True, ack=False) as t:
+            step = max(1, t.nrows() // maxrows)
+            w = t.getcol('UVW', 0, -1, step)[:, 2]
+        w = w * np.mean(get_chan_freqs(ms)) / c
+        w2 += np.sum(w ** 2)
+        n += len(w)
+    return float(np.sqrt(w2 / max(n, 1)))
+
+
+def get_max_uv_lambda(mslist):
+    """
+    Longest uv distance in wavelengths over a list of Measurement Sets.
+
+    For each MS the longest baseline length (|UVW| in m) over rows that are
+    not fully flagged is multiplied by the highest channel frequency.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Paths to the Measurement Sets.
+
+    Returns
+    -------
+    float
+        Longest uv distance in lambda.
+    """
+    c = 299792458.0
+    uvmax_lambda = 0.0
+    for ms in mslist:
+        with table(ms, readonly=True, ack=False) as t:
+            tq = taql('SELECT GMAX(SQRT(SUMSQR(UVW))) AS UVMAX FROM $t WHERE NOT ALL(FLAG)')
+            uvmax_m = float(tq.getcol('UVMAX')[0]) if tq.nrows() > 0 else 0.0
+            tq.close()
+        uvmax_lambda = max(uvmax_lambda, uvmax_m * max(get_chan_freqs(ms)) / c)
+    return uvmax_lambda
 
 
 def number_of_unique_obsids(msfiles):
@@ -213,7 +273,37 @@ def choose_refant_from_ms(mslist, telescope, maxrows=20000, maxchan=64):
         common = set(names) if common is None else common & set(names)
 
     ants = [name for name in unflagged if name in common]
+    if len(ants) == 0:
+        raise ValueError('No antenna is present in all of these Measurement Sets, so one reference '
+                         'antenna cannot be chosen for them: ' + ', '.join(map(str, mslist))
+                         + '. Set the reference antenna(s) with --refant.')
     if 'ST001' in ants:
         return 'ST001'
     candidates = refant_candidates(ants, telescope=telescope)
     return ants[candidates[np.argmax([unflagged[ants[i]] for i in candidates])]]
+
+
+def choose_refants_from_ms(mslist, maxrows=20000, maxchan=64):
+    """
+    Choose the reference antennas for a run, one per telescope.
+
+    The Measurement Sets are grouped by telescope (OBSERVATION::TELESCOPE_NAME) and
+    choose_refant_from_ms picks one antenna per group, so a run that combines telescopes (which have
+    no antennas in common) gets a reference antenna for each telescope.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Paths to the Measurement Sets.
+    maxrows : int, optional
+        Approximate number of rows to read per MS.
+    maxchan : int, optional
+        Approximate number of channels to read per MS.
+
+    Returns
+    -------
+    list of str
+        Reference antenna names, one per telescope (in order of first occurrence in ``mslist``).
+    """
+    return [choose_refant_from_ms(group, telescope, maxrows=maxrows, maxchan=maxchan)
+            for telescope, group in group_by_telescope(mslist).items()]

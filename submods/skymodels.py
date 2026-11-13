@@ -249,7 +249,7 @@ def makeBBSmodelforTGSS(boxfile=None, fitsimage=None, pixelscale=None, imsize=No
         xs = np.ceil((r[0].coord_list[2]) * 3600. / tgsspixsize)
         ys = np.ceil((r[0].coord_list[3]) * 3600. / tgsspixsize)
     else:
-        t2 = table(ms + '::FIELD')
+        t2 = table(ms + '::FIELD', ack=False)
         phasedir = t2.getcol('PHASE_DIR').squeeze()
         t2.close()
         phasecenterc = ('{:12.8f}'.format(180. * np.mod(phasedir[0], 2. * np.pi) / np.pi) + ',' + '{:12.8f}'.format(
@@ -362,7 +362,8 @@ def set_MeerKAT_bandpass_skymodel(ms):
     Determines and sets the appropriate MeerKAT bandpass calibrator skymodel for an MS.
 
     The function inspects the frequency band of the MS and pointing direction to select a
-    matching skymodel for J0408-6545 or J1939-6342 in UHF or L-band. S-band is not supported.
+    matching skymodel for J0408-6545 or J1939-6342 in UHF, L or S-band (one point-source
+    model covers all S-band sub-bands).
 
     Parameters
     ----------
@@ -377,7 +378,7 @@ def set_MeerKAT_bandpass_skymodel(ms):
     Raises
     ------
     Exception
-        If the frequency band is S-band or if no matching skymodel is found.
+        If no matching skymodel is found.
     """
     skymodpath = '/'.join(datapath.split('/')[0:-1])+'/facetselfcal/data'
     
@@ -403,13 +404,13 @@ def set_MeerKAT_bandpass_skymodel(ms):
     if (cdatta.separation(SkyCoord(cJ0408_6545[0]*units.radian, cJ0408_6545[1]*units.radian, frame='icrs'))) < 0.05*units.deg:
         if Lband: skymodel = skymodpath + '/J0408-6545_L.skymodel'
         if UHF: skymodel = skymodpath + '/J0408-6545_UHF.skymodel'
+        if Sband: skymodel = skymodpath + '/J0408-6545_S.skymodel'
 
     if (cdatta.separation(SkyCoord(cJ1939_6342[0]*units.radian, cJ1939_6342[1]*units.radian, frame='icrs'))) < 0.05*units.deg:
         if Lband: skymodel = skymodpath + '/J1939-6342_L.skymodel'
         if UHF: skymodel = skymodpath + '/J1939-6342_UHF.skymodel'
+        if Sband: skymodel = skymodpath + '/J1939-6342_S.skymodel'
 
-    if Sband:
-        raise Exception('Cannot set skymodel for Sband')
     if skymodel is None:
         raise Exception('Could not find matching skymodel (options are J0408-6545 or J1939-6342)')
     terminal_print('skymodel is set to: ', skymodel)

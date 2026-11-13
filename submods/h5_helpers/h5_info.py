@@ -5,6 +5,7 @@ import tables
 from losoto import h5parm  # type: ignore
 
 from ..runtime_utils import get_logger, terminal_print
+from ..telescopes import telescope_from_antennas
 
 
 def force_close(h5):
@@ -317,23 +318,44 @@ def has0coordinates(h5):
     return False
 
 
-_fixed_refant = None  # set with set_refant(), then findrefant_core returns it whenever possible
+_fixed_refants = []  # set with set_refant(), then findrefant_core returns one of them whenever possible
 
 
 def set_refant(refant):
     """
     Fix the reference antenna returned by findrefant_core for the rest of the run.
 
+    A run that combines Measurement Sets from different telescopes needs one reference antenna per
+    telescope; findrefant_core then returns the fixed antenna that is present in the H5 file.
+
     Parameters
     ----------
-    refant : str or None
-        Antenna name, or None to go back to choosing the reference antenna per H5 file.
+    refant : str, list of str or None
+        Antenna name, several names (comma-separated string or list, e.g. one per telescope), or
+        None to go back to choosing the reference antenna per H5 file.
     """
-    global _fixed_refant
-    _fixed_refant = refant
+    global _fixed_refants
+    if refant is None:
+        _fixed_refants = []
+    elif isinstance(refant, str):
+        _fixed_refants = [name.strip() for name in refant.split(',') if name.strip()]
+    else:
+        _fixed_refants = [str(name) for name in refant]
 
 
-def refant_candidates(ants, telescope='LOFAR'):
+def get_fixed_refants():
+    """
+    Reference antennas fixed with set_refant.
+
+    Returns
+    -------
+    list of str
+        The fixed antenna names (empty if none are fixed).
+    """
+    return list(_fixed_refants)
+
+
+def refant_candidates(ants, telescope=None):
     """
     Indices of the preferred reference antennas of a telescope among the given antenna names.
 
@@ -347,13 +369,16 @@ def refant_candidates(ants, telescope='LOFAR'):
         Antenna names.
     telescope : str, optional
         Telescope name as in the MS OBSERVATION table. Supported values include ``'LOFAR'``,
-        ``'MeerKAT'``, ``'GMRT'``, ``'ASKAP'``, ``'EVLA'``/``'VLA'``, and ``'MWA'``.
+        ``'MeerKAT'``, ``'GMRT'``, ``'ASKAP'``, ``'EVLA'``/``'VLA'``, and ``'MWA'``. If None
+        (the default), the telescope is recognised from the antenna names.
 
     Returns
     -------
     numpy.ndarray
         Indices into ``ants``.
     """
+    if telescope is None:
+        telescope = telescope_from_antennas(ants)
     cs_indices = []
     if telescope == 'LOFAR':
         # try core stations first
@@ -375,6 +400,8 @@ def refant_candidates(ants, telescope='LOFAR'):
 
     if telescope in ['EVLA', 'VLA']:
         possible_refants = ['ea02','ea03','ea04','ea05','ea06','ea07','ea08','ea09','ea10','ea11','ea12','ea13','ea14', 'ea15','ea16','ea17','ea18','ea19','ea20','ea21','ea22','ea23','ea24','ea25','ea26','ea27','ea28']
+        # historical VLA (CASA importvla): VA01-VA28, and EA01-EA28 in EVLA-transition data
+        possible_refants += [f'{prefix}{n:02d}' for prefix in ('VA', 'EA') for n in range(2, 29)]
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
 
     if telescope == 'MWA':
@@ -411,7 +438,7 @@ def refant_candidates(ants, telescope='LOFAR'):
     return np.asarray(cs_indices)
 
 
-def findrefant_core(H5file, telescope='LOFAR'):
+def findrefant_core(H5file, telescope=None):
     """
     Select a reference antenna from the core or preferred antennas.
 
@@ -429,7 +456,8 @@ def findrefant_core(H5file, telescope='LOFAR'):
     telescope : str, optional
         Telescope whose preferred antennas should
         be used. Supported values include ``'LOFAR'``, ``'MeerKAT'``,
-        ``'GMRT'``, ``'ASKAP'``, ``'EVLA'``/``'VLA'``, and ``'MWA'``.
+        ``'GMRT'``, ``'ASKAP'``, ``'EVLA'``/``'VLA'``, and ``'MWA'``. If None (the default),
+        the telescope is recognised from the antenna names in the H5 file.
 
     Returns
     -------
@@ -453,14 +481,17 @@ def findrefant_core(H5file, telescope='LOFAR'):
     def weightsum(idx):
         return np.nansum(np.take(weights, idx, axis=ant_index))
 
-    if _fixed_refant is not None:
-        if _fixed_refant in ants and weightsum(ants.index(_fixed_refant)) > 0:
-            H.close()
-            return _fixed_refant
-        terminal_print(f'\033[91mWarning: fixed reference antenna {_fixed_refant} is not in {H5file} '
+    if _fixed_refants:
+        # one fixed antenna per telescope in a mixed-telescope run: use the one in this H5 file
+        for refant in _fixed_refants:
+            if refant in ants and weightsum(ants.index(refant)) > 0:
+                H.close()
+                return refant
+        fixed = ', '.join(_fixed_refants)
+        terminal_print(f'\033[91mWarning: fixed reference antenna {fixed} is not in {H5file} '
                        'or all its solutions are flagged, choosing another one for this H5 file\033[0m')
         get_logger().warning('Fixed reference antenna %s not usable for %s, choosing another one.',
-                             _fixed_refant, H5file)
+                             fixed, H5file)
 
     if 'ST001' in ants:
         H.close()

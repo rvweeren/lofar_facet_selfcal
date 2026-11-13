@@ -132,7 +132,7 @@ class MSWeightSetter:
         This function sets the weights of column 'self.dataColumnName' to
         """
         # Load MS.
-        MS                        = table(self.pathMS, readonly = False)
+        MS                        = table(self.pathMS, readonly = False, ack=False)
         numberOfRows              = MS.nrows() # in 1
         numberOfChunks            = numpy.ceil(numberOfRows / self.numberOfRowsChunk).astype(int) # in 1
         print(f"Starting work on {numberOfChunks} chunks (of {self.numberOfRowsChunk} rows each, except probably for the last chunk)!")
@@ -296,7 +296,7 @@ class MSWeightSetter:
         Still under construction.
         """
         # Load MS.
-        MS             = table(self.pathMS, readonly = False)
+        MS             = table(self.pathMS, readonly = False, ack=False)
         numberOfRows   = MS.nrows()  # in 1
         numberOfChunks = numpy.ceil(numberOfRows / self.numberOfRowsChunk).astype(int)  # in 1
 

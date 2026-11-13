@@ -141,6 +141,7 @@ def stackwrapper(inmslist: list, msout_prefix: str = 'stack', column_to_normalis
     """
     if type(inmslist) is not list:
         raise TypeError('Incorrect input type for inmslist')
+    check_stack_frequency_axes(inmslist)  # stop before anything is written
     terminal_print('Adding weight spectrum to stack')
     create_weight_spectrum(inmslist, 'WEIGHT_SPECTRUM_PM', updateweights=True,
                            updateweights_from_thiscolumn='MODEL_DATA')
@@ -419,6 +420,50 @@ def _get_stack_groups(inmslist, outputms_prefix='stack', verbose=False):
         (f'{outputms_prefix}_t{group_id:02d}.MS', ms_group)
         for group_id, ms_group in enumerate(mss_timestacks)
     ]
+
+
+def check_stack_frequency_axes(inmslist):
+    """
+    Check that the MSs in each stack group share the same frequency axis.
+
+    MSs are stacked per common time axis (see ``_get_stack_groups``), and the
+    stack adds them channel by channel, so within a group the number of
+    channels and the channel frequencies must match. Phase centres are not
+    compared: stacked MSs are different sources by design.
+
+    Parameters
+    ----------
+    inmslist : list of str
+        Measurement Sets to be stacked.
+
+    Raises
+    ------
+    ValueError
+        If any group contains MSs whose ``CHAN_FREQ`` differs from the first
+        MS in that group (in shape, or by more than 0.1% of a channel width).
+    """
+    problems = []
+    for stacked_ms, ms_group in _get_stack_groups(inmslist):
+        ref_ms = ms_group[0]
+        with table(ref_ms + '::SPECTRAL_WINDOW', ack=False) as t:
+            ref_freq = np.asarray(t.getcol('CHAN_FREQ'), dtype=float)
+            ref_width = np.abs(np.asarray(t.getcol('CHAN_WIDTH'), dtype=float))
+        tol = 1e-3 * np.min(ref_width) if ref_width.size and np.min(ref_width) > 0 else 1.0
+        for ms in ms_group[1:]:
+            with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
+                freq = np.asarray(t.getcol('CHAN_FREQ'), dtype=float)
+            if freq.shape != ref_freq.shape:
+                problems.append(f'{stacked_ms}: {ms} has CHAN_FREQ shape {freq.shape} '
+                                f'(SPW x channels), but {ref_ms} has {ref_freq.shape}')
+            elif not np.allclose(freq, ref_freq, rtol=0.0, atol=tol):
+                maxdiff = np.max(np.abs(freq - ref_freq))
+                problems.append(f'{stacked_ms}: {ms} channel frequencies differ from {ref_ms} '
+                                f'by up to {maxdiff:.6g} Hz')
+    if problems:
+        msg = ('Cannot stack: MSs with the same time axis have different frequency axes.\n  '
+               + '\n  '.join(problems))
+        terminal_print(msg)
+        raise ValueError(msg)
 
 
 def stackMS_taql(inmslist: list, outputms_prefix: str = 'stack', incol: str = 'DATA_NORM', outcol: str = 'DATA',

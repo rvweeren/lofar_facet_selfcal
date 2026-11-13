@@ -21,6 +21,9 @@ RESOURCE_PHASE_STYLES = {
 RESOURCE_RAM_COLOR = RESOURCE_PHASE_STYLES["imaging"][1]
 DEFAULT_RESOURCE_SAMPLE_COUNT = 300
 
+# Logged around every DP3 and WSClean command that runtime_utils.run executes;
+# the end marker carries the exit code. The names predate WSClean support and
+# the strings stay unchanged so that older logs still parse.
 DP3_EXECUTION_START_MARKER = "FACETSELFCAL_DP3_STEP_START "
 DP3_EXECUTION_END_MARKER = "FACETSELFCAL_DP3_STEP_END "
 # Logged once at startup with the JSON-encoded command line of the run.
@@ -40,6 +43,7 @@ _PHASE_ROW_SPACING = 20
 _MIN_PHASE_BAR_WIDTH = 2.0
 # DP3, or the Python treeMF solver that takes DP3's arguments (soltype treemf)
 _DP3_COMMAND = r"^\s*(?:DP3|python\s+\S*DP3_Python_treeMF\.py)(?:\s|$)"
+_WSCLEAN_COMMAND = r"^\s*wsclean(?:\s|$)"
 
 
 def _escape(value):
@@ -104,6 +108,16 @@ def dp3_workflow_step_kinds(command):
     ):
         step_kinds.append("apply")
     return list(dict.fromkeys(step_kinds))
+
+
+def wsclean_workflow_step_kind(command):
+    """Return ``"predict"`` or ``"imaging"`` for a WSClean command, else None."""
+    command_text = str(command)
+    if not re.match(_WSCLEAN_COMMAND, command_text, re.IGNORECASE):
+        return None
+    if re.search(r"(?:^|\s)-predict(?:\s|$)", command_text, re.IGNORECASE):
+        return "predict"
+    return "imaging"
 
 
 def phase_intervals_from_events(events, end_epoch=None):

@@ -81,7 +81,7 @@ def modify_freqs_from_ms(mslist, freqs, args):
     """
     ms_chan_freqs = []
     for ms in mslist:
-        t = table(ms, readonly = True)
+        t = table(ms, readonly = True, ack=False)
         t_chan_freqs = t.SPECTRAL_WINDOW.CHAN_FREQ[::][0] # This provides the frequencies of all channels in the MS
         ms_chan_freqs.append(t_chan_freqs)
 

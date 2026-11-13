@@ -24,12 +24,14 @@ try:
     from facetselfcal.resource_chart import (DP3_EXECUTION_END_MARKER,
                                              DP3_EXECUTION_START_MARKER,
                                              dp3_command_phases,
-                                             dp3_workflow_step_kinds)
+                                             dp3_workflow_step_kinds,
+                                             wsclean_workflow_step_kind)
 except ImportError:
     from resource_chart import (DP3_EXECUTION_END_MARKER,
                                 DP3_EXECUTION_START_MARKER,
                                 dp3_command_phases,
-                                dp3_workflow_step_kinds)
+                                dp3_workflow_step_kinds,
+                                wsclean_workflow_step_kind)
 
 logger = logging.getLogger(__name__)
 _RESOURCE_MONITOR = None
@@ -103,8 +105,11 @@ def run(command, log=False, taql=False):
         the return code of the executed process.
     """
     dp3_phases = dp3_command_phases(command)
+    # start/end markers with the exit code, for the workflow steps in the HTML report
     dp3_execution_id = (
-        uuid.uuid4().hex if dp3_workflow_step_kinds(command) else None
+        uuid.uuid4().hex
+        if dp3_workflow_step_kinds(command) or wsclean_workflow_step_kind(command)
+        else None
     )
     if log:
         terminal_print('Command:', command)
@@ -220,6 +225,46 @@ def _run_predict_command(command):
     return run(command)
 
 
+_SLURM_CPU_WARNING_SHOWN = False
+
+
+def allocated_cpu_count():
+    """
+    Return the number of CPU cores this process may use.
+
+    ``multiprocessing.cpu_count()`` and ``os.cpu_count()`` return all cores of the
+    node. In a Slurm job, or under ``taskset``, fewer cores are allocated, and
+    starting a thread per node core then oversubscribes the allocation. This
+    function takes the smallest of the CPU affinity of the process and
+    ``SLURM_CPUS_PER_TASK`` (if set), and falls back to ``os.cpu_count()``.
+
+    Returns
+    -------
+    int
+        Number of usable CPU cores, at least 1.
+    """
+    global _SLURM_CPU_WARNING_SHOWN
+    limits = []
+    try:
+        available = len(os.sched_getaffinity(0))
+        if available > 0:
+            limits.append(available)
+    except (AttributeError, OSError):  # sched_getaffinity is not available on macOS
+        pass
+    requested = os.environ.get('SLURM_CPUS_PER_TASK', '').strip()
+    if requested:
+        try:
+            requested = int(requested)
+            if requested < 1:
+                raise ValueError
+            limits.append(requested)
+        except ValueError:
+            if not _SLURM_CPU_WARNING_SHOWN:
+                logger.warning('Ignoring invalid SLURM_CPUS_PER_TASK=%s', requested)
+                _SLURM_CPU_WARNING_SHOWN = True
+    return min(limits) if limits else (os.cpu_count() or 1)
+
+
 def _format_machine_bytes(byte_count):
     if byte_count is None:
         return "unavailable"
@@ -233,16 +278,23 @@ def _log_machine_info():
         hostname = "unavailable"
     logger.info("Run host: %s", hostname)
     logger.info("Operating system: %s", platform.platform())
+    container = os.environ.get("APPTAINER_CONTAINER", "").strip()
+    if container:
+        # Equivalent of `readlink -f "$APPTAINER_CONTAINER"`.
+        logger.info("Container image: %s", os.path.realpath(container))
 
     logical_cpus = os.cpu_count()
     try:
         available_cpus = len(os.sched_getaffinity(0))
     except (AttributeError, OSError):
         available_cpus = None
+    slurm_cpus = os.environ.get("SLURM_CPUS_PER_TASK", "").strip()
     logger.info(
-        "CPU count: %s logical; %s available to process",
+        "CPU count: %s logical; %s available to process%s; %s used for threads",
         logical_cpus,
         available_cpus if available_cpus is not None else "unavailable",
+        "; SLURM_CPUS_PER_TASK=" + slurm_cpus if slurm_cpus else "",
+        allocated_cpu_count(),
     )
 
     ram_total = None

@@ -7,6 +7,11 @@ It supports either an average or a weighted median combination. The per-file
 weight is taken from the number of entries along the time axis.
 
 Flags are taken from the dataset named weight and values with flag 0 are ignored.
+
+Before merging, the broadband differences between the inputs (an amplitude
+factor, and a phase offset plus delay, per antenna and polarisation) are fitted
+and removed, so the merged bandpass does not step at channels where only some
+inputs are flagged. See normalise_inputs.
 """
 
 import argparse
@@ -249,6 +254,138 @@ def _weighted_circular_mean(angles: List[float], weights: List[float]) -> float:
     return float(np.angle(vector_sum))
 
 
+def _valid_channels(solution: dict, index: int, is_amplitude: bool) -> np.ndarray:
+    values = solution["data"][index]
+    valid = (solution["flags"][index] > 0.0) & np.isfinite(values)
+    if is_amplitude:
+        valid &= np.where(valid, values, 0.0) > 0.0
+    return valid
+
+
+def _fit_phase_offset(freq: np.ndarray, diff: np.ndarray, valid: np.ndarray, fit_delay: bool, f0: float) -> Tuple[float, float]:
+    """Fit diff(freq) = offset + 2 pi delay (freq - f0) on the valid channels.
+
+    The delay starts from the peak of a zero-padded FFT of the phasors (so it
+    may be many turns across the band) and is refined by two linear fits of
+    the residual phase.
+    """
+    z = np.exp(1j * diff[valid])
+    f = freq[valid] - f0
+    delay = 0.0
+    if fit_delay and len(freq) > 1:
+        df = np.median(np.abs(np.diff(freq)))
+        idx = np.rint((freq[valid] - np.min(freq)) / df).astype(int)
+        nfft = 8 * 2 ** int(np.ceil(np.log2(idx.max() + 1)))
+        grid = np.zeros(nfft, dtype=complex)
+        grid[idx] = z
+        k = int(np.argmax(np.abs(np.fft.fft(grid))))
+        delay = (k if k < nfft // 2 else k - nfft) / (nfft * df)
+        for _ in range(2):
+            model = np.exp(2j * np.pi * delay * f)
+            offset = np.angle(np.sum(z / model))
+            residual = np.angle(z / model * np.exp(-1j * offset))
+            delay += np.polyfit(f, residual, 1)[0] / (2.0 * np.pi)
+    offset = np.angle(np.sum(z * np.exp(-2j * np.pi * delay * f)))
+    return float(offset), float(delay)
+
+
+def normalise_inputs(
+    solutions: List[dict],
+    is_amplitude: bool,
+    fit_delay: bool = True,
+    to_first: bool = False,
+    minchan: int = 10,
+) -> Tuple[List[dict], List[dict]]:
+    """Remove the broadband differences between the inputs before merging.
+
+    The inputs differ by a factor per antenna and polarisation (source flux,
+    elevation or gain drift left in the bandpass, plus a phase offset and a
+    delay). A plain per-channel average then steps wherever an input is flagged
+    and the others are not. For each antenna and polarisation this fits, against
+    the first input containing that antenna and over the channels both have
+    valid, the median log-amplitude difference or a phase offset plus delay
+    (fit_delay). The fits are normalised to zero mean over the inputs (or to the
+    first input when to_first, since those values are copied as they are) and
+    removed from the data. Amplitudes of antennas missing from some inputs are
+    also put on the common level, using the per-input median offset of the
+    antennas present in every input.
+
+    Returns the corrected solutions and a per-input summary.
+    """
+    nsol = len(solutions)
+    freq = np.asarray(solutions[0]["freq"], dtype=np.float64)
+    f0 = float(np.mean(freq))
+    n_pol = solutions[0]["data"].shape[2]
+    nterm = 1 if is_amplitude else 2  # log amplitude, or (phase offset, delay)
+
+    offsets = {}
+    for antenna in build_antenna_order(solutions):
+        members = [s for s, solution in enumerate(solutions) if antenna in solution["antennas"]]
+        off = np.zeros((len(members), n_pol, nterm))
+        reference = solutions[members[0]]
+        ref_idx = reference["antennas"].index(antenna)
+        ref_valid = _valid_channels(reference, ref_idx, is_amplitude)
+        for m, s in enumerate(members[1:], 1):
+            solution = solutions[s]
+            idx = solution["antennas"].index(antenna)
+            valid = _valid_channels(solution, idx, is_amplitude) & ref_valid
+            for pol_idx in range(n_pol):
+                v = valid[:, pol_idx]
+                if np.sum(v) < minchan:
+                    continue
+                if is_amplitude:
+                    off[m, pol_idx, 0] = np.median(
+                        np.log(solution["data"][idx, v, pol_idx]) - np.log(reference["data"][ref_idx, v, pol_idx]))
+                else:
+                    diff = solution["data"][idx, :, pol_idx] - reference["data"][ref_idx, :, pol_idx]
+                    off[m, pol_idx] = _fit_phase_offset(freq, diff, v, fit_delay, f0)
+        if not (to_first and members[0] == 0):
+            if is_amplitude:
+                off -= np.mean(off, axis=0)
+            else:
+                off[..., 0] = np.angle(np.exp(1j * off[..., 0]) / np.exp(1j * off[..., 0]).sum(axis=0))
+                off[..., 1] -= np.mean(off[..., 1], axis=0)
+        offsets[antenna] = (members, off)
+
+    if is_amplitude and nsol > 1:
+        full = [off for members, off in offsets.values() if len(members) == nsol]
+        if full:
+            level = np.median(full, axis=0)  # (nsol, n_pol, 1)
+            for members, off in offsets.values():
+                if len(members) < nsol and not (to_first and members[0] == 0):
+                    off += np.mean(level[members], axis=0)
+
+    corrected = []
+    summary = [{"amplitude_factor": [], "phase_offset": [], "delay": []} for _ in solutions]
+    for s, solution in enumerate(solutions):
+        data = np.array(solution["data"], dtype=np.float64, copy=True)
+        for idx, antenna in enumerate(solution["antennas"]):
+            members, off = offsets[antenna]
+            o = off[members.index(s)]
+            if is_amplitude:
+                data[idx] *= np.exp(-o[:, 0])[None, :]
+                summary[s]["amplitude_factor"].extend(np.exp(o[:, 0]))
+            else:
+                data[idx] = _wrap_angle(data[idx] - o[None, :, 0] - 2.0 * np.pi * o[None, :, 1] * (freq - f0)[:, None])
+                summary[s]["phase_offset"].extend(np.rad2deg(o[:, 0]))
+                summary[s]["delay"].extend(o[:, 1] * 1e9)
+        new = dict(solution)
+        new["data"] = data
+        corrected.append(new)
+    return corrected, summary
+
+
+def _print_normalisation(solutions: List[dict], summary: List[dict], is_amplitude: bool) -> None:
+    for solution, item in zip(solutions, summary):
+        name = os.path.basename(solution.get("path", "input"))
+        if is_amplitude:
+            print(f"{name}: amplitude factor removed, median {np.median(item['amplitude_factor']):.4f}"
+                  f" (range {np.min(item['amplitude_factor']):.4f}-{np.max(item['amplitude_factor']):.4f})")
+        else:
+            print(f"{name}: phase offset removed, median |offset| {np.median(np.abs(item['phase_offset'])):.2f} deg,"
+                  f" median |delay| {np.median(np.abs(item['delay'])):.3f} ns")
+
+
 def merge_solution(
     solutions: List[dict],
     method: str,
@@ -256,9 +393,17 @@ def merge_solution(
     is_amplitude: bool = False,
     flag_policy: str = "any",
     copy_first: bool = False,
+    normalise: bool = True,
+    fit_delay: bool = True,
+    verbose: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if flag_policy not in {"any", "all"}:
         raise ValueError("Flag policy must be 'any' or 'all'")
+
+    if is_amplitude and normalise and len(solutions) > 1:
+        solutions, summary = normalise_inputs(solutions, True, to_first=copy_first)
+        if verbose:
+            _print_normalisation(solutions, summary, True)
 
     if is_amplitude:
         antenna_order = build_antenna_order(solutions)
@@ -354,6 +499,10 @@ def merge_solution(
         referenced_solutions.append(referenced)
 
     solutions = referenced_solutions
+    if normalise and len(solutions) > 1:
+        solutions, summary = normalise_inputs(solutions, False, fit_delay=fit_delay, to_first=copy_first)
+        if verbose:
+            _print_normalisation(solutions, summary, False)
     merged_values = np.zeros((n_ant, n_freq, n_pol), dtype=np.float64)
     merged_flags = np.zeros((n_ant, n_freq, n_pol), dtype=np.int8)
     antenna_presence = {
@@ -619,6 +768,8 @@ def main() -> None:
             "of antennas while keeping polarizations independent. Input files "
             "are weighted by their number of time slots; phases are referenced "
             "to a common antenna, and amplitudes are combined independently. "
+            "Broadband differences between the inputs are removed first "
+            "(see --no-normalise). "
             "Flags are handled per antenna, frequency, and polarization. The "
             "output contains two time slots at the global minimum and maximum "
             "input times."
@@ -656,6 +807,21 @@ def main() -> None:
         action="store_true",
         help="Copy amplitude solutions from the first input; merge amplitudes only for antennas missing there",
     )
+    parser.add_argument(
+        "--no-normalise",
+        action="store_true",
+        help=(
+            "Average the inputs as they are. By default the amplitude factor and "
+            "the phase offset plus delay of each input (per antenna and "
+            "polarisation) are removed first, which avoids steps in the merged "
+            "bandpass at channels where only some inputs are flagged."
+        ),
+    )
+    parser.add_argument(
+        "--no-delay-fit",
+        action="store_true",
+        help="When normalising, remove only a constant phase offset per input, not a delay",
+    )
     parser.add_argument("output", help="Output HDF5 file")
     parser.add_argument("inputs", nargs="+", help="Input HDF5 files or glob patterns")
     args = parser.parse_args()
@@ -679,6 +845,9 @@ def main() -> None:
         is_amplitude=False,
         flag_policy=args.flag_policy,
         copy_first=args.phase_from_first,
+        normalise=not args.no_normalise,
+        fit_delay=not args.no_delay_fit,
+        verbose=True,
     )
     merged_amplitude, amplitude_flags, _, _ = merge_solution(
         amplitude_solutions,
@@ -687,6 +856,8 @@ def main() -> None:
         is_amplitude=True,
         flag_policy=args.flag_policy,
         copy_first=args.amplitude_from_first,
+        normalise=not args.no_normalise,
+        verbose=True,
     )
 
     all_solution_times = np.concatenate(

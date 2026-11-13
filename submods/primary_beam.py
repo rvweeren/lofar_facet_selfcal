@@ -13,6 +13,7 @@ from casacore.tables import table  # type: ignore
 from submods.fits_utils import flatten
 from submods.ms_fixes import get_telescope_from_ms
 from submods.runtime_utils import get_logger, terminal_print
+from submods.telescopes import describe_telescopes, pbcor_function_name
 
 
 def write_primarybeam_info(cmd, imagebasename, telescope=None):
@@ -29,8 +30,9 @@ def write_primarybeam_info(cmd, imagebasename, telescope=None):
         The command-line string used to run the imaging process. Determines which comments are added.
     imagebasename : str
         The base name of the image files to search for and update.
-    telescope : str or None, optional
-        Telescope name used for telescope-specific primary-beam metadata.
+    telescope : str, collection of str or None, optional
+        Telescope name(s) of the imaged MSs, used for telescope-specific primary-beam metadata. With
+        several telescopes the manual correction is only available if they share one (VLA + EVLA).
 
     Notes
     -----
@@ -48,13 +50,14 @@ def write_primarybeam_info(cmd, imagebasename, telescope=None):
                 hdul[0].header['COMMENT'] = "Full primary beam correction applied. Image is science ready."
             if '-apply-facet-beam' not in cmd and '-apply-facet-solutions' in cmd:   
                 hdul[0].header['COMMENT'] = "Full primary beam correction has not been applied." 
-                if telescope is not None:
-                    if telescope == 'MeerKAT' or telescope == 'GMRT' or telescope == 'VLA' or telescope == 'EVLA':
-                        hdul[0].header['COMMENT'] = "You can use the <imagename>-MFS-image-manualpb.fits file."
-                    else:
-                        hdul[0].header['COMMENT'] = "Manually correct your image for the primary beam."        
+                telescopes = [] if telescope is None else ([telescope] if isinstance(telescope, str) else list(telescope))
+                if telescopes and pbcor_function_name(telescopes) is not None:
+                    hdul[0].header['COMMENT'] = "You can use the <imagename>-MFS-image-manualpb.fits file."
                 else:
-                    hdul[0].header['COMMENT'] = "Manually correct your image for the primary beam."        
+                    if len(set(telescopes)) > 1:
+                        hdul[0].header['COMMENT'] = ("Image combines data from " + describe_telescopes(telescopes)
+                                                     + " with different primary beams.")
+                    hdul[0].header['COMMENT'] = "Manually correct your image for the primary beam."
             if '-apply-primary-beam' in cmd:
                 hdul[0].header['COMMENT'] = "Full primary beam correction applied. Image is science ready."
 

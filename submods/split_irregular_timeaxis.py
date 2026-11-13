@@ -44,7 +44,7 @@ def mjd_to_mvtime(mjd_time):
 
 def split_ms(ms_path, overwrite=False, prefix='', dysco=True, return_mslist=False, dryrun=False, metadata_compression=False):
     # Open the Measurement Set
-    t = pt.table(ms_path)
+    t = pt.table(ms_path, ack=False)
 
     # Extract the TIME column
     time = t.getcol('TIME')

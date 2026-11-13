@@ -166,7 +166,7 @@ def split_ms_spws(ms, dysco=True):
     """
 
     # get SPWids from the MS
-    with table(ms + '::DATA_DESCRIPTION', readonly=True) as t:
+    with table(ms + '::DATA_DESCRIPTION', readonly=True, ack=False) as t:
         spw_ids = t.getcol('SPECTRAL_WINDOW_ID')
 
     # check that there are more than one unique SPW, otherwise do nothing
@@ -175,12 +175,12 @@ def split_ms_spws(ms, dysco=True):
         return
 
     # get the unique DATA_DESC_IDs actually present in the main data rows
-    with table(ms, readonly=True) as t:
+    with table(ms, readonly=True, ack=False) as t:
         # Using np.unique isolates only the IDs that contain actual rows of data
         active_ddids = np.unique(t.getcol("DATA_DESC_ID"))
 
     # map those DDIDs back to their actual Spectral Window IDs
-    with table(ms + '::DATA_DESCRIPTION', readonly=True) as t:
+    with table(ms + '::DATA_DESCRIPTION', readonly=True, ack=False) as t:
         # Fetch the mapping array where row index = DDID, value = SPW_ID
         spw_mapping = t.getcol("SPECTRAL_WINDOW_ID")
     
@@ -246,7 +246,7 @@ def collect_all_frequencies(mslist):
     """
     frequencies = set()
     for ms in mslist:
-        with table(ms + '::SPECTRAL_WINDOW', readonly=True) as t:
+        with table(ms + '::SPECTRAL_WINDOW', readonly=True, ack=False) as t:
             freqs = t.getcol('CHAN_FREQ')[0]# Get the first channel frequency for each SPW    
             terminal_print(f'Frequencies in {ms}: {freqs}')
             frequencies.update(freqs)

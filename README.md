@@ -128,6 +128,10 @@ See the [uGMRT processing notes](https://github.com/rvweeren/lofar_facet_selfcal
 
 See the [(E)VLA processing notes](https://github.com/rvweeren/lofar_facet_selfcal/wiki/VLA-processing) for instrument-specific guidance.
 
+### MWA
+
+See the [MWA processing notes](https://github.com/rvweeren/lofar_facet_selfcal/wiki/MWA-processing) for instrument-specific guidance.
+
 ## Command-line tools
 
 Installing the package provides these commands:

@@ -12,3 +12,5 @@ The montage in `telescope-montage.jpg` is assembled from the following Wikimedia
 | MWA | [MWA 32T Tile](https://commons.wikimedia.org/wiki/File:MWA_32T_Tile.jpg) | Natasha Hurley-Walker | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) |
 
 The montage was assembled for the `lofar_facet_selfcal` README from the files above. Image selection and metadata were checked on 22 September 2026.
+
+The HTML report header uses per-facility crops of the montage panels (label overlays removed), stored in `facetselfcal/data/telescopes/`. The report shows each crop with its creator and license.
