@@ -3655,6 +3655,17 @@ def primary_beam_fwhm_deg(telescope, freq):
     return 1.0  # degr
 
 
+def model_images(imagebase):
+    """
+    Model images WSClean wrote for imagebase: the per-channel ones (<imagebase>-NNNN-*model*.fits),
+    or <imagebase>-*model*.fits when there was a single output channel (no channel number then).
+    """
+    models = sorted(glob.glob(imagebase + '-????-*model*.fits'))
+    if not models:
+        models = sorted(m for m in glob.glob(imagebase + '-*model*.fits') if '-MFS-' not in m)
+    return models
+
+
 def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                        channelsout, single_dual_speedup=True,
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None,
@@ -3713,8 +3724,11 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
     - If DDE calibration tables are provided (`h5list`), direction-dependent corrections are applied.
     - Temporary columns and files may be created and removed to manage disk space.
     """
-    # get imageheader to check frequency
-    hdul = fits.open(imagebasename + '-MFS-image.fits')
+    # get imageheader to check frequency (no -MFS- image for a single output channel)
+    mfsimage = imagebasename + '-MFS-image.fits'
+    if not os.path.isfile(mfsimage) and os.path.isfile(imagebasename + '-image.fits'):
+        mfsimage = imagebasename + '-image.fits'
+    hdul = fits.open(mfsimage)
     header = hdul[0].header
 
     if len(h5list) != 0:
@@ -3752,7 +3766,7 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
             min_extract_size = max(primary_beam_fwhm_deg(telescope, np.median([np.median(get_frequencies_from_ms(ms))
                                                                                 for ms in group]))
                                    for telescope, group in group_by_telescope(mslist).items())
-        boxsize = auto_determine_extractregion(imagebasename + '-MFS-image.fits', min_extract_size=min_extract_size)
+        boxsize = auto_determine_extractregion(mfsimage, min_extract_size=min_extract_size)
         userbox = 'templatebox.reg' # set this as we are going to use the template region file
     # create square box file templatebox.reg
 
@@ -4099,7 +4113,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     if onlypredict and facetregionfile is None:
         if predict:
             if squarebox is not None:
-                for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
+                for model in model_images(imageout):
                     terminal_print(
                         'Model image:',
                         model,
@@ -4157,7 +4171,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
             # remove box_ model files to save space
             if squarebox is not None:
-                for model in sorted(glob.glob('fits_images/box_' + os.path.basename(imageout) + '-????-*model*.fits')):
+                for model in model_images('fits_images/box_' + os.path.basename(imageout)):
                     Path(model).unlink(missing_ok=True)
         return
     #  --- end predict only ---
@@ -4166,7 +4180,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     # for example for --remove-outside-center option with --DDE
     if onlypredict and facetregionfile is not None and predict and squarebox is not None:
         # do the masking
-        for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
+        for model in model_images(imageout):
             if squarebox != 'keepall':
                 terminal_print(
                     'Square mask region:',
@@ -4237,7 +4251,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             _run_predict_command(cmd)
         # remove box_ model files to save space
         if squarebox != 'keepall':
-            for model in sorted(glob.glob('fits_images/box_' + os.path.basename(imageout) + '-????-*model*.fits')):
+            for model in model_images('fits_images/box_' + os.path.basename(imageout)):
                 Path(model).unlink(missing_ok=True)
         return
         #  --- NO-FACET-LOOP end DDE CORRUPT-predict only ---
@@ -4256,7 +4270,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
 
             # step 2 mask outside of region file
             if not singlefacetpredictspeedup:  # not needed, because WSClean will do the facet cutting
-                for model in sorted(glob.glob(imageout + '-????-*model*.fits')):
+                for model in model_images(imageout):
                     modelout = 'fits_images/facet_' + os.path.basename(model)
                     if DDE_predict == 'WSCLEAN':
                         terminal_print('Model image:', model, 'Output model:', modelout)
@@ -4545,22 +4559,13 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         
         # REMOVE nagetive model components, these are artifacts (only for Stokes I)
         if removenegativecc:
-            if idg:
-                removenegativefrommodel(sorted(glob.glob(imageout + '-????-*model*.fits')))  # only Stokes I
-            else:
-                removenegativefrommodel(sorted(glob.glob(imageout + '-????-*model*.fits')))
+            removenegativefrommodel(model_images(imageout))
 
         # Remove NaNs from array (can happen if certain channels from channels-out are flagged, or from -apply-facet-beam far into the sidelobes)
-        if idg:
-            removeneNaNfrommodel(glob.glob(imageout + '-????-*model*.fits'))  # only Stokes I
-        else:
-            removeneNaNfrommodel(glob.glob(imageout + '-????-*model*.fits'))
+        removeneNaNfrommodel(model_images(imageout))
 
         # Check is anything was cleaned. If not, stop the selfcal to avoid obscure errors later
-        if channelsout > 1:
-            model_allzero = checkforzerocleancomponents(glob.glob(imageout + '-????-*model*.fits'))  # only Stokes I
-        else:
-            model_allzero = checkforzerocleancomponents(glob.glob(imageout + '-*model*.fits'))
+        model_allzero = checkforzerocleancomponents(model_images(imageout))
         if model_allzero:
             logger.error("All channel maps models were zero: Stopping the selfcal")
             terminal_print("All channel maps models were zero: Stopping the selfcal")
