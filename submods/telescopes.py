@@ -99,6 +99,30 @@ def is_mixed(mslist):
     return len(unique_telescopes(mslist)) > 1
 
 
+def meerkatcal_applied(ms):
+    """
+    Whether a Measurement Set is a --meerkatcal target output.
+
+    The target stage of --meerkatcal writes the MEERKATCAL_APPLIED keyword in the main table after the
+    calibration and its AOFlagger pass; DP3 copies the keyword to averaged and copied MSs.
+
+    Parameters
+    ----------
+    ms : str
+        Path to the Measurement Set.
+
+    Returns
+    -------
+    bool
+        True if the main table has the MEERKATCAL_APPLIED keyword, False otherwise (or if it cannot be read).
+    """
+    try:
+        with table(str(ms), ack=False) as t:
+            return 'MEERKATCAL_APPLIED' in t.keywordnames()
+    except RuntimeError:
+        return False
+
+
 def single_telescope(mslist):
     """
     The telescope of a list of Measurement Sets, if they all come from one telescope.

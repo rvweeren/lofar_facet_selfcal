@@ -106,6 +106,13 @@ _CYCLE_IMAGE_METRIC_FIELDS = (
     ("dynamic_range", "Dynamic range"),
 )
 
+# selfcal.log line with the suggested WSClean -dd-psf-grid size of a cycle; must match
+# DDPSFGRID_SUGGESTION_MARKER and the message in update_ddpsfgrid (submods/imaging_params.py)
+DDPSFGRID_SUGGESTION_MARKER = "dd-psf-grid suggestion:"
+_DDPSFGRID_SUGGESTION_RE = re.compile(
+    r"^dd-psf-grid suggestion:\s*cycle (\d+), used (\d+), suggested (\d+)"
+)
+
 _CSS = r"""
 :root {
   color-scheme: light;
@@ -217,14 +224,16 @@ section { margin: 26px 0 0; }
 .data-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .data-table.progression-table { table-layout: fixed; }
 .data-table.progression-table thead th:nth-child(1) { width: 9%; }
-.data-table.progression-table thead th:nth-child(2) { width: 15%; }
-.data-table.progression-table thead th:nth-child(3) { width: 10%; white-space: nowrap; }
-.data-table.progression-table thead th:nth-child(4) { width: 8%; }
-.data-table.progression-table thead th:nth-child(5) { width: 10%; }
-.data-table.progression-table thead th:nth-child(6) { width: 12%; }
-.data-table.progression-table thead th:nth-child(7) { width: 9%; }
-.data-table.progression-table thead th:nth-child(8) { width: 12%; white-space: nowrap; }
-.data-table.progression-table thead th:nth-child(9) { width: 15%; }
+.data-table.progression-table thead th:nth-child(2) { width: 13%; }
+.data-table.progression-table thead th:nth-child(3) { width: 8%; white-space: nowrap; }
+.data-table.progression-table thead th:nth-child(4) { width: 9%; }
+.data-table.progression-table thead th:nth-child(5) { width: 9%; }
+.data-table.progression-table thead th:nth-child(6) { width: 7%; }
+.data-table.progression-table thead th:nth-child(7) { width: 11%; }
+.data-table.progression-table thead th:nth-child(8) { width: 8%; }
+.data-table.progression-table thead th:nth-child(9) { width: 11%; white-space: nowrap; }
+.data-table.progression-table thead th:nth-child(10) { width: 15%; }
+.ddpsf-mismatch { display: inline-block; white-space: nowrap; padding: 0 6px; border-radius: 4px; color: #78350f; background: var(--amber-pale); border: 1px solid var(--amber-border); }
 .data-table.progression-table th, .data-table.progression-table td { overflow-wrap: anywhere; }
 .data-table.progression-table thead th { overflow-wrap: normal; }
 .data-table.progression-table thead th:nth-child(3),
@@ -3698,6 +3707,9 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
         "Widefield": "forwidefield",
     }
     effective_settings = {}
+    # suggested WSClean -dd-psf-grid size per cycle, logged by update_ddpsfgrid
+    # (submods/imaging_params.py, DDPSFGRID_SUGGESTION_MARKER); the last line per cycle wins
+    ddpsfgrid_suggestions = {}
     stack_groups = stack_groups or {}
 
     def record_dp3_execution_start(payload, timestamp):
@@ -3864,6 +3876,16 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
                             )
                             if payload is not None:
                                 record_dp3_execution_end(payload, ts_obj)
+                            continue
+
+                        if message.startswith(DDPSFGRID_SUGGESTION_MARKER):
+                            match = _DDPSFGRID_SUGGESTION_RE.match(message)
+                            if match:
+                                ddpsfgrid_suggestions[int(match.group(1))] = {
+                                    "used": int(match.group(2)),
+                                    "suggested": int(match.group(3)),
+                                    "detail": message[len(DDPSFGRID_SUGGESTION_MARKER):].strip(),
+                                }
                             continue
 
                         setting_name, separator, setting_value = message.partition(":")
@@ -4191,6 +4213,7 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
         "host_info": host_info,
         "effective_cycle_config": effective_cycle_config,
         "effective_settings": effective_settings,
+        "ddpsfgrid_suggestions": ddpsfgrid_suggestions,
         "effective_cycle_config_errors": sorted(effective_cycle_config_errors),
         "flagging_stats": flagging_stats,
         "cycle_timeline": [cycles[k] for k in cycle_keys],
@@ -5473,6 +5496,18 @@ def _format_image_metric_value(field, value):
     return str(value)
 
 
+def _ddpsfgrid_cycle_cell(record):
+    """Progression-table cell with the -dd-psf-grid size used and, if different, the suggested size."""
+    if not record:
+        return "&mdash;"
+    used, suggested = record["used"], record["suggested"]
+    if used == suggested:
+        return '<span title="{}">{}</span>'.format(_escape(record["detail"]), _escape(used))
+    return '<span class="ddpsf-mismatch" title="Suggested {}: {}">{} &rarr; {}</span>'.format(
+        _escape(suggested), _escape(record["detail"]), _escape(used), _escape(suggested)
+    )
+
+
 def _image_metric_cycle_cell(records, field, stack_mode=False):
     if stack_mode:
         latest_by_stack = {}
@@ -5942,6 +5977,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
 
     setup_step_details = logs.get("setup_step_details", [])
     cycle_timeline = logs.get("cycle_timeline", [])
+    ddpsfgrid_suggestions = logs.get("ddpsfgrid_suggestions", {})
     image_metrics_by_cycle = defaultdict(list)
     for image_metric in logs.get("image_metrics", []):
         cycle = image_metric.get("cycle")
@@ -5967,6 +6003,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                 '<td>{}</td>'
                 '<td class="numeric"><span class="cycle-duration">{}</span></td>'
                 '{}'
+                '<td class="numeric">&mdash;</td>'
                 '<td class="nowrap">&mdash;</td>'
                 '<td class="numeric">&mdash;</td>'
                 '<td class="numeric">&mdash;</td>'
@@ -5981,7 +6018,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                 )
             ]
             preparation_rows.append(
-                '<tr class="progression-workflow-row"><td colspan="9">{}</td></tr>'.format(
+                '<tr class="progression-workflow-row"><td colspan="10">{}</td></tr>'.format(
                     preparation_steps_html
                 )
             )
@@ -6012,6 +6049,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                 '<td>{}</td>'
                 '<td class="numeric"><span class="cycle-duration">{}</span></td>'
                 '{}'
+                '<td class="numeric">{}</td>'
                 '<td>{}</td>'
                 '<td class="numeric">{}</td>'
                 '<td class="numeric">{}</td>'
@@ -6021,6 +6059,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                     _escape(cdata["start_str"]),
                     _escape(cdata["duration_str"]),
                     metric_cells,
+                    _ddpsfgrid_cycle_cell(ddpsfgrid_suggestions.get(c_int)),
                     _cycle_config_values_html(c_cfg["soltype"]),
                     _cycle_config_values_html(c_cfg["solint"], _format_overview_interval),
                     _cycle_config_values_html(c_cfg["smoothness"], _format_overview_smoothness),
@@ -6029,7 +6068,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             ]
             if cycle_step_details:
                 cycle_rows.append(
-                    '<tr class="progression-workflow-row"><td colspan="9">{}</td></tr>'.format(
+                    '<tr class="progression-workflow-row"><td colspan="10">{}</td></tr>'.format(
                         steps_html
                     )
                 )
@@ -6045,6 +6084,7 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             '<th scope="col">Duration</th>'
             '<th scope="col">RMS noise</th>'
             '<th scope="col">Dynamic range</th>'
+            '<th scope="col">DD PSF grid</th>'
             '<th scope="col">Solution Type</th>'
             '<th scope="col">Interval</th>'
             '<th scope="col">Smoothness</th>'
@@ -6059,6 +6099,13 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             timeline_note += (
                 " In stack mode, WSClean steps and image statistics are identified "
                 "by their imaging group."
+            )
+        if ddpsfgrid_suggestions:
+            timeline_note += (
+                " DD PSF grid is the WSClean -dd-psf-grid size used for the image of the cycle; "
+                "where it differs from the size --auto-ddpsfgrid would choose from that image "
+                "(dynamic range, w coordinates and beam), the cell shows used \u2192 suggested "
+                "and a warning is logged."
             )
         effective_settings = logs.get("effective_cycle_config", {})
         if effective_settings:

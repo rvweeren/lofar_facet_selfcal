@@ -139,7 +139,7 @@ def option_parser():
                                default='auto',
                                type=str_or_int)
     imagingparser.add_argument('--auto-ddpsfgrid',
-                               help="Choose the WSClean -dd-psf-grid size automatically after each imaging cycle (off by default; --ddpsfgrid set by hand wins). A source at a distance dtheta from the centre of its PSF cell sees the uv coordinates shifted by w*dtheta (non-coplanar baselines), so its PSF differs by about 2 pi w_rms dtheta beam within the main lobe. The allowed error near the brightest source is (5/DR)^(1/3), because PSF errors are corrected iteratively (CLEAN major cycles). The grid size is the smallest odd number (at most 7) of cells of that size over the image; the parallel deconvolution sub-images are set to at most imsize/N, because WSClean only uses direction-dependent PSFs with parallel deconvolution.",
+                               help="Choose the WSClean -dd-psf-grid size automatically after each imaging cycle (off by default; --ddpsfgrid set by hand wins). A source at a distance dtheta from the centre of its PSF cell sees the uv coordinates shifted by w*dtheta (non-coplanar baselines), so its PSF differs by about 2 pi w_rms dtheta beam within the main lobe. The allowed error near the brightest source is (5/DR)^(1/3), because PSF errors are corrected iteratively (CLEAN major cycles). The grid size is the smallest odd number (at most 7) of cells of that size over the image; the parallel deconvolution sub-images are set to at most imsize/N, because WSClean only uses direction-dependent PSFs with parallel deconvolution. Without this option the suggested size is still written to the log after each imaging cycle and shown in the HTML report, with a warning if it differs from the size used.",
                                default=False,
                                action=argparse.BooleanOptionalAction)
     imagingparser.add_argument('--ddpsfgrid',
@@ -170,7 +170,7 @@ def option_parser():
     imagingparser.add_argument('--makeimage-fullpol',
                                help='Make Stokes IQUV version for quality checking. Only done for the first (000) and last selfcal cycle (stop-1).',
                                action='store_true')
-    imagingparser.add_argument('--groupms-h5facetspeedup',
+    imagingparser.add_argument('--groupms-h5facetspeedup', '--groupms-speedup',
                                help='Speed up DDE imaging with h5s',
                                action='store_true')
     imagingparser.add_argument('--DP3-BDA-imaging',
@@ -637,7 +637,7 @@ def option_parser():
 
 
     # AOflagger settings
-    add_bool_arg(flaggingparser, 'aoflagger', help='Run AOflagger on input data.', default=None, second_name='useaoflagger')
+    add_bool_arg(flaggingparser, 'aoflagger', help='Run AOflagger on input data. With --auto for MeerKAT it is switched on by default (strategy defaultMeerKAT_StokesQUV.lua), except when all input MSs are --meerkatcal outputs, which were already flagged with that strategy after calibration.', default=None, second_name='useaoflagger')
     add_bool_arg(flaggingparser, 'aoflaggerbeforeavg',
                                 help='Flag with AOflagger before averaging. The default is True.',
                                 default=True)

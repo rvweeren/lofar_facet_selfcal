@@ -271,18 +271,67 @@ def update_tapertukey(selfcalcycle, mslist, args, user_set):
 # corrected iteratively (CLEAN major cycles), so after ~3 corrections the error is eps^3
 AUTO_DDPSFGRID_K = 5.
 AUTO_DDPSFGRID_NMAX = 7
+# start of the selfcal.log line with the suggested dd-psf-grid size (parsed by facetselfcal/report.py)
+DDPSFGRID_SUGGESTION_MARKER = 'dd-psf-grid suggestion:'
 
 
-def update_ddpsfgrid(selfcalcycle, mslist, args, user_set, paralleldeconvolution_base):
+def suggest_ddpsfgrid(selfcalcycle, mslist, args):
     """
-    Choose the WSClean -dd-psf-grid size N automatically (--auto-ddpsfgrid), after an imaging cycle.
+    Suggested WSClean -dd-psf-grid size N for the image of a selfcal cycle.
 
     A point source at a distance dtheta from the centre of its PSF cell sees the uv coordinates
     shifted by w*dtheta (non-coplanar baselines), so within the main lobe (x ~ beam) its PSF differs
     by about eps = 2 pi w_rms dtheta beam. With the allowed error eps_tol = (K/DR)^(1/3), cells
     must be at most sqrt(2) * eps_tol / (2 pi w_rms beam) wide; N is the smallest odd number of
-    such cells over the image (1 to AUTO_DDPSFGRID_NMAX). WSClean only uses direction-dependent
-    PSFs with parallel deconvolution, so the sub-image size is set to at most imsize / N.
+    such cells over the image (1 to AUTO_DDPSFGRID_NMAX).
+
+    Parameters
+    ----------
+    selfcalcycle : int
+        Selfcal cycle of the image (its dynamic range and restoring beam are used).
+    mslist : list of str
+        Measurement Sets of the run.
+    args : dict
+        Parsed facetselfcal options; the w rms is cached in ``auto_ddpsfgrid_wrms``.
+
+    Returns
+    -------
+    dict or None
+        ``n`` (suggested size), ``n_uncapped``, ``dr``, ``w_rms`` (lambda), ``beam_arcsec``,
+        ``eps_tol``, ``cell_deg`` and ``width_deg``; None if the image does not exist.
+    """
+    imagename = mfs_imagename(selfcalcycle, mslist, args)
+    if not os.path.isfile(imagename):
+        return None
+    dr = get_image_dynamicrange(imagename)
+    header = fits.getheader(imagename)
+    if 'BMAJ' not in header:
+        return None
+    beam = np.radians(header['BMAJ'])
+    if 'auto_ddpsfgrid_wrms' not in args:
+        args['auto_ddpsfgrid_wrms'] = get_w_rms_lambda(mslist)
+    w_rms = args['auto_ddpsfgrid_wrms']
+    width = np.radians(args['imsize'] * args['pixelscale'] / 3600.)
+    eps_tol = (AUTO_DDPSFGRID_K / max(dr, 1e-9)) ** (1. / 3.)
+    cell = np.sqrt(2.) * eps_tol / (2. * np.pi * max(w_rms, 1e-9) * beam)
+    n = int(np.ceil(width / cell))
+    n = n + 1 if n % 2 == 0 else n
+    n_uncapped = max(n, 1)
+    n = int(min(n_uncapped, AUTO_DDPSFGRID_NMAX))
+    return {'n': n, 'n_uncapped': n_uncapped, 'dr': float(dr), 'w_rms': float(w_rms),
+            'beam_arcsec': float(np.degrees(beam) * 3600), 'eps_tol': float(eps_tol),
+            'cell_deg': float(np.degrees(cell)), 'width_deg': float(np.degrees(width))}
+
+
+def update_ddpsfgrid(selfcalcycle, mslist, args, user_set, paralleldeconvolution_base):
+    """
+    Log the suggested WSClean -dd-psf-grid size after an imaging cycle, and apply it with --auto-ddpsfgrid.
+
+    The suggested size (see suggest_ddpsfgrid) is always logged. With --auto-ddpsfgrid (and no
+    --ddpsfgrid set by hand) it is used for the next imaging cycle; WSClean only uses
+    direction-dependent PSFs with parallel deconvolution, so the sub-image size is then set to at
+    most imsize / N. Otherwise a warning is given when the suggested size differs from the one
+    used (only when the pair of values changes, to keep the log short).
 
     Parameters
     ----------
@@ -302,23 +351,39 @@ def update_ddpsfgrid(selfcalcycle, mslist, args, user_set, paralleldeconvolution
     int or None
         The dd-psf-grid size (None for no grid).
     """
-    if not args.get('auto_ddpsfgrid') or user_set or args['imager'] != 'WSCLEAN':
+    if args['imager'] != 'WSCLEAN':
         return args['ddpsfgrid']
-    imagename = mfs_imagename(selfcalcycle, mslist, args)
-    if not os.path.isfile(imagename):
+    suggestion = suggest_ddpsfgrid(selfcalcycle, mslist, args)
+    if suggestion is None:
         return args['ddpsfgrid']
-    dr = get_image_dynamicrange(imagename)
-    header = fits.getheader(imagename)
-    beam = np.radians(header['BMAJ'])
-    if 'auto_ddpsfgrid_wrms' not in args:
-        args['auto_ddpsfgrid_wrms'] = get_w_rms_lambda(mslist)
-    w_rms = args['auto_ddpsfgrid_wrms']
-    width = np.radians(args['imsize'] * args['pixelscale'] / 3600.)
-    eps_tol = (AUTO_DDPSFGRID_K / dr) ** (1. / 3.)
-    cell = np.sqrt(2.) * eps_tol / (2. * np.pi * max(w_rms, 1e-9) * beam)
-    n = int(np.ceil(width / cell))
-    n = n + 1 if n % 2 == 0 else n
-    n = int(min(max(n, 1), AUTO_DDPSFGRID_NMAX))
+    n = suggestion['n']
+    used = int(args['ddpsfgrid']) if args['ddpsfgrid'] is not None else 1
+    capped = ', capped at %d' % AUTO_DDPSFGRID_NMAX if suggestion['n_uncapped'] > n else ''
+    get_logger().info(
+        '%s cycle %d, used %d, suggested %d (DR %.0f, w_rms %.0f lambda, beam %.1f arcsec, '
+        'allowed PSF error %.3f, cell %.2f deg, image %.2f deg%s)'
+        % (DDPSFGRID_SUGGESTION_MARKER, selfcalcycle, used, n, suggestion['dr'], suggestion['w_rms'],
+           suggestion['beam_arcsec'], suggestion['eps_tol'], suggestion['cell_deg'],
+           suggestion['width_deg'], capped))
+
+    if not args.get('auto_ddpsfgrid') or user_set:
+        if n != used and args.get('ddpsfgrid_warned') != (used, n):
+            args['ddpsfgrid_warned'] = (used, n)
+            if n > 1:
+                advice = ('Consider --auto-ddpsfgrid, or --ddpsfgrid %d with --paralleldeconvolution '
+                          'at most %d (imsize/N)' % (n, int(args['imsize'] // n)))
+            else:
+                advice = 'Consider not using --ddpsfgrid'
+            msg = ('dd-psf-grid: the image of cycle %d used -dd-psf-grid %s, the suggested value is %s '
+                   '(DR %.0f, allowed PSF error %.3f, cell %.2f deg for an image of %.2f deg%s). %s.'
+                   % (selfcalcycle, '%dx%d' % (used, used) if used > 1 else '1 (no grid)',
+                      '%dx%d' % (n, n) if n > 1 else '1 (no grid)', suggestion['dr'],
+                      suggestion['eps_tol'], suggestion['cell_deg'], suggestion['width_deg'],
+                      capped, advice))
+            terminal_print(msg)
+            get_logger().warning(msg)
+        return args['ddpsfgrid']
+
     if n == 1:
         args['ddpsfgrid'] = None
         args['paralleldeconvolution'] = paralleldeconvolution_base
@@ -328,7 +393,8 @@ def update_ddpsfgrid(selfcalcycle, mslist, args, user_set, paralleldeconvolution
         args['paralleldeconvolution'] = min(paralleldeconvolution_base, maxsize) if paralleldeconvolution_base > 0 else maxsize
     msg = ('--auto-ddpsfgrid: DR %.0f, w_rms %.0f lambda, beam %.1f arcsec, allowed PSF error %.3f -> cell %.2f deg '
            'for an image of %.2f deg: dd-psf-grid %s, parallel deconvolution %s'
-           % (dr, w_rms, np.degrees(beam) * 3600, eps_tol, np.degrees(cell), np.degrees(width),
+           % (suggestion['dr'], suggestion['w_rms'], suggestion['beam_arcsec'], suggestion['eps_tol'],
+              suggestion['cell_deg'], suggestion['width_deg'],
               '%dx%d' % (n, n) if n > 1 else 'off', args['paralleldeconvolution']))
     terminal_print(msg)
     get_logger().info(msg)

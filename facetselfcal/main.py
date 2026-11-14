@@ -141,7 +141,7 @@ from submods.ms_fixes import (fix_antenna_info_gmrt, fix_bad_weightspectrum,
                               remove_syspower, set_metadata_compression,
                               updateCrosshand)
 from submods.telescopes import (EVERYBEAM_TELESCOPES, describe_telescopes,
-                                group_by_telescope, is_mixed,
+                                group_by_telescope, is_mixed, meerkatcal_applied,
                                 mslist_of_telescope, pbcor_function_name,
                                 single_telescope, telescope_of,
                                 telescopes_of, unique_telescopes)
@@ -5049,7 +5049,12 @@ def basicsetup(mslist, spectral_window_metadata=None, create_directories=True):
         if not args['DDE'] and not args['bandpass']:
             args['flag_ampresetvalfactor'] = True       
             if args['aoflagger'] is None: # so no set by user, so we can set it to True in auto
-                args['aoflagger'] = True
+                # --meerkatcal target outputs were flagged with this strategy already (after calibration),
+                # so skip the second pass when all MSs are such outputs
+                args['aoflagger'] = not all(meerkatcal_applied(ms) for ms in mslist)
+                if not args['aoflagger'] and create_directories:  # not in the preview of check_frequency_averaging_steps
+                    terminal_print('All input MSs are --meerkatcal outputs (already flagged with AOFlagger): '
+                                   'skipping AOFlagger (use --aoflagger to run it anyway)')
             if args['aoflagger_strategy'] is None: # so not set by user, so we can set it to default strategy in auto
                 args['aoflagger_strategy'] = 'defaultMeerKAT_StokesQUV.lua' #'default_StokesQUV.lua'
             if args['preapplybandpassH5_list'][0] is None:
