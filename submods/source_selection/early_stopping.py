@@ -138,6 +138,8 @@ def early_stopping(station: str = 'international',
     if cycle == 0:
         predict_score = _get_predict_score(images, 0)
         if predict_score < 0.4:
+            source_id = _parse_source_id(mergedh5[cycle]) + "_"
+            _save_best(mergedh5, images, cycle, source_id)
             return True
 
     # If first cycle was not good enough, we need 3 cycles to be completed before we continue with early stopping
