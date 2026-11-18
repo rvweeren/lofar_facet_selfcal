@@ -530,6 +530,17 @@ def mask_region(infilename, ds9region, outfilename):
     return
 
 
+def model_images(imagebase):
+    """
+    Model images WSClean wrote for imagebase: the per-channel ones (<imagebase>-NNNN-*model*.fits),
+    or <imagebase>-*model*.fits when there was a single output channel (no channel number then).
+    """
+    models = sorted(glob.glob(imagebase + '-????-*model*.fits'))
+    if not models:
+        models = sorted(m for m in glob.glob(imagebase + '-*model*.fits') if '-MFS-' not in m)
+    return models
+
+
 def removeneNaNfrommodel(imagenames):
     """
     Replace NaN and Inf pixel values in WSCLEAN model images with zeros.
@@ -560,12 +571,7 @@ def removenegativefrommodel(imagenames):
         List of model image paths.
     """
 
-    perseus = False
-    A1795 = False
-    A1795imlist = sorted(
-        glob.glob('/net/nieuwerijn/data2/rtimmerman/A1795_HBA/A1795/selfcal/selfcal_pix0.15_wide-????-model.fits'))
-
-    for image_id, image in enumerate(imagenames):
+    for image in imagenames:
         terminal_print('remove negatives from model: ', image)
         hdul = fits.open(image)
         data = hdul[0].data
@@ -574,18 +580,6 @@ def removenegativefrommodel(imagenames):
         hdul[0].data = data
         hdul.writeto(image, overwrite=True)
         hdul.close()
-
-        if perseus:
-            run('python /net/rijn/data2/rvweeren/LoTSS_ClusterCAL/editmodel.py {} /net/ouderijn/data2/rvweeren/PerseusHBA/inner_ring_j2000.reg /net/ouderijn/data2/rvweeren/PerseusHBA/outer_ring_j2000.reg'.format(
-                image))
-        # run('python /net/rijn/data2/rvweeren/LoTSS_ClusterCAL/editmodel.py ' + image)
-        if A1795:
-            cmdA1795 = 'python /net/rijn/data2/rvweeren/LoTSS_ClusterCAL/insert_highres.py '
-            cmdA1795 += image + ' '
-            cmdA1795 += A1795imlist[image_id] + ' '
-            cmdA1795 += '/net/rijn/data2/rvweeren/LoTSS_ClusterCAL/A1795core.reg '
-            terminal_print('WSClean model-generation command:', cmdA1795)
-            run(cmdA1795)
 
     return
 

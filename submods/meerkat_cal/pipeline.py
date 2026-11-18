@@ -28,8 +28,8 @@ from submods.applycal import applycal_dp3_steps
 from submods.calibrator_models import setjy_dp3
 from submods.flagging import aoflagger_column
 from submods.h5_helpers.h5_info import set_refant
-from submods.h5_helpers.solution_qa import (fix_leakage_gauge, freq_ranges, merge_bandpasses, qa_crosshand,
-                                            qa_gains, qa_leakage, qa_real)
+from submods.h5_helpers.solution_qa import (fix_leakage_gauge, flag_hard_failures, freq_ranges, merge_bandpasses,
+                                            qa_crosshand, qa_gains, qa_leakage, qa_real)
 from submods.meerkat_cal import diode, plots, polcheck, weightgain
 from submods.meerkat_cal.discover import (UNPOLARISED_CALIBRATORS, discover, field_locations, input_mslist,
                                           scan_location, split_input)
@@ -73,6 +73,9 @@ PHASECAL_AMP_QA_MINSCALE = 0.05
 # harmless ~0.01 ns change between scans would be an outlier (flagging the antenna for the target
 # scans on both sides); only a delay more than 5 x 0.05 = 0.25 ns off (~80 deg across L-band) is flagged
 DELAY_QA_MINSCALE = 0.05e-9
+# hard-failure limit (flag_hard_failures, log10) of the per-dump gains, which are close to 1 after the
+# bandpass: a dump more than a factor ~3 off is a failed solve, not a gain jump
+TIME_HARD_MAX_DEX = 0.5
 
 
 def _marker(stage):
@@ -281,8 +284,13 @@ def setup_meerkatcal_refant(info, args):
     return refant
 
 
-def _noqa_copy(h5):
-    """Copy of an h5parm before its QA (<name>_noqa.h5), for the applies that write FLAG."""
+def _noqa_copy(h5, max_dex=1.):
+    """
+    Copy of an h5parm before its statistical QA (<name>_noqa.h5), for the applies that write FLAG.
+    The hard failures (flag_hard_failures, e.g. a near-zero bandpass amplitude that would multiply the
+    data by ~1e6) are flagged first, in h5 itself, so that neither the copy nor the QA'd h5parm has them.
+    """
+    flag_hard_failures(h5, max_dex=max_dex)
     out = h5.replace('.h5', '_noqa.h5')
     shutil.copy(h5, out)
     return out
@@ -314,9 +322,11 @@ def stage_bandpass(info, args):
             if bmerged_prev is not None:
                 apply(ms, [bmerged_prev], 'DATA', 'DATA_BANDPASS')
                 incol = 'DATA_BANDPASS'
-            # the applies in place (FLAG is written) use the solutions before their QA (_noqa copies):
-            # applying the QA flags would flag the data for good, and a false positive would become a
-            # gap the next solve or cycle cannot fill; the QA'd solutions are the ones transferred
+            # the applies in place (FLAG is written) use the solutions before their statistical QA (_noqa
+            # copies): applying the QA flags would flag the data for good, and a false positive would
+            # become a gap the next solve or cycle cannot fill; the QA'd solutions are the ones
+            # transferred. The hard failures are flagged in both (_noqa_copy): applied, they blow up the
+            # data and wreck the next solves and the flag pass
             if cycle == 0:
                 delayh5 = f'h5_solutions/bpcal_delay_c{cycle}_{tag}.h5'
                 solve_delay(ms, delayh5, incol, solint=4)
@@ -345,7 +355,7 @@ def stage_bandpass(info, args):
             apply(ms, [bp_noqa], 'DATA_DELAY', 'DATA_DELAY_BANDPASS', interpolation='nearest')
             amph5 = f'h5_solutions/bpcal_amplitudeonly_c{cycle}_{tag}.h5'
             solve_ddecal(ms, amph5, 'amplitudeonly', 'DATA_DELAY_BANDPASS', solint=1, nchan=0, maxchan=128)
-            amp_noqa = _noqa_copy(amph5)
+            amp_noqa = _noqa_copy(amph5, max_dex=TIME_HARD_MAX_DEX)
             qa[amph5] = qa_gains(amph5, along='time', window=9, minscale=TIME_QA_MINSCALE)
             blist.append(bph5)
             pregains[ms] = [amph5, phaseh5, delayh5]
@@ -424,6 +434,7 @@ def stage_leakage(info, args, pregains, scanbp):
             leakh5 = f'h5_solutions/bpcal_leakage_c{cycle}_{tag}.h5'
             solve_ddecal(ms, leakh5, 'leakage', 'DATA_DELAY_BANDPASS', solint=0, nchan=nchan, timeavg=True)
             fix_leakage_gauge(leakh5)
+            flag_hard_failures(leakh5)  # before the merge, which averages the scans
             dlist.append(leakh5)
         dmerged = f'h5_solutions/bpcal_leakage_c{cycle}_merged.h5'
         if len(dlist) > 1:
@@ -431,6 +442,7 @@ def stage_leakage(info, args, pregains, scanbp):
         else:
             shutil.copy(dlist[0], dmerged)
         qa['gauge_c'] = fix_leakage_gauge(dmerged)
+        flag_hard_failures(dmerged)  # the gauge fix changes d, in the QA'd and the _noqa solution
         if cycle < ncycles - 1:
             # flag on the residual with the solution before its QA: applying the QA flags here would flag
             # the data for good, and a false positive (e.g. the smooth but large leakage ripple of some
@@ -583,6 +595,8 @@ def _phasecal_solves(ms, label):
     apply(ms, [phaseh5], 'DATA_DELAY', 'DATA_DELAY_PHASEONLY', interpolation='nearest')
     solve_ddecal(ms, amph5, 'scalaramplitude', 'DATA_DELAY_PHASEONLY', solint=0, nchan=0, timeavg=True,
                  maxchan=128)
+    # applied in place before its QA (flag cycles): a near-zero amplitude would blow up the data
+    flag_hard_failures(amph5)
     return delayh5, phaseh5, amph5
 
 

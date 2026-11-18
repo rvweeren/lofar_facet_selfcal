@@ -39,6 +39,8 @@ _DP3_PHASE_BY_TYPE = {
     "aoflag": "aoflagger",
     "aoflagger": "aoflagger",
 }
+# phases set by ResourceMonitor.set_phase: at most one of them is open at a time in a run
+_SEQUENTIAL_PHASES = ("imaging", "predict", "solve", "applycal")
 _PHASE_ROW_SPACING = 20
 _MIN_PHASE_BAR_WIDTH = 2.0
 # DP3, or the Python treeMF solver that takes DP3's arguments (soltype treemf)
@@ -121,9 +123,18 @@ def wsclean_workflow_step_kind(command):
 
 
 def phase_intervals_from_events(events, end_epoch=None):
-    """Pair phase start/end events into intervals for chart rendering."""
+    """Pair phase start/end events into intervals for chart rendering.
+
+    The workflow phases set by ResourceMonitor.set_phase are sequential within
+    a run, so a start of one while another is still open means that the open
+    one belongs to a run that was killed (a restart appends to the same
+    file). Such an interval is closed at the last event before the new start,
+    instead of pairing with the end of a later run's interval and growing up
+    to the end of the chart.
+    """
     intervals = []
     active = {}
+    last_epoch = None
 
     def close_interval(active_interval, end_epoch_value):
         end_epoch_value = max(active_interval["start_epoch"], end_epoch_value)
@@ -144,6 +155,11 @@ def phase_intervals_from_events(events, end_epoch=None):
 
         cycle = event.get("cycle")
         key = (phase, str(cycle))
+        if event_type == "start" and phase in _SEQUENTIAL_PHASES:
+            for open_key in [k for k in active if k[0] in _SEQUENTIAL_PHASES]:
+                for active_interval in active.pop(open_key):
+                    close_interval(active_interval, last_epoch)
+        last_epoch = event_epoch
         if event_type == "start":
             active.setdefault(key, []).append({
                 "phase": phase,
