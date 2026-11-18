@@ -222,17 +222,17 @@ section { margin: 26px 0 0; }
 .notice.success { border-color: var(--green-border); border-left-color: var(--green); background: var(--green-pale); color: #14532d; }
 .notice p { margin: 4px 0 0; }
 .data-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-.data-table.progression-table { table-layout: fixed; }
+.data-table.progression-table { table-layout: fixed; min-width: 1100px; }
 .data-table.progression-table thead th:nth-child(1) { width: 9%; }
 .data-table.progression-table thead th:nth-child(2) { width: 13%; }
 .data-table.progression-table thead th:nth-child(3) { width: 8%; white-space: nowrap; }
 .data-table.progression-table thead th:nth-child(4) { width: 9%; }
 .data-table.progression-table thead th:nth-child(5) { width: 9%; }
 .data-table.progression-table thead th:nth-child(6) { width: 7%; }
-.data-table.progression-table thead th:nth-child(7) { width: 11%; }
+.data-table.progression-table thead th:nth-child(7) { width: 14%; }
 .data-table.progression-table thead th:nth-child(8) { width: 8%; }
 .data-table.progression-table thead th:nth-child(9) { width: 11%; white-space: nowrap; }
-.data-table.progression-table thead th:nth-child(10) { width: 15%; }
+.data-table.progression-table thead th:nth-child(10) { width: 12%; }
 .ddpsf-mismatch { display: inline-block; white-space: nowrap; padding: 0 6px; border-radius: 4px; color: #78350f; background: var(--amber-pale); border: 1px solid var(--amber-border); }
 .data-table.progression-table th, .data-table.progression-table td { overflow-wrap: anywhere; }
 .data-table.progression-table thead th { overflow-wrap: normal; }
@@ -242,6 +242,10 @@ section { margin: 26px 0 0; }
 .data-table.progression-table thead th:nth-child(7),
 .data-table.progression-table thead th:nth-child(8) { text-align: right; }
 .data-table.progression-table td.numeric { white-space: normal; }
+/* one line per solve in the soltype/solint/smoothness cells, so the lines
+   of the three columns stay aligned; overlong values are cut with an ellipsis */
+.data-table.progression-table td.cycle-config { overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.data-table.progression-table td.cycle-config code { overflow-wrap: normal; white-space: nowrap; }
 .data-table.progression-table tbody:nth-of-type(even) tr.progression-summary-row th,
 .data-table.progression-table tbody:nth-of-type(even) tr.progression-summary-row td { background: #fafcff; }
 .data-table.progression-table tr.progression-summary-row > th[scope="row"] { border-left: 3px solid var(--teal); padding-left: 9px; }
@@ -3904,6 +3908,14 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
                             else:
                                 effective_cycle_config[config_name] = parsed_value
                                 effective_cycle_config_errors.discard(config_name)
+                            if current_cycle is not None and current_cycle in cycles:
+                                # settings recomputed inside a cycle (e.g.
+                                # auto_determinesolints) apply to that cycle
+                                cycle_config = cycles[current_cycle].setdefault("config", {})
+                                if parsed_value is None:
+                                    cycle_config.pop(config_name, None)
+                                else:
+                                    cycle_config[config_name] = parsed_value
 
                         if message.startswith("Run host:"):
                             host_info["host"] = message.split(":", 1)[1].strip()
@@ -3957,6 +3969,9 @@ def _scan_logs(run_root, stack_mode=False, stack_groups=None):
                                 "start_str": timestamp or "",
                                 "end_time": None,
                                 "steps": [],
+                                # solve settings of the invocation that ran this
+                                # cycle (a restart logs its own settings again)
+                                "config": dict(effective_cycle_config),
                             }
                             continue
 
@@ -4964,9 +4979,9 @@ def _get_cycle_config(config, cycle_idx):
 
 
 def _cycle_config_values_html(values, formatter=None):
+    texts = [formatter(value) if formatter else value for value in values]
     return "<br>".join(
-        '<code>{}</code>'.format(_escape(formatter(value) if formatter else value))
-        for value in values
+        '<code title="{0}">{0}</code>'.format(_escape(text)) for text in texts
     )
 
 
@@ -6029,7 +6044,9 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
             )
         for cdata in cycle_timeline:
             c_int = int(cdata["cycle"])
-            c_cfg = _get_cycle_config(progression_config, c_int)
+            c_cfg = _get_cycle_config(
+                {**progression_config, **(cdata.get("config") or {})}, c_int
+            )
             cycle_step_details = cdata.get("step_details", [])
             steps_html = _workflow_steps_html(
                 cycle_step_details,
@@ -6050,9 +6067,9 @@ def _overview_page(site_dir, run_root, config, artifacts, logs, status, error):
                 '<td class="numeric"><span class="cycle-duration">{}</span></td>'
                 '{}'
                 '<td class="numeric">{}</td>'
-                '<td>{}</td>'
-                '<td class="numeric">{}</td>'
-                '<td class="numeric">{}</td>'
+                '<td class="cycle-config">{}</td>'
+                '<td class="numeric cycle-config">{}</td>'
+                '<td class="numeric cycle-config">{}</td>'
                 '<td>{}</td>'
                 '</tr>'.format(
                     _escape(cdata["cycle"]),
@@ -6710,11 +6727,83 @@ def _plot_page(
     return page_path
 
 
+def _closure_chi2_section(run_root, ms_inputs):
+    """Closure-phase and closure-amplitude chi^2 per cycle and MS (closure_chi2/*.json), or '' when absent."""
+    results = defaultdict(dict)
+    for path in sorted((run_root / "closure_chi2").glob("closurechi2_selfcalcycle*_*.json")):
+        match = re.match(r"closurechi2_selfcalcycle(\d+)_(.+)\.json$", path.name)
+        if not match:
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        label = _configured_ms_label(match.group(2), ms_inputs)
+        results[label][int(match.group(1))] = (
+            (data.get("closure_phase") or {}).get("chi2_per_n"),
+            (data.get("closure_amplitude") or {}).get("chi2_per_n"),
+        )
+    if not results:
+        return ""
+    cycles = sorted({cycle for per_ms in results.values() for cycle in per_ms})
+
+    def fmt(value):
+        return "-" if value is None else "{:.3g}".format(value)
+
+    rows = []
+    for label in sorted(results):
+        per_ms = results[label]
+        phase_values = [per_ms[c][0] for c in cycles if c in per_ms and per_ms[c][0] is not None]
+        best = min(phase_values) if phase_values else None
+        cells = []
+        for cycle in cycles:
+            if cycle not in per_ms:
+                cells.append('<td class="muted">-</td>')
+                continue
+            phase, amplitude = per_ms[cycle]
+            text = "{} / {}".format(fmt(phase), fmt(amplitude))
+            if best is not None and phase == best and len(phase_values) > 1:
+                text = "<strong>{}</strong>".format(text)
+            cells.append('<td title="closure phase / closure amplitude chi^2/N">{}</td>'.format(text))
+        change = "-"
+        if len(phase_values) > 1 and phase_values[0]:
+            change = "{:+.1f}%".format(100.0 * (phase_values[-1] / phase_values[0] - 1.0))
+        rows.append(
+            '<tr><th scope="row"><code>{}</code></th>{}<td>{}</td></tr>'.format(
+                _escape(label), "".join(cells), _escape(change)
+            )
+        )
+    header = "".join('<th scope="col">Cycle {}</th>'.format(_escape(c)) for c in cycles)
+    explanation = (
+        "<p>Each cell gives the closure-phase / closure-amplitude &chi;<sup>2</sup>/N of the sky model of that "
+        "cycle against the data, from the first solve of the cycle; the lowest closure-phase value per "
+        "measurement set is in bold, the last column is its change from the first to the last cycle.</p>"
+        "<p><strong>Why this measure:</strong> the solve minimises &Sigma; w |d &minus; g<sub>p</sub> "
+        "g<sub>q</sub><sup>*</sup> m|<sup>2</sup>. That &chi;<sup>2</sup> also goes down when the gains absorb "
+        "errors of the model (missing emission, deconvolution artefacts), so it can improve without the model "
+        "getting better. Antenna-based gains cancel in closure phases (triangles of baselines) and closure "
+        "amplitudes (quadrangles), so the closure &chi;<sup>2</sup> does not depend on the gains: it only goes "
+        "down when the model itself fits the data better, and gains that hide model errors do not lower it.</p>"
+        "<p>About 1 means the model fits to within the noise (for correctly scaled weights). The values depend "
+        "on the weights and the averaging, so compare cycles of the same run. Baseline-based errors, and for "
+        "direction-dependent solves the differences between the direction-dependent gains, also raise it.</p>"
+    )
+    return _section(
+        "Closure χ²",
+        explanation
+        + '<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Measurement set</th>'
+        + header + '<th scope="col">Change</th></tr></thead><tbody>' + "".join(rows) + "</tbody></table></div>",
+        "A convergence measure of the model that the gains cannot change.",
+        section_id="closure-chi2",
+    )
+
+
 def _calibration_page(site_dir, run_root, config, artifacts):
     title = str(config.get("imagename") or run_root.name)
     optional_pages = _optional_pages(config)
     ms_inputs = _as_list(config.get("ms"))
     calibration_sets = artifacts["calibration_sets"]
+    closure_section = _closure_chi2_section(run_root, ms_inputs)
     all_cycles = sorted(
         {cycle for _, cycles in calibration_sets for cycle in cycles},
         key=_cycle_sort_key,
@@ -6725,7 +6814,7 @@ def _calibration_page(site_dir, run_root, config, artifacts):
             '<p class="page-intro">For restart runs using <code>--start=N</code>, '
             'existing plots from cycles before N are included when present; '
             'plots from cycle N onward are shown only if produced during the current run.</p>'
-        )
+        ) + closure_section
         _write_page(
             site_dir / "calibration.html",
             title,
@@ -6806,6 +6895,8 @@ def _calibration_page(site_dir, run_root, config, artifacts):
             "Open a cycle page, or all cycles of a measurement set on one page, to view, filter and reorder the solutions.",
         )
     ]
+    if closure_section:
+        sections.append(closure_section)
     if direction_counts:
         directions = sorted({d for _, _, counts in direction_counts for d in counts})
         header = "".join(

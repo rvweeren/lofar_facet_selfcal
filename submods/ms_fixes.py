@@ -504,6 +504,132 @@ def fix_time_axis_gmrt(mslist, args):
                terminal_print('Time axis interval set to', intervalprecise)
 
 
+def fix_interval_mismatch(mslist, tolerance=1e-3):
+    """
+    Set the INTERVAL column to the actual time step when the two disagree.
+
+    DP3 steps through time on a grid with a spacing equal to INTERVAL. If the TIME stamps advance
+    by a slightly different amount (for example ATCA data with INTERVAL = 9.99 s and a 10.0 s
+    cycle), DP3 inserts a fully flagged dummy time slot whenever a time stamp drifts off that grid.
+    The output then has an irregular time axis, which is split into many tiny MSs. Setting INTERVAL
+    to the median time step (gaps excluded) avoids this. EXPOSURE and TIME are not changed. LOFAR
+    data and MSs with more than one INTERVAL value (BDA data, for example) are skipped.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Measurement Sets, modified in place.
+    tolerance : float, optional
+        Largest allowed difference (s) between INTERVAL and the median time step. Default 1e-3.
+    """
+    for ms in mslist:
+        if telescope_of(ms) == 'LOFAR':
+            continue
+        with table(ms, ack=False, readonly=False) as t:
+            intervals = np.unique(t.getcol('INTERVAL'))
+            if len(intervals) != 1:
+                continue
+            times = np.unique(t.getcol('TIME'))
+            if len(times) < 3:
+                continue
+            steps = np.diff(times)
+            steps = steps[steps < 1.5 * np.median(steps)]  # leave out gaps between scans
+            timestep = np.median(steps)
+            if abs(intervals[0] - timestep) <= tolerance:
+                continue
+            t.putcol('INTERVAL', np.full(t.nrows(), timestep))
+        terminal_print(f'{ms}: INTERVAL ({intervals[0]} s) differs from the time step ({timestep} s); '
+                       'INTERVAL set to the time step to avoid DP3 inserting flagged time slots')
+        logging.info('%s: INTERVAL changed from %s s to the median time step %s s', ms, intervals[0], timestep)
+
+
+_CHANNEL_FLIP_KEYWORD = 'FACETSELFCAL_CHANNEL_FLIP'
+
+
+def fix_decreasing_frequencies(mslist, block_bytes=200e6):
+    """
+    Put the channels in increasing frequency order when an MS stores them in decreasing order.
+
+    Some telescopes (ATCA wideband data, for example) write the band with a negative CHAN_WIDTH,
+    so the frequency decreases with channel number. The WSClean wgridder cannot image such data.
+    This reverses the channel axis of every per-channel column of the main table (DATA, FLAG,
+    WEIGHT_SPECTRUM, MODEL_DATA, CORRECTED_DATA, ...) and of CHAN_FREQ, CHAN_WIDTH, EFFECTIVE_BW
+    and RESOLUTION in the SPECTRAL_WINDOW table (widths become positive). REF_FREQUENCY and
+    NET_SIDEBAND are not changed.
+
+    Progress is stored in the table keyword FACETSELFCAL_CHANNEL_FLIP (column name -> next row),
+    so an interrupted run continues where it stopped instead of reversing a column twice. The
+    SPECTRAL_WINDOW table is updated last and the keyword is then removed.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Measurement Sets, modified in place.
+    block_bytes : float, optional
+        Approximate amount of data read per column per block. Default 200 MB.
+
+    Raises
+    ------
+    ValueError
+        If the MS has spectral windows with both increasing and decreasing frequencies.
+    """
+    for ms in mslist:
+        with table(ms + '::SPECTRAL_WINDOW', ack=False) as spw:
+            chan_freqs = [spw.getcell('CHAN_FREQ', row) for row in range(spw.nrows())]
+        decreasing = [len(f) > 1 and f[-1] < f[0] for f in chan_freqs]
+        multichannel = [len(f) > 1 for f in chan_freqs]
+        if not any(decreasing):
+            continue
+        if decreasing != multichannel:
+            raise ValueError(f'{ms} has spectral windows with increasing and with decreasing frequencies; '
+                             'facetselfcal cannot put the channels in order for this MS')
+        nchan_values = {len(f) for f in chan_freqs if len(f) > 1}
+        with table(ms + '::POLARIZATION', ack=False) as pol:
+            npol_values = set(pol.getcol('NUM_CORR'))
+
+        with table(ms, ack=False, readonly=False) as t:
+            progress = t.getkeyword(_CHANNEL_FLIP_KEYWORD) if _CHANNEL_FLIP_KEYWORD in t.keywordnames() else {}
+            if not progress:
+                terminal_print(f'{ms}: channel frequencies decrease; reversing the channel order in place')
+                logging.info('%s: reversing the channel order (decreasing frequencies)', ms)
+            # per-channel columns: (nchan, npol) cells, plus IMAGING_WEIGHT with (nchan,) cells
+            columns = []
+            for col in t.colnames():
+                if t.coldesc(col).get('desc', {}).get('valueType') is None or col in ('UVW', 'WEIGHT', 'SIGMA'):
+                    continue
+                try:
+                    shape = t.getcell(col, 0).shape
+                except Exception:  # noqa: BLE001  undefined cell or scalar column
+                    continue
+                if (len(shape) == 2 and shape[0] in nchan_values and shape[1] in npol_values) or \
+                        (col == 'IMAGING_WEIGHT' and len(shape) == 1 and shape[0] in nchan_values):
+                    columns.append(col)
+            nrows = t.nrows()
+            for col in columns:
+                startrow = int(progress.get(col, 0))
+                if startrow >= nrows:
+                    continue
+                cell = t.getcell(col, 0)
+                blockrows = max(1, int(block_bytes / max(cell.nbytes, 1)))
+                for row in range(startrow, nrows, blockrows):
+                    nr = min(blockrows, nrows - row)
+                    t.putcol(col, t.getcol(col, startrow=row, nrow=nr)[:, ::-1, ...].copy(), startrow=row, nrow=nr)
+                    progress[col] = row + nr
+                    t.putkeyword(_CHANNEL_FLIP_KEYWORD, progress)
+                terminal_print(f'{ms}: channel order of {col} reversed')
+
+            with table(ms + '::SPECTRAL_WINDOW', ack=False, readonly=False) as spw:
+                for row in range(spw.nrows()):
+                    if not decreasing[row] or spw.getcell('CHAN_FREQ', row)[-1] > spw.getcell('CHAN_FREQ', row)[0]:
+                        continue  # single channel, or already reversed before an interruption
+                    for col in ('CHAN_FREQ', 'CHAN_WIDTH', 'EFFECTIVE_BW', 'RESOLUTION'):
+                        if col in spw.colnames():
+                            values = spw.getcell(col, row)[::-1]
+                            spw.putcell(col, row, values if col == 'CHAN_FREQ' else np.abs(values))
+            t.removekeyword(_CHANNEL_FLIP_KEYWORD)
+        terminal_print(f'{ms}: channels are now in increasing frequency order')
+
+
 def fix_antenna_info_gmrt(mslist, args):
     """
     Removes specific antennas from a Measurement Set if the telescope is GMRT.

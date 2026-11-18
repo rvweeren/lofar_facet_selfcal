@@ -134,6 +134,7 @@ from submods.runtime_utils import (_log_machine_info, _run_predict_command,
                                    terminal_print)
 from submods.ms_fixes import (fix_antenna_info_gmrt, fix_bad_weightspectrum,
                               fix_equidistant_times, fix_GMRT_weights,
+                              fix_decreasing_frequencies, fix_interval_mismatch,
                               fix_time_axis_gmrt, fix_uvw,
                               fix_variable_reference_pointing,
                               fix_zero_weight_spectrum, get_telescope_from_ms,
@@ -173,7 +174,7 @@ from submods.h5_helpers.modify_amplitude import (  # noqa: F401
 from submods.h5_helpers.modify_phase import (  # noqa: F401
     change_refant, copyoverscalarphase, makephaseCDFh5, reset_phase000)
 from submods.image_utils import (  # noqa: F401
-    max_area_of_island, rename_models)
+    max_area_of_island, model_images, rename_models)
 from submods.h5_helpers.general_utils import make_utf8  # noqa: F401
 from submods.runtime_utils import (  # noqa: F401
     dp3_command_phases, dp3_workflow_step_kinds)
@@ -1591,6 +1592,12 @@ def check_frequency_averaging_steps(mslist, options):
 
         planned_steps.append(step)
 
+        # On a restart average() does not run DP3 if the averaged MS exists already: it was made at
+        # start=0, possibly with a channel selection that is not set now (that of --auto, for
+        # example), so there is nothing to validate.
+        if options["start"] > 0 and os.path.isdir(os.path.basename(ms) + ".avg"):
+            continue
+
         for spw_id in active_spw_ids:
             _, input_count, _, _, _, selected_widths = selected_metadata[spw_id]
             if isinstance(step, str) and not step.strip().isdigit():
@@ -2421,6 +2428,58 @@ def calibrateandapplycal(mslist, selfcalcycle, solint_list, nchan_list,
         return []
 
 
+_dp3_version_cache = []
+
+
+def dp3_version():
+    """DP3 version as a tuple of ints, e.g. (6, 6, 0); (0,) when it cannot be determined."""
+    if not _dp3_version_cache:
+        version = (0,)
+        try:
+            out = subprocess.run(['DP3', '--version'], capture_output=True, text=True, timeout=60).stdout
+            match = re.search(r'(\d+)\.(\d+)(?:\.(\d+))?', out)
+            if match:
+                version = tuple(int(g) for g in match.groups() if g is not None)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        _dp3_version_cache.append(version)
+    return _dp3_version_cache[0]
+
+
+_closurechi2_done = set()  # (MS, cycle) pairs for which the closure chi^2 was already added to a solve
+
+
+def closurechi2_step(ms, modelcolumns, selfcalcycle):
+    """
+    DP3 parset keys for a closure chi^2 step (submods/closurechi2.py) behind the DDECal step of a solve.
+
+    DDECal passes the model it reads on to the next step with keepmodel=True (named ddecal.<column>), so the
+    closure chi^2 needs no extra I/O. One in four time slots is used, in blocks of 1/64 of the band.
+
+    Parameters
+    ----------
+    ms : str
+        Measurement set of the solve.
+    modelcolumns : list of str
+        Model data columns of the solve (summed; several for a direction-dependent solve).
+    selfcalcycle : int
+        Self-calibration cycle, used in the output name.
+
+    Returns
+    -------
+    str
+        Parset keys to append to the DP3 command (the caller adds closurechi2 to the steps).
+    """
+    os.makedirs('closure_chi2', exist_ok=True)
+    with table(ms + '/SPECTRAL_WINDOW', ack=False) as t:
+        nchan = int(t.getcol('NUM_CHAN')[0])
+    out = 'closure_chi2/closurechi2_selfcalcycle' + str(selfcalcycle).zfill(3) + '_' + os.path.basename(ms) + '.json'
+    return ('ddecal.keepmodel=True closurechi2.type=PythonDPPP closurechi2.python.module=closurechi2 closurechi2.python.class=ClosureChi2 '
+            "closurechi2.modelcolumns='[" + ','.join('ddecal.' + c for c in modelcolumns) + "]' "
+            'closurechi2.every=4 closurechi2.solint=1 closurechi2.nchan=' + str(max(1, nchan // 64)) + ' closurechi2.output=' + out + ' '
+            'closurechi2.label=' + str(selfcalcycle) + ' ')
+
+
 @_track_resource_phase("solve")
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 SMconstraint=0.0, SMconstraintreffreq=0.0,
@@ -2635,7 +2694,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                                updateweights=False)  # always do to re-initialize WEIGHT_SPECTRUM_PM (because stack.MS is re-created each selfcalcycle, also MODEL_DATA changes
         # for now use updateweights=False, seems to give better results for scalarphasediff type solves
         # updateweights means WEIGHT_SPECTRUM_PM is updated based on MODEL_DATA**2, however so far this does not seem to give better results
-        # update July 2024, tested on Perseus LBA with updateweights True and False, again difference is small
+        # update July 2024, tested on LBA data with updateweights True and False, again difference is small
 
         # check if colnames are there each time because of stack.MS
         t = table(ms, ack=False)
@@ -3136,6 +3195,21 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     #if soltypein == 'tec+phase+delay':
     #    cmd += "ddecal.initialsolutions.h5parm=h5_solutions/scalarphase1_skyselfcalcycle000_J174713+653236_DI.concat.ms.avg.phaseup.h5 ddecal.initialsolutions.soltab='phase000' "
 
+    # closure chi^2 of the model against the data, in the first solve of each cycle per MS: a convergence
+    # measure the gains cannot change (not for solves against a point source, a modified model (phase-only,
+    # phase slope) or a DP3-predicted sky model, behind a BDA averager, or when the solve uses only some of
+    # the model directions, nor when the solve weights are not inverse noise variances, e.g. WEIGHT_SPECTRUM_SOLVE)
+    if args['closure_chi2'] and (ms, selfcalcycle) not in _closurechi2_done and soltype != 'treemf' \
+            and weight_spectrum == 'WEIGHT_SPECTRUM' \
+            and soltypein not in ['scalarphasediff', 'scalarphasediffFR', 'treemfphasediff'] \
+            and 'steps=[ddecal] ' in cmd \
+            and (len(modeldatacolumns) > 0 or modeldata == 'MODEL_DATA') \
+            and not (len(modeldatacolumns) > 0 and DDE_predict == 'DP3') \
+            and not (len(modeldatacolumns_solve) > 0 and len(modeldatacolumns_solve) != len(modeldatacolumns)) \
+            and dp3_version() >= (6, 6):
+        _closurechi2_done.add((ms, selfcalcycle))
+        cmd = cmd.replace('steps=[ddecal] ', 'steps=[ddecal,closurechi2] ', 1)
+        cmd += closurechi2_step(ms, modeldatacolumns if len(modeldatacolumns) > 0 else [modeldata], selfcalcycle)
 
     ms_tmp = None # set to None so that we can check if it is created later
     if solve_msinnchan != 'all':
@@ -3655,17 +3729,6 @@ def primary_beam_fwhm_deg(telescope, freq):
     return 1.0  # degr
 
 
-def model_images(imagebase):
-    """
-    Model images WSClean wrote for imagebase: the per-channel ones (<imagebase>-NNNN-*model*.fits),
-    or <imagebase>-*model*.fits when there was a single output channel (no channel number then).
-    """
-    models = sorted(glob.glob(imagebase + '-????-*model*.fits'))
-    if not models:
-        models = sorted(m for m in glob.glob(imagebase + '-*model*.fits') if '-MFS-' not in m)
-    return models
-
-
 def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                        channelsout, single_dual_speedup=True,
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None,
@@ -4089,7 +4152,7 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
     else:
         modelstoragemanagerwsclean =  args['modelstoragemanager']
 
-    fitspectrallogpol = False  # for testing Perseus
+    fitspectrallogpol = False  # for testing
     msliststring = ' '.join(map(str, mslist))
     if idg:
         parallelgridding = 1
@@ -5532,8 +5595,9 @@ def main():
     shutil.copy(submodpath + '/parang.py', '.')
     shutil.copy(submodpath + '/xfsolve.py', '.')
     shutil.copy(submodpath + '/blcal.py', '.')
+    shutil.copy(submodpath + '/closurechi2.py', '.')
 
-    facetselfcal_version = '22.0.0'
+    facetselfcal_version = '23.0.0'
     print_title(facetselfcal_version)
     _write_html_overview(
         Path.cwd(), status="running", announce_browser=True
@@ -5636,6 +5700,10 @@ def main():
             plot_UV_coverage(mslist)
         # fix MS that have a variable reference pointing (like the ELVA)
         fix_variable_reference_pointing(mslist)
+        # INTERVAL must match the time step, otherwise DP3 inserts flagged time slots
+        fix_interval_mismatch(mslist)
+        # the WSClean wgridder needs increasing channel frequencies
+        fix_decreasing_frequencies(mslist)
 
 
     # fix irregular time axes or avoid bloated MS, do this first before any other step
@@ -5728,8 +5796,15 @@ def main():
     # in case --bandpass was set this step should not do anything because
     # the MS were already splitted before in case of gaps (so they will be regular now)
     # the [0] at the end is to avoid the extra output returned by fix_equidistant_times
-    mslist = fix_equidistant_times(mslist, args['start'] != 0, args, \
-                                   dysco=args['dysco'], metadata_compression=args['metadata_compression'])[0]
+    # done per MS so that each split part keeps the frequency averaging step of its input MS
+    split_parts = []
+    for ms, step in zip(mslist, avgfreqstep):
+        parts = fix_equidistant_times([ms], args['start'] != 0, args, dysco=args['dysco'],
+                                      metadata_compression=args['metadata_compression'])[0]
+        split_parts += [(part, step) for part in parts]
+    split_parts.sort(key=lambda part: part[0])
+    mslist = [part for part, _ in split_parts]
+    avgfreqstep = [step for _, step in split_parts]
 
     # for the GMRT fix possible bad UVW coordinates from DP3 inserting flagged timeslots at gaps, do this before any DP3 time averaging
     # these bad UVW coodinates cause issues when time averaging the data in DP3, so we need to fix them first (becasue that can combine flagged and unflagged visibilities and then the UVW coordinates are wrong for the unflagged averaged visibilities)
@@ -5962,7 +6037,7 @@ def main():
         if get_resource_monitor() is not None:
             get_resource_monitor().set_cycle(i)
         # UPDATE REMOVENEGATIVEFROMMODEL SETTING, 
-        # for high dynamic range it is better to keep negative clean components (based on a very clear 3C84 test case)
+        # for high dynamic range it is better to keep negative clean components (based on a very clear test case)
         if args['autoupdate_removenegativefrommodel'] and i > 1 and not args['DDE']:
             args['removenegativefrommodel'] = False
         if args['autoupdate_removenegativefrommodel'] and args[
@@ -6074,6 +6149,7 @@ def main():
                                                   antenna_averaging_factors_list, antenna_smoothness_factors_list,
                                                   soltypelist_includedir,
                                                   normamps=args['normampsskymodel'],
+                                                  normamps_per_ms=args['normamps_per_ms'],
                                                   skymodel=args['skymodel'],
                                                   predictskywithbeam=args['predictskywithbeam'],
                                                   longbaseline=longbaseline,
@@ -6321,6 +6397,7 @@ def main():
                                               antenna_averaging_factors_list, antenna_smoothness_factors_list,
                                               soltypelist_includedir,
                                               normamps=args['normampsskymodel'] if args['keepusingstartingskymodel'] else args['normamps'],
+                                              normamps_per_ms=args['normamps_per_ms'],
                                               skymodel=args['skymodel'] if args['keepusingstartingskymodel'] else None,
                                               skymodelpointsource=args['skymodelpointsource'] if args['keepusingstartingskymodel'] else None,
                                               wscleanskymodel=args['wscleanskymodel'] if args['keepusingstartingskymodel'] else None, 
@@ -6490,6 +6567,7 @@ def main():
     Path('parang.py').unlink(missing_ok=True)
     Path('xfsolve.py').unlink(missing_ok=True)
     Path('blcal.py').unlink(missing_ok=True)
+    Path('closurechi2.py').unlink(missing_ok=True)
 
     # ARCHIVE DATA AFTER SELFCAL if requested
     if not longbaseline and not args['noarchive'] and not stop_for_noise_divergence:

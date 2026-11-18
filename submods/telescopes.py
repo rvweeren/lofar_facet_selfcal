@@ -233,6 +233,7 @@ _ANTENNA_PATTERNS = (
     ('EVLA', re.compile(r'^ea\d{2}$')),
     ('VLA', re.compile(r'^(VA|EA)\d{2}$')),
     ('MWA', re.compile(r'^(Tile|Hex)')),
+    ('ATCA', re.compile(r'^(CA0[1-6]|[1-6])$')),
 )
 
 

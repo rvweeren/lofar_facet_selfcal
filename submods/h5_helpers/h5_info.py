@@ -369,7 +369,7 @@ def refant_candidates(ants, telescope=None):
         Antenna names.
     telescope : str, optional
         Telescope name as in the MS OBSERVATION table. Supported values include ``'LOFAR'``,
-        ``'MeerKAT'``, ``'GMRT'``, ``'ASKAP'``, ``'EVLA'``/``'VLA'``, and ``'MWA'``. If None
+        ``'MeerKAT'``, ``'GMRT'``, ``'ASKAP'``, ``'EVLA'``/``'VLA'``, ``'ATCA'``, and ``'MWA'``. If None
         (the default), the telescope is recognised from the antenna names.
 
     Returns
@@ -402,6 +402,12 @@ def refant_candidates(ants, telescope=None):
         possible_refants = ['ea02','ea03','ea04','ea05','ea06','ea07','ea08','ea09','ea10','ea11','ea12','ea13','ea14', 'ea15','ea16','ea17','ea18','ea19','ea20','ea21','ea22','ea23','ea24','ea25','ea26','ea27','ea28']
         # historical VLA (CASA importvla): VA01-VA28, and EA01-EA28 in EVLA-transition data
         possible_refants += [f'{prefix}{n:02d}' for prefix in ('VA', 'EA') for n in range(2, 29)]
+        cs_indices = np.where([ant in possible_refants for ant in ants])[0]
+
+    if telescope == 'ATCA':
+        # antennas 1-5 on the east-west track; antenna 6 is ~5 km away. Names are '1'-'6' in some
+        # MS conversions and CA01-CA06 in others
+        possible_refants = [str(n) for n in range(1, 6)] + [f'CA{n:02d}' for n in range(1, 6)]
         cs_indices = np.where([ant in possible_refants for ant in ants])[0]
 
     if telescope == 'MWA':

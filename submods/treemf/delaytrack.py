@@ -17,7 +17,7 @@ even when one interval alone cannot set it (treemf.delaycentre=track):
    the TEC towards the prior mean and moves the delay along the TEC-delay degeneracy (about
    65 ns per TECU at 144 MHz): tens of ns of bias in the simulation. Without the wander (a fixed
    TEC per block) the real ionosphere, whose TEC changes within a block, smears the block sum and
-   the prior pulls again (errors up to 28 ns on ILTJ165558). Plan, "Data-driven delay windows".
+   the prior pulls again (errors up to 28 ns in a test). Plan, "Data-driven delay windows".
 3. A Viterbi track through the blocks: the path that maximises the summed block profiles and
    moves by at most delaytrack_maxstep per block; interpolated linearly to the intervals.
 4. A permutation test: the same with each interval's map shifted circularly along tau by a random

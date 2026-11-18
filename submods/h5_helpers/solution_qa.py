@@ -191,6 +191,133 @@ def _write_flags(soltab, flags_std, axes, zero_values=None):
     soltab.weight[:] = _from_standard(wgt, axes)
 
 
+CROSS_POLS = ('XY', 'YX', 'RL', 'LR')
+
+
+def _hard_amplitude_failures(amp, valid, max_dex, min_ants, niter=5):
+    """
+    Amplitude solutions (standard axes time, freq, ant, dir, pol) that are off by more than a factor
+    10**max_dex, see flag_hard_failures. Returns the flags (bool, same shape), without the invalid ones.
+    Iterated (at most niter times) until no new solution is flagged, since removing gross outliers moves
+    the medians the tests use.
+    """
+    flags = np.zeros(valid.shape, dtype=bool)
+    for _ in range(niter):
+        use = valid & ~flags
+        with np.errstate(all='ignore'):
+            a = np.where(use, amp, np.nan)
+            nant = np.sum(use, axis=2, keepdims=True)
+            # amplitude common to the antennas per cell (the bandpass shape, the source flux, ...) and its
+            # typical value over the cells
+            common = np.where(nant >= min_ants, np.nanmedian(a, axis=2, keepdims=True), np.nan)
+            typical = np.nanmedian(common, axis=(0, 1), keepdims=True)
+            # each antenna's own scale relative to the common amplitude, and the array's over the antennas
+            scale = np.nanmedian(a / common, axis=(0, 1), keepdims=True)
+            ant_ok = np.abs(np.log10(scale / np.nanmedian(scale, axis=2, keepdims=True))) <= max_dex
+            dev_local = np.abs(np.log10(a / (common * scale)))   # vs the other antennas in the same cell
+            dev_total = np.abs(np.log10(a / (typical * scale)))  # vs the antenna's typical amplitude
+            # a NaN deviation (no common amplitude, too few antennas) is not judged
+            new = use & ((dev_local > max_dex) | (dev_total > max_dex)
+                         | ~np.broadcast_to(ant_ok | ~np.isfinite(scale), use.shape))
+        if not new.any():
+            break
+        flags |= new
+    return flags
+
+
+def flag_hard_failures(h5parm, max_dex=1., max_leakage=0.5, min_ants=3):
+    """
+    Flag the solutions of an h5parm that are certainly wrong, before it is applied in place (an apply
+    that writes FLAG and feeds a flag cycle) or used further.
+
+    The statistical QA (qa_gains, qa_real, qa_leakage) is left out of the applies that write FLAG, so that
+    a false positive does not become a permanent gap; those applies must still not use solutions that
+    blow up the data. A per-channel bandpass amplitude of 0.0005 (a channel with almost no unflagged data
+    for an antenna) multiplies its visibilities by ~1e6, and these unflagged outliers then wreck every
+    least-squares solve and flag pass that follows. Flagged here:
+
+    - non-finite values with a weight (all soltabs), and amplitudes <= 0;
+    - amplitudes off by more than a factor 10**max_dex, from the antenna's own scale (median ratio to
+      the amplitude common to the antennas, their median per cell from at least min_ants antennas)
+      times either the common amplitude of the cell (an antenna off from the others) or the typical
+      common amplitude over the cells (also a cell in which all antennas collapsed together, or a
+      solution moderately off in both); and antennas whose scale is that far off the array median.
+      Soltabs on the same axes (phase000 of a complexgain) are flagged in the same cells;
+    - for full-Jones (leakage) solutions: |d| = |XY / XX| or |YX / YY| above max_leakage (with |d| <= 0.5
+      the normalised determinant |1 - d_X d_Y| is at least 0.75, so the inverse cannot blow up the data).
+      All four Jones elements are flagged.
+
+    The thresholds are far outside the range of real solutions (that is the job of the statistical QA);
+    flagged solutions are NaN with weight 0, so that applycal flags the data.
+
+    Parameters
+    ----------
+    h5parm : str
+        h5parm (sol000), modified in place.
+    max_dex : float, optional
+        Largest allowed deviation of an amplitude in log10. Default 1 (a factor 10); per-dump gains,
+        which are close to 1 after the bandpass, can use a tighter value.
+    max_leakage : float, optional
+        Largest allowed |d| of a leakage solution. Default 0.5.
+    min_ants : int, optional
+        Antennas needed in a cell for the common amplitude. Default 3.
+
+    Returns
+    -------
+    dict
+        Number of solutions flagged per soltab.
+    """
+    counts = {}
+    with tables.open_file(h5parm, 'r+') as H:
+        sol = H.root.sol000
+        soltabs = {n: c for n, c in sol._v_children.items() if hasattr(c, 'val') and hasattr(c, 'weight')}
+        flags = {}
+        for name, st in soltabs.items():
+            axes = _axes(st)
+            val = _to_standard(st.val[:], axes)
+            wgt = _to_standard(st.weight[:], axes)
+            flags[name] = (wgt > 0) & ~np.isfinite(val)
+        amp = soltabs.get('amplitude000')
+        if amp is not None:
+            axes = _axes(amp)
+            pols = [p.decode() if isinstance(p, bytes) else str(p) for p in amp.pol[:]] if 'pol' in axes else []
+            if any(p in CROSS_POLS for p in pols) and 'phase000' in soltabs:
+                jones, jaxes, pols = _read_fulljones(H)
+                valid = np.all(np.isfinite(jones), axis=-1)
+                ip = {p: pols.index(p) for p in pols}
+                c1, c2 = ('XY', 'YX') if 'XY' in ip else ('RL', 'LR')
+                p1, p2 = ('XX', 'YY') if 'XX' in ip else ('RR', 'LL')
+                j11, j12, j21, j22 = (jones[..., ip[p]] for p in (p1, c1, c2, p2))
+                with np.errstate(all='ignore'):
+                    bad = valid & ~((np.abs(j12 / j11) <= max_leakage) & (np.abs(j21 / j22) <= max_leakage))
+                if bad.any() or flags['amplitude000'].any() or flags['phase000'].any():
+                    # _read_fulljones already made the non-finite elements NaN; writing gives every
+                    # element of such a matrix weight 0
+                    jones[bad] = np.nan
+                    _write_fulljones(H, jones, jaxes)
+                counts['fulljones'] = int(bad.sum() + np.sum(flags['amplitude000'] | flags['phase000']))
+                for name in ('amplitude000', 'phase000'):
+                    flags[name] = np.zeros_like(flags[name])  # written with the Jones matrices
+            else:
+                val = _to_standard(amp.val[:], axes)
+                wgt = _to_standard(amp.weight[:], axes)
+                with np.errstate(invalid='ignore'):
+                    valid = (wgt > 0) & np.isfinite(val) & (val > 0)
+                bad = ((wgt > 0) & ~valid) | _hard_amplitude_failures(val, valid, max_dex, min_ants)
+                for name, st in soltabs.items():
+                    if name == 'amplitude000' or (_axes(st) == axes and st.val.shape == amp.val.shape):
+                        flags[name] = flags[name] | bad
+        for name, st in soltabs.items():
+            if flags[name].any():
+                _write_flags(st, flags[name], _axes(st))
+            counts[name] = counts.get(name, 0) + int(flags[name].sum())
+    total = sum(counts.values())
+    if total:
+        terminal_print(f'Hard-failure check {h5parm}: flagged ' + ', '.join(f'{n}: {c}' for n, c in counts.items() if c)
+                       + ' solutions (non-finite, or amplitudes/leakages far outside any real value)')
+    return counts
+
+
 def qa_gains(h5parm, along='freq', window=15, nsigma=5., chan_frac=0.5, ant_frac=0.5, amp_dex=0.3,
              minscale=3e-3, write=True):
     """

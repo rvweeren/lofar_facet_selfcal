@@ -1,6 +1,7 @@
 """Preparation of MeerKAT data for the calibrator-based calibration: split per field and scan, swap the feeds
 (MeerKAT handedness, EVLA Memo 219), set RECEPTOR_ANGLE to 0, fix the UVW sign, and flag (known RFI
 ranges, band edges, zeros, shadowing, AOFlagger)."""
+import contextlib
 import os
 import shutil
 
@@ -270,8 +271,71 @@ def average_frequency(ms, maxnchan):
     return factor
 
 
+# a flag pass on calibrator residuals that flags more than this fraction of the data that were unflagged
+# before it is undone (flag_guard): RFI and bad baselines do not take most of the clean data, broken
+# residuals (a bad solution applied, a wrong model) do
+FLAG_GUARD_MAX_NEW = 0.5
+FLAG_GUARD_COLUMN = 'FLAG_GUARD_BACKUP'
+
+
+@contextlib.contextmanager
+def flag_guard(ms, max_new=FLAG_GUARD_MAX_NEW, label='flag pass'):
+    """
+    Context manager around a flag pass on an MS: if the pass flags more than max_new of the data that
+    were unflagged before it, the flags from before the pass are restored, with a warning.
+
+    A flag pass on residuals is only as good as the calibration in them: with a broken solution applied
+    (or a wrong model), the residuals are large everywhere and AOFlagger flags all the data, after which
+    every later solve fails. The pass is then undone, so that the run goes on with the flags it had and
+    the warning says what happened. The flags from before are kept in the column FLAG_GUARD_COLUMN
+    during the pass (removed afterwards, also when the pass fails).
+
+    Parameters
+    ----------
+    ms : str
+        Measurement Set.
+    max_new : float, optional
+        Largest fraction of the previously unflagged data the pass may flag. Default FLAG_GUARD_MAX_NEW.
+    label : str, optional
+        Name of the pass in the messages.
+
+    Yields
+    ------
+    dict
+        Filled after the pass: flagged fraction before and after, the new fraction (of the data unflagged
+        before) and whether the pass was undone.
+    """
+    with table(ms, ack=False, readonly=False) as t:
+        if FLAG_GUARD_COLUMN in t.colnames():  # left by an interrupted run
+            t.removecols(FLAG_GUARD_COLUMN)
+        t.addcols(makecoldesc(FLAG_GUARD_COLUMN, t.getcoldesc('FLAG')))
+        flag_row = t.getcol('FLAG_ROW') if 'FLAG_ROW' in t.colnames() else None
+    taql(f'update {ms} set {FLAG_GUARD_COLUMN} = FLAG')  # in casacore, not via a (GB-sized) numpy array
+    before = flag_fraction(ms)
+    result = dict(before=before, after=before, new=0., reverted=False)
+    try:
+        yield result
+        after = flag_fraction(ms)
+        new = (after - before) / (1. - before) if before < 1. else 0.
+        result.update(after=after, new=new)
+        if new > max_new:
+            taql(f'update {ms} set FLAG = {FLAG_GUARD_COLUMN}')
+            if flag_row is not None:
+                with table(ms, ack=False, readonly=False) as t:
+                    t.putcol('FLAG_ROW', flag_row)
+            result.update(after=flag_fraction(ms), reverted=True)
+            terminal_print(f'WARNING: {ms}: the {label} flagged {100 * new:.0f}% of the unflagged data '
+                           f'({100 * before:.1f}% -> {100 * after:.1f}% flagged), more than the limit of '
+                           f'{100 * max_new:.0f}%: the residuals are probably broken (a bad solution or model), '
+                           'not RFI. The flags from before this pass are restored.')
+    finally:
+        with table(ms, ack=False, readonly=False) as t:
+            if FLAG_GUARD_COLUMN in t.colnames():
+                t.removecols(FLAG_GUARD_COLUMN)
+
+
 def flag_residual(ms, datacolumn='CORRECTED_DATA', modelcolumn='MODEL_DATA',
-                  aoflagger_strategy='defaultMeerKAT_StokesQUV.lua'):
+                  aoflagger_strategy='defaultMeerKAT_StokesQUV.lua', guard=True):
     """
     AOFlagger on the residual datacolumn - modelcolumn (written to RESIDUAL_DATA) of a calibrator.
 
@@ -287,6 +351,14 @@ def flag_residual(ms, datacolumn='CORRECTED_DATA', modelcolumn='MODEL_DATA',
         Calibrated data and model columns. Default CORRECTED_DATA and MODEL_DATA.
     aoflagger_strategy : str, optional
         AOFlagger strategy. Default 'defaultMeerKAT_StokesQUV.lua'.
+    guard : bool, optional
+        Undo the pass if it flags most of the data (flag_guard). Default True; False for a caller
+        that guards a larger flag pass itself.
+
+    Returns
+    -------
+    dict or None
+        The flag_guard result (None without guard).
     """
     with table(ms, ack=False, readonly=False) as t:
         if 'RESIDUAL_DATA' not in t.colnames():
@@ -296,10 +368,15 @@ def flag_residual(ms, datacolumn='CORRECTED_DATA', modelcolumn='MODEL_DATA',
             desc['desc'].pop('dataManagerType', None)
             desc['desc'].pop('dataManagerGroup', None)
             t.addcols(maketabdesc(desc), dminfo={'TYPE': 'StandardStMan', 'NAME': 'RESIDUAL_DATA_dm', 'SPEC': {}})
-    taql(f'update {ms} set RESIDUAL_DATA = {datacolumn} - {modelcolumn}')
-    aoflagger_column([ms], aoflagger_strategy=aoflagger_strategy, column='RESIDUAL_DATA')
-    with table(ms, ack=False, readonly=False) as t:
-        t.removecols('RESIDUAL_DATA')  # only needed for the flagging
+    try:
+        taql(f'update {ms} set RESIDUAL_DATA = {datacolumn} - {modelcolumn}')
+        with flag_guard(ms, label='AOFlagger pass on the residuals') if guard else contextlib.nullcontext() as res:
+            aoflagger_column([ms], aoflagger_strategy=aoflagger_strategy, column='RESIDUAL_DATA')
+    finally:
+        with table(ms, ack=False, readonly=False) as t:
+            if 'RESIDUAL_DATA' in t.colnames():
+                t.removecols('RESIDUAL_DATA')  # only needed for the flagging
+    return res
 
 
 # stages that keep a flag snapshot, in pipeline order

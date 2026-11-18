@@ -31,10 +31,10 @@ from submods.applycal import applycal, applycal_dp3_steps
 from submods.calibrator_models import setjy_dp3
 from submods.flagging import aoflagger_column
 from submods.h5_helpers.h5_info import set_refant
-from submods.h5_helpers.solution_qa import merge_bandpasses, qa_crosshand, qa_gains, qa_leakage
+from submods.h5_helpers.solution_qa import flag_hard_failures, merge_bandpasses, qa_crosshand, qa_gains, qa_leakage
 from submods.meerkat_cal import plots, polcheck
 from submods.meerkat_cal.pipeline import feed_frame_model
-from submods.meerkat_cal.prepare import flag_fraction, flag_residual, snapshot_flags, time_factor
+from submods.meerkat_cal.prepare import flag_fraction, flag_guard, flag_residual, snapshot_flags, time_factor
 from submods.meerkat_cal.solve import (combine_xf, concat_h5_time, normalise_amplitudes, nthreads,
                                        solve_ddecal, solve_xf, unwrap_phase)
 from submods.ms_info import choose_refant_from_ms
@@ -250,12 +250,17 @@ def flag_calibrator(ms, datacolumn='CORRECTED_DATA', modelcolumn='MODEL_DATA', c
     """Flag a calibrator on its residual: the robust clipper, and AOFlagger (Stokes QUV) for many channels.
     crosshands=False for RR/LL-only data: the clipper uses Stokes V only, and the fake cross-hands of
     datacolumn are set to RR - LL first (the Stokes I model has RL = LR = 0, so the residual cross-hands
-    are then Stokes V)."""
-    clip_residuals(ms, datacolumn=datacolumn, modelcolumn=modelcolumn, mode='calibrator', crosshands=crosshands)
-    if _nchan(ms) >= AOFLAGGER_MINCHAN:
-        if not crosshands:
-            refresh_fake_crosshands(ms, datacolumn)
-        flag_residual(ms, datacolumn=datacolumn, modelcolumn=modelcolumn, aoflagger_strategy='default_StokesQUV.lua')
+    are then Stokes V).
+    Both run inside one flag_guard: if together they flag most of the unflagged data, the residuals are
+    broken (a bad solution or model), and the flags from before are restored."""
+    with flag_guard(ms, label='residual flagging (clipper and AOFlagger)') as res:
+        clip_residuals(ms, datacolumn=datacolumn, modelcolumn=modelcolumn, mode='calibrator', crosshands=crosshands)
+        if _nchan(ms) >= AOFLAGGER_MINCHAN:
+            if not crosshands:
+                refresh_fake_crosshands(ms, datacolumn)
+            flag_residual(ms, datacolumn=datacolumn, modelcolumn=modelcolumn, aoflagger_strategy='default_StokesQUV.lua',
+                          guard=False)
+    return res
 
 
 def pixelscale(info, mslist):
@@ -336,8 +341,11 @@ def stage_fluxcal(info, args):
                 bp5 = f'h5_solutions/fluxcal_complexgain_c{cycle}_{tag}.h5'
                 solve_ddecal(ms, bp5, 'complexgain', 'DATA_PHASEONLY', solint=0, nchan=1, timeavg=True)
                 reference(bp5, telescope=TELESCOPE)
-                # the flag cycle uses the solution before its QA: applying the QA flags would flag the
-                # data for good, and a false positive would become a gap the next cycle cannot solve
+                # the flag cycle uses the solution before its statistical QA: applying the QA flags would
+                # flag the data for good, and a false positive would become a gap the next cycle cannot
+                # solve. The hard failures (e.g. a near-zero amplitude, which would multiply the data by a
+                # huge factor and wreck the flag pass) are flagged in both
+                flag_hard_failures(bp5)
                 bp5_noqa = bp5.replace('.h5', '_noqa.h5')
                 shutil.copy(bp5, bp5_noqa)
                 if spw['nchan'] > 1:
@@ -445,6 +453,8 @@ def _phasecal_solves(ms, label):
     reference(phaseinth5, telescope=TELESCOPE)
     _selfapply(ms, [phaseinth5], 'DATA', 'DATA_PHASEINT')
     solve_ddecal(ms, amph5, 'scalaramplitude', 'DATA_PHASEINT', solint=0, nchan=0, timeavg=True)
+    # applied in place before its QA (flag cycles): a near-zero amplitude would blow up the data
+    flag_hard_failures(amph5)
     return phaseh5, amph5, phaseinth5
 
 

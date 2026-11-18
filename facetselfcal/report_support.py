@@ -41,6 +41,27 @@ def report_context(cache_directory):
         _diagnostics.reset(tokens[0])
 
 
+def _current_umask():
+    # Read the umask without changing it (os.umask() is process-wide and
+    # would race with other threads creating files).
+    try:
+        with open("/proc/self/status", encoding="ascii") as status:
+            for line in status:
+                if line.startswith("Umask:"):
+                    return int(line.split()[1], 8)
+    except (OSError, ValueError, IndexError):
+        pass
+    mask = os.umask(0o022)
+    os.umask(mask)
+    return mask
+
+
+def _published_mode():
+    # NamedTemporaryFile always creates 0600, which os.replace would carry
+    # over to the published page; use the mode a new file normally gets.
+    return 0o666 & ~_current_umask()
+
+
 def atomic_write_text(path, text):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -53,6 +74,7 @@ def atomic_write_text(path, text):
             temporary_path = Path(stream.name)
             stream.write(text)
             stream.flush()
+            os.fchmod(stream.fileno(), _published_mode())
         os.replace(temporary_path, path)
     finally:
         if temporary_path is not None:
