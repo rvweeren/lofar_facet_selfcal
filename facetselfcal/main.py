@@ -5797,7 +5797,7 @@ def main():
     shutil.copy(submodpath + '/blcal.py', '.')
     shutil.copy(submodpath + '/closurechi2.py', '.')
 
-    facetselfcal_version = '23.0.0'
+    facetselfcal_version = '23.1.0'
     print_title(facetselfcal_version)
     _write_html_overview(
         Path.cwd(), status="running", announce_browser=True
