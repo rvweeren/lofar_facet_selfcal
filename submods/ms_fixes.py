@@ -12,7 +12,7 @@ import numpy as np
 from casacore.tables import table, taql  # type: ignore
 
 from submods.runtime_utils import run, terminal_print
-from submods.split_irregular_timeaxis import regularize_ms, split_ms
+from submods.split_irregular_timeaxis import regularise_ms, split_ms, time_baseline_grid
 from submods.telescopes import telescope_of, unique_telescopes
 
 
@@ -902,6 +902,54 @@ def fix_uvw(mslist):
     return
 
 
+def regularise_mslist(mslist, dryrun=False):
+    """
+    Replace Measurement Sets that do not have the same baselines at every time stamp by a regular copy.
+
+    DP3 needs a regular time-baseline grid. Some data (for example ATCA data converted from
+    Miriad) leave out the rows of antennas that are absent at some time stamps. Such an MS is
+    copied to ``<name>.regularised`` in the working directory, with the absent rows added fully
+    flagged (see regularise_ms). The input MS is not changed. MSs with more than one spectral
+    window are left alone (check_valid_ms reports them).
+
+    Parameters
+    ----------
+    mslist : list of str
+        Input Measurement Sets.
+    dryrun : bool, optional
+        True for a restarted run (--start > 0): the regularised MSs from the first run are reused.
+
+    Returns
+    -------
+    list of str
+        The Measurement Sets in the same order, with non-regular ones replaced by their regular copy.
+    """
+    outnames = [os.path.basename(ms) + '.regularised' for ms in mslist]
+    mslist_return = []
+    for ms, outname in zip(mslist, outnames):
+        if dryrun and os.path.isdir(outname):
+            mslist_return.append(outname)
+            continue
+        with table(ms, ack=False) as t:
+            if t.nrows() == 0 or len(np.unique(t.getcol('DATA_DESC_ID'))) != 1:
+                mslist_return.append(ms)
+                continue
+            grid = time_baseline_grid(t.getcol('TIME'), t.getcol('ANTENNA1'), t.getcol('ANTENNA2'))
+        if grid['nduplicate'] == 0 and len(grid['missing'][0]) == 0:
+            mslist_return.append(ms)
+            continue
+        if outnames.count(outname) > 1:
+            raise Exception('Non-regular input MSs with the same name cannot be regularised into the '
+                            'working directory: ' + os.path.basename(ms))
+        regular_ms, nadded = regularise_ms(ms, outname, dryrun=dryrun)
+        if nadded is not None:
+            terminal_print('\033[93m' + 'Warning: ' + ms + ' does not have the same baselines at every time stamp; '
+                           + 'working on the regularised copy ' + regular_ms + ' (' + str(nadded)
+                           + ' fully flagged rows added)' + '\033[0m')
+        mslist_return.append(regular_ms)
+    return mslist_return
+
+
 def fix_equidistant_times(mslist, dryrun, args, dysco=True, metadata_compression=False):
     """
     Ensures that the measurement sets (MS) in the provided list have equidistant time axes.
@@ -937,10 +985,9 @@ def fix_equidistant_times(mslist, dryrun, args, dysco=True, metadata_compression
                 mslist_return.append(ms)
                 mslist_splitting_performed.append(False)
             else:
-                ms_path = regularize_ms(ms, overwrite=True, dryrun=dryrun)
-                # Do the splitting
-                mslist_return = mslist_return + split_ms(ms_path, overwrite=True,
-                                                         prefix=os.path.basename(ms_path), return_mslist=True,
+                # the time-baseline grid is already regular (regularise_mslist), only split
+                mslist_return = mslist_return + split_ms(ms, overwrite=True,
+                                                         prefix=os.path.basename(ms), return_mslist=True,
                                                          dryrun=dryrun, dysco=dysco, metadata_compression=metadata_compression)
                 mslist_splitting_performed.append(True)
         else:

@@ -368,6 +368,44 @@ def corrupt_modelcolumns(ms, h5parm, modeldatacolumns, modelstoragemanager=None)
     return
 
 
+def h5_direction_name(h5parm, direction):
+    """
+    Name of a direction as it is written on the dir axis of an H5parm.
+
+    DP3 applycal selects a direction by exact name. DDECal writes the direction
+    names either with square brackets ("[MODEL_DATA_DD0]") or, in newer DP3
+    versions, without them ("MODEL_DATA_DD0"). Both spellings of the requested
+    direction are looked up, so the result matches the H5parm whichever DP3
+    version wrote it.
+
+    Parameters
+    ----------
+    h5parm : str
+        Path to the H5parm.
+    direction : str or None
+        Direction name, with or without square brackets.
+
+    Returns
+    -------
+    str or None
+        The matching name on the dir axis, or the input direction if none of
+        the spellings is found (DP3 then reports the missing direction).
+    """
+    if direction is None:
+        return None
+    bare = direction[1:-1] if direction.startswith('[') and direction.endswith(']') else direction
+    with tables.open_file(h5parm) as H:
+        names = []
+        for soltab in H.root.sol000._v_groups.values():
+            if 'dir' in soltab:
+                names = [make_utf8(name) for name in soltab.dir[:]]
+                break
+    for candidate in (direction, bare, '[' + bare + ']'):
+        if candidate in names:
+            return candidate
+    return direction
+
+
 def applycal_dp3_steps(ms, inparmdblist, invert=True, direction=None, find_closestdir=False,
                        updateweights=False, missingantennabehavior='error', timeslotsperparmupdate=200,
                        start=0, interpolation=None):
@@ -408,6 +446,7 @@ def applycal_dp3_steps(ms, inparmdblist, invert=True, direction=None, find_close
         if find_closestdir:
             direction = make_utf8(find_closest_ddsol(parmdb, ms))
             terminal_print('Applying direction:', direction)
+        h5direction = h5_direction_name(parmdb, direction)
         if fulljonesparmdb(parmdb) or amplitude_leakage_paramdb(parmdb):
             cmd += 'ac' + str(count) + '.missingantennabehavior=' + missingantennabehavior + ' '
             cmd += 'ac' + str(count) + '.parmdb=' + parmdb + ' '
@@ -420,12 +459,8 @@ def applycal_dp3_steps(ms, inparmdblist, invert=True, direction=None, find_close
             cmd += 'ac' + str(count) + '.timeslotsperparmupdate=' + str(timeslotsperparmupdate) + ' '
             if not invert:
                 cmd += 'ac' + str(count) + '.invert=False '
-            if direction is not None:
-                if direction.startswith(
-                        'MODEL_DATA'):  # because then the direction name in the h5 contains bracket strings
-                    cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
-                else:
-                    cmd += 'ac' + str(count) + '.direction=' + direction + ' '
+            if h5direction is not None:
+                cmd += 'ac' + str(count) + '.direction=' + h5direction + ' '
             count = count + 1
         else:
             with tables.open_file(parmdb) as H:
@@ -441,12 +476,8 @@ def applycal_dp3_steps(ms, inparmdblist, invert=True, direction=None, find_close
                     if 'rotation000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotation000 '
                     if 'rotationmeasure000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotationmeasure000 '
                     cmd += 'ac' + str(count) + '.invert=False '
-                    if direction is not None:
-                        if direction.startswith(
-                                'MODEL_DATA'):  # because then the direction name in the h5 contains bracket strings
-                            cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
-                        else:
-                            cmd += 'ac' + str(count) + '.direction=' + direction + ' '
+                    if h5direction is not None:
+                        cmd += 'ac' + str(count) + '.direction=' + h5direction + ' '
                     count = count + 1
 
             if 'phase000' in soltabs:
@@ -457,12 +488,8 @@ def applycal_dp3_steps(ms, inparmdblist, invert=True, direction=None, find_close
                 cmd += 'ac' + str(count) + '.correction=phase000 '
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '
-                if direction is not None:
-                    if direction.startswith(
-                            'MODEL_DATA'):  # because then the direction name in the h5 contains bracket strings
-                        cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
-                    else:
-                        cmd += 'ac' + str(count) + '.direction=' + direction + ' '
+                if h5direction is not None:
+                    cmd += 'ac' + str(count) + '.direction=' + h5direction + ' '
                 count = count + 1
 
             if 'amplitude000' in soltabs:
@@ -475,12 +502,8 @@ def applycal_dp3_steps(ms, inparmdblist, invert=True, direction=None, find_close
                     cmd += 'ac' + str(count) + '.invert=False '
                 if updateweights:
                     cmd += 'ac' + str(count) + '.updateweights=True '
-                if direction is not None:
-                    if direction.startswith(
-                            'MODEL_DATA'):  # because then the direction name in the h5 contains bracket strings
-                        cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
-                    else:
-                        cmd += 'ac' + str(count) + '.direction=' + direction + ' '
+                if h5direction is not None:
+                    cmd += 'ac' + str(count) + '.direction=' + h5direction + ' '
                 count = count + 1
 
             if 'tec000' in soltabs:
@@ -491,12 +514,8 @@ def applycal_dp3_steps(ms, inparmdblist, invert=True, direction=None, find_close
                 cmd += 'ac' + str(count) + '.correction=tec000 '
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '
-                if direction is not None:
-                    if direction.startswith(
-                            'MODEL_DATA'):  # because then the direction name in the h5 contains bracket strings
-                        cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
-                    else:
-                        cmd += 'ac' + str(count) + '.direction=' + direction + ' '
+                if h5direction is not None:
+                    cmd += 'ac' + str(count) + '.direction=' + h5direction + ' '
                 count = count + 1
 
             if 'delay000' in soltabs:
@@ -507,12 +526,8 @@ def applycal_dp3_steps(ms, inparmdblist, invert=True, direction=None, find_close
                 cmd += 'ac' + str(count) + '.correction=delay000 '
                 if not invert:
                     cmd += 'ac' + str(count) + '.invert=False '
-                if direction is not None:
-                    if direction.startswith(
-                            'MODEL_DATA'):  # because then the direction name in the h5 contains bracket strings
-                        cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
-                    else:
-                        cmd += 'ac' + str(count) + '.direction=' + direction + ' '
+                if h5direction is not None:
+                    cmd += 'ac' + str(count) + '.direction=' + h5direction + ' '
                 count = count + 1
 
             if invert:  # so applycal, rotation comes last in a rotation+diagonal apply
@@ -525,12 +540,8 @@ def applycal_dp3_steps(ms, inparmdblist, invert=True, direction=None, find_close
                     if 'rotationmeasure000' in soltabs: cmd += 'ac' + str(count) + '.correction=rotationmeasure000 '
                     cmd += 'ac' + str(
                         count) + '.invert=True '  # by default True but set here as a reminder because order matters for rotation+diagonal in this DP3 step depending on invert=True/False
-                    if direction is not None:
-                        if direction.startswith(
-                                'MODEL_DATA'):  # because then the direction name in the h5 contains bracket strings
-                            cmd += 'ac' + str(count) + '.direction=[' + direction + '] '
-                        else:
-                            cmd += 'ac' + str(count) + '.direction=' + direction + ' '
+                    if h5direction is not None:
+                        cmd += 'ac' + str(count) + '.direction=' + h5direction + ' '
                     count = count + 1
 
             H.close()

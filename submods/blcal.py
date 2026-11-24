@@ -35,6 +35,11 @@ Parset keys (prefix bl.):
   nchan        channels per solution, default 0 (one solution for all channels)
   minsnr       factors with |B - 1| < minsnr * sigma are set to 1, default 3
   maxdev       factors with |B - 1| > maxdev are set to 1, default 0.1
+  uvlambdamin  factors of baselines (per solution interval and channel block) whose weighted mean uv
+               distance is below this many wavelengths are set to 1, default 0. On short baselines one
+               factor per baseline can absorb emission that is missing from the model (it rescales the
+               data to the model over the short uv track), so diffuse emission not yet in the model is
+               removed; a lower limit of a few thousand wavelengths protects the large scales.
 The data weights are not changed in mode=apply (|B|^2 differs from 1 by about a percent at most).
 """
 import os
@@ -122,11 +127,12 @@ class BlCal(Step):
         self.nchan_sol = get_parset_value(parset, prefix + "nchan", 0, kind='int')
         self.minsnr = float(get_parset_value(parset, prefix + "minsnr", "3"))
         self.maxdev = float(get_parset_value(parset, prefix + "maxdev", "0.1"))
+        self.uvlambdamin = float(get_parset_value(parset, prefix + "uvlambdamin", "0"))
         self.n_slot = 0
 
     def get_required_fields(self):
         if self.mode == 'solve':
-            return Fields.DATA | Fields.FLAGS | Fields.WEIGHTS
+            return Fields.DATA | Fields.FLAGS | Fields.WEIGHTS | Fields.UVW
         return Fields.DATA
 
     def get_provided_fields(self):
@@ -153,6 +159,8 @@ class BlCal(Step):
             self.num = np.zeros(shape, dtype=np.complex128)
             self.den = np.zeros(shape)
             self.var = np.zeros(shape)
+            self.uvsum = np.zeros(shape)  # sum of w * uv distance (wavelengths), for the mean per factor
+            self.wsum = np.zeros(shape)
             self.t_start = np.full(self.n_tblock, np.inf)
             self.t_end = np.full(self.n_tblock, -np.inf)
         else:
@@ -214,6 +222,10 @@ class BlCal(Step):
         self.num[tb] += add(w * d * np.conj(m))
         self.den[tb] += add(w * np.abs(m) ** 2)
         self.var[tb] += add(w ** 2 * np.abs(m) ** 2 * np.abs(r) ** 2)
+        uvw = np.array(dpbuffer.get_uvw(), copy=False)
+        uvdist = np.hypot(uvw[:, 0], uvw[:, 1])[:, None] * self.freqs[None, :] / 299792458.0  # (baseline, channel)
+        self.uvsum[tb] += add(w * uvdist[:, :, None])
+        self.wsum[tb] += add(w)
 
     def apply(self, dpbuffer):
         time = dpbuffer.get_time()
@@ -241,17 +253,20 @@ class BlCal(Step):
         dev = np.abs(raw - 1.)
         solved = (self.den > 0) & np.isfinite(raw) & np.isfinite(sigma)
         significant = solved & (dev >= self.minsnr * sigma)
-        valid = significant & (dev <= self.maxdev)
+        long_enough = self.uvsum >= self.uvlambdamin * self.wsum  # weighted mean uv distance >= uvlambdamin
+        valid = significant & (dev <= self.maxdev) & long_enough
         gain = np.where(valid, raw, 1. + 0j)
         write_solutions(self.solutions, gain, np.where(solved, raw, np.nan), np.where(solved, sigma, np.nan),
                         self.den, valid, self.ant_names, self.ant_positions, self.ant1, self.ant2, self.freqs,
                         self.chan_block, self.t_start, self.t_end,
                         {'solint': self.solint, 'nchan': self.nchan_sol, 'minsnr': self.minsnr,
-                         'maxdev': self.maxdev})
+                         'maxdev': self.maxdev, 'uvlambdamin': self.uvlambdamin})
         n = int(solved.sum())
-        print('BlCal: %d factors solved, %d applied, %d below %.1f sigma, %d above the maximum deviation %.3f'
+        print('BlCal: %d factors solved, %d applied, %d below %.1f sigma, %d above the maximum deviation %.3f, '
+              '%d on baselines shorter than %g wavelengths'
               % (n, int(valid.sum()), int((solved & ~significant).sum()), self.minsnr,
-                 int((significant & (dev > self.maxdev)).sum()), self.maxdev))
+                 int((significant & (dev > self.maxdev)).sum()), self.maxdev,
+                 int((solved & ~long_enough).sum()), self.uvlambdamin))
         if valid.any():
             print('BlCal: median |B-1| of the applied factors: amplitude %.3f%%, phase %.3f deg'
                   % (100 * np.median(np.abs(np.abs(gain[valid]) - 1)), np.degrees(np.median(np.abs(np.angle(gain[valid]))))))

@@ -2,9 +2,9 @@
 
 `lofar_facet_selfcal`, or `facetselfcal` for short, is a command-line toolkit for direction-independent and direction-dependent (self-)calibration of radio-interferometric data. It supports calibration refinement of extracted datasets, full-field self-calibration, and extraction of regions of interest.
 
-The workflows are used with data from LOFAR, MeerKAT, ASKAP, uGMRT, (E)VLA, and MWA observations. Processing details can vary by instrument and observing mode, so the instrument-specific notes below are a useful starting point.
+The workflows are used with data from LOFAR, MeerKAT, ASKAP, ATCA, uGMRT, (E)VLA, and MWA observations. Processing details can vary by instrument and observing mode, so the instrument-specific notes below are a useful starting point.
 
-![LOFAR, MeerKAT, ASKAP, EVLA/VLA, GMRT, and MWA](docs/assets/telescope-montage.jpg)
+![ASKAP, ATCA, EVLA/VLA, GMRT, LOFAR HBA, LOFAR LBA, MeerKAT, and MWA](docs/assets/telescope-montage.jpg)
 
 *A selection of supported radio facilities. Image credits and licenses are listed in [`docs/assets/ATTRIBUTIONS.md`](docs/assets/ATTRIBUTIONS.md).*
 
@@ -15,7 +15,7 @@ The workflows are used with data from LOFAR, MeerKAT, ASKAP, uGMRT, (E)VLA, and 
 - Full-field imaging and facet-based processing
 - Extraction of regions of interest from larger fields
 - HDF5 calibration-table utilities and diagnostic tools
-- Support for LOFAR, MeerKAT, ASKAP, uGMRT, (E)VLA and MWA telescopes
+- Support for LOFAR, MeerKAT, ASKAP, ATCA, uGMRT, (E)VLA and MWA telescopes
 
 ## Installation
 
@@ -100,6 +100,10 @@ apptainer exec -B /path/to/data,/path/to/lofar_facet_selfcal flocs.sif \
 4. Inspect the generated images, calibration tables, and diagnostics.
 5. Use the supporting utilities for HDF5 tables, facet regions, source selection, or phase-difference analysis.
 
+### Input measurement sets
+
+Each measurement set needs one spectral window and the same baselines at every time stamp. Some data, such as ATCA data converted from Miriad, leave out the rows of antennas that are absent at some time stamps. Facetselfcal then works on a regularised copy, `<name>.regularised`, in the working directory: the absent rows are added fully flagged, and the input measurement set is not changed.
+
 ### Run-directory protection
 
 Facetselfcal allows only one active run per working directory. It records the effective mode in `misc/facetselfcal_mode.txt` as `bandpass`, `DDE`, or `standard`; later runs in that directory must use the same mode. Use a new, clean run directory to change modes. Keep the marker with the run products; removing it alone does not make a mode change safe.
@@ -119,6 +123,10 @@ MeerKAT workflows cover UHF, L-band, and S-band data, including direction-indepe
 ### ASKAP
 
 See the [ASKAP processing notes](https://github.com/rvweeren/lofar_facet_selfcal/wiki/ASKAP-processing) for instrument-specific guidance.
+
+### ATCA
+
+ATCA data converted from Miriad to a measurement set (for example with CASA `importmiriad` or `importuvfits`) can be used directly. Facetselfcal fixes the two usual differences from other data on the fly: missing rows of absent antennas (see [Input measurement sets](#input-measurement-sets)) and a channel axis with decreasing frequency.
 
 ### uGMRT
 

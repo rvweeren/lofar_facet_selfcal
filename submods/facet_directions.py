@@ -653,9 +653,100 @@ def add_source_to_catalog(catalogfile, fluxcatalogfile, distance=20.):
     return
 
 
+EXTRACT_REGION_SHAPES = ('box', 'circle', 'ellipse', 'polygon')
+
+
+def read_extract_region(regionfile):
+    """
+    Open a DS9 region file that defines an extract region and check it.
+
+    The file must hold a single box, circle, ellipse or polygon in sky coordinates
+    (fk5, icrs or j2000).
+
+    Parameters
+    ----------
+    regionfile : str
+        Path to the DS9 region file.
+
+    Returns
+    -------
+    pyregion.Shape
+        The region; ``coord_list`` is in degrees.
+    """
+    r = pyregion.open(regionfile)
+
+    if len(r[:]) != 1:
+        terminal_print('Only one region can be specified, your file contains', len(r[:]))
+        raise Exception('Only one region can be specified, your file contains ' + str(len(r[:])))
+
+    if r[0].name not in EXTRACT_REGION_SHAPES:
+        terminal_print('Only box, circle, ellipse, or polygon region supported', r[0].name)
+        raise Exception('Only box, circle, ellipse, or polygon region supported, not ' + r[0].name)
+
+    if r[0].coord_format not in ('fk5', 'icrs', 'j2000'):
+        terminal_print('The region must be in fk5, icrs, or j2000 coordinates, not', r[0].coord_format)
+        raise Exception('The region must be in fk5, icrs, or j2000 coordinates, not ' + r[0].coord_format)
+
+    return r[0]
+
+
+def polygon_bounding_box(coord_list):
+    """
+    Centre and size of the bounding box of a sky polygon.
+
+    The box is taken in a tangent plane centred on the mean vertex direction, so it is
+    also correct across RA = 0/360 deg and at high declination.
+
+    Parameters
+    ----------
+    coord_list : list of float
+        Polygon vertices as [ra1, dec1, ra2, dec2, ...] in degrees.
+
+    Returns
+    -------
+    tuple of float
+        RA and Dec of the box centre, and the box sizes along RA and Dec, all in degrees.
+    """
+    ra = np.radians(np.asarray(coord_list[0::2], dtype=float))
+    dec = np.radians(np.asarray(coord_list[1::2], dtype=float))
+    if len(ra) < 3 or len(ra) != len(dec):
+        raise Exception('A polygon region needs at least three (RA, Dec) vertices')
+
+    # tangent point: mean of the vertex unit vectors
+    vec = np.array([np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra), np.sin(dec)]).mean(axis=1)
+    ra0 = np.arctan2(vec[1], vec[0])
+    dec0 = np.arctan2(vec[2], np.hypot(vec[0], vec[1]))
+
+    # gnomonic projection of the vertices (x increases with RA)
+    cosc = np.sin(dec0) * np.sin(dec) + np.cos(dec0) * np.cos(dec) * np.cos(ra - ra0)
+    if np.any(cosc <= 0.):
+        raise Exception('Polygon region spans more than a hemisphere')
+    x = np.cos(dec) * np.sin(ra - ra0) / cosc
+    y = (np.cos(dec0) * np.sin(dec) - np.sin(dec0) * np.cos(dec) * np.cos(ra - ra0)) / cosc
+
+    xc = 0.5 * (x.min() + x.max())
+    yc = 0.5 * (y.min() + y.max())
+
+    # inverse gnomonic projection of the box centre
+    rho = np.hypot(xc, yc)
+    if rho == 0.:
+        ra_c, dec_c = ra0, dec0
+    else:
+        c = np.arctan(rho)
+        dec_c = np.arcsin(np.cos(c) * np.sin(dec0) + yc * np.sin(c) * np.cos(dec0) / rho)
+        ra_c = ra0 + np.arctan2(xc * np.sin(c), rho * np.cos(dec0) * np.cos(c) - yc * np.sin(dec0) * np.sin(c))
+
+    # sizes in the tangent plane (slightly larger than the angular extent, so conservative)
+    sizex = np.degrees(x.max() - x.min())
+    sizey = np.degrees(y.max() - y.min())
+    return float(np.degrees(ra_c) % 360.), float(np.degrees(dec_c)), float(sizex), float(sizey)
+
+
 def getregionsize(regionfile):
     """
     Extract size of a DS9 region in degrees.
+
+    For a polygon this is the larger side of its bounding box (see :func:`polygon_bounding_box`).
 
     Parameters
     ----------
@@ -667,15 +758,10 @@ def getregionsize(regionfile):
     float
         Region size in degrees.
     """
-    r = pyregion.open(regionfile)
+    r = [read_extract_region(regionfile)]
 
-    if len(r[:]) > 1:
-        terminal_print('Only one region can be specified, your file contains', len(r[:]))
-        raise Exception('Only one region can be specified, your file contains')
-
-    if r[0].name not in ['box', 'circle', 'ellipse']:
-        terminal_print('Only box, circle, or ellipse region supported', r[0].name)
-        raise Exception('Only box, circle, or ellipse region supported')
+    if r[0].name == 'polygon':
+        _, _, boxsizex, boxsizey = polygon_bounding_box(r[0].coord_list)
 
     if r[0].name == 'box':
         boxsizex = r[0].coord_list[2]

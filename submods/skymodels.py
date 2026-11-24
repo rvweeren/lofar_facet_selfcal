@@ -15,6 +15,7 @@ from astropy.coordinates import SkyCoord
 from astroquery.skyview import SkyView
 from casacore.tables import table  # type: ignore
 
+from submods.facet_directions import polygon_bounding_box, read_extract_region
 from submods.runtime_utils import get_logger, run, terminal_print
 
 # facetselfcal package directory and submods directory, same values as datapath
@@ -299,6 +300,9 @@ def getregioncenter(regionfile, standardbox=True):
     """
     Extract box center of a DS9 region.
 
+    For a polygon the centre of its bounding box is used (see
+    :func:`submods.facet_directions.polygon_bounding_box`).
+
     Parameters
     ----------
     regionfile : str
@@ -311,41 +315,22 @@ def getregioncenter(regionfile, standardbox=True):
     regioncenter : str
         DP3 compatible string for phasecenter shifting.
     """
-    r = pyregion.open(regionfile)
+    r = [read_extract_region(regionfile)]
 
-    if len(r[:]) > 1:
-        terminal_print('Only one region can be specified, your file contains', len(r[:]))
-        raise Exception('Only one region can be specified, your file contains')
+    if standardbox and r[0].name != 'box':
+        terminal_print('Only a square box region supported, your region is a', r[0].name)
+        raise Exception('Only a square box region supported, not ' + r[0].name)
 
-    if r[0].name not in ['box', 'circle', 'ellipse']:
-        terminal_print('Only box, circle, or ellipse region supported', r[0].name)
-        raise Exception('Only box, circle, or ellipse region supported')
-
-    if r[0].name == 'box':
+    if r[0].name == 'polygon':
+        ra, dec, _, _ = polygon_bounding_box(r[0].coord_list)
+    else:  # box, circle, ellipse
         ra = r[0].coord_list[0]
         dec = r[0].coord_list[1]
+
+    if standardbox:
         boxsizex = r[0].coord_list[2]
         boxsizey = r[0].coord_list[3]
         angle = r[0].coord_list[4]
-
-    if r[0].name == 'circle':
-        ra = r[0].coord_list[0]
-        dec = r[0].coord_list[1]
-        boxradius = r[0].coord_list[2]
-        #boxsizex = boxradius * 2.
-        #boxsizey = boxradius * 2.
-        angle = 0.
-
-    if r[0].name == 'ellipse':
-        ra = r[0].coord_list[0]
-        dec = r[0].coord_list[1]
-        boxradius1 = r[0].coord_list[2] # semi-major axis in the x-direction if angle=0
-        boxradius2 = r[0].coord_list[3] # semi-minor axis in the y-direction if angle=0
-        #boxsizex = boxradiusx * 2.
-        #boxsizey = boxradiusy * 2.
-        angle = r[0].coord_list[4]
-
-    if standardbox:
         if boxsizex != boxsizey:
             terminal_print('Only a square box region supported, you have these sizes:', boxsizex, boxsizey)
             raise Exception('Only a square box region supported')

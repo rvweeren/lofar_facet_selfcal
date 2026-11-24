@@ -236,8 +236,12 @@ def option_parser():
                                    help="Compute the closure-phase and closure-amplitude chi^2 of the sky model against the data in the first solve of every cycle, with a DP3 Python step behind DDECal that reuses the model DDECal reads (no extra I/O, about 5 percent extra solve time; needs DP3 6.6 or later). Antenna gains cancel in closure quantities, so unlike the chi^2 of the solve this measure cannot improve by the gains absorbing errors of the model: it only goes down when the model fits the data better. The results are written to closure_chi2/ and shown on the Calibration page of the HTML overview. Compare values between cycles of the same run; for direction-dependent solves they also include differences between the direction-dependent gains. The default is False.",
                                    default=False,
                                    action=argparse.BooleanOptionalAction)
+    calibrationparser.add_argument('--solve-imaging-weights',
+                                   help="Weight the visibilities in the self-calibration solves with the imaging weights, so that the solves fit the data with the same relative weights as the image. The solve weights are the noise weights times the factor of the imaging weighting (--robust, --uvminim, --uvmaxim, --tapergaussian, --taperinnertukey, --tapertukey, for the image size, pixel scale and output channels of the imaging), which WSClean computes for all MSs together (-store-imaging-weights). With a low robust value this can lower the residual errors around a bright source in a high dynamic-range image. Because the short baselines then get less weight, an image at lower resolution can get slightly worse; with natural weighting nothing changes. The weights are stored in the column WEIGHT_SPECTRUM_IMAGING (as large as WEIGHT_SPECTRUM) and recomputed when the imaging weighting changes. The cross-hand correlations get the weights of the parallel hands. Not used for the phase-difference and _slope solves, which have their own weights. Only with WSClean imaging, not with --stack. The default is False.",
+                                   default=False,
+                                   action=argparse.BooleanOptionalAction)
     calibrationparser.add_argument('--blcal-cycles',
-                                   help="Selfcal cycles after whose (antenna-based) calibration a baseline-based calibration is done, for example [6]. Closure errors that antenna gains cannot absorb (for example from bandpass mismatches in old single-channel VLA continuum data) are solved as one complex factor per baseline and parallel hand (XX/YY or RR/LL; the cross hands get the geometric mean) against the model of that cycle, and divided into DATA and CORRECTED_DATA of the working MSs, so all later cycles use the corrected data. Only use it with a good model, it can absorb model errors. Not for --DDE, --idg or --stack. The solutions are in blcal/, the plots in solution_plots_<ms>/. The default is None (no baseline-based calibration).",
+                                   help="Selfcal cycles after whose (antenna-based) calibration a baseline-based calibration is done, for example [6]. Closure errors that antenna gains cannot absorb (for example from bandpass mismatches in old single-channel VLA continuum data) are solved as one complex factor per baseline and parallel hand (XX/YY or RR/LL; the cross hands get the geometric mean) against the model of that cycle, and divided into DATA and CORRECTED_DATA of the working MSs, so all later cycles use the corrected data. With --DDE the model is predicted with the facet solutions of that cycle applied and the factors are solved from DATA and divided into DATA (needs --DDE-predict=WSCLEAN). Only use it with a good model, it can absorb model errors (see --blcal-uvmin). Not for --idg or --stack. The solutions are in blcal/, the plots in solution_plots_<ms>/. The default is None (no baseline-based calibration).",
                                    default=None,
                                    type=arg_as_list)
     calibrationparser.add_argument('--blcal-telescopes',
@@ -259,6 +263,10 @@ def option_parser():
     calibrationparser.add_argument('--blcal-maxdev',
                                    help="Baseline-based factors with |B-1| larger than this are not applied (likely bad data or a model error rather than a closure error). The default is 0.1.",
                                    default=0.1,
+                                   type=float)
+    calibrationparser.add_argument('--blcal-uvmin',
+                                   help="Only apply baseline-based factors (--blcal-cycles) to baselines whose mean uv distance (per solution interval and channel block) is at least this value, in klambda. On short baselines one factor per baseline rescales the data to the model over the short uv track, so it removes emission that is missing from the model, such as faint diffuse emission. A limit of a few klambda keeps the large scales out of the baseline-based calibration. The default is 0 (all baselines).",
+                                   default=0.0,
                                    type=float)
     calibrationparser.add_argument('--phaseshiftbox',
                                    help="DS9 region file to shift the phasecenter to. This is by default None.",
@@ -758,9 +766,10 @@ def option_parser():
                         boxsize of this size (degr) will be used in the phase center. The option \
                         "auto" will determine the boxsize automatically based on the artifacts \
                         detected in last selfcal image the image. In case of a --DDE solve the \
-                        solution closest to the center is applied (unless of a --DDE solve the \
-                        solution closest to the center is applied (unless "keepall" is set). Box, \
-                        circle, and ellipse formats are supported.',
+                        solution closest to the center is applied (unless "keepall" is set). The \
+                        region file must hold a single box, circle, ellipse, or polygon in fk5/icrs \
+                        coordinates. The data are phase-shifted to the region center; for a \
+                        polygon this is the center of its bounding box.',
                         type=str_or_float,
                         default=None)
     parser.add_argument('--remove-outside-center-auto-minboxsize',
@@ -779,7 +788,11 @@ def option_parser():
                         default=1)
     parser.add_argument('--remove-outside-center-noddcor',
                         help='Do not applycal DD solutions from closest direction to the box center (if applicable).',
-                        action='store_true')                      
+                        action='store_true')
+    parser.add_argument('--remove-outside-center-predict-maxms',
+                        help='Expert option. Maximum number of MSs in one WSClean predict of the --remove-outside-center step. With more MSs the predict is run several times, each on a group of at most this many MSs (with --DDE each group gets its own h5parms). Use this when WSClean crashes on a long list of MSs. Every group must cover all channel frequencies of the full list, otherwise WSClean would divide the channels differently per group. The MSs are therefore dealt out over the groups in turn, after sorting them by their channel frequencies, so MSs with the same channels (e.g. time chunks of one observation) go to different groups. This works as long as every set of channels occurs in at least as many MSs as there are groups; otherwise the run stops with an error. The default is None (one predict for all MSs).',
+                        type=int,
+                        default=None)
     parser.add_argument('--single-dual-speedup',
                         help='Speed up calibration and imaging if possible using datause=single/dual in DP3 and -scalar/diagonal-visibilities in WSClean. Requires a recent (mid July 2024) DP3 and WSClean versions. Default is True. Set to --single-dual-speedup=False to disable to speed-up',
                         type=ast.literal_eval,

@@ -1093,7 +1093,10 @@ def average(mslist, freqstep, timestep=None, start=0, msinnchan=None, msinstartc
                 raise Exception('MS found and averaging did not produce it because start > 0')
                 
     # fix MeerKAT UVW coordinates (needs to be done each time we average with DP3)
-    fix_uvw(outmslist) 
+    # only for MSs DP3 wrote now (start == 0); on a restart the existing MSs were fixed when they were
+    # made, and rewriting UVW in place fails if they store UVW per antenna (UvwStMan)
+    if start == 0:
+        fix_uvw([ms for ms in outmslist if ms not in mslist])
 
     return outmslist
 
@@ -1443,7 +1446,7 @@ def get_startchan_nchan(freqs, startfreq, endfreq):
     # make sure args['msinnchan'] can be divided by 4 and 3, and if not adjust it downwards
     while msinnchan % 4 != 0 or msinnchan % 3 != 0:
         msinnchan -= 1
-    return msinstartchan, msinnchan
+    return int(msinstartchan), int(msinnchan)
 
 
 def nested_mslistforimaging(mslist, stack=False, announce=True):

@@ -292,8 +292,10 @@ def plot_UV_coverage(mslist):
     """Create a shadeMS UV-coverage plot for each input Measurement Set."""
     try:
         os.makedirs('plots', exist_ok=True)
+        # shadems always writes log-shadems.txt to its working directory: run it in logs/
+        os.makedirs('logs', exist_ok=True)
     except OSError as exc:
-        get_logger().error('Could not create plots directory for UV-coverage plots: %s', exc)
+        get_logger().error('Could not create plots/logs directory for UV-coverage plots: %s', exc)
         return
 
     for ms in mslist:
@@ -307,10 +309,10 @@ def plot_UV_coverage(mslist):
             '--yaxis', 'v',
             '--cmap', 'kbc',
             '-j', str(max(1, allocated_cpu_count() // 2)),
-            '--dir', 'plots',
+            '--dir', os.path.abspath('plots'),
             '--png', f'UVcoverage_{{ms}}{ms_extension}.png',
             '--fontsize', '20',
-            ms_path,
+            os.path.abspath(ms_path),
         ]
         get_logger().info('Generating UV-coverage plot for %s', ms_path)
         try:
@@ -318,6 +320,7 @@ def plot_UV_coverage(mslist):
                 command,
                 stderr=subprocess.PIPE,
                 text=True,
+                cwd='logs',
             )
         except FileNotFoundError as exc:
             get_logger().error(

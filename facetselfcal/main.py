@@ -138,7 +138,8 @@ from submods.ms_fixes import (fix_antenna_info_gmrt, fix_bad_weightspectrum,
                               fix_time_axis_gmrt, fix_uvw,
                               fix_variable_reference_pointing,
                               fix_zero_weight_spectrum, get_telescope_from_ms,
-                              getVarianceRRLL, remove_flagged_data_startend,
+                              getVarianceRRLL, regularise_mslist,
+                              remove_flagged_data_startend,
                               remove_syspower, set_metadata_compression,
                               updateCrosshand)
 from submods.telescopes import (EVERYBEAM_TELESCOPES, describe_telescopes,
@@ -178,7 +179,9 @@ from submods.image_utils import (  # noqa: F401
 from submods.h5_helpers.general_utils import make_utf8  # noqa: F401
 from submods.runtime_utils import (  # noqa: F401
     dp3_command_phases, dp3_workflow_step_kinds)
-from submods.split_irregular_timeaxis import regularize_ms, split_ms  # noqa: F401
+from submods.split_irregular_timeaxis import split_ms  # noqa: F401
+from submods.solve_weights import (IMAGING_SOLVE_WEIGHT_COLUMN, imaging_weights_signature,
+                                   write_imaging_solve_weights)
 from utils.parsers import parse_history  # noqa: F401
 from submods.antenna_constraints import MeerKAT_antconstraint  # noqa: F401
 from submods.h5_helpers.h5_info import check_phaseup, check_soltabs  # noqa: F401
@@ -655,6 +658,36 @@ def write_processing_history(cmd, version, imagebasename):
     # Still need to update args['wscleanskymodel'] to include prefix
 
 
+def _plot_final_image(cycle, args, stackstr, mask, facetregionfile):
+    """
+    Plot the image made for the extract or RESIDUAL_DATA step and refresh the HTML overview.
+
+    These images are made outside the regular PLOT IMAGE step of the selfcal loop. A plotting
+    failure is logged and does not stop the subsequent extract or RESIDUAL_DATA step.
+
+    Parameters
+    ----------
+    cycle : int
+        Cycle number of the image.
+    args : dict
+        Parsed facetselfcal options (see plotimage).
+    stackstr : str
+        Filename suffix for stacked images.
+    mask : str or None
+        Clean mask drawn as contours.
+    facetregionfile : str or None
+        Facet region file, drawn for DDE runs.
+    """
+    try:
+        plotimage(cycle, args, stackstr, mask=mask,
+                  regionfile='facet_regions/facets.reg' if (args['DDE'] and facetregionfile is not None) else None)
+    except Exception as e:
+        logger.warning('Could not plot image of cycle %d: %s', cycle, e)
+        terminal_print('Could not plot image of cycle ' + str(cycle) + ': ' + str(e))
+        return
+    _refresh_html_overview()  # show the new image
+
+
 def _remove_previous_cycle_products(start_cycle, stop_cycle, imagename,
                                     preserved_inputs=(), remove_best_outputs=False):
     """Remove stale generated products from cycles a run will replace."""
@@ -788,6 +821,7 @@ def logbasicinfo(args, fitsmask, mslist, version, inputsysargs):
     logger.info('Niter:                     ' + str(args['niter']))
     logger.info('Uvmin:                     ' + str(args['uvmin']))
     logger.info('Auto Tukey taper:          ' + str(args['auto_tapertukey']))
+    logger.info('Solve imaging weights:     ' + str(args['solve_imaging_weights']))
     logger.info('Auto dd-psf-grid:          ' + str(args['auto_ddpsfgrid']))
     logger.info('Multiscale:                ' + str(args['multiscale']))
     logger.info('Beam correction:           ' + str(args['beamcor']))
@@ -2480,6 +2514,69 @@ def closurechi2_step(ms, modelcolumns, selfcalcycle):
             'closurechi2.label=' + str(selfcalcycle) + ' ')
 
 
+def solve_imaging_weights_signature(mslist):
+    """The imaging settings that set the imaging weights (--solve-imaging-weights), as a string."""
+    keys = ['robust', 'uvminim', 'uvmaxim', 'tapergaussian', 'taperinnertukey', 'tapertukey',
+            'imsize', 'pixelscale', 'channelsout', 'gapchanneldivision']
+    settings = {key: args[key] for key in keys}
+    settings['ms'] = sorted(os.path.basename(ms) for ms in mslist)
+    return json.dumps(settings, sort_keys=True, default=str)
+
+
+@_track_resource_phase("imaging")
+def update_solve_imaging_weights(mslist, force=False):
+    """
+    Make the solve weights of --solve-imaging-weights: noise weights x imaging-weight factor.
+
+    WSClean computes the imaging weights for all MSs together, with the weighting, uv range,
+    tapers, image size and output channels of the imaging (the options of makeimage that set the
+    weights; keep the two in sync), and stores the factor with -store-imaging-weights (only
+    without reordering). They are recomputed only when one of these settings changed, unless
+    ``force`` (the noise weights or flags changed).
+
+    Parameters
+    ----------
+    mslist : list of str
+        Measurement Sets of the run (imaged together).
+    force : bool, optional
+        Recompute even if the stored weighting is the same.
+    """
+    signature = solve_imaging_weights_signature(mslist)
+    if not force and all(imaging_weights_signature(ms) == signature for ms in mslist):
+        return
+    name = 'solve_imaging_weights'
+    robust = args['robust']
+    cmd = 'wsclean -no-update-model-required -no-reorder -store-imaging-weights -niter 0 -pol i '
+    if args['ncpu_max_WSClean'] is not None:
+        cmd += '-j ' + str(args['ncpu_max_WSClean']) + ' '
+    cmd += '-minuv-l ' + str(args['uvminim']) + ' '
+    if args['uvmaxim'] is not None:
+        cmd += '-maxuv-l ' + str(args['uvmaxim']) + ' '
+    cmd += '-weight ' + ('briggs ' + str(robust) if type(robust) is not str else str(robust)) + ' '
+    if args['tapergaussian'] is not None:
+        cmd += '-taper-gaussian ' + str(args['tapergaussian']) + 'asec '
+    if args['taperinnertukey'] is not None:
+        cmd += '-taper-inner-tukey ' + str(args['taperinnertukey']) + ' '
+    if args['tapertukey'] is not None and args['uvmaxim'] is not None:
+        cmd += '-taper-tukey ' + str(args['tapertukey']) + ' '
+    if args['channelsout'] > 1:
+        cmd += '-join-channels -channels-out ' + str(args['channelsout']) + ' '
+        if args['gapchanneldivision']:
+            cmd += '-gap-channel-division '
+    cmd += '-size ' + str(int(args['imsize'])) + ' ' + str(int(args['imsize'])) + ' '
+    cmd += '-scale ' + str(args['pixelscale']) + 'arcsec -gridder wgridder -data-column DATA '
+    cmd += '-name ' + name + ' ' + ' '.join(map(str, mslist))
+    terminal_print('Imaging weights for the solves (--solve-imaging-weights): ', cmd)
+    logger.info('Imaging weights for the solves (--solve-imaging-weights): ' + cmd)
+    run(cmd)
+    for fitsfile in glob.glob(name + '-*.fits'):
+        Path(fitsfile).unlink(missing_ok=True)
+    for ms in mslist:
+        fraction = write_imaging_solve_weights(ms, signature)
+        terminal_print('Solve weights ' + IMAGING_SOLVE_WEIGHT_COLUMN + ' written for ' + ms
+                       + ' ({:.1f}% of the unflagged data with a non-zero imaging weight)'.format(100 * fraction))
+
+
 @_track_resource_phase("solve")
 def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                 SMconstraint=0.0, SMconstraintreffreq=0.0,
@@ -2801,13 +2898,18 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
                      'phaseonly_slope', 'scalarphase_slope']:
         weight_spectrum = 'WEIGHT_SPECTRUM_PM'
     else:
-        # check for WEIGHT_SPECTRUM_SOLVE from DR2 products
+        # --solve-imaging-weights, else check for WEIGHT_SPECTRUM_SOLVE from DR2 products
         t = table(ms, ack=False)
-        if 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
+        if args['solve_imaging_weights'] and IMAGING_SOLVE_WEIGHT_COLUMN in t.colnames():
+            weight_spectrum = IMAGING_SOLVE_WEIGHT_COLUMN
+        elif 'WEIGHT_SPECTRUM_SOLVE' in t.colnames():
             weight_spectrum = 'WEIGHT_SPECTRUM_SOLVE'
         else:
             weight_spectrum = 'WEIGHT_SPECTRUM'
         t.close()
+        if args['solve_imaging_weights'] and weight_spectrum != IMAGING_SOLVE_WEIGHT_COLUMN:
+            terminal_print('--solve-imaging-weights: no ' + IMAGING_SOLVE_WEIGHT_COLUMN + ' in ' + ms
+                           + ', solving with ' + weight_spectrum)
 
         # check for previous old parmdb and remove them
     if os.path.isfile(parmdb):
@@ -3167,7 +3269,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
             if previous_ndir <= 1 and current_ndir <=1: #this is a DI solve
                 initialsolutions_directions_equal = True
             else:
-               if len(previous_ndir) == len(current_ndir): 
+               if previous_ndir == current_ndir:
                    initialsolutions_directions_equal = True # this is a DD solve
                    # number of directions did not change from previous selfcalcycle     
 
@@ -3630,7 +3732,7 @@ def runDPPPbase(ms, solint, nchan, parmdb, soltype, uvmin=1.,
     return
 
 
-def run_blcal(mslist, selfcalcycle):
+def run_blcal(mslist, selfcalcycle, h5list=None):
     """
     Baseline-based calibration (closure-error correction) after the antenna-based calibration of a cycle.
 
@@ -3641,13 +3743,26 @@ def run_blcal(mslist, selfcalcycle):
     into DATA and CORRECTED_DATA. The factors are time-constant within a solution interval and per baseline,
     so they commute with the antenna gains: later cycles solve and image on the corrected DATA.
 
+    With --DDE the solutions of this cycle are not applied to the data, so the model is predicted with the
+    facet solutions applied (WSClean -apply-facet-solutions, the corrupted model of all facets in
+    MODEL_DATA) and the factors are solved from DATA; they are divided into DATA (and CORRECTED_DATA if
+    present). The facet solutions of this cycle stay valid, because the factors multiply the corrupted
+    model of all directions together.
+
     Parameters
     ----------
     mslist : list of str
         Measurement Sets of the run.
     selfcalcycle : int
         Current selfcal cycle (its model images are used).
+    h5list : list of str or None
+        With --DDE: the merged h5parms of this cycle, one per MS (as used in the imaging).
     """
+    dde = bool(args['DDE'])
+    if dde and not h5list:
+        terminal_print('Baseline-based calibration with --DDE needs the facet solutions of this cycle, skipped')
+        logger.warning('Baseline-based calibration with --DDE skipped: no facet solutions in cycle ' + str(selfcalcycle))
+        return
     telescopes = args['blcal_telescopes']
     blcal_mslist = [ms for ms in mslist if telescopes is None or telescope_of(ms) in telescopes]
     if len(blcal_mslist) == 0:
@@ -3656,11 +3771,20 @@ def run_blcal(mslist, selfcalcycle):
     imagebase = args['imagename'] + str(selfcalcycle).zfill(3)
     # predict the model of this cycle into MODEL_DATA, for all MSs together so the channel division is
     # the same as in the imaging (the model images were gzipped after the imaging)
-    for gz in glob.glob(imagebase + '-????-model.fits.gz') + glob.glob(imagebase + '-model.fits.gz'):
+    for gz in glob.glob(imagebase + '-????-model*.fits.gz') + glob.glob(imagebase + '-model*.fits.gz'):  # also -model-pb (facet predict)
         subprocess.run(['gunzip', '-f', gz], check=True)
     channelsout = max(1, len(glob.glob(imagebase + '-????-model.fits')))
-    makeimage(mslist, imagebase, args['pixelscale'], args['imsize'], channelsout, onlypredict=True, idg=False)
+    if dde:
+        # corrupted predict of all facets into MODEL_DATA (as for the residual data in the DDE imaging)
+        makeimage(mslist, imagebase, args['pixelscale'], args['imsize'], channelsout, onlypredict=True,
+                  squarebox='keepall', idg=False, h5list=h5list, facetregionfile='facet_regions/facets.reg',
+                  DDE_predict='WSCLEAN', disable_primarybeam_predict=args['disable_primary_beam'],
+                  fulljones_h5_facetbeam=not args['single_dual_speedup'],
+                  parallelgridding=args['parallelgridding'])
+    else:
+        makeimage(mslist, imagebase, args['pixelscale'], args['imsize'], channelsout, onlypredict=True, idg=False)
     gzip_model_images(imagebase)
+    solve_column = 'DATA' if dde else 'CORRECTED_DATA'
 
     os.makedirs('blcal', exist_ok=True)
     step = 'bl.type=PythonDPPP bl.python.module=blcal bl.python.class=BlCal '
@@ -3673,10 +3797,11 @@ def run_blcal(mslist, selfcalcycle):
             suffix = '_rerun' + str(rerun)
         solfile = 'blcal/' + base + suffix + '_' + os.path.basename(ms) + '.h5'
         solint = 0 if args['blcal_solint'] is None else int(format_solint(args['blcal_solint'], ms))
-        cmd = 'DP3 msin=' + ms + ' msin.datacolumn=CORRECTED_DATA msin.extradatacolumns=[MODEL_DATA] msout= '
+        cmd = 'DP3 msin=' + ms + ' msin.datacolumn=' + solve_column + ' msin.extradatacolumns=[MODEL_DATA] msout= '
         cmd += 'steps=[bl] ' + step + 'bl.mode=solve bl.solutions=' + solfile + ' '
         cmd += 'bl.solint=' + str(solint) + ' bl.nchan=' + str(args['blcal_nchan']) + ' '
-        cmd += 'bl.minsnr=' + str(args['blcal_minsnr']) + ' bl.maxdev=' + str(args['blcal_maxdev'])
+        cmd += 'bl.minsnr=' + str(args['blcal_minsnr']) + ' bl.maxdev=' + str(args['blcal_maxdev']) + ' '
+        cmd += 'bl.uvlambdamin=' + str(1e3 * args['blcal_uvmin'])
         terminal_print('Baseline-based calibration solve:', cmd)
         run(cmd)
         sol = read_blcal_solutions(solfile)
@@ -3694,7 +3819,9 @@ def run_blcal(mslist, selfcalcycle):
             plot_blcal_solutions(solfile, 'solution_plots_' + os.path.basename(ms) + '/' + base + suffix + '.png')
         except Exception as e:  # a missing plot should not stop the calibration
             logger.warning('Baseline-based calibration plot failed for ' + solfile + ': ' + str(e))
-        for column in ['DATA', 'CORRECTED_DATA']:
+        with table(ms, readonly=True, ack=False) as t:
+            columns = [c for c in ['DATA', 'CORRECTED_DATA'] if c in t.colnames()]
+        for column in columns:
             cmd = 'DP3 msin=' + ms + ' msin.datacolumn=' + column + ' msout=. msout.datacolumn=' + column + ' '
             cmd += 'steps=[bl] ' + step + 'bl.mode=apply bl.solutions=' + solfile
             terminal_print('Baseline-based calibration apply:', cmd)
@@ -3729,12 +3856,65 @@ def primary_beam_fwhm_deg(telescope, freq):
     return 1.0  # degr
 
 
+def _predict_ms_groups(mslist, maxms):
+    """
+    Split the MSs of a WSClean predict into groups of at most ``maxms`` MSs.
+
+    WSClean -channels-out divides the channels of the MSs given in one call, so every group must
+    cover the same channel frequencies as the full list. The MSs are therefore sorted by their
+    channel frequencies and dealt out over the groups in turn: MSs with the same channels (e.g.
+    time chunks of one observation) end up in different groups, so every group gets the full band
+    as long as each set of channels occurs in at least as many MSs as there are groups.
+
+    Parameters
+    ----------
+    mslist : list of str
+        Measurement Sets of the predict.
+    maxms : int or None
+        Maximum number of MSs per group; None means one group.
+
+    Returns
+    -------
+    list of list of int
+        Indices into ``mslist`` of the MSs in every group (in the order of ``mslist``).
+
+    Raises
+    ------
+    Exception
+        If a group does not cover the same channel frequencies as the full list.
+    """
+    if maxms is None or maxms >= len(mslist):
+        return [list(range(len(mslist)))]
+    ngroups = -(-len(mslist) // maxms)  # ceil, the group sizes then differ by at most one MS
+    freqs = []
+    for ms in mslist:
+        with table(ms + '::SPECTRAL_WINDOW', ack=False) as t:
+            freqs.append(np.ravel(t.getcol('CHAN_FREQ')))
+    # MSs with the same channels (to 1 Hz) next to each other, then deal them out over the groups
+    keys = [tuple(np.round(f).astype(np.int64)) for f in freqs]
+    order = sorted(range(len(mslist)), key=lambda i: (keys[i], i))
+    groups = [sorted(order[g::ngroups]) for g in range(ngroups)]
+    allfreqs = np.unique(np.concatenate(freqs))
+    for group in groups:
+        groupfreqs = np.unique(np.concatenate([freqs[i] for i in group]))
+        if len(groupfreqs) != len(allfreqs) or not np.allclose(groupfreqs, allfreqs, rtol=0.0, atol=1.0):
+            msg = ('--remove-outside-center-predict-maxms: the MSs ' + ' '.join(mslist[i] for i in group)
+                   + ' do not cover all channel frequencies of the full list of MSs, so WSClean would '
+                   + 'divide the channels differently in this predict. Every group of MSs must cover the '
+                   + 'full band: use a larger value (fewer groups), so that every set of channels occurs '
+                   + 'in at least as many MSs as there are groups.')
+            terminal_print(msg)
+            raise Exception(msg)
+    return groups
+
+
 def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                        channelsout, single_dual_speedup=True,
                        outcol='SUBTRACTED_DATA', dysco=True, userbox=None,
                        idg=False, h5list=[], facetregionfile=None,
                        disable_primary_beam=False, ddcor=True, parallelgridding=1,
-                       metadata_compression=True, avgfreqstep=1, avgtimestep=1):
+                       metadata_compression=True, avgfreqstep=1, avgtimestep=1,
+                       predict_maxms=None):
     """
     Removes emission outside a specified box region from measurement sets (MS) by predicting and subtracting the model
     within the defined region. Optionally applies direction-dependent calibration corrections and manages output columns.
@@ -3776,6 +3956,8 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
         Step size for frequency averaging (default: 1).
     avgtimestep : int, optional
         Step size for time averaging (default: 1).
+    predict_maxms : int or None, optional
+        Maximum number of MSs in one WSClean predict; None predicts all MSs at once (default: None).
     Returns
     -------
     None
@@ -3854,14 +4036,16 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
             makeimage(mslist, imagebasename, pixsize, imsize,
                       channelsout, onlypredict=True, squarebox='templatebox.reg',
                       idg=idg, disable_primarybeam_predict=disable_primary_beam,
-                      fulljones_h5_facetbeam=not single_dual_speedup, parallelgridding=parallelgridding)
+                      fulljones_h5_facetbeam=not single_dual_speedup, parallelgridding=parallelgridding,
+                      predict_maxms=predict_maxms)
             phaseshiftbox = 'templatebox.reg'
         else:
             if userbox != 'keepall':
                 makeimage(mslist, imagebasename, pixsize, imsize,
                           channelsout, onlypredict=True, squarebox=userbox,
                           idg=idg, disable_primarybeam_predict=disable_primary_beam,
-                          fulljones_h5_facetbeam=not single_dual_speedup, parallelgridding=parallelgridding)
+                          fulljones_h5_facetbeam=not single_dual_speedup, parallelgridding=parallelgridding,
+                          predict_maxms=predict_maxms)
                 phaseshiftbox = userbox
             else:
                 phaseshiftbox = None  # so option keepall was set by the user
@@ -3871,7 +4055,8 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                       channelsout, onlypredict=True, squarebox='templatebox.reg',
                       idg=idg, h5list=h5list, facetregionfile=facetregionfile,
                       disable_primarybeam_predict=disable_primary_beam,
-                      fulljones_h5_facetbeam=not single_dual_speedup, parallelgridding=parallelgridding)
+                      fulljones_h5_facetbeam=not single_dual_speedup, parallelgridding=parallelgridding,
+                      predict_maxms=predict_maxms)
             phaseshiftbox = 'templatebox.reg'
         else:
             if userbox != 'keepall':
@@ -3879,7 +4064,8 @@ def remove_outside_box(mslist, imagebasename, pixsize, imsize,
                           channelsout, onlypredict=True, squarebox=userbox,
                           idg=idg, h5list=h5list, facetregionfile=facetregionfile,
                           disable_primarybeam_predict=disable_primary_beam,
-                          fulljones_h5_facetbeam=not single_dual_speedup, parallelgridding=parallelgridding)
+                          fulljones_h5_facetbeam=not single_dual_speedup, parallelgridding=parallelgridding,
+                          predict_maxms=predict_maxms)
                 phaseshiftbox = userbox
             else:
                 phaseshiftbox = None  # so option keepall was set by the user
@@ -4023,7 +4209,8 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
               stack=False, disable_primarybeam_predict=False, disable_primarybeam_image=False,
               facet_beam_update_time=120,
               singlefacetpredictspeedup=True, forceimagingwithfacets=True,
-              fulljones_h5_facetbeam=False, sharedfacetreads=False):
+              fulljones_h5_facetbeam=False, sharedfacetreads=False,
+              predict_maxms=None):
     """
     Image Measurement Sets using WSClean or DDFacet.
 
@@ -4107,6 +4294,10 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
         Apply FullJones solutions in facet beam.
     sharedfacetreads : bool, optional
         Share facet visibility reads.
+    predict_maxms : int or None, optional
+        Only for the predict-only runs without the facet loop (--remove-outside-center): maximum
+        number of MSs in one WSClean predict; with more MSs the predict is run per group of MSs
+        (each with its own h5parms). None predicts all MSs at once.
 
     Returns
     -------
@@ -4225,12 +4416,16 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 cmd += '-model-storage-manager ' + modelstoragemanagerwsclean + ' '
 
             if squarebox is None:
-                cmd += '-name ' + imageout + ' ' + msliststring
+                cmd += '-name ' + imageout + ' '
             else:
-                cmd += '-name ' + 'fits_images/box_' + os.path.basename(imageout) + ' ' + msliststring
-            terminal_print('PREDICT STEP: ', cmd)
-            logger.info('PREDICT STEP: ' + cmd)
-            _run_predict_command(cmd)
+                cmd += '-name ' + 'fits_images/box_' + os.path.basename(imageout) + ' '
+            groups = _predict_ms_groups(mslist, predict_maxms)
+            for group_id, group in enumerate(groups):
+                cmdgroup = cmd + ' '.join(str(mslist[i]) for i in group)
+                label = 'PREDICT STEP' if len(groups) == 1 else f'PREDICT STEP (group {group_id + 1}/{len(groups)})'
+                terminal_print(label + ': ', cmdgroup)
+                logger.info(label + ': ' + cmdgroup)
+                _run_predict_command(cmdgroup)
 
             # remove box_ model files to save space
             if squarebox is not None:
@@ -4282,7 +4477,6 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
                 cmd += '-parallel-gridding ' + str(parallelgridding) + ' '
 
         cmd += '-facet-regions ' + facetregionfile + ' '
-        cmd += '-apply-facet-solutions ' + ','.join(map(str, h5list)) + ' amplitude000,phase000 '
         if sharedfacetreads: cmd += '-shared-facet-reads -shared-facet-writes '
 
         # full-Jones solutions (e.g. a phase difference solved on linear data) need all correlations
@@ -4304,14 +4498,20 @@ def makeimage(mslist, imageout, pixsize, imsize, channelsout, niter=100000, robu
             cmd += '-model-storage-manager ' + modelstoragemanagerwsclean + ' '
 
         if squarebox != 'keepall':
-            cmd += '-name fits_images/box_' + os.path.basename(imageout) + ' ' + msliststring
+            cmd += '-name fits_images/box_' + os.path.basename(imageout) + ' '
         else:
-            cmd += '-name ' + imageout + ' ' + msliststring    
-        
+            cmd += '-name ' + imageout + ' '
+
         if DDE_predict == 'WSCLEAN':
-            terminal_print('DDE PREDICT STEP: ', cmd)
-            logger.info('DDE PREDICT STEP: ' + cmd)
-            _run_predict_command(cmd)
+            # one h5parm per MS, so each group of MSs gets its own h5parms
+            groups = _predict_ms_groups(mslist, predict_maxms)
+            for group_id, group in enumerate(groups):
+                cmdgroup = cmd + '-apply-facet-solutions ' + ','.join(str(h5list[i]) for i in group) \
+                    + ' amplitude000,phase000 ' + ' '.join(str(mslist[i]) for i in group)
+                label = 'DDE PREDICT STEP' if len(groups) == 1 else f'DDE PREDICT STEP (group {group_id + 1}/{len(groups)})'
+                terminal_print(label + ': ', cmdgroup)
+                logger.info(label + ': ' + cmdgroup)
+                _run_predict_command(cmdgroup)
         # remove box_ model files to save space
         if squarebox != 'keepall':
             for model in model_images('fits_images/box_' + os.path.basename(imageout)):
@@ -5647,6 +5847,10 @@ def main():
         mslist_tmp.append(ms.rstrip('/'))
     mslist = mslist_tmp[:]  # .copy()
 
+    # DP3 needs the same baselines at every time stamp: work on a regularised copy of MSs
+    # where rows of absent baselines are missing (order kept, per-MS options stay aligned)
+    mslist = regularise_mslist(mslist, dryrun=args['start'] != 0)
+
     # remove ms which are too short (to catch Elais-N1 case of 600s of data)
     if not args['testing']:
         check_valid_ms(mslist)
@@ -6225,6 +6429,8 @@ def main():
                       fulljones_h5_facetbeam=not args['single_dual_speedup'])
             
             if remove_outside_center_only or createresidualdatacolumn_only:
+                # this branch returns before the regular PLOT IMAGE step below, plot the image here
+                _plot_final_image(i, args, stackstr, fitsmask_list[msim_id], facetregionfile)
 
                 if createresidualdatacolumn_only:
                     create_residual_data_column(mslist, args['imagename'] + str(i).zfill(3), 
@@ -6250,7 +6456,8 @@ def main():
                                        metadata_compression=args['metadata_compression'], 
                                        avgtimestep=args['remove_outside_center_avgtimestep'],
                                        avgfreqstep=args['remove_outside_center_avgfreqstep'],
-                                       ddcor=not args['remove_outside_center_noddcor'])
+                                       ddcor=not args['remove_outside_center_noddcor'],
+                                       predict_maxms=args['remove_outside_center_predict_maxms'])
                   
                 if not args['keepmodelcolumns']: remove_model_columns(mslist)
                 return
@@ -6386,6 +6593,13 @@ def main():
                                       phasefactorsolint=args['phasefactorsolint'],
                                       delaycal=args['delaycal'])
 
+        # SOLVE WEIGHTS FROM THE IMAGING WEIGHTS IF REQUESTED (recomputed when the noise weights or flags changed)
+        if args['solve_imaging_weights']:
+            update_solve_imaging_weights(
+                mslist, force=args['compute_weightspectrum']
+                or (i in args['aoflagger_residualdata_selfcalcycle_list'] and args['aoflagger_residualdata'])
+                or (i in args['aoflagger_correcteddata_selfcalcycle_list'] and args['aoflagger_correcteddata']))
+
         # CALIBRATE AND APPLYCAL
         wsclean_h5list = calibrateandapplycal(mslist, i, solint_list, nchan_list, 
                                               soltypecycles_list,
@@ -6424,7 +6638,7 @@ def main():
 
         # BASELINE-BASED CALIBRATION IF REQUESTED
         if args['blcal_cycles'] is not None and i in args['blcal_cycles']:
-            run_blcal(mslist, i)
+            run_blcal(mslist, i, h5list=wsclean_h5list)
 
         # UPDATE UVMIN IF ALLOWED/REQUESTED
         update_uvmin(fitsmask, longbaseline, LBA, args, telescope=single_telescope(mslist))
@@ -6524,6 +6738,7 @@ def main():
                   disable_primarybeam_image=args['disable_primary_beam'],
                   disable_primarybeam_predict=args['disable_primary_beam'],
                   fulljones_h5_facetbeam=not args['single_dual_speedup'])
+        _plot_final_image(i + 1, args, '', fitsmask, facetregionfile)
 
         # create RESIDUAL_DATA column if requested
         if args['createresidualdatacolumn']:
@@ -6553,7 +6768,8 @@ def main():
                                metadata_compression=args['metadata_compression'],
                                avgtimestep=args['remove_outside_center_avgtimestep'],
                                avgfreqstep=args['remove_outside_center_avgfreqstep'],
-                               ddcor=not args['remove_outside_center_noddcor'])
+                               ddcor=not args['remove_outside_center_noddcor'],
+                               predict_maxms=args['remove_outside_center_predict_maxms'])
                    
 
         # compress model images with gzip to save space
