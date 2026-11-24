@@ -2630,10 +2630,14 @@ def _relative_url(path, base_dir):
     return quote(Path(relative).as_posix(), safe="/._-()")
 
 
-# Header photos: crops of docs/assets/telescope-montage.jpg (credits in docs/assets/ATTRIBUTIONS.md).
+# Header photos: crops of the source images of docs/assets/telescope-montage.jpg (credits in docs/assets/ATTRIBUTIONS.md).
 _TELESCOPE_PHOTOS = {
-    "lofar": ("LOFAR", "lofar.jpg", "LOFAR / ASTRON", "CC BY 3.0",
-              "https://creativecommons.org/licenses/by/3.0/"),
+    "lofar_hba": ("LOFAR HBA", "lofar_hba.jpg", "Toki3001", "CC BY-SA 4.0",
+                  "https://creativecommons.org/licenses/by-sa/4.0/"),
+    "lofar_lba": ("LOFAR LBA", "lofar_lba.jpg", "Toki3001", "CC BY-SA 4.0",
+                  "https://creativecommons.org/licenses/by-sa/4.0/"),
+    "atca": ("ATCA", "atca.jpg", "David Smyth, CSIRO", "CC BY 3.0",
+             "https://creativecommons.org/licenses/by/3.0/"),
     "meerkat": ("MeerKAT", "meerkat.jpg", "SKAO / SARAO", "CC BY 3.0",
                 "https://creativecommons.org/licenses/by/3.0/"),
     "askap": ("ASKAP", "askap.jpg", "Dave DeBoer, CSIRO", "CC BY 3.0",
@@ -2648,25 +2652,51 @@ _TELESCOPE_PHOTOS = {
 _TELESCOPE_ALIASES = {
     "lofar": "lofar", "meerkat": "meerkat", "meerkat+": "meerkat", "askap": "askap",
     "vla": "vla", "evla": "vla", "jvla": "vla", "gmrt": "gmrt", "ugmrt": "gmrt", "mwa": "mwa",
+    "atca": "atca",
 }
+# LOFAR data with a start frequency below this are LBA, otherwise HBA
+_LOFAR_LBA_MAX_MHZ = 100.0
 _TELESCOPE_PHOTO_DIR = Path(__file__).resolve().parent / "data" / "telescopes"
 _MAX_HEADER_TELESCOPES = len(_TELESCOPE_PHOTOS)
 _header_telescopes = ContextVar("report_header_telescopes", default=())
 
 
-def _telescope_photo_key(name):
-    return _TELESCOPE_ALIASES.get(str(name or "").strip().casefold())
+def _telescope_photo_key(name, start_freq_mhz=None):
+    """Photo key of a telescope name; LOFAR is split in LBA and HBA by the start frequency (HBA if unknown)."""
+    key = _TELESCOPE_ALIASES.get(str(name or "").strip().casefold())
+    if key == "lofar":
+        lba = start_freq_mhz is not None and start_freq_mhz < _LOFAR_LBA_MAX_MHZ
+        return "lofar_lba" if lba else "lofar_hba"
+    return key
+
+
+def _start_freq_mhz(meta):
+    try:
+        value = float(meta.get("Start frequency (MHz)"))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _run_telescope_keys(config, run_root):
     """Photo keys of the telescopes in this run (config first, then the MS metadata), deduplicated."""
+    ms_keys = [_telescope_photo_key(meta.get("Telescope"), _start_freq_mhz(meta))
+               for meta in _measurement_set_metadata(run_root).values()]
+    lofar_ms_keys = [key for key in ms_keys if key in ("lofar_lba", "lofar_hba")]
     names = list(_as_list(config.get("telescope")))
     if _meerkatcal_report(config):
         names.append(_report_telescope(_meerkatcal_report(config)))
-    names.extend(meta.get("Telescope") for meta in _measurement_set_metadata(run_root).values())
-    keys = []
+    candidates = []
     for name in names:
         key = _telescope_photo_key(name)
+        if key == "lofar_hba" and lofar_ms_keys:
+            # the config gives no band: use the LOFAR band(s) of the logged MSs
+            candidates.extend(lofar_ms_keys)
+        else:
+            candidates.append(key)
+    candidates.extend(ms_keys)
+    keys = []
+    for key in candidates:
         if key and key not in keys and (_TELESCOPE_PHOTO_DIR / _TELESCOPE_PHOTOS[key][1]).is_file():
             keys.append(key)
     return tuple(keys[:_MAX_HEADER_TELESCOPES])
@@ -10203,6 +10233,7 @@ def _extraction_page(
         ("--remove-outside-center-avgtimestep", "remove_outside_center_avgtimestep"),
         ("--remove-outside-center-noddcor", "remove_outside_center_noddcor"),
         ("--remove-outside-center-avgfreqstep", "remove_outside_center_avgfreqstep"),
+        ("--remove-outside-center-predict-maxms", "remove_outside_center_predict_maxms"),
     )
     options = {
         label: config.get(key, "Unavailable") for label, key in option_keys

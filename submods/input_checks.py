@@ -14,11 +14,12 @@ from astropy.io import ascii
 from casacore.tables import table  # type: ignore
 
 from submods.antenna_constraints import available_antennaconstraints, max_in_str
-from submods.facet_directions import parse_facetdirections
+from submods.facet_directions import parse_facetdirections, read_extract_region
 from submods.ms_info import check_phaseup_station, checklongbaseline
 from submods.runtime_utils import get_logger, terminal_print, which
 from submods.smearing import compute_distance_to_pointingcenter
 from submods.solints import format_solint, remove_bad_endrounding, tweak_solints
+from submods.split_irregular_timeaxis import time_baseline_grid
 from submods.telescopes import telescope_of
 
 # facetselfcal package directory (holds flagging_strategies/ and data/), same as datapath in main.py
@@ -27,7 +28,8 @@ datapath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 
 def is_ms_regularized(ms_path: str) -> bool:
     """
-    Checks if a Measurement Set has a perfectly regularized time-baseline grid structure.
+    Checks if a Measurement Set has a perfectly regularized time-baseline grid structure:
+    every time stamp has one row for each baseline of the MS (per spectral window).
 
     Parameters
     ----------
@@ -40,21 +42,18 @@ def is_ms_regularized(ms_path: str) -> bool:
         True if the MS is perfectly regularized, False otherwise.
     """
     try:
-        # Open the main table; read-only mode is safer and faster
         with table(ms_path, readonly=True, ack=False) as t:
             # If the table is entirely empty, it cannot be considered regularized
             if t.nrows() == 0:
                 return False
-                
-            # Extract only the TIME column to minimize memory usage
-            times = t.getcol("TIME")
-            
-        # Count how many baseline rows exist for each unique timestamp
-        _, counts = np.unique(times, return_counts=True)
-        
-        # If the grid is perfectly regular, every timestamp must have the exact same count.
-        # This means the unique list of counts will have a length of exactly 1.
-        return len(np.unique(counts)) == 1
+            times = t.getcol('TIME')
+            ant1 = t.getcol('ANTENNA1')
+            ant2 = t.getcol('ANTENNA2')
+            ddid = t.getcol('DATA_DESC_ID')
+        # a time slot is a (TIME, DATA_DESC_ID) pair, so that multi-SPW MSs are judged per SPW
+        _, slot = np.unique(np.stack([times, ddid.astype(float)]), axis=1, return_inverse=True)
+        grid = time_baseline_grid(slot.ravel(), ant1, ant2)
+        return grid['nduplicate'] == 0 and len(grid['missing'][0]) == 0
 
     except Exception as e:
         terminal_print(f"Error reading Measurement Set at {ms_path}: {e}")
@@ -675,9 +674,11 @@ def check_blcal_options(args, telescopes):
         raise Exception(msg)
     if not all(isinstance(c, int) and not isinstance(c, bool) and c >= 0 for c in args['blcal_cycles']):
         fail('--blcal-cycles must be a list of selfcal cycle numbers (integers >= 0)')
-    for option, used in [('--DDE', args['DDE']), ('--idg', args['idg']), ('--stack', args['stack'])]:
+    for option, used in [('--idg', args['idg']), ('--stack', args['stack'])]:
         if used:
-            fail('--blcal-cycles cannot be used with ' + option + ' (the baseline-based calibration needs a single DI model column)')
+            fail('--blcal-cycles cannot be used with ' + option + ' (the baseline-based calibration needs a single model column)')
+    if args['DDE'] and args['DDE_predict'] != 'WSCLEAN':
+        fail('--blcal-cycles with --DDE needs --DDE-predict=WSCLEAN (the model is predicted with the facet solutions applied)')
     if args['blcal_telescopes'] is not None:
         if not any(tel in telescopes for tel in args['blcal_telescopes']):
             fail('--blcal-telescopes ' + str(args['blcal_telescopes']) + ' matches none of the telescopes of the MSs: '
@@ -686,6 +687,8 @@ def check_blcal_options(args, telescopes):
         fail('--blcal-nchan must be >= 0')
     if args['blcal_minsnr'] < 0 or args['blcal_maxdev'] <= 0:
         fail('--blcal-minsnr must be >= 0 and --blcal-maxdev > 0')
+    if args['blcal_uvmin'] < 0:
+        fail('--blcal-uvmin must be >= 0')
     if args['blcal_solint'] is not None and not re.fullmatch(r'\d+|\d+(\.\d+)?(s|sec|m|min|h|hr)', str(args['blcal_solint'])):
         fail("--blcal-solint must be a number of time slots or a time like '30min', '120s' or '2h'")
 
@@ -718,7 +721,13 @@ def inputchecker(args, mslist):
             if args['remove_outside_center_box'] != 'keepall' and args['remove_outside_center_box'] != 'auto':
                 if not os.path.exists(args['remove_outside_center_box']):
                     terminal_print(f"File {args['remove_outside_center_box']} does not exist.")
-                    raise Exception(f"File {args['remove_outside_center_box']} does not exist.")     
+                    raise Exception(f"File {args['remove_outside_center_box']} does not exist.")
+                # one box, circle, ellipse or polygon in sky coordinates; fail here rather than after imaging
+                read_extract_region(args['remove_outside_center_box'])
+
+    if args['remove_outside_center_predict_maxms'] is not None and args['remove_outside_center_predict_maxms'] < 1:
+        terminal_print('--remove-outside-center-predict-maxms must be at least 1')
+        raise Exception('--remove-outside-center-predict-maxms must be at least 1')
 
     # if args['smoothnessrefdistance_list'] contains a number higher than 0.0
     if any(x > 0.0 for x in args['smoothnessrefdistance_list']):
@@ -1504,6 +1513,10 @@ def inputchecker(args, mslist):
         terminal_print('Provide a skymodel component file to predict the sky with the beam')
         raise Exception('Combination of wscleanskymodel and predictskywithbeam not supported')
 
+    if args['solve_imaging_weights'] and (args['imager'] != 'WSCLEAN' or args['stack']):
+        terminal_print('--solve-imaging-weights needs WSClean imaging and cannot be used with --stack')
+        raise Exception('--solve-imaging-weights needs WSClean imaging and cannot be used with --stack')
+
     if (args['wscleanskymodel'] is not None) and (args['imager'] == 'DDFACET'):
         terminal_print('Combination of wscleanskymodel and DDFACET as an imager is not supported')
         raise Exception('Combination of wscleanskymodel and DDFACET as an imager is not supported')
@@ -1637,8 +1650,11 @@ def check_valid_ms(mslist):
     # check if MS is regularized
     for ms in mslist:
         if not is_ms_regularized(ms):
+            # non-regular input MSs are regularised before this check (regularise_mslist),
+            # so this means that regularisation failed or was skipped
             terminal_print('Measurement Set:', ms, ' is not perfectly regularized')
-            raise Exception('Each MS must have a perfectly regularized time-baseline grid structure')
+            raise Exception('Each MS must have a perfectly regularized time-baseline grid structure '
+                            '(the same baselines at every time stamp)')
 
     # check that each MS contains more than 20 unique time steps
     for ms in mslist:
